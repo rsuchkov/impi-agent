@@ -1,0 +1,21 @@
+"""Bot-side persistent state (SQLite): session inventory, later the agent
+registry and processed-post dedup. The DB is an INVENTORY, not the source of
+truth — conversation memory lives in the runtime's own session files."""
+
+from crucible.store.base import (
+    InteractionRecord,
+    InteractionStore,
+    SessionRecord,
+    SessionStore,
+    derive_runtime_session_id,
+)
+from crucible.store.sessions import SqliteSessionStore
+
+__all__ = [
+    "SessionRecord",
+    "SessionStore",
+    "InteractionRecord",
+    "InteractionStore",
+    "SqliteSessionStore",
+    "derive_runtime_session_id",
+]

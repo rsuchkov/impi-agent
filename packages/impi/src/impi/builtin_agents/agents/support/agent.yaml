@@ -1,0 +1,28 @@
+# Engine-owned agent — ships WITH impi (not the user's agents repo). Privileged:
+# builds/maintains the user's agents and troubleshoots the engine. Present only
+# if its Mattermost token is set (AGENTS_MM_TOKEN__SUPPORT).
+name: support
+display_name: Impi Support
+role: agent-builder
+description: Engine's own agent — builds and maintains other agents, helps with the engine.
+
+runtime:
+  # provider/model intentionally unset — they come from the engine's
+  # SUPPORT_PROVIDER/SUPPORT_MODEL (or DEFAULT_PROVIDER/DEFAULT_MODEL, or pi's
+  # own default), so a public checkout runs on whatever backend is configured.
+  timeout: 240
+  # Builder: pi's built-in file tools, used on the agents dir by absolute path.
+  # (This is the ONE allowlist — built-ins are enabled only by naming them here.)
+  tools:
+    - read
+    - write
+    - edit
+    - bash
+    - grep
+    - find
+    - ls
+  # Bundled skills, referenced by name (resolved to .pi/skills/<name>). Toggle per
+  # deployment with AGENTS_SKILLS__SUPPORT (CSV); unset = these defaults.
+  skills:
+    - agent-builder
+    - skill-authoring

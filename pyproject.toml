@@ -1,0 +1,127 @@
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "import-linter>=2.0",
+    "pyright>=1.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.13"
+include = ["packages/crucible/src", "packages/impi/src", "tests"]
+extraPaths = ["packages/crucible/src", "packages/impi/src"]
+venvPath = "."
+venv = ".venv"
+
+# Layer boundaries enforced mechanically (make lint). One change = one module;
+# a contract breach fails the lint instead of surfacing at review. Two root
+# packages: the reusable library `crucible` and the app `impi` built on it.
+[tool.importlinter]
+root_packages = ["crucible", "impi"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "The library never imports the app"
+type = "forbidden"
+source_modules = ["crucible"]
+forbidden_modules = ["impi"]
+
+[[tool.importlinter.contracts]]
+name = "Core is unaware of the chat platform libraries (adapters + main only)"
+type = "forbidden"
+source_modules = [
+    "crucible.ports.agent",
+    "crucible.ports.chat",
+    "crucible.flows",
+    "crucible.runtimes.pi",
+    "crucible.profiles",
+    "crucible.store",
+    "crucible.config",
+    "crucible.sessions_cli",
+]
+forbidden_modules = ["mattermostautodriver", "slack_bolt"]
+
+[[tool.importlinter.contracts]]
+name = "Gateway is unaware of pi/flows/store/profiles (chat ports only)"
+type = "forbidden"
+source_modules = ["crucible.gateways"]
+forbidden_modules = [
+    "crucible.runtimes.pi",
+    "crucible.flows",
+    "crucible.store",
+    "crucible.profiles",
+]
+
+[[tool.importlinter.contracts]]
+name = "The pi driver depends only on the agent ports"
+type = "forbidden"
+source_modules = ["crucible.runtimes.pi"]
+forbidden_modules = [
+    "crucible.ports.chat",
+    "crucible.flows",
+    "crucible.gateways",
+    "crucible.store",
+    "crucible.profiles",
+]
+
+[[tool.importlinter.contracts]]
+name = "chat is a pure vocabulary, depends on nothing"
+type = "forbidden"
+source_modules = ["crucible.ports.chat"]
+forbidden_modules = [
+    "crucible.ports.agent",
+    "crucible.runtimes.pi",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.store",
+    "crucible.profiles",
+]
+
+[[tool.importlinter.contracts]]
+name = "flows work only through ports (never concretes)"
+type = "forbidden"
+source_modules = ["crucible.flows"]
+forbidden_modules = ["crucible.gateways", "crucible.runtimes.pi", "crucible.profiles"]
+
+[[tool.importlinter.contracts]]
+name = "The tool layer depends only on ports, not on platform/engine concretes"
+type = "forbidden"
+source_modules = ["crucible.tools", "crucible.builtin_tools"]
+forbidden_modules = [
+    "crucible.gateways",
+    "crucible.runtimes.pi",
+    "crucible.flows",
+    "crucible.store",
+    "crucible.profiles",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
+name = "interactions (widgets/forms + receiver): chat ports + store, not pi/flows/tools/platform"
+type = "forbidden"
+source_modules = ["crucible.interactions"]
+forbidden_modules = [
+    "crucible.gateways",
+    "crucible.runtimes.pi",
+    "crucible.flows",
+    "crucible.tools",
+    "crucible.profiles",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
+name = "Profile loading is runtime-agnostic (produces neutral AgentSpec, not a pi profile)"
+type = "forbidden"
+source_modules = ["crucible.profiles"]
+forbidden_modules = ["crucible.runtimes.pi"]

@@ -1,0 +1,96 @@
+# AGENTS.md
+
+Instructions for AI coding agents (and humans) working in this repository.
+
+**impi** is a personal multi-agent system for chat. Each agent is a bot account on
+a chat platform (Mattermost or Slack); the engine hosts many in one process. The
+engine never calls an LLM directly — every agent turn is delegated to the external
+[`pi`](https://github.com/earendil-works/pi) coding agent, spawned as a subprocess
+(`pi --mode rpc`) and driven over line-delimited JSON.
+
+- Project overview and quickstart: [README.md](README.md).
+- Architecture, configuration, and guides: [docs/](docs/).
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `make install` | `uv sync` — install the workspace |
+| `make run` | run the engine (`python -m impi.main`) |
+| `make run-bg` | run in the background, logging to `data/logs/engine.log` |
+| `make stop` | stop the engine and sweep orphaned `pi` children |
+| `make reload` | hot-reload agent profiles (re-read every `agent.yaml` + `.pi/`) |
+| `make test` | `uv run pytest` |
+| `make lint` | ruff + import-linter (layer boundaries) + pyright |
+
+Run `make lint` and `make test` before considering a change done; both must be green.
+
+## Project structure
+
+A [uv](https://docs.astral.sh/uv/) workspace of two packages:
+
+- **`packages/crucible`** — the reusable agent-runtime library (gateways, the `pi`
+  driver, tools, interactivity, storage, and the neutral ports). Application-agnostic.
+- **`packages/impi`** — the application: multi-agent wiring, the gateway factory,
+  inter-agent tools, and the bundled `support` agent.
+
+See [docs/architecture.md](docs/architecture.md) and
+[packages/crucible/README.md](packages/crucible/README.md) for detail — don't
+duplicate architecture here.
+
+## Development principles
+
+- **Modularity first.** One change = one module. Dependencies point inward through
+  ports (Protocols); a backend's specifics live in a single adapter; composition
+  happens in `impi/app.py` (`main.py` is a thin entrypoint); wiring is by
+  constructor injection. Layer boundaries are enforced by import-linter (`make
+  lint`), so a boundary breach fails the lint rather than surfacing at review.
+
+- **Runtime-neutral core.** The neutral layers — `ports/{agent,chat}`, `flows`,
+  `tools`, `interactions`, `store`, `profiles` — name no concrete runtime, and not
+  only in imports: comments, docstrings, names, and strings there use neutral terms
+  ("the runtime", "the runtime's tool extension / session / UI request"), never
+  "pi's …". `pi` specifics live only in `runtimes/pi/` and the composition root; the
+  one exception is the backend knobs in `config.py` (`pi_*`), an explicit settings
+  boundary.
+
+- **English only in code** — strings, logs, comments, docstrings. Exceptions:
+  intentional non-ASCII test data (mark it `# Non-ASCII on purpose`); an agent's own
+  personality in its `.pi/SYSTEM.md` may be any language.
+
+- **Boundaries are enforced.** `make lint` runs ruff, import-linter (the layer
+  contracts), and pyright (basic). Keep it green.
+
+## Testing
+
+Tests are offline (no network) and live under `tests/`. Add tests with changes,
+keep the suite green (`uv run pytest`), and keep `make lint` green before finishing.
+
+## Commits and changes
+
+- **Commit only when explicitly asked.** Otherwise leave changes in the working tree
+  and offer a commit — the maintainer reviews the uncommitted diff.
+- **Write commit messages inline** with `git commit -m` (not `-F <file>`).
+- **State only what the change does** — concrete facts, not plans, discussion, or
+  what was deferred. Verification results (test/lint counts) are fine.
+- **No `Co-Authored-By` trailer.**
+
+## Local development
+
+Bring up a local Mattermost for development with compose:
+
+```bash
+podman compose up -d        # or: docker compose up -d
+```
+
+The web UI is at http://localhost:8065 (first visit: create the admin account).
+Create a bot account, copy its token, and put it in `.env`. See
+[README.md](README.md) for the full quickstart.
+
+## Requirements and configuration
+
+- **[uv](https://docs.astral.sh/uv/)** and **Python 3.13** (`.python-version`).
+- The **`pi` CLI on `PATH`**: `npm i -g @earendil-works/pi-coding-agent` (needs Node.js).
+- Configuration is pydantic-settings (`packages/*/src/*/config.py`); secrets live in
+  `.env` (git-ignored), templated by `.env.example`. Full reference:
+  [docs/configuration.md](docs/configuration.md).

@@ -1,0 +1,93 @@
+"""Tool port + the context one receives when it runs.
+
+A tool is the SINGLE source of truth for its own name, description and parameter
+schema (JSON Schema). The engine advertises these in a per-agent manifest; the
+tool extension registers whatever the manifest lists, so adding a tool touches
+only Python — never the TypeScript bridge.
+"""
+
+from dataclasses import dataclass
+from typing import Any, ClassVar, Protocol, runtime_checkable
+
+from pydantic_settings import BaseSettings
+
+from crucible.ports.chat.admin import ChatAdmin
+from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.forms import FormService
+from crucible.ports.chat.widgets import WidgetService
+
+# Capabilities a tool may require (Tool.requires). The composition root advertises
+# a tool to an agent only when its gateway/config provides every required
+# capability, so a tool never runs without the dependency it declares.
+CAP_CHAT_ADMIN = "chat_admin"  # channel administration (Mattermost; Slack has none)
+CAP_WIDGETS = "widgets"  # interactive widgets (buttons / selects)
+CAP_FORMS = "forms"  # modal forms
+
+
+class ToolError(Exception):
+    """A tool failed in an expected, user-reportable way (bad args, not found).
+    Surfaced to the agent as the tool's error text, not a 500."""
+
+
+@dataclass
+class ToolContext:
+    """Everything a tool may touch, scoped to the CALLING agent.
+
+    ``chat_admin`` is that agent's own admin client, so any channel/invite action
+    is attributed to the agent that invoked the tool. It is None on gateways
+    without channel administration (e.g. Slack) — a tool that needs it must say so.
+    ``settings`` is the invoked tool's OWN config object (or None) — the server
+    injects it generically by tool name, so a per-tool setting never leaks into
+    ToolServer/ToolContext."""
+
+    agent_name: str
+    directory: AgentDirectory
+    chat_admin: ChatAdmin | None = None
+    settings: Any = None
+    # Widgets: the runtime session this call runs inside (opaque; forwarded to
+    # WidgetService to resolve where to post) and the service that posts them.
+    runtime_session_id: str = ""
+    widgets: WidgetService | None = None
+    forms: FormService | None = None
+
+    def require_chat_admin(self) -> ChatAdmin:
+        """The agent's channel-admin client, or a ToolError if its gateway has none
+        (declare CAP_CHAT_ADMIN so this can't happen for an advertised tool)."""
+        if self.chat_admin is None:
+            raise ToolError("channel administration is not available on this gateway")
+        return self.chat_admin
+
+    def require_widgets(self) -> WidgetService:
+        if self.widgets is None:
+            raise ToolError("interactive widgets are not available in this context")
+        return self.widgets
+
+    def require_forms(self) -> FormService:
+        if self.forms is None:
+            raise ToolError("interactive forms are not available in this context")
+        return self.forms
+
+
+@runtime_checkable
+class Tool(Protocol):
+    name: ClassVar[str]
+    description: ClassVar[str]
+    parameters: ClassVar[dict[str, Any]]  # JSON Schema for the tool's arguments
+    # Optional: a settings model (env-bound) this tool needs. The registry loads
+    # it generically at wiring time and injects the instance as ctx.settings, so
+    # a new configured tool never touches app.py. None = no config.
+    settings_cls: ClassVar[type[BaseSettings] | None] = None
+    # When True, this tool must not run until the user has confirmed it — an
+    # enforced "approve before this action" the agent can't skip. Surfaced via the
+    # manifest so marking a tool needs no app.py edit; the runtime is responsible
+    # for gating the call on that confirmation.
+    requires_confirmation: ClassVar[bool] = False
+    # Capabilities this tool needs from the agent's gateway/config (CAP_*). The
+    # composition root only advertises the tool to agents that provide them all, so
+    # execute() can assume they're present (ctx.require_* enforces it defensively).
+    requires: ClassVar[frozenset[str]] = frozenset()
+
+    async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+        """Run the tool; return a JSON-serializable result. Raise ToolError for
+        expected failures."""
+        ...

@@ -1,0 +1,25 @@
+# impi docs
+
+Documentation for the impi engine — and, deliberately, a knowledge base the
+engine's own **support** agent reads at runtime (its environment carries
+`IMPI_ROOT`, so it looks here under `$IMPI_ROOT/docs`).
+
+Entries are concise and task-oriented — they are read by an agent, not only by
+people. Keep them accurate to the code.
+
+- **[architecture.md](architecture.md)** — how the engine works: the two
+  packages, the layers and their boundaries, the `pi` runtime, gateways, tools,
+  interactivity, and the request flows end to end.
+- **[creating-agents.md](creating-agents.md)** — write and register an agent:
+  the `agent.yaml` schema, `.pi/SYSTEM.md`, tool gating, skills, and how to apply
+  changes (restart vs reload).
+- **[configuration.md](configuration.md)** — every configuration knob: the `.env`
+  variables, their defaults, and what reads them.
+- **[runtime-notes.md](runtime-notes.md)** — the `pi` flags the engine passes and
+  the `pi` behaviors it relies on (provider/model resolution, tools, skills).
+- **[troubleshooting.md](troubleshooting.md)** — common issues and how to diagnose
+  them (logs, reload, session cleanup, callback networking).
+
+For the project overview and quickstart, see the repository
+[`README.md`](../README.md). For the reusable library, see
+[`packages/crucible/README.md`](../packages/crucible/README.md).

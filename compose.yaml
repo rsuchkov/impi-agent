@@ -1,0 +1,46 @@
+# Local Mattermost Team Edition + Postgres stack for development.
+#
+# Run with podman or docker:
+#   podman compose up -d        # or: docker compose up -d
+#
+# Web UI: http://localhost:8065  (first visit -> create the initial admin account)
+# Tear down:  podman compose down        (add -v to also drop the volumes)
+#
+# Images are fully-qualified (docker.io/...) so podman needs no default registry.
+
+services:
+  db:
+    image: docker.io/library/postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mmuser_password
+      POSTGRES_DB: mattermost
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  mattermost:
+    image: docker.io/mattermost/mattermost-team-edition:latest
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "8065:8065"
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: "postgres://mmuser:mmuser_password@db:5432/mattermost?sslmode=disable&connect_timeout=10"
+      MM_SERVICESETTINGS_SITEURL: "http://localhost:8065"
+    volumes:
+      - mm-config:/mattermost/config
+      - mm-data:/mattermost/data
+      - mm-logs:/mattermost/logs
+      - mm-plugins:/mattermost/plugins
+      - mm-client-plugins:/mattermost/client/plugins
+
+volumes:
+  pgdata:
+  mm-config:
+  mm-data:
+  mm-logs:
+  mm-plugins:
+  mm-client-plugins:
