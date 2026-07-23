@@ -3,7 +3,13 @@ interactive widgets), regardless of platform."""
 
 from typing import Protocol
 
-from crucible.ports.chat.types import Action, ConversationRef, Form, PostSnippet, UserProfile
+from crucible.ports.chat.types import (
+    Action,
+    ConversationRef,
+    Form,
+    PostSnippet,
+    UserProfile,
+)
 
 
 class ChatClient(Protocol):

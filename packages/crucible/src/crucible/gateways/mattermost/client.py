@@ -6,9 +6,15 @@ from typing import Any
 
 from mattermostautodriver import AsyncTypedDriver
 
-from crucible.ports.chat.admin import ChannelMember
-from crucible.ports.chat.types import Action, ConversationRef, Form, PostSnippet, UserProfile
 from crucible.gateways.mattermost.events import PROPS_KEY, post_time
+from crucible.ports.chat.admin import ChannelMember
+from crucible.ports.chat.types import (
+    Action,
+    ConversationRef,
+    Form,
+    PostSnippet,
+    UserProfile,
+)
 
 logger = logging.getLogger(__name__)
 

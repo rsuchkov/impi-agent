@@ -12,20 +12,20 @@ from dataclasses import dataclass
 from mattermostautodriver import AsyncTypedDriver
 from slack_bolt.async_app import AsyncApp
 
-from crucible.ports.chat.admin import ChatAdmin
-from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.flow import MessageSink
-from crucible.ports.chat.gateway import Gateway
+from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.mattermost import (
     MattermostChatClient,
     MattermostGateway,
     driver_options,
 )
-from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.slack import PROMPT_HINT as SLACK_PROMPT_HINT
 from crucible.gateways.slack import SlackChatClient, SlackGateway
 from crucible.loopguard import LoopGuard
+from crucible.ports.chat.admin import ChatAdmin
+from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.flow import MessageSink
+from crucible.ports.chat.gateway import Gateway
 
 logger = logging.getLogger(__name__)
 

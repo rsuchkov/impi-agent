@@ -2,8 +2,8 @@
 
 import asyncio
 
-from crucible.ports.chat.types import KIND_DM, ConversationRef, IncomingMessage
 from crucible.flows.coalescer import MessageCoalescer
+from crucible.ports.chat.types import KIND_DM, ConversationRef, IncomingMessage
 from tests.fakes.fake_chat import FakeChat
 
 

@@ -12,11 +12,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.interactions import form_from_json
-from crucible.ports.chat.types import KIND_THREAD, ConversationRef, Form, IncomingMessage
-from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.ports.chat.types import (
+    KIND_THREAD,
+    ConversationRef,
+    Form,
+    IncomingMessage,
+)
 from crucible.store.base import FormRecord, FormStore, InteractionStore
 
 logger = logging.getLogger(__name__)

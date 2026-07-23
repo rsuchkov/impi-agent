@@ -3,9 +3,9 @@ from typing import cast
 import pytest
 from mattermostautodriver import AsyncTypedDriver
 
-from crucible.ports.chat.types import ConversationRef
 from crucible.gateways.mattermost.client import MattermostChatClient, chunk_text
 from crucible.gateways.mattermost.options import driver_options
+from crucible.ports.chat.types import ConversationRef
 
 
 class _Recorder:

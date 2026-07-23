@@ -62,8 +62,11 @@ duplicate architecture here.
   bound to a service reads as a service, not as data or a port (`widget_svc`,
   `interaction_svc`, not `widgets`). Ports and data keep plain names.
 
-- **Boundaries are enforced.** `make lint` runs ruff, import-linter (the layer
-  contracts), and pyright (basic). Keep it green.
+- **Sort imports.** ruff's isort (rule `I`) enforces grouped, sorted imports;
+  `make lint` fails on drift. Run `uv run ruff check --fix` to sort.
+
+- **Boundaries are enforced.** `make lint` runs ruff (incl. import sorting),
+  import-linter (the layer contracts), and pyright (basic). Keep it green.
 
 ## Testing
 

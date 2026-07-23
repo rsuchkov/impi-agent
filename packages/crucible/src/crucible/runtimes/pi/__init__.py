@@ -6,7 +6,12 @@ Layers (each testable in isolation): protocol (pure encode/decode) -> transport
 
 from pathlib import Path
 
-from crucible.runtimes.pi.errors import PiError, PiProcessError, PiProtocolError, PiTimeout
+from crucible.runtimes.pi.errors import (
+    PiError,
+    PiProcessError,
+    PiProtocolError,
+    PiTimeout,
+)
 from crucible.runtimes.pi.profiles import PiProfile, build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.runtimes.pi.session import PiResult, PiRpcSession

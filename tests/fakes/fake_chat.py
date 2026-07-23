@@ -1,6 +1,12 @@
 """In-process fake of the ChatClient port."""
 
-from crucible.ports.chat.types import Action, ConversationRef, Form, PostSnippet, UserProfile
+from crucible.ports.chat.types import (
+    Action,
+    ConversationRef,
+    Form,
+    PostSnippet,
+    UserProfile,
+)
 
 
 class FakeChat:

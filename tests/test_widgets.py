@@ -5,12 +5,12 @@ from pathlib import Path
 
 import aiohttp
 
-from crucible.ports.chat.types import KIND_DM, KIND_THREAD, Action, ConversationRef
-from crucible.interactions import AgentSink, InteractionDispatcher, InteractionsServer
 from crucible.gateways.mattermost import MattermostCallbackCodec
-from crucible.store.sessions import SqliteSessionStore
+from crucible.interactions import AgentSink, InteractionDispatcher, InteractionsServer
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.service import InteractionService
+from crucible.ports.chat.types import KIND_DM, KIND_THREAD, Action, ConversationRef
+from crucible.store.sessions import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
 
 

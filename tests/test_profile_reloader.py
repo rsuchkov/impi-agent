@@ -10,15 +10,15 @@ the env/manifest specifics are exercised by test_main_wiring instead.
 from pathlib import Path
 from typing import cast
 
+from crucible.flows.agent_flow import AgentFlow
 from crucible.ports.agent import AgentRuntime, AgentSpec
 from crucible.ports.chat.gateway import AgentIdentity, Gateway
-from crucible.flows.agent_flow import AgentFlow
 from crucible.profiles import FsProfileStore
-from impi.registry import RegistryService
 from crucible.reloader import ProfileReloader
 from crucible.runtimes.pi.profiles import PiProfile, build_pi_profile
 from crucible.store.base import SessionStore
 from crucible.unit import AgentUnit
+from impi.registry import RegistryService
 
 ASSISTANT_YAML = """\
 name: assistant

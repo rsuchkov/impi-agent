@@ -2,8 +2,8 @@ from pathlib import Path
 
 from crucible.ports.agent import AgentSpec
 from crucible.ports.chat.gateway import AgentIdentity
-from impi.registry import RegistryService
 from crucible.store.sessions import SqliteSessionStore
+from impi.registry import RegistryService
 
 
 def _spec(name: str, role: str = "helper") -> AgentSpec:

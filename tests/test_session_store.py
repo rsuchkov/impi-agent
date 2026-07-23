@@ -1,8 +1,8 @@
 from pathlib import Path
 
+from crucible.ports.chat.types import KIND_DM, KIND_THREAD
 from crucible.runtimes.pi.runtime import _safe_session_id
 from crucible.store import SqliteSessionStore, derive_runtime_session_id
-from crucible.ports.chat.types import KIND_DM, KIND_THREAD
 
 
 async def test_get_or_create_is_idempotent(tmp_path: Path) -> None:

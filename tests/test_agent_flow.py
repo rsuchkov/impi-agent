@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+from crucible.flows.agent_flow import EMPTY_ANSWER_MESSAGE, AgentFlow
 from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
     LLM_FALLBACK_MESSAGE,
@@ -13,7 +14,6 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     PostSnippet,
 )
-from crucible.flows.agent_flow import EMPTY_ANSWER_MESSAGE, AgentFlow
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.session import PiResult

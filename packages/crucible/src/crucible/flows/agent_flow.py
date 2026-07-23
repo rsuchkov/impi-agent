@@ -17,7 +17,12 @@ from crucible.ports.agent import (
     AgentTimeout,
 )
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.types import KIND_CHANNEL, KIND_THREAD, IncomingMessage, PostSnippet
+from crucible.ports.chat.types import (
+    KIND_CHANNEL,
+    KIND_THREAD,
+    IncomingMessage,
+    PostSnippet,
+)
 from crucible.store.base import SessionStore
 
 logger = logging.getLogger(__name__)

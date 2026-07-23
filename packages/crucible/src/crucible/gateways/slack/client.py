@@ -8,10 +8,16 @@ import re
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
-from crucible.ports.chat.admin import ChannelMember
-from crucible.ports.chat.types import Action, ConversationRef, Form, PostSnippet, UserProfile
 from crucible.gateways.slack.events import ts_time
 from crucible.gateways.slack.rendering import build_action_blocks, build_modal_view
+from crucible.ports.chat.admin import ChannelMember
+from crucible.ports.chat.types import (
+    Action,
+    ConversationRef,
+    Form,
+    PostSnippet,
+    UserProfile,
+)
 
 logger = logging.getLogger(__name__)
 

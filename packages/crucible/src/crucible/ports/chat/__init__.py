@@ -4,6 +4,7 @@ flows and stores — platform-specific fields never leak in here."""
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import Flow, MessageSink
 from crucible.ports.chat.gateway import AgentIdentity, Gateway
+from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_DM,
@@ -13,7 +14,6 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     UserProfile,
 )
-from crucible.ports.chat.interactions import InteractionService
 
 __all__ = [
     "ChatClient",

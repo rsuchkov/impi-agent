@@ -6,9 +6,9 @@ reloader. It lives in its own module so neither has to import the other.
 
 from dataclasses import dataclass
 
+from crucible.flows.agent_flow import AgentFlow
 from crucible.ports.agent import AgentSpec
 from crucible.ports.chat.gateway import Gateway
-from crucible.flows.agent_flow import AgentFlow
 
 
 @dataclass

@@ -1,7 +1,7 @@
 import json
 
-from crucible.ports.chat.types import KIND_DM, KIND_THREAD
 from crucible.gateways.mattermost.events import PROPS_KEY, parse_posted, should_respond
+from crucible.ports.chat.types import KIND_DM, KIND_THREAD
 
 ME = "botuserid0000000000000000"
 HUMAN = "humanuserid00000000000000"

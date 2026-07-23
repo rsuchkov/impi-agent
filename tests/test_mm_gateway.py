@@ -4,8 +4,14 @@ from typing import cast
 
 from mattermostautodriver import AsyncTypedDriver
 
-from crucible.ports.chat.types import KIND_CHANNEL, KIND_DM, KIND_THREAD, ConversationRef, IncomingMessage
 from crucible.gateways.mattermost.gateway import MattermostGateway
+from crucible.ports.chat.types import (
+    KIND_CHANNEL,
+    KIND_DM,
+    KIND_THREAD,
+    ConversationRef,
+    IncomingMessage,
+)
 from tests.fakes.fake_chat import FakeChat
 
 ME = "uid-assistant"

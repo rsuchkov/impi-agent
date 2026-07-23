@@ -15,11 +15,6 @@ import time
 
 from mattermostautodriver import AsyncTypedDriver
 
-from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.flow import MessageSink
-from crucible.ports.chat.gateway import AgentIdentity
-from crucible.ports.chat.types import IncomingMessage
 from crucible.gateways.mattermost.events import (
     is_top_level,
     parse_posted,
@@ -27,6 +22,11 @@ from crucible.gateways.mattermost.events import (
     to_channel_session,
 )
 from crucible.loopguard import LoopGuard
+from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.flow import MessageSink
+from crucible.ports.chat.gateway import AgentIdentity
+from crucible.ports.chat.types import IncomingMessage
 
 logger = logging.getLogger(__name__)
 

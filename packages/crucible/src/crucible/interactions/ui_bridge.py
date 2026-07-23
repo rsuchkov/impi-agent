@@ -14,10 +14,10 @@ import logging
 import secrets
 from collections.abc import Mapping
 
+from crucible.interactions.pending_ui import CONFIRM_NO, CONFIRM_YES, PendingUiRequests
 from crucible.ports.agent.ui import UiOutcome, UiRequest
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import KIND_THREAD, Action, ConversationRef
-from crucible.interactions.pending_ui import CONFIRM_NO, CONFIRM_YES, PendingUiRequests
 from crucible.store.base import SessionStore
 
 logger = logging.getLogger(__name__)

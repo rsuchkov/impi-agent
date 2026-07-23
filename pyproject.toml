@@ -14,6 +14,12 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.ruff.lint]
+extend-select = ["I"]  # isort: enforce sorted, grouped imports (make lint fails on drift)
+
+[tool.ruff.lint.isort]
+known-first-party = ["crucible", "impi"]
+
 [tool.pyright]
 typeCheckingMode = "basic"
 pythonVersion = "3.13"

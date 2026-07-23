@@ -2,12 +2,12 @@
 
 from pathlib import Path
 
-from impi.config import ImpiSettings as Settings
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways.mattermost import MattermostChatClient, MattermostGateway
-from impi.app import App, build_app, build_pi_env, build_pi_extensions
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.store.sessions import SqliteSessionStore
+from impi.app import App, build_app, build_pi_env, build_pi_extensions
+from impi.config import ImpiSettings as Settings
 
 AGENT_YAML = """\
 name: assistant
@@ -85,7 +85,6 @@ def test_build_app_skips_agents_without_tokens(tmp_path: Path, monkeypatch) -> N
 def test_gate_tools_drops_tools_missing_a_capability() -> None:
     from crucible.tools import build_registry
     from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FORMS, CAP_WIDGETS
-
     from impi.app import _gate_tools
 
     reg = build_registry()

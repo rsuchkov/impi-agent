@@ -12,11 +12,6 @@ import re
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
-from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.flow import MessageSink
-from crucible.ports.chat.gateway import AgentIdentity
-from crucible.ports.chat.types import IncomingMessage
 from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.slack.events import event_to_incoming
 from crucible.gateways.slack.rendering import (
@@ -26,6 +21,11 @@ from crucible.gateways.slack.rendering import (
     extract_submission,
 )
 from crucible.loopguard import LoopGuard
+from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.flow import MessageSink
+from crucible.ports.chat.gateway import AgentIdentity
+from crucible.ports.chat.types import IncomingMessage
 
 logger = logging.getLogger(__name__)
 

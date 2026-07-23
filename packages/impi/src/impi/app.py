@@ -21,37 +21,36 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
-from crucible.ports.chat.admin import ChatAdmin
-from crucible.ports.chat.gateway import Gateway
-from crucible.ports.chat.types import IncomingMessage
-from crucible.ports.chat.client import ChatClient
-from impi.config import ImpiSettings
+# Importing these runs their @tool decorators so build_registry() sees them:
+# crucible's generic ask/form tools plus impi's chat-management tools.
+import crucible.builtin_tools  # noqa: E402,F401
+import impi.chat_tools  # noqa: E402,F401
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
+from crucible.gateways import GatewayFactory, GatewayHandle
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.interactions import AgentSink, InteractionDispatcher, InteractionsServer
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.service import InteractionService
 from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.loopguard import LoopGuard
+from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
+from crucible.ports.chat.admin import ChatAdmin
+from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.gateway import Gateway
+from crucible.ports.chat.types import IncomingMessage
+from crucible.profiles import CompositeProfileStore, FsProfileStore, ProfileStore
+from crucible.reloader import ProfileReloader
 from crucible.runtimes.pi import EXTENSION_PATH, build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
-from crucible.profiles import CompositeProfileStore, FsProfileStore, ProfileStore
-from crucible.gateways import GatewayFactory, GatewayHandle
-from impi.gateways import resolve_gateway
-from impi.registry import RegistryService
-from crucible.reloader import ProfileReloader
 from crucible.store.base import SessionStore
 from crucible.store.sessions import SqliteSessionStore
-from crucible.unit import AgentUnit
 from crucible.tools import ToolRegistry, ToolServer, build_registry
 from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FORMS, CAP_WIDGETS
-
-# Importing these runs their @tool decorators so build_registry() sees them:
-# crucible's generic ask/form tools plus impi's chat-management tools.
-import crucible.builtin_tools  # noqa: E402,F401
-import impi.chat_tools  # noqa: E402,F401
+from crucible.unit import AgentUnit
+from impi.config import ImpiSettings
+from impi.gateways import resolve_gateway
+from impi.registry import RegistryService
 
 logger = logging.getLogger(__name__)
 

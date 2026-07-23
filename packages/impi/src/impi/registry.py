@@ -7,9 +7,9 @@ serves gateway dispatch decisions synchronously.
 
 import logging
 
+from crucible.ports.agent import AgentSpec
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.gateway import AgentIdentity
-from crucible.ports.agent import AgentSpec
 from crucible.store.base import AgentStore
 
 logger = logging.getLogger(__name__)

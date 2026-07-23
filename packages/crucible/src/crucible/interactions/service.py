@@ -18,9 +18,9 @@ from crucible.ports.chat.interactions import form_to_json
 from crucible.ports.chat.types import KIND_THREAD, Action, ConversationRef, Form
 from crucible.store.base import (
     FormRecord,
+    FormStore,
     InteractionRecord,
     InteractionStore,
-    FormStore,
     SessionStore,
 )
 

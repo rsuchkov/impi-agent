@@ -1,12 +1,12 @@
 import aiohttp
 
+import crucible.builtin_tools  # noqa: F401  # registers the generic ask/form tools
 from crucible.ports.chat.admin import ChannelMember
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.types import PostSnippet
 from crucible.tools.base import ToolContext, ToolError
 from crucible.tools.registry import build_registry
 from crucible.tools.server import ToolServer
-import crucible.builtin_tools  # noqa: F401  # registers the generic ask/form tools
 from impi.chat_tools import (
     CreateChannel,
     CreateChannelSettings,

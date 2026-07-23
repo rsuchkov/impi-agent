@@ -3,11 +3,11 @@
 import asyncio
 from pathlib import Path
 
+from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.agent.ui import UiRequest
 from crucible.ports.chat.types import KIND_DM, Action, ConversationRef
-from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.store.sessions import SqliteSessionStore
-from crucible.interactions.ui_bridge import WidgetUiBridge
 
 
 async def _wait_until(predicate, timeout: float = 1.0) -> None:
