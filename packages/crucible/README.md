@@ -37,10 +37,13 @@ An application depends only on these; concretes are swappable behind them.
 - `UiBridge` — surface a runtime's mid-turn confirm/select/input to a human.
 
 **Chat ports** (`crucible.ports.chat`):
-- `ChatClient` — how a flow replies (post, react, backfill history).
+- `ChatClient` — the agent's outbound platform surface: replies, reactions,
+  backfill, and the interactive-widget verbs (post buttons, open a modal).
 - `Gateway` — one agent's connection to one platform (`login`/`run`/`stop`).
 - `ChatAdmin` — platform-neutral channel administration used by tools.
-- `WidgetPoster` / `WidgetService`, `FormService` — post/serve interactive widgets and modal forms.
+- `InteractionService` — what a tool calls to run a widget/form round-trip
+  (`ask`, `open_form`): resolve the conversation, register the pending
+  interaction, post, and match the callback later.
 - `MessageSink` / `Flow` — where a gateway hands an incoming message.
 - `AgentDirectory` — who our agents are (for dispatch decisions).
 - `types` — the neutral vocabulary (`ConversationRef`, `IncomingMessage`, `Action`, `Form`, …).

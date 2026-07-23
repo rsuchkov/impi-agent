@@ -151,7 +151,7 @@ class MattermostChatClient:
     def format_mention(self, username: str) -> str:
         return f"@{username}"
 
-    # -- WidgetPoster port --------------------------------------------------
+    # -- Interactive widgets (ChatClient) -----------------------------------
 
     async def post_actions(
         self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str

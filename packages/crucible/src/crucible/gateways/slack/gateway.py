@@ -8,7 +8,6 @@ same brain the Mattermost HTTP receiver uses, here over the WebSocket instead.
 
 import logging
 import re
-from typing import Protocol
 
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
@@ -17,8 +16,8 @@ from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.gateway import AgentIdentity
-from crucible.ports.chat.types import Form, IncomingMessage
-from crucible.ports.chat.widgets import WidgetPoster
+from crucible.ports.chat.types import IncomingMessage
+from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.slack.events import event_to_incoming
 from crucible.gateways.slack.rendering import (
     FORM_CALLBACK,
@@ -37,26 +36,6 @@ _CHOSE_PREFIX = "Selected: "
 _FORM_OPENED = "📝 Opening form…"
 
 
-class _FormOpen(Protocol):
-    """What a form-open needs from the dispatcher's load_form result."""
-
-    @property
-    def form(self) -> Form: ...
-
-
-class _Dispatcher(Protocol):
-    """The gateway's view of the InteractionDispatcher — a narrow local port so the
-    gateway depends on the neutral brain without importing the store-backed
-    concrete (keeps the gateway free of the store, per the layer contract)."""
-
-    def resolve_pending(self, token: str, value: str) -> bool: ...
-    async def consume_action(self, token: str, value: str, user_id: str) -> object: ...
-    async def load_form(self, form_token: str) -> _FormOpen | None: ...
-    async def submit_form(
-        self, state: str, submission: dict, cancelled: bool, user_id: str
-    ) -> object: ...
-
-
 class SlackGateway:
     def __init__(
         self,
@@ -65,8 +44,8 @@ class SlackGateway:
         sink: MessageSink,
         chat: ChatClient,
         *,
-        poster: WidgetPoster | None = None,
-        dispatcher: _Dispatcher | None = None,
+        poster: ChatClient | None = None,
+        dispatcher: GatewayDispatcher | None = None,
         directory: AgentDirectory | None = None,
         loop_guard: LoopGuard | None = None,
         reply_to_agents: bool = True,

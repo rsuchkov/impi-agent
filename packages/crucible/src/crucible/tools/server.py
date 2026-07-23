@@ -15,8 +15,7 @@ from aiohttp import web
 
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.forms import FormService
-from crucible.ports.chat.widgets import WidgetService
+from crucible.ports.chat.interactions import InteractionService
 from crucible.tools.base import ToolContext, ToolError
 from crucible.tools.registry import ToolRegistry
 
@@ -42,8 +41,7 @@ class ToolServer:
         host: str = "127.0.0.1",
         port: int = 8422,
         tool_configs: Mapping[str, Any] | None = None,  # tool name -> its config
-        widgets: WidgetService | None = None,
-        forms: FormService | None = None,
+        interaction_svc: InteractionService | None = None,
     ) -> None:
         self._registry = registry
         self._directory = directory
@@ -53,8 +51,7 @@ class ToolServer:
         self._host = host
         self._port = port
         self._tool_configs = tool_configs or {}
-        self._widgets = widgets
-        self._forms = forms
+        self._interaction_svc = interaction_svc
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
@@ -110,8 +107,7 @@ class ToolServer:
             chat_admin=admin,
             settings=self._tool_configs.get(tool.name),
             runtime_session_id=request.headers.get(_SESSION_HEADER, ""),
-            widgets=self._widgets,
-            forms=self._forms,
+            interaction_svc=self._interaction_svc,
         )
         try:
             result = await tool.execute(ctx, args)

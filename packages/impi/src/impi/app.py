@@ -25,21 +25,21 @@ from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.gateway import Gateway
 from crucible.ports.chat.types import IncomingMessage
-from crucible.ports.chat.widgets import WidgetPoster
+from crucible.ports.chat.client import ChatClient
 from impi.config import ImpiSettings
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.interactions import AgentSink, InteractionDispatcher, InteractionsServer
-from crucible.interactions.forms import FormService
 from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.interactions.service import InteractionService
 from crucible.interactions.ui_bridge import WidgetUiBridge
-from crucible.interactions.widgets import WidgetService
 from crucible.loopguard import LoopGuard
 from crucible.runtimes.pi import EXTENSION_PATH, build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.profiles import CompositeProfileStore, FsProfileStore, ProfileStore
-from impi.gateways import GatewayFactory, GatewayHandle
+from crucible.gateways import GatewayFactory, GatewayHandle
+from impi.gateways import resolve_gateway
 from impi.registry import RegistryService
 from crucible.reloader import ProfileReloader
 from crucible.store.base import SessionStore
@@ -145,7 +145,7 @@ class InteractionWiring:
     sink): both are assigned before the UI bridge and dispatcher capture them, so
     the agent loop fills the exact objects those collaborators read lazily at
     request time. ``ui_bridge`` feeds the runtime; ``dispatcher`` feeds the gateway
-    factory. ``finalize`` builds the post-loop widget/form services and the HTTP
+    factory. ``finalize`` builds the post-loop interaction service and the HTTP
     receiver once ``posters`` is populated.
     """
 
@@ -156,7 +156,7 @@ class InteractionWiring:
         self._sessions = sessions
         ints = settings.integrations
         self.enabled = ints.enabled
-        self.posters: dict[str, WidgetPoster] = {}
+        self.posters: dict[str, ChatClient] = {}
         self.sinks: dict[str, AgentSink] = {}
         # Blocking UI bridge: a runtime mid-turn confirm/select becomes a widget the
         # turn waits on. None when interactions are off — UI requests then fall back
@@ -178,11 +178,10 @@ class InteractionWiring:
             if self.pending_ui is not None
             else None
         )
-        self.widgets: WidgetService | None = None
-        self.forms: FormService | None = None
+        self.interaction_svc: InteractionService | None = None
         self.receiver: InteractionsServer | None = None
 
-    def register(self, name: str, *, chat: WidgetPoster, sink: AgentSink) -> None:
+    def register(self, name: str, *, chat: ChatClient, sink: AgentSink) -> None:
         self.posters[name] = chat
         self.sinks[name] = sink
 
@@ -198,13 +197,12 @@ class InteractionWiring:
         if not self.enabled or self.pending_ui is None:
             return
         ints = self._settings.integrations
-        self.widgets = WidgetService(
-            self.posters, self._sessions, self._sessions, callback_url=ints.interact_url
-        )
-        # A form's "fill in" button clicks to /interact (like a widget); the modal
-        # submission goes to /dialog.
-        self.forms = FormService(
-            self.posters, self._sessions, self._sessions, callback_url=ints.interact_url
+        # One service for widgets (ask) and forms (open_form). A form's "fill in"
+        # button clicks to /interact like a widget; the modal submission goes to
+        # /dialog. The one concrete store backs all three store facets.
+        self.interaction_svc = InteractionService(
+            self.posters, self._sessions, self._sessions, self._sessions,
+            callback_url=ints.interact_url,
         )
         # The HTTP receiver is only for gateways that deliver callbacks over HTTP
         # (Mattermost); socket gateways (Slack) drive the same dispatcher over their
@@ -283,8 +281,7 @@ class ToolWiring:
         self,
         *,
         directory: RegistryService,
-        widgets: WidgetService | None,
-        forms: FormService | None,
+        interaction_svc: InteractionService | None,
         dotenv_path: str,
     ) -> ToolServer | None:
         if self.registry is None:
@@ -299,8 +296,7 @@ class ToolWiring:
             host=tools.server_host,
             port=tools.server_port,
             tool_configs=self.registry.load_configs(env_file=dotenv_path),
-            widgets=widgets,
-            forms=forms,
+            interaction_svc=interaction_svc,
         )
 
 
@@ -360,9 +356,12 @@ def _build_units(
     units: list[AgentUnit] = []
     needs_receiver = False  # any agent on an HTTP-callback gateway (Mattermost)?
     for spec in specs:
-        handle = gateway_factory.create(spec.name)
+        config = resolve_gateway(settings, spec.name)  # settings -> neutral config
+        if config is None:
+            continue  # no token for this agent (resolver logged why)
+        handle = gateway_factory.create(spec.name, config)
         if handle is None:
-            continue  # the factory logged why (unknown gateway / missing token)
+            continue  # unknown gateway kind (factory logged why)
         needs_receiver = needs_receiver or handle.needs_http_receiver
         profiles.set_hint(spec.name, handle.prompt_hint)
         tools.enroll(spec, handle)  # must precede profiles.build (reads caps/env)
@@ -432,7 +431,7 @@ def build_app(settings: ImpiSettings) -> App:
     tools = ToolWiring(settings)
     profile_builder = ProfileBuilder(tools)
     gateway_factory = GatewayFactory(
-        settings, directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher
+        directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher
     )
 
     specs = [*_select_specs(settings, user_store), *engine_store.list()]
@@ -448,8 +447,7 @@ def build_app(settings: ImpiSettings) -> App:
     interactions.finalize(needs_receiver=needs_receiver)
     tool_server = tools.build_server(
         directory=registry,
-        widgets=interactions.widgets,
-        forms=interactions.forms,
+        interaction_svc=interactions.interaction_svc,
         dotenv_path=settings.dotenv_path,
     )
     reloader = ProfileReloader(

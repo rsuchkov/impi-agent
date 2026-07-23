@@ -2,7 +2,7 @@
 
 events.py    — pure event normalization into neutral chat types
 rendering.py — Block Kit rendering + the widget token round-trip
-client.py    — ChatClient + WidgetPoster over the AsyncWebClient
+client.py    — ChatClient + ChatAdmin over the AsyncWebClient
 gateway.py   — Socket Mode loop + respond decision; interactive callbacks routed
                to the neutral InteractionDispatcher (no HTTP receiver needed)
 """

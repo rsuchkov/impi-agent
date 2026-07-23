@@ -13,8 +13,7 @@ from pydantic_settings import BaseSettings
 
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.forms import FormService
-from crucible.ports.chat.widgets import WidgetService
+from crucible.ports.chat.interactions import InteractionService
 
 # Capabilities a tool may require (Tool.requires). The composition root advertises
 # a tool to an agent only when its gateway/config provides every required
@@ -44,11 +43,11 @@ class ToolContext:
     directory: AgentDirectory
     chat_admin: ChatAdmin | None = None
     settings: Any = None
-    # Widgets: the runtime session this call runs inside (opaque; forwarded to
-    # WidgetService to resolve where to post) and the service that posts them.
+    # Interactivity: the runtime session this call runs inside (opaque; forwarded to
+    # the service to resolve where to post) and the service that runs the widget/
+    # form round-trip.
     runtime_session_id: str = ""
-    widgets: WidgetService | None = None
-    forms: FormService | None = None
+    interaction_svc: InteractionService | None = None
 
     def require_chat_admin(self) -> ChatAdmin:
         """The agent's channel-admin client, or a ToolError if its gateway has none
@@ -57,15 +56,12 @@ class ToolContext:
             raise ToolError("channel administration is not available on this gateway")
         return self.chat_admin
 
-    def require_widgets(self) -> WidgetService:
-        if self.widgets is None:
-            raise ToolError("interactive widgets are not available in this context")
-        return self.widgets
-
-    def require_forms(self) -> FormService:
-        if self.forms is None:
-            raise ToolError("interactive forms are not available in this context")
-        return self.forms
+    def require_interactions(self) -> InteractionService:
+        """The widget/form service, or a ToolError if interactivity is off (declare
+        CAP_WIDGETS/CAP_FORMS so this can't happen for an advertised tool)."""
+        if self.interaction_svc is None:
+            raise ToolError("interactive widgets/forms are not available in this context")
+        return self.interaction_svc
 
 
 @runtime_checkable

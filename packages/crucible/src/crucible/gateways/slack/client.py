@@ -1,5 +1,6 @@
-"""SlackChatClient: the ChatClient + WidgetPoster implementation over Slack's
-AsyncWebClient (the bolt app's ``.client``)."""
+"""SlackChatClient: the ChatClient + ChatAdmin implementation over Slack's
+AsyncWebClient (the bolt app's ``.client``). ChatClient now carries the widget
+verbs (post_actions/retract/open_dialog)."""
 
 import logging
 import re
@@ -111,7 +112,7 @@ class SlackChatClient:
         # port doesn't carry. Used only for agent-to-agent addressing.
         return f"@{username}"
 
-    # -- WidgetPoster port --------------------------------------------------
+    # -- Interactive widgets (ChatClient) -----------------------------------
 
     async def post_actions(
         self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str

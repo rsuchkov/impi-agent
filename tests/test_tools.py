@@ -394,7 +394,7 @@ def test_require_accessors_raise_when_capability_absent() -> None:
     # A context with no admin/widgets/forms: each require_* raises a ToolError
     # (rather than an AttributeError on None), so a tool fails cleanly.
     ctx = ToolContext(agent_name="assistant", directory=FakeDirectory(AGENTS))
-    for require in (ctx.require_chat_admin, ctx.require_widgets, ctx.require_forms):
+    for require in (ctx.require_chat_admin, ctx.require_interactions):
         try:
             require()
             raise AssertionError("expected ToolError")
@@ -432,6 +432,8 @@ async def test_tool_runs_without_an_admin_client() -> None:
 
 
 class FakeWidgets:
+    """A fake InteractionService that records ask() calls (open_form unused here)."""
+
     def __init__(self, ok: bool = True) -> None:
         self.calls: list[tuple] = []
         self._ok = ok
@@ -440,11 +442,14 @@ class FakeWidgets:
         self.calls.append((agent, runtime_session_id, prompt, tuple(options), style))
         return self._ok
 
+    async def open_form(self, agent, runtime_session_id, form) -> bool:
+        return self._ok
+
 
 def _ctx_widgets(widgets, *, session="assistant--c1") -> ToolContext:
     return ToolContext(
         agent_name="assistant", directory=FakeDirectory(AGENTS), chat_admin=FakeAdmin(),
-        runtime_session_id=session, widgets=widgets,
+        runtime_session_id=session, interaction_svc=widgets,
     )
 
 
@@ -509,11 +514,16 @@ async def test_ask_user_select_validates_option_count() -> None:
 
 
 class FakeForms:
+    """A fake InteractionService that records open_form() calls (ask unused here)."""
+
     def __init__(self, ok: bool = True) -> None:
         self.calls: list = []
         self._ok = ok
 
-    async def open(self, agent, runtime_session_id, form) -> bool:
+    async def ask(self, agent, runtime_session_id, prompt, options, *, style="buttons") -> bool:
+        return self._ok
+
+    async def open_form(self, agent, runtime_session_id, form) -> bool:
         self.calls.append((agent, runtime_session_id, form))
         return self._ok
 
@@ -521,7 +531,7 @@ class FakeForms:
 def _ctx_forms(forms) -> ToolContext:
     return ToolContext(
         agent_name="assistant", directory=FakeDirectory(AGENTS), chat_admin=FakeAdmin(),
-        runtime_session_id="assistant--c1", forms=forms,
+        runtime_session_id="assistant--c1", interaction_svc=forms,
     )
 
 

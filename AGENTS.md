@@ -58,6 +58,10 @@ duplicate architecture here.
   intentional non-ASCII test data (mark it `# Non-ASCII on purpose`); an agent's own
   personality in its `.pi/SYSTEM.md` may be any language.
 
+- **Name service instances with an `_svc` suffix** — a field, parameter, or local
+  bound to a service reads as a service, not as data or a port (`widget_svc`,
+  `interaction_svc`, not `widgets`). Ports and data keep plain names.
+
 - **Boundaries are enforced.** `make lint` runs ruff, import-linter (the layer
   contracts), and pyright (basic). Keep it green.
 

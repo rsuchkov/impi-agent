@@ -2,7 +2,7 @@
 forms. This is content, not framework — it lives beside the tools package (which
 holds only base/registry/server). Importing it runs the @tool decorators, so the
 composition root imports it to include these tools, exactly like an app imports
-its own tool modules. Tools depend only on ports (widgets, forms)."""
+its own tool modules. Tools depend only on ports (the interaction service)."""
 
 from typing import Any, ClassVar
 
@@ -49,7 +49,7 @@ class AskUserButtons(Tool):
         if not isinstance(options, list) or not (2 <= len(options) <= 5):
             raise ToolError("options must be a list of 2 to 5 button labels")
         labels = [str(o).strip() for o in options if str(o).strip()]
-        posted = await ctx.require_widgets().ask(ctx.agent_name, ctx.runtime_session_id, prompt, labels)
+        posted = await ctx.require_interactions().ask(ctx.agent_name, ctx.runtime_session_id, prompt, labels)
         if not posted:
             raise ToolError("could not post the buttons (conversation not resolved)")
         return {"status": "posted", "awaiting_click": True}
@@ -84,7 +84,7 @@ class AskUserSelect(Tool):
         if not isinstance(options, list) or not (2 <= len(options) <= 20):
             raise ToolError("options must be a list of 2 to 20 dropdown options")
         labels = [str(o).strip() for o in options if str(o).strip()]
-        posted = await ctx.require_widgets().ask(
+        posted = await ctx.require_interactions().ask(
             ctx.agent_name, ctx.runtime_session_id, prompt, labels, style="select"
         )
         if not posted:
@@ -155,7 +155,7 @@ class OpenForm(Tool):
                 )
             )
         form = Form(title=title, intro=str(args.get("intro", "")), fields=tuple(fields))
-        posted = await ctx.require_forms().open(ctx.agent_name, ctx.runtime_session_id, form)
+        posted = await ctx.require_interactions().open_form(ctx.agent_name, ctx.runtime_session_id, form)
         if not posted:
             raise ToolError("could not post the form (conversation not resolved)")
         return {"status": "posted", "awaiting_submit": True}

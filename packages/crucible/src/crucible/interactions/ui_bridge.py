@@ -2,11 +2,11 @@
 
 Turns a mid-turn UI request (the runtime blocking on a confirm/select) into an
 interactive widget and BLOCKS until the human answers (or a timeout defaults it).
-Unlike the fire-and-forget WidgetService, the click resolves a pending Future the
+Unlike the fire-and-forget InteractionService, the click resolves a pending Future the
 agent's turn is waiting on — so the turn continues in-place with the answer.
 
-Platform-neutral: it builds neutral ``Action``s and posts through the WidgetPoster
-port, so it works over any gateway that implements that port.
+Platform-neutral: it builds neutral ``Action``s and posts through the ChatClient,
+so it works over any gateway whose client implements the widget verbs.
 """
 
 import asyncio
@@ -15,8 +15,8 @@ import secrets
 from collections.abc import Mapping
 
 from crucible.ports.agent.ui import UiOutcome, UiRequest
+from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import KIND_THREAD, Action, ConversationRef
-from crucible.ports.chat.widgets import WidgetPoster
 from crucible.interactions.pending_ui import CONFIRM_NO, CONFIRM_YES, PendingUiRequests
 from crucible.store.base import SessionStore
 
@@ -33,7 +33,7 @@ _CANCELLED_MESSAGE = "This request was cancelled."
 class WidgetUiBridge:
     def __init__(
         self,
-        posters: Mapping[str, WidgetPoster],
+        posters: Mapping[str, ChatClient],
         sessions: SessionStore,
         pending: PendingUiRequests,
         *,
@@ -97,7 +97,7 @@ class WidgetUiBridge:
     # -- internals ----------------------------------------------------------
 
     @staticmethod
-    async def _retract(poster: WidgetPoster, post_id: str, text: str) -> None:
+    async def _retract(poster: ChatClient, post_id: str, text: str) -> None:
         """Best-effort: drop the widget's buttons. A failure must not break the
         turn (the outcome is already decided)."""
         try:

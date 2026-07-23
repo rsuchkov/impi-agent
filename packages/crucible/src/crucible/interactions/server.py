@@ -16,7 +16,7 @@ from aiohttp import web
 
 from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import ActionResult, InteractionDispatcher
-from crucible.ports.chat.widgets import WidgetPoster
+from crucible.ports.chat.client import ChatClient
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class InteractionsServer:
         self,
         dispatcher: InteractionDispatcher,
         codec: CallbackCodec,
-        posters: Mapping[str, WidgetPoster],
+        posters: Mapping[str, ChatClient],
         *,
         host: str = "0.0.0.0",
         port: int = 8423,

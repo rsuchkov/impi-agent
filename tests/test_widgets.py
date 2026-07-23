@@ -1,4 +1,4 @@
-"""WidgetService (concrete) + InteractionsServer round-trip on the receiver side."""
+"""InteractionService (concrete) + InteractionsServer round-trip on the receiver side."""
 
 import asyncio
 from pathlib import Path
@@ -10,22 +10,20 @@ from crucible.interactions import AgentSink, InteractionDispatcher, Interactions
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.store.sessions import SqliteSessionStore
 from crucible.interactions.pending_ui import PendingUiRequests
-from crucible.interactions.widgets import WidgetService
+from crucible.interactions.service import InteractionService
+from tests.fakes.fake_chat import FakeChat
 
 
-class FakePoster:
+class FakePoster(FakeChat):
+    """A full ChatClient fake that records posted widgets under ``posted``."""
+
     def __init__(self) -> None:
+        super().__init__()
         self.posted: list[tuple] = []
 
     async def post_actions(self, ref: ConversationRef, text, actions: list[Action], *, callback_url) -> str:
         self.posted.append((ref, text, actions, callback_url))
         return "widget-post-id"
-
-    async def retract(self, post_id: str, text: str) -> None:
-        pass
-
-    async def open_dialog(self, trigger_id, form, *, submit_url, state) -> None:
-        pass
 
 
 async def test_widget_service_registers_and_posts(tmp_path: Path) -> None:
@@ -33,8 +31,8 @@ async def test_widget_service_registers_and_posts(tmp_path: Path) -> None:
     poster = FakePoster()
     try:
         rec, _ = await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD)
-        svc = WidgetService(
-            {"assistant": poster}, store, store, callback_url="http://host.containers.internal:8423/interact"
+        svc = InteractionService(
+            {"assistant": poster}, store, store, store, callback_url="http://host.containers.internal:8423/interact"
         )
         ok = await svc.ask("assistant", rec.runtime_session_id, "Обедать?", ["Да", "Нет"])
         assert ok is True
@@ -56,7 +54,7 @@ async def test_widget_service_select_posts_one_dropdown(tmp_path: Path) -> None:
     poster = FakePoster()
     try:
         rec, _ = await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD)
-        svc = WidgetService({"assistant": poster}, store, store, callback_url="http://x/interact")
+        svc = InteractionService({"assistant": poster}, store, store, store, callback_url="http://x/interact")
         ok = await svc.ask(
             "assistant", rec.runtime_session_id, "City?", ["A", "B", "C"], style="select"
         )
@@ -75,7 +73,7 @@ async def test_widget_service_select_posts_one_dropdown(tmp_path: Path) -> None:
 async def test_widget_service_returns_false_for_unknown_session(tmp_path: Path) -> None:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     try:
-        svc = WidgetService({"assistant": FakePoster()}, store, store, callback_url="http://x/interact")
+        svc = InteractionService({"assistant": FakePoster()}, store, store, store, callback_url="http://x/interact")
         assert await svc.ask("assistant", "no-such-session", "q", ["a", "b"]) is False
     finally:
         await store.close()
@@ -108,7 +106,7 @@ async def _integrations(port: int, store) -> tuple[InteractionsServer, SinkSpy, 
 async def test_click_feeds_choice_back_into_conversation(tmp_path: Path) -> None:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     poster = FakePoster()
-    svc = WidgetService({"assistant": poster}, store, store, callback_url="http://x/interact")
+    svc = InteractionService({"assistant": poster}, store, store, store, callback_url="http://x/interact")
     server, spy, _pending = await _integrations(8471, store)
     try:
         rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
@@ -137,7 +135,7 @@ async def test_select_pick_feeds_selected_option_back(tmp_path: Path) -> None:
     # A dropdown pick arrives as context.selected_option (MM adds it), not value.
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     poster = FakePoster()
-    svc = WidgetService({"assistant": poster}, store, store, callback_url="http://x/interact")
+    svc = InteractionService({"assistant": poster}, store, store, store, callback_url="http://x/interact")
     server, spy, _pending = await _integrations(8473, store)
     try:
         rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)

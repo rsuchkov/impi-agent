@@ -44,11 +44,11 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
 - **Agent** (`ports/agent`): `AgentRuntime` (drives a conversation), `AgentSpec`
   (an agent's neutral config), `AgentProfile` (opaque per-agent runtime config),
   `UiBridge` (surface a mid-turn confirm/select to a human).
-- **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill), `Gateway`
-  (a platform connection), `ChatAdmin` (channel administration), `WidgetPoster` /
-  `WidgetService` / `FormService` (interactivity), `MessageSink` / `Flow` (inbound
-  entry point), `AgentDirectory` (who our agents are), and `types` (the neutral
-  vocabulary: `ConversationRef`, `IncomingMessage`, `Action`, `Form`, …).
+- **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill + the widget verbs),
+  `Gateway` (a platform connection), `ChatAdmin` (channel administration),
+  `InteractionService` (the tool-facing widget/form round-trip), `MessageSink` /
+  `Flow` (inbound entry point), `AgentDirectory` (who our agents are), and `types`
+  (the neutral vocabulary: `ConversationRef`, `IncomingMessage`, `Action`, `Form`, …).
 
 ## The `pi` runtime driver
 
@@ -99,8 +99,10 @@ channel; with several agents present, only an explicit mention) and the
 - **Slack** (Socket Mode) drives the same interaction dispatcher over its
   **socket** — no HTTP receiver needed.
 
-The `GatewayFactory` that builds these lives in `impi` (`impi/gateways.py`), so
-crucible stays free of the "which transport" branch.
+The `GatewayFactory` that builds these lives in `crucible.gateways`; it takes a
+neutral `GatewayConfig` (which transport, which tokens). `impi` only resolves that
+config from its own settings (`impi/gateways.py` — `resolve_gateway`), so the
+composition root never branches on transport inline.
 
 ## Tools
 
@@ -130,8 +132,8 @@ transport-neutral brain: a click either **resolves a blocking mid-turn request**
 (a paused turn waiting on a confirm/select via the `UiBridge`) or is consumed as a
 **one-shot** widget that feeds a synthetic message back into the agent's turn. The
 `InteractionsServer` is the HTTP receiver for HTTP-callback gateways; Slack drives
-the same dispatcher over its socket. `WidgetService`/`FormService` post widgets and
-open modal forms on behalf of a tool.
+the same dispatcher over its socket. The `InteractionService` is the outbound half
+— it posts widgets and opens modal forms on behalf of a tool (`ask`, `open_form`).
 
 ## The composition root
 

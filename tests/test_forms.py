@@ -1,16 +1,17 @@
-"""open_form: Form (de)serialization, FormService, and the receiver dialog paths."""
+"""open_form: Form (de)serialization, InteractionService, and the receiver dialog paths."""
 
 from pathlib import Path
 
 import aiohttp
 
-from crucible.ports.chat.forms import form_from_json, form_to_json
+from crucible.ports.chat.interactions import form_from_json, form_to_json
 from crucible.ports.chat.types import KIND_DM, Action, ConversationRef, Form, FormField
-from crucible.interactions.forms import FormService
+from crucible.interactions.service import InteractionService
 from crucible.interactions import AgentSink, InteractionDispatcher, InteractionsServer
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.store.sessions import SqliteSessionStore
+from tests.fakes.fake_chat import FakeChat
 
 
 def _form() -> Form:
@@ -29,20 +30,17 @@ def test_form_json_roundtrip() -> None:
     assert form_from_json(form_to_json(_form())) == _form()
 
 
-class FakePoster:
+class FakePoster(FakeChat):
+    """A full ChatClient fake; records posted widgets under ``posted`` and opened
+    dialogs under ``dialogs`` (inherited)."""
+
     def __init__(self) -> None:
+        super().__init__()
         self.posted: list[tuple] = []
-        self.dialogs: list[tuple] = []
 
     async def post_actions(self, ref: ConversationRef, text, actions: list[Action], *, callback_url) -> str:
         self.posted.append((ref, text, actions, callback_url))
         return "pid"
-
-    async def retract(self, post_id: str, text: str) -> None:
-        pass
-
-    async def open_dialog(self, trigger_id, form, *, submit_url, state) -> None:
-        self.dialogs.append((trigger_id, form, submit_url, state))
 
 
 async def test_form_service_registers_spec_and_posts_button(tmp_path: Path) -> None:
@@ -50,8 +48,8 @@ async def test_form_service_registers_spec_and_posts_button(tmp_path: Path) -> N
     poster = FakePoster()
     try:
         rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
-        svc = FormService({"assistant": poster}, store, store, callback_url="http://x/interact")
-        assert await svc.open("assistant", rec.runtime_session_id, _form()) is True
+        svc = InteractionService({"assistant": poster}, store, store, store, callback_url="http://x/interact")
+        assert await svc.open_form("assistant", rec.runtime_session_id, _form()) is True
 
         _, text, actions, _ = poster.posted[0]
         assert text == "Fill this in"  # the intro
@@ -66,8 +64,8 @@ async def test_form_service_registers_spec_and_posts_button(tmp_path: Path) -> N
 async def test_form_service_unknown_session_returns_false(tmp_path: Path) -> None:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     try:
-        svc = FormService({"assistant": FakePoster()}, store, store, callback_url="http://x/i")
-        assert await svc.open("assistant", "no-session", _form()) is False
+        svc = InteractionService({"assistant": FakePoster()}, store, store, store, callback_url="http://x/i")
+        assert await svc.open_form("assistant", "no-session", _form()) is False
     finally:
         await store.close()
 
@@ -95,8 +93,8 @@ async def _server(port: int, store, poster) -> tuple[InteractionsServer, SinkSpy
 
 async def _post_form(store, poster) -> str:
     rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
-    svc = FormService({"assistant": poster}, store, store, callback_url="http://x/interact")
-    await svc.open("assistant", rec.runtime_session_id, _form())
+    svc = InteractionService({"assistant": poster}, store, store, store, callback_url="http://x/interact")
+    await svc.open_form("assistant", rec.runtime_session_id, _form())
     return poster.posted[0][2][0].context["form"]
 
 

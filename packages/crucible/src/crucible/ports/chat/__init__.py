@@ -13,7 +13,7 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     UserProfile,
 )
-from crucible.ports.chat.widgets import WidgetPoster, WidgetService
+from crucible.ports.chat.interactions import InteractionService
 
 __all__ = [
     "ChatClient",
@@ -22,8 +22,7 @@ __all__ = [
     "Gateway",
     "AgentIdentity",
     "Action",
-    "WidgetPoster",
-    "WidgetService",
+    "InteractionService",
     "ConversationRef",
     "IncomingMessage",
     "UserProfile",
