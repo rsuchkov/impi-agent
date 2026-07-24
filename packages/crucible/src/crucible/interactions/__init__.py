@@ -15,6 +15,7 @@ from crucible.interactions.dispatcher import (
     InteractionDispatcher,
 )
 from crucible.interactions.server import InteractionsServer
+from crucible.interactions.wiring import InteractionWiring
 
 __all__ = [
     "ActionResult",
@@ -22,4 +23,5 @@ __all__ = [
     "FormOpen",
     "InteractionDispatcher",
     "InteractionsServer",
+    "InteractionWiring",
 ]

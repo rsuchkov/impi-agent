@@ -19,6 +19,9 @@ people. Keep them accurate to the code.
   the `pi` behaviors it relies on (provider/model resolution, tools, skills).
 - **[troubleshooting.md](troubleshooting.md)** — common issues and how to diagnose
   them (logs, reload, session cleanup, callback networking).
+- **[building-an-app.md](building-an-app.md)** — for developers: the composition
+  pattern for building your own app on the `crucible` library (wiring helpers, a
+  minimal skeleton).
 
 For the project overview and quickstart, see the repository
 [`README.md`](../README.md). For the reusable library, see

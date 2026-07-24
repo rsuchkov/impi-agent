@@ -15,9 +15,7 @@ import asyncio
 import dataclasses
 import logging
 import random
-import secrets
 import signal
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,24 +27,17 @@ from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import GatewayFactory, GatewayHandle
 from crucible.gateways.mattermost import MattermostCallbackCodec
-from crucible.interactions import AgentSink, InteractionDispatcher, InteractionsServer
-from crucible.interactions.pending_ui import PendingUiRequests
-from crucible.interactions.service import InteractionService
-from crucible.interactions.ui_bridge import WidgetUiBridge
+from crucible.interactions import AgentSink, InteractionsServer, InteractionWiring
 from crucible.loopguard import LoopGuard
 from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
-from crucible.ports.chat.admin import ChatAdmin
-from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.gateway import Gateway
-from crucible.ports.chat.types import IncomingMessage
 from crucible.profiles import CompositeProfileStore, FsProfileStore, ProfileStore
 from crucible.reloader import ProfileReloader
 from crucible.runtimes.pi import EXTENSION_PATH, build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.store.base import SessionStore
 from crucible.store.sessions import SqliteSessionStore
-from crucible.tools import ToolRegistry, ToolServer, build_registry
-from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FORMS, CAP_WIDGETS
+from crucible.tools import ToolServer, ToolWiring
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
 from impi.gateways import resolve_gateway
@@ -116,189 +107,6 @@ def _select_specs(settings: ImpiSettings, profiles: ProfileStore) -> list[AgentS
     return [profiles.get(name) for name in names]
 
 
-def _gate_tools(
-    registry: ToolRegistry, tools: tuple[str, ...], caps: frozenset[str]
-) -> tuple[tuple[str, ...], dict[str, frozenset[str]]]:
-    """Split an agent's declared tools into (advertised, {dropped: missing caps}).
-    A typed tool is dropped when the agent's gateway/config doesn't provide a
-    capability it requires (e.g. a channel-admin tool on a Slack agent). Names that
-    aren't typed tools (pi builtins like ``read``) are ignored here."""
-    kept: list[str] = []
-    dropped: dict[str, frozenset[str]] = {}
-    for name in tools:
-        tool = registry.get(name)
-        if tool is None:
-            continue
-        missing = tool.requires - caps
-        if missing:
-            dropped[name] = missing
-        else:
-            kept.append(name)
-    return tuple(kept), dropped
-
-
-class InteractionWiring:
-    """Interaction plumbing shared by all agents.
-
-    Owns ``posters`` (agent -> widget poster) and ``sinks`` (agent -> resolved-click
-    sink): both are assigned before the UI bridge and dispatcher capture them, so
-    the agent loop fills the exact objects those collaborators read lazily at
-    request time. ``ui_bridge`` feeds the runtime; ``dispatcher`` feeds the gateway
-    factory. ``finalize`` builds the post-loop interaction service and the HTTP
-    receiver once ``posters`` is populated.
-    """
-
-    def __init__(self, settings: ImpiSettings, sessions: SqliteSessionStore) -> None:
-        # The concrete store, not the SessionStore port: the dispatcher/widget/form
-        # collaborators need its InteractionStore + FormStore facets too.
-        self._settings = settings
-        self._sessions = sessions
-        ints = settings.integrations
-        self.enabled = ints.enabled
-        self.posters: dict[str, ChatClient] = {}
-        self.sinks: dict[str, AgentSink] = {}
-        # Blocking UI bridge: a runtime mid-turn confirm/select becomes a widget the
-        # turn waits on. None when interactions are off — UI requests then fall back
-        # to the session's auto-reject backstop.
-        self.pending_ui = PendingUiRequests() if ints.enabled else None
-        self.ui_bridge = (
-            WidgetUiBridge(
-                self.posters, sessions, self.pending_ui,
-                callback_url=ints.interact_url, timeout=ints.ui_timeout,
-            )
-            if self.pending_ui is not None
-            else None
-        )
-        # Transport-neutral dispatch: resolves a blocking mid-turn request or feeds a
-        # click back as a synthetic message. Shared by the HTTP receiver and every
-        # socket-driven gateway; reads `sinks` lazily at dispatch time.
-        self.dispatcher = (
-            InteractionDispatcher(sessions, self.sinks, self.pending_ui, sessions)
-            if self.pending_ui is not None
-            else None
-        )
-        self.interaction_svc: InteractionService | None = None
-        self.receiver: InteractionsServer | None = None
-
-    def register(self, name: str, *, chat: ChatClient, sink: AgentSink) -> None:
-        self.posters[name] = chat
-        self.sinks[name] = sink
-
-    def on_arrival_for(self, name: str) -> Callable[[IncomingMessage], object] | None:
-        # A real message cancels any blocking UI request outstanding in that
-        # conversation (the user typed instead of clicking).
-        pending = self.pending_ui
-        if pending is None:
-            return None
-        return lambda m: pending.cancel_for_conversation(name, m.conversation_id)
-
-    def finalize(self, *, needs_receiver: bool) -> None:
-        if not self.enabled or self.pending_ui is None:
-            return
-        ints = self._settings.integrations
-        # One service for widgets (ask) and forms (open_form). A form's "fill in"
-        # button clicks to /interact like a widget; the modal submission goes to
-        # /dialog. The one concrete store backs all three store facets.
-        self.interaction_svc = InteractionService(
-            self.posters, self._sessions, self._sessions, self._sessions,
-            callback_url=ints.interact_url,
-        )
-        # The HTTP receiver is only for gateways that deliver callbacks over HTTP
-        # (Mattermost); socket gateways (Slack) drive the same dispatcher over their
-        # socket, so a Slack-only deployment builds no receiver (and binds no port).
-        if needs_receiver:
-            assert self.dispatcher is not None  # pending_ui is not None here
-            self.receiver = InteractionsServer(
-                self.dispatcher, MattermostCallbackCodec(), self.posters,
-                host=ints.host, port=ints.port, dialog_submit_url=ints.dialog_url,
-            )
-
-
-class ToolWiring:
-    """Per-agent tool bookkeeping and the tool server.
-
-    ``enroll`` mints each agent's auth token, records its admin client and
-    capability set, gates its declared tools, and stores its stable tool env.
-    ``profile_env`` (re)writes an agent's manifest and returns its profile env —
-    called at boot and on every hot-reload, so ``caps`` and ``envs`` stay live.
-    A no-op shell when tools are disabled (``registry`` is None).
-    """
-
-    def __init__(self, settings: ImpiSettings) -> None:
-        self._settings = settings
-        self.registry = build_registry() if settings.tools.enabled else None
-        self.manifests_dir = Path(settings.data_dir) / "tool-manifests"
-        self.tokens: dict[str, str] = {}  # token -> agent name (tool server gate)
-        self.admins: dict[str, ChatAdmin] = {}  # agent -> its own admin client
-        self.allowlists: dict[str, frozenset[str]] = {}  # agent -> tools it may call
-        self.envs: dict[str, dict[str, str]] = {}  # agent -> tool env (stable across reloads)
-        self.caps: dict[str, frozenset[str]] = {}  # agent -> capability set
-        # Widgets/forms exist iff the integrations receiver is on; chat_admin only on
-        # gateways that provide it (Mattermost, not Slack) — added per agent in enroll.
-        self.base_caps = (
-            frozenset({CAP_WIDGETS, CAP_FORMS}) if settings.integrations.enabled else frozenset()
-        )
-
-    @property
-    def enabled(self) -> bool:
-        return self.registry is not None
-
-    def enroll(self, spec: AgentSpec, handle: GatewayHandle) -> None:
-        if self.registry is None:
-            return
-        token = secrets.token_hex(16)
-        self.tokens[token] = spec.name
-        if handle.admin is not None:
-            self.admins[spec.name] = handle.admin
-        caps = self.base_caps | (
-            frozenset({CAP_CHAT_ADMIN}) if handle.admin is not None else frozenset()
-        )
-        self.caps[spec.name] = caps
-        advertised, dropped = _gate_tools(self.registry, spec.tools, caps)
-        for name, missing in dropped.items():
-            logger.info(
-                "agent %s: tool %r not advertised — gateway lacks %s",
-                spec.name, name, ", ".join(sorted(missing)),
-            )
-        self.allowlists[spec.name] = frozenset(advertised)
-        self.envs[spec.name] = {"TOOL_URL": self._settings.tools.server_url, "TOOL_TOKEN": token}
-
-    def add_env(self, name: str, env: dict[str, str]) -> None:
-        # Extra tool env that must apply even with tools disabled (engine agents);
-        # separate from enroll, which early-returns when the registry is off.
-        self.envs.setdefault(name, {}).update(env)
-
-    def profile_env(self, spec: AgentSpec) -> dict[str, str] | None:
-        if self.registry is None:
-            return None
-        # Manifest re-derived here so a hot-reload re-filters the advertised tools.
-        advertised, _ = _gate_tools(self.registry, spec.tools, self.caps.get(spec.name, frozenset()))
-        manifest_path = self.registry.write_manifest(self.manifests_dir, spec.name, advertised)
-        return {**self.envs[spec.name], "TOOL_MANIFEST": str(manifest_path)}
-
-    def build_server(
-        self,
-        *,
-        directory: RegistryService,
-        interaction_svc: InteractionService | None,
-        dotenv_path: str,
-    ) -> ToolServer | None:
-        if self.registry is None:
-            return None
-        tools = self._settings.tools
-        return ToolServer(
-            self.registry,
-            directory=directory,
-            admins=self.admins,
-            tokens=self.tokens,
-            allowlists=self.allowlists,
-            host=tools.server_host,
-            port=tools.server_port,
-            tool_configs=self.registry.load_configs(env_file=dotenv_path),
-            interaction_svc=interaction_svc,
-        )
-
-
 class ProfileBuilder:
     """Maps a spec onto its runtime profile: the backend mapping plus the agent's
     gateway formatting hint and, when tools are on, its tool env + a freshly written
@@ -363,7 +171,7 @@ def _build_units(
             continue  # unknown gateway kind (factory logged why)
         needs_receiver = needs_receiver or handle.needs_http_receiver
         profiles.set_hint(spec.name, handle.prompt_hint)
-        tools.enroll(spec, handle)  # must precede profiles.build (reads caps/env)
+        tools.enroll(spec, handle.admin)  # must precede profiles.build (reads caps/env)
         if spec.name in engine_names:
             # Engine-owned agents (support) get the agents directory path (their
             # editable workspace) and the engine source root (read-only) so their
@@ -405,7 +213,9 @@ def build_app(settings: ImpiSettings) -> App:
 
     # Interaction plumbing first: its ui_bridge feeds the runtime and its dispatcher
     # feeds the gateway factory.
-    interactions = InteractionWiring(settings, sessions)
+    interactions = InteractionWiring(
+        settings.integrations, sessions, codec=MattermostCallbackCodec()
+    )
 
     # TODO(runtime-backend): build_app hardcodes the pi backend. When a second
     # AgentRuntime appears, extract a runtime-builder (selected by a settings key)
@@ -427,7 +237,10 @@ def build_app(settings: ImpiSettings) -> App:
         max_agent_turns=settings.agent_rate_limit_turns,
         window_s=settings.agent_rate_window_s,
     )
-    tools = ToolWiring(settings)
+    tools = ToolWiring(
+        settings.tools, data_dir=settings.data_dir,
+        interactivity_on=settings.integrations.enabled,
+    )
     profile_builder = ProfileBuilder(tools)
     gateway_factory = GatewayFactory(
         directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher

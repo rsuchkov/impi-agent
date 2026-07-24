@@ -85,7 +85,7 @@ def test_build_app_skips_agents_without_tokens(tmp_path: Path, monkeypatch) -> N
 def test_gate_tools_drops_tools_missing_a_capability() -> None:
     from crucible.tools import build_registry
     from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FORMS, CAP_WIDGETS
-    from impi.app import _gate_tools
+    from crucible.tools.wiring import _gate_tools
 
     reg = build_registry()
     slack_caps = frozenset({CAP_WIDGETS, CAP_FORMS})  # a Slack agent: no chat_admin

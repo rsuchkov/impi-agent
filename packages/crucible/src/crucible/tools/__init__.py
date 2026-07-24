@@ -9,6 +9,7 @@ per call, and tools never import a platform SDK — they depend only on ports.
 from crucible.tools.base import Tool, ToolContext, ToolError
 from crucible.tools.registry import ToolRegistry, build_registry, tool
 from crucible.tools.server import ToolServer
+from crucible.tools.wiring import ToolWiring
 
 __all__ = [
     "Tool",
@@ -16,6 +17,7 @@ __all__ = [
     "ToolError",
     "ToolRegistry",
     "ToolServer",
+    "ToolWiring",
     "build_registry",
     "tool",
 ]

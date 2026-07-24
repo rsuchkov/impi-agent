@@ -81,8 +81,12 @@ for spec in store.list():
     gateway   = MattermostGateway(driver, coalescer, chat, ...)  # or SlackGateway
 ```
 
-crucible provides every piece above; the app decides which concretes to build and
-how to gate each agent's tools. See `impi/app.py` (`build_app`) for the full wiring.
+crucible also ships cohesive **wiring helpers** — `GatewayFactory`,
+`InteractionWiring`, `ToolWiring` — that assemble the common combinations from
+neutral config, so the app's composition root stays short. The app decides which
+concretes to build and how to gate each agent's tools. See
+[docs/building-an-app.md](../../docs/building-an-app.md) for the pattern and a
+skeleton, and `impi/app.py` (`build_app`) for the full reference.
 
 ## Runtime-backend seam
 
