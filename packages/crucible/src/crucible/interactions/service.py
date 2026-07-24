@@ -10,10 +10,9 @@ INBOUND half (matching the click/submit) is the InteractionDispatcher.
 
 import logging
 import secrets
-from collections.abc import Mapping
 from datetime import datetime, timezone
 
-from crucible.ports.chat.client import ChatClient
+from crucible.interactions.presence import AgentPresence
 from crucible.ports.chat.interactions import form_to_json
 from crucible.ports.chat.types import KIND_THREAD, Action, ConversationRef, Form
 from crucible.store.base import (
@@ -38,14 +37,14 @@ def _now() -> str:
 class InteractionService:
     def __init__(
         self,
-        posters: Mapping[str, ChatClient],
+        presence: AgentPresence,
         sessions: SessionStore,
         interactions: InteractionStore,
         forms: FormStore,
         *,
         callback_url: str,
     ) -> None:
-        self._posters = posters
+        self._presence = presence
         self._sessions = sessions
         self._interactions = interactions
         self._forms = forms
@@ -61,7 +60,7 @@ class InteractionService:
         style: str = "buttons",
     ) -> bool:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        poster = self._posters.get(agent)
+        poster = self._presence.poster(agent)
         if record is None or poster is None:
             logger.warning("widget ask: no session/poster for %s / %s", agent, runtime_session_id)
             return False
@@ -97,7 +96,7 @@ class InteractionService:
 
     async def open_form(self, agent: str, runtime_session_id: str, form: Form) -> bool:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        poster = self._posters.get(agent)
+        poster = self._presence.poster(agent)
         if record is None or poster is None:
             logger.warning("form open: no session/poster for %s / %s", agent, runtime_session_id)
             return False

@@ -5,13 +5,14 @@ from pathlib import Path
 import aiohttp
 
 from crucible.gateways.mattermost import MattermostCallbackCodec
-from crucible.interactions import AgentSink, InteractionDispatcher, InteractionsServer
+from crucible.interactions import InteractionDispatcher, InteractionsServer
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.service import InteractionService
 from crucible.ports.chat.interactions import form_from_json, form_to_json
 from crucible.ports.chat.types import KIND_DM, Action, ConversationRef, Form, FormField
 from crucible.store.sessions import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
+from tests.fakes.presence import presence_of
 
 
 def _form() -> Form:
@@ -48,7 +49,7 @@ async def test_form_service_registers_spec_and_posts_button(tmp_path: Path) -> N
     poster = FakePoster()
     try:
         rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
-        svc = InteractionService({"assistant": poster}, store, store, store, callback_url="http://x/interact")
+        svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/interact")
         assert await svc.open_form("assistant", rec.runtime_session_id, _form()) is True
 
         _, text, actions, _ = poster.posted[0]
@@ -64,7 +65,7 @@ async def test_form_service_registers_spec_and_posts_button(tmp_path: Path) -> N
 async def test_form_service_unknown_session_returns_false(tmp_path: Path) -> None:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     try:
-        svc = InteractionService({"assistant": FakePoster()}, store, store, store, callback_url="http://x/i")
+        svc = InteractionService(presence_of(FakePoster()), store, store, store, callback_url="http://x/i")
         assert await svc.open_form("assistant", "no-session", _form()) is False
     finally:
         await store.close()
@@ -81,10 +82,10 @@ class SinkSpy:
 async def _server(port: int, store, poster) -> tuple[InteractionsServer, SinkSpy]:
     spy = SinkSpy()
     dispatcher = InteractionDispatcher(
-        store, {"assistant": AgentSink(sink=spy, chat=object())}, PendingUiRequests(), store  # type: ignore[arg-type]
+        store, presence_of(object(), sink=spy), PendingUiRequests(), store  # type: ignore[arg-type]
     )
     server = InteractionsServer(
-        dispatcher, MattermostCallbackCodec(), {"assistant": poster},
+        dispatcher, MattermostCallbackCodec(), presence_of(poster),
         host="127.0.0.1", port=port, dialog_submit_url="http://x/dialog",
     )
     await server.start()
@@ -93,7 +94,7 @@ async def _server(port: int, store, poster) -> tuple[InteractionsServer, SinkSpy
 
 async def _post_form(store, poster) -> str:
     rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
-    svc = InteractionService({"assistant": poster}, store, store, store, callback_url="http://x/interact")
+    svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/interact")
     await svc.open_form("assistant", rec.runtime_session_id, _form())
     return poster.posted[0][2][0].context["form"]
 

@@ -14,14 +14,17 @@ from crucible.interactions.dispatcher import (
     FormOpen,
     InteractionDispatcher,
 )
+from crucible.interactions.presence import AgentPresence, MappingPresence
 from crucible.interactions.server import InteractionsServer
 from crucible.interactions.wiring import InteractionWiring
 
 __all__ = [
     "ActionResult",
+    "AgentPresence",
     "AgentSink",
     "FormOpen",
     "InteractionDispatcher",
     "InteractionsServer",
     "InteractionWiring",
+    "MappingPresence",
 ]

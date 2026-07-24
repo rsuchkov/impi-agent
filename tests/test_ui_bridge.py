@@ -8,6 +8,7 @@ from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.agent.ui import UiRequest
 from crucible.ports.chat.types import KIND_DM, Action, ConversationRef
 from crucible.store.sessions import SqliteSessionStore
+from tests.fakes.presence import presence_of
 
 
 async def _wait_until(predicate, timeout: float = 1.0) -> None:
@@ -38,7 +39,7 @@ class FakePoster:
 
 def _bridge(store, poster, pending, *, timeout: float = 5.0) -> WidgetUiBridge:
     return WidgetUiBridge(
-        {"assistant": poster}, store, pending, callback_url="http://x/interact", timeout=timeout
+        presence_of(poster), store, pending, callback_url="http://x/interact", timeout=timeout
     )
 
 

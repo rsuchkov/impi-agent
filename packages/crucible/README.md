@@ -18,7 +18,7 @@ its own settings into a running engine.
 | Gateways | `crucible.gateways` | Chat-platform adapters (`mattermost`, `slack`) — the only code that imports a platform SDK. |
 | Flows | `crucible.flows` | Conversation orchestration: `AgentFlow` (a batch → one reply), `MessageCoalescer`. |
 | Tools | `crucible.tools` | The typed-tool framework: `@tool` registry, capability gating, an HTTP tool-server. |
-| Interactions | `crucible.interactions` | The widget/form callback machinery (dispatcher, receiver, UI bridge). |
+| Interactions | `crucible.interactions` | The widget/form callback machinery (dispatcher, receiver, UI bridge). Stateless: reads an `AgentPresence` the app owns. |
 | Store | `crucible.store` | SQLite persistence for sessions, interactions, and forms. |
 | Profiles | `crucible.profiles` | Load agent profiles from a directory into neutral `AgentSpec`s. |
 | Config | `crucible.config` | `Settings` (pydantic-settings); no module-level singleton. |

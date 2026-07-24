@@ -1,11 +1,11 @@
-"""InteractionWiring: an application's interactivity plumbing, assembled from an
-``IntegrationsSettings`` config.
+"""InteractionWiring: an application's interactivity plumbing, built from an
+``IntegrationsSettings`` config and an ``AgentPresence``.
 
-Owns the shared ``posters``/``sinks`` the agent loop fills, builds the blocking UI
-bridge and the transport-neutral dispatcher up front, and (post-loop, via
-``finalize``) the ``InteractionService`` and the HTTP callback receiver. The
-receiver's ``CallbackCodec`` is injected — the interactions layer never imports a
-gateway.
+Builds the blocking UI bridge, the transport-neutral dispatcher, the interaction
+service, and (when ``needs_receiver``) the HTTP callback receiver — all up front,
+all reading the presence lazily. The receiver's ``CallbackCodec`` is injected; the
+interactions layer never imports a gateway. Holds no per-agent state — the app owns
+the presence registry, so there is no ``register`` and no ``finalize``.
 
 A convenience for composition roots; an app may wire these pieces by hand instead.
 """
@@ -14,65 +14,68 @@ from collections.abc import Callable
 
 from crucible.config import IntegrationsSettings
 from crucible.interactions.callbacks import CallbackCodec
-from crucible.interactions.dispatcher import AgentSink, InteractionDispatcher
+from crucible.interactions.dispatcher import InteractionDispatcher
 from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.interactions.presence import AgentPresence
 from crucible.interactions.server import InteractionsServer
 from crucible.interactions.service import InteractionService
 from crucible.interactions.ui_bridge import WidgetUiBridge
-from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import IncomingMessage
 from crucible.store.sessions import SqliteSessionStore
 
 
 class InteractionWiring:
-    """``posters``/``sinks`` are assigned before the UI bridge and dispatcher
-    capture them, so the agent loop fills the exact objects those collaborators read
-    lazily at request time. ``ui_bridge`` feeds the runtime; ``dispatcher`` feeds the
-    gateway factory. ``finalize`` builds the post-loop interaction service and the
-    HTTP receiver once ``posters`` is populated.
+    """``needs_receiver`` (whether any agent runs on an HTTP-callback gateway) is
+    resolved by the app up front, so everything can be built in the constructor.
     """
 
     def __init__(
         self,
         integrations: IntegrationsSettings,
         sessions: SqliteSessionStore,
+        presence: AgentPresence,
         *,
         codec: CallbackCodec,
+        needs_receiver: bool,
     ) -> None:
-        # The concrete store, not the SessionStore port: the dispatcher/widget/form
-        # collaborators need its InteractionStore + FormStore facets too.
-        self._integrations = integrations
-        self._sessions = sessions
-        self._codec = codec
+        # The concrete store, not the SessionStore port: the dispatcher/interaction
+        # service need its InteractionStore + FormStore facets too.
         self.enabled = integrations.enabled
-        self.posters: dict[str, ChatClient] = {}
-        self.sinks: dict[str, AgentSink] = {}
+        self.pending_ui: PendingUiRequests | None = None
+        self.ui_bridge: WidgetUiBridge | None = None
+        self.dispatcher: InteractionDispatcher | None = None
+        self.interaction_svc: InteractionService | None = None
+        self.receiver: InteractionsServer | None = None
+        if not integrations.enabled:
+            # Interactions off: a runtime mid-turn UI request falls back to the
+            # session's auto-reject backstop; no widgets/forms, no receiver.
+            return
+
+        self.pending_ui = PendingUiRequests()
         # Blocking UI bridge: a runtime mid-turn confirm/select becomes a widget the
-        # turn waits on. None when interactions are off — UI requests then fall back
-        # to the session's auto-reject backstop.
-        self.pending_ui = PendingUiRequests() if integrations.enabled else None
-        self.ui_bridge = (
-            WidgetUiBridge(
-                self.posters, sessions, self.pending_ui,
-                callback_url=integrations.interact_url, timeout=integrations.ui_timeout,
-            )
-            if self.pending_ui is not None
-            else None
+        # turn waits on. Feeds the runtime.
+        self.ui_bridge = WidgetUiBridge(
+            presence, sessions, self.pending_ui,
+            callback_url=integrations.interact_url, timeout=integrations.ui_timeout,
         )
         # Transport-neutral dispatch: resolves a blocking mid-turn request or feeds a
         # click back as a synthetic message. Shared by the HTTP receiver and every
-        # socket-driven gateway; reads `sinks` lazily at dispatch time.
-        self.dispatcher = (
-            InteractionDispatcher(sessions, self.sinks, self.pending_ui, sessions)
-            if self.pending_ui is not None
-            else None
+        # socket-driven gateway. Feeds the gateway factory.
+        self.dispatcher = InteractionDispatcher(sessions, presence, self.pending_ui, sessions)
+        # One service for widgets (ask) and forms (open_form). The one concrete store
+        # backs all three store facets.
+        self.interaction_svc = InteractionService(
+            presence, sessions, sessions, sessions, callback_url=integrations.interact_url,
         )
-        self.interaction_svc: InteractionService | None = None
-        self.receiver: InteractionsServer | None = None
-
-    def register(self, name: str, *, chat: ChatClient, sink: AgentSink) -> None:
-        self.posters[name] = chat
-        self.sinks[name] = sink
+        # The HTTP receiver is only for gateways that deliver callbacks over HTTP
+        # (Mattermost); socket gateways (Slack) drive the same dispatcher over their
+        # socket, so a Slack-only deployment builds no receiver (and binds no port).
+        if needs_receiver:
+            self.receiver = InteractionsServer(
+                self.dispatcher, codec, presence,
+                host=integrations.host, port=integrations.port,
+                dialog_submit_url=integrations.dialog_url,
+            )
 
     def on_arrival_for(self, name: str) -> Callable[[IncomingMessage], object] | None:
         # A real message cancels any blocking UI request outstanding in that
@@ -81,24 +84,3 @@ class InteractionWiring:
         if pending is None:
             return None
         return lambda m: pending.cancel_for_conversation(name, m.conversation_id)
-
-    def finalize(self, *, needs_receiver: bool) -> None:
-        if not self.enabled or self.pending_ui is None:
-            return
-        ints = self._integrations
-        # One service for widgets (ask) and forms (open_form). A form's "fill in"
-        # button clicks to /interact like a widget; the modal submission goes to
-        # /dialog. The one concrete store backs all three store facets.
-        self.interaction_svc = InteractionService(
-            self.posters, self._sessions, self._sessions, self._sessions,
-            callback_url=ints.interact_url,
-        )
-        # The HTTP receiver is only for gateways that deliver callbacks over HTTP
-        # (Mattermost); socket gateways (Slack) drive the same dispatcher over their
-        # socket, so a Slack-only deployment builds no receiver (and binds no port).
-        if needs_receiver:
-            assert self.dispatcher is not None  # pending_ui is not None here
-            self.receiver = InteractionsServer(
-                self.dispatcher, self._codec, self.posters,
-                host=ints.host, port=ints.port, dialog_submit_url=ints.dialog_url,
-            )

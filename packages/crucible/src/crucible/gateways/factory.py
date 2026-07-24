@@ -29,6 +29,16 @@ from crucible.ports.chat.gateway import Gateway
 
 logger = logging.getLogger(__name__)
 
+# Gateway kinds that deliver interactive callbacks over HTTP, so a deployment with
+# any such agent needs the interactions receiver. (Slack drives its socket instead.)
+_HTTP_CALLBACK_KINDS = frozenset({"mattermost"})
+
+
+def needs_http_receiver(kind: str) -> bool:
+    """Whether a gateway of this kind delivers callbacks over HTTP — lets the app
+    decide up front (before building handles) if the HTTP receiver is required."""
+    return kind in _HTTP_CALLBACK_KINDS
+
 
 @dataclass(frozen=True)
 class GatewayConfig:
@@ -104,7 +114,7 @@ class GatewayFactory:
 
         return GatewayHandle(
             chat=chat, admin=chat, create_gateway=create_gateway,
-            prompt_hint="", needs_http_receiver=True,
+            prompt_hint="", needs_http_receiver=needs_http_receiver(config.kind),
         )
 
     def _slack(self, agent: str, config: GatewayConfig) -> GatewayHandle:
@@ -121,5 +131,5 @@ class GatewayFactory:
 
         return GatewayHandle(
             chat=chat, admin=chat, create_gateway=create_gateway,
-            prompt_hint=SLACK_PROMPT_HINT, needs_http_receiver=False,
+            prompt_hint=SLACK_PROMPT_HINT, needs_http_receiver=needs_http_receiver(config.kind),
         )

@@ -29,26 +29,32 @@ compose differently.
 | Helper | Takes (neutral config) | Gives you |
 |---|---|---|
 | `GatewayFactory.create(agent, GatewayConfig)` | which transport + tokens | a `GatewayHandle` (chat client, admin, a gateway builder, prompt hint, needs-receiver) |
-| `InteractionWiring(IntegrationsSettings, sessions, codec=…)` | the interactivity config + a `CallbackCodec` | shared `posters`/`sinks`, the UI bridge, the dispatcher, and (via `finalize`) the interaction service + HTTP receiver |
+| `InteractionWiring(IntegrationsSettings, sessions, presence, codec=…, needs_receiver=…)` | the interactivity config, an `AgentPresence`, a `CallbackCodec` | the UI bridge, the dispatcher, the interaction service, and (when `needs_receiver`) the HTTP receiver — all built up front, all reading the presence lazily |
 | `ToolWiring(ToolSettings, data_dir=…, interactivity_on=…)` | the tool-server config | per-agent `enroll`/`profile_env` and `build_server` |
 
-`InteractionWiring` needs the codec **injected** (the interactions layer must not
-import a gateway); pass your HTTP-callback gateway's codec (e.g.
-`MattermostCallbackCodec()`).
+`InteractionWiring` holds no per-agent state: it reads an **`AgentPresence`** (a
+lookup of `agent -> ChatClient` / `AgentSink`) that the app owns and fills as it
+builds agents. Wrap your `{agent: AgentSink}` map in `MappingPresence`. The codec is
+**injected** (the interactions layer must not import a gateway) — pass your
+HTTP-callback gateway's codec (e.g. `MattermostCallbackCodec()`). Compute
+`needs_receiver` up front from the gateway kinds (`needs_http_receiver(kind)`), so
+everything can be built in the constructor — there is no `finalize`.
 
 ## The composition pattern
 
 1. Load profiles (`FsProfileStore`, merged with `CompositeProfileStore` if you
    bundle engine-owned agents).
-2. Build the session store and the interaction wiring (its `ui_bridge` feeds the
-   runtime; its `dispatcher` feeds the gateway factory).
+2. Resolve each agent's `GatewayConfig` up front; from the kinds, compute
+   `needs_receiver`. Create the presence registry (`{agent: AgentSink}` +
+   `MappingPresence`) and the interaction wiring (its `ui_bridge` feeds the runtime;
+   its `dispatcher` feeds the gateway factory).
 3. Build the runtime (`PiRuntime`, or another `AgentRuntime`), the registry
    (`AgentDirectory`), the tool wiring, and the gateway factory.
-4. Loop the agents: resolve each to a `GatewayConfig`, build its `GatewayHandle`,
-   `enroll` its tools, build its `AgentFlow` + `MessageCoalescer`, and `register`
-   it with the interaction wiring.
-5. `finalize` the interaction wiring, build the tool server, (optionally) a
-   `ProfileReloader`, and assemble your `App`.
+4. Loop the agents: build each `GatewayHandle` from its config, `enroll` its tools,
+   build its `AgentFlow` + `MessageCoalescer`, and record its presence
+   (`AgentSink`) in the map.
+5. Build the tool server, (optionally) a `ProfileReloader`, and assemble your `App`.
+   (No `finalize` — the interaction wiring was built complete in step 2.)
 
 ## A minimal skeleton
 
@@ -58,9 +64,9 @@ for the complete version.
 ```python
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
-from crucible.gateways import GatewayConfig, GatewayFactory
+from crucible.gateways import GatewayConfig, GatewayFactory, needs_http_receiver
 from crucible.gateways.mattermost import MattermostCallbackCodec
-from crucible.interactions import AgentSink, InteractionWiring
+from crucible.interactions import AgentSink, InteractionWiring, MappingPresence
 from crucible.profiles import FsProfileStore
 from crucible.runtimes.pi import build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
@@ -72,8 +78,23 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
     profiles = FsProfileStore(settings.agents_path)
     sessions = SqliteSessionStore(settings.db_path)
 
+    specs = profiles.list()
+    # Resolve gateway configs up front → know which agents run and whether the HTTP
+    # receiver is needed, so the interaction plumbing can be built complete.
+    configs = {
+        s.name: GatewayConfig(kind="mattermost", mattermost_url=settings.mattermost_url,
+                              mm_token=settings.token_for(s.name))
+        for s in specs
+    }
+    needs_receiver = any(needs_http_receiver(c.kind) for c in configs.values())
+
+    # The app owns the presence registry (agent -> AgentSink); the loop fills it,
+    # interactions read it lazily via MappingPresence.
+    sinks_by_agent: dict[str, AgentSink] = {}
+    presence = MappingPresence(sinks_by_agent)
     interactions = InteractionWiring(
-        settings.integrations, sessions, codec=MattermostCallbackCodec()
+        settings.integrations, sessions, presence,
+        codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
     )
     runtime = PiRuntime(pi_bin="pi", session_dir=settings.session_dir,
                         ui_bridge=interactions.ui_bridge)
@@ -83,25 +104,17 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
                              dispatcher=interactions.dispatcher)
 
     units = []
-    for spec in profiles.list():
-        config = GatewayConfig(
-            kind="mattermost", mattermost_url=settings.mattermost_url,
-            mm_token=settings.token_for(spec.name),
-        )
-        handle = factory.create(spec.name, config)
+    for spec in specs:
+        handle = factory.create(spec.name, configs[spec.name])
         if handle is None:
             continue
         tools.enroll(spec, handle.admin)  # before building the profile
-        env = tools.profile_env(spec) or {}
-        profile = build_pi_profile(spec)  # + apply env / the gateway prompt hint
+        profile = build_pi_profile(spec)  # + apply tools.profile_env(spec) / the prompt hint
         flow = AgentFlow(runtime, profile, sessions, agent_name=spec.name)
         coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
-        interactions.register(
-            spec.name, chat=handle.chat, sink=AgentSink(sink=coalescer, chat=handle.chat)
-        )
+        sinks_by_agent[spec.name] = AgentSink(sink=coalescer, chat=handle.chat)  # record presence
         units.append((spec, handle.create_gateway(coalescer)))
 
-    interactions.finalize(needs_receiver=True)
     tool_server = tools.build_server(
         directory=registry, interaction_svc=interactions.interaction_svc,
         dotenv_path=settings.dotenv_path,

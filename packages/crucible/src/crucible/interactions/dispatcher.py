@@ -8,11 +8,11 @@ message. It knows nothing about HTTP or any platform's payload shape.
 """
 
 import logging
-from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum, auto
 
 from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.interactions.presence import AgentPresence
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.interactions import form_from_json
@@ -54,12 +54,12 @@ class InteractionDispatcher:
     def __init__(
         self,
         interactions: InteractionStore,
-        sinks: Mapping[str, AgentSink],
+        presence: AgentPresence,
         pending: PendingUiRequests,
         forms: FormStore,
     ) -> None:
         self._interactions = interactions
-        self._sinks = sinks
+        self._presence = presence
         self._pending = pending
         self._forms = forms
 
@@ -83,7 +83,7 @@ class InteractionDispatcher:
         record = await self._interactions.take_interaction(token) if token else None
         if record is None:
             return ActionResult.UNKNOWN
-        target = self._sinks.get(record.agent)
+        target = self._presence.sink(record.agent)
         if target is None:
             return ActionResult.UNAVAILABLE
         if not value:
@@ -119,7 +119,7 @@ class InteractionDispatcher:
         await self._forms.delete_form(state)  # one-shot
         if cancelled:
             return False
-        target = self._sinks.get(record.agent)
+        target = self._presence.sink(record.agent)
         if target is None:
             return False
         thread_root = record.conversation_id if record.kind == KIND_THREAD else ""

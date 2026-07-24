@@ -12,9 +12,9 @@ so it works over any gateway whose client implements the widget verbs.
 import asyncio
 import logging
 import secrets
-from collections.abc import Mapping
 
 from crucible.interactions.pending_ui import CONFIRM_NO, CONFIRM_YES, PendingUiRequests
+from crucible.interactions.presence import AgentPresence
 from crucible.ports.agent.ui import UiOutcome, UiRequest
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import KIND_THREAD, Action, ConversationRef
@@ -33,14 +33,14 @@ _CANCELLED_MESSAGE = "This request was cancelled."
 class WidgetUiBridge:
     def __init__(
         self,
-        posters: Mapping[str, ChatClient],
+        presence: AgentPresence,
         sessions: SessionStore,
         pending: PendingUiRequests,
         *,
         callback_url: str,
         timeout: float = 90.0,
     ) -> None:
-        self._posters = posters
+        self._presence = presence
         self._sessions = sessions
         self._pending = pending
         self._callback_url = callback_url
@@ -48,7 +48,7 @@ class WidgetUiBridge:
 
     async def request(self, runtime_session_id: str, req: UiRequest) -> UiOutcome:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        poster = self._posters.get(record.agent) if record else None
+        poster = self._presence.poster(record.agent) if record else None
         if record is None or poster is None:
             logger.warning("ui bridge: no session/poster for %s", runtime_session_id)
             return UiOutcome(cancelled=True)

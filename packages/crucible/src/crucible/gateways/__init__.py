@@ -6,6 +6,11 @@ gateway from a neutral ``GatewayConfig``; an application resolves that config fr
 its own settings.
 """
 
-from crucible.gateways.factory import GatewayConfig, GatewayFactory, GatewayHandle
+from crucible.gateways.factory import (
+    GatewayConfig,
+    GatewayFactory,
+    GatewayHandle,
+    needs_http_receiver,
+)
 
-__all__ = ["GatewayConfig", "GatewayFactory", "GatewayHandle"]
+__all__ = ["GatewayConfig", "GatewayFactory", "GatewayHandle", "needs_http_receiver"]

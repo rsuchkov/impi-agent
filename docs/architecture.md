@@ -135,6 +135,13 @@ transport-neutral brain: a click either **resolves a blocking mid-turn request**
 the same dispatcher over its socket. The `InteractionService` is the outbound half
 — it posts widgets and opens modal forms on behalf of a tool (`ask`, `open_form`).
 
+None of these collaborators own per-agent state: they look up an agent's outbound
+client (`poster`) and inbound sink (`AgentSink`) through an **`AgentPresence`** at
+request time. The application owns that registry (a `{agent: AgentSink}` map wrapped
+in `MappingPresence`) and fills it as it builds each agent. So `InteractionWiring`
+builds everything up front from the presence — no per-agent `register`, no
+post-loop `finalize`.
+
 ## The composition root
 
 `impi/app.py` is the one place concrete adapters meet. `build_app(settings)`

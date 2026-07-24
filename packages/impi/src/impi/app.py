@@ -25,9 +25,19 @@ import crucible.builtin_tools  # noqa: E402,F401
 import impi.chat_tools  # noqa: E402,F401
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
-from crucible.gateways import GatewayFactory, GatewayHandle
+from crucible.gateways import (
+    GatewayConfig,
+    GatewayFactory,
+    GatewayHandle,
+    needs_http_receiver,
+)
 from crucible.gateways.mattermost import MattermostCallbackCodec
-from crucible.interactions import AgentSink, InteractionsServer, InteractionWiring
+from crucible.interactions import (
+    AgentSink,
+    InteractionsServer,
+    InteractionWiring,
+    MappingPresence,
+)
 from crucible.loopguard import LoopGuard
 from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
 from crucible.ports.chat.gateway import Gateway
@@ -140,16 +150,20 @@ def _build_unit(
     sessions: SessionStore,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
+    sinks_by_agent: dict[str, AgentSink],
 ) -> AgentUnit:
     profile = profiles.build(spec)
     flow = AgentFlow(runtime, profile, sessions, agent_name=spec.name)
     coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
-    interactions.register(spec.name, chat=handle.chat, sink=AgentSink(sink=coalescer, chat=handle.chat))
+    # Record the agent's live presence in the app-owned registry; interactions read
+    # it lazily through MappingPresence.
+    sinks_by_agent[spec.name] = AgentSink(sink=coalescer, chat=handle.chat)
     return AgentUnit(spec=spec, flow=flow, gateway=handle.create_gateway(coalescer))
 
 
 def _build_units(
     specs: list[AgentSpec],
+    configs: dict[str, GatewayConfig | None],
     engine_names: set[str],
     *,
     settings: ImpiSettings,
@@ -159,17 +173,16 @@ def _build_units(
     tools: ToolWiring,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
-) -> tuple[list[AgentUnit], bool]:
+    sinks_by_agent: dict[str, AgentSink],
+) -> list[AgentUnit]:
     units: list[AgentUnit] = []
-    needs_receiver = False  # any agent on an HTTP-callback gateway (Mattermost)?
     for spec in specs:
-        config = resolve_gateway(settings, spec.name)  # settings -> neutral config
+        config = configs.get(spec.name)
         if config is None:
             continue  # no token for this agent (resolver logged why)
         handle = gateway_factory.create(spec.name, config)
         if handle is None:
             continue  # unknown gateway kind (factory logged why)
-        needs_receiver = needs_receiver or handle.needs_http_receiver
         profiles.set_hint(spec.name, handle.prompt_hint)
         tools.enroll(spec, handle.admin)  # must precede profiles.build (reads caps/env)
         if spec.name in engine_names:
@@ -183,10 +196,11 @@ def _build_units(
         units.append(
             _build_unit(
                 spec, handle,
-                runtime=runtime, sessions=sessions, profiles=profiles, interactions=interactions,
+                runtime=runtime, sessions=sessions, profiles=profiles,
+                interactions=interactions, sinks_by_agent=sinks_by_agent,
             )
         )
-    return units, needs_receiver
+    return units
 
 
 def build_app(settings: ImpiSettings) -> App:
@@ -211,10 +225,24 @@ def build_app(settings: ImpiSettings) -> App:
     profiles = CompositeProfileStore([user_store, engine_store])  # rejects duplicate names
     sessions = SqliteSessionStore(settings.resolved_db_path)
 
-    # Interaction plumbing first: its ui_bridge feeds the runtime and its dispatcher
-    # feeds the gateway factory.
+    # Resolve each agent's gateway config once, up front: it tells us which agents
+    # are runnable and whether any needs the HTTP receiver — so the interaction
+    # plumbing can be built complete (no post-loop finalize).
+    specs = [*_select_specs(settings, user_store), *engine_store.list()]
+    configs = {spec.name: resolve_gateway(settings, spec.name) for spec in specs}
+    needs_receiver = any(
+        cfg is not None and needs_http_receiver(cfg.kind) for cfg in configs.values()
+    )
+
+    # The app owns the registry of live agent presences (agent -> AgentSink); the
+    # loop fills it, the interaction collaborators read it lazily via MappingPresence.
+    sinks_by_agent: dict[str, AgentSink] = {}
+    presence = MappingPresence(sinks_by_agent)
+    # Interaction plumbing: its ui_bridge feeds the runtime and its dispatcher feeds
+    # the gateway factory. Holds no per-agent state.
     interactions = InteractionWiring(
-        settings.integrations, sessions, codec=MattermostCallbackCodec()
+        settings.integrations, sessions, presence,
+        codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
     )
 
     # TODO(runtime-backend): build_app hardcodes the pi backend. When a second
@@ -246,17 +274,15 @@ def build_app(settings: ImpiSettings) -> App:
         directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher
     )
 
-    specs = [*_select_specs(settings, user_store), *engine_store.list()]
-    units, needs_receiver = _build_units(
-        specs, engine_names,
+    units = _build_units(
+        specs, configs, engine_names,
         settings=settings, runtime=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools,
-        profiles=profile_builder, interactions=interactions,
+        profiles=profile_builder, interactions=interactions, sinks_by_agent=sinks_by_agent,
     )
     if not units:
         raise RuntimeError("No agents with a gateway token — nothing to run")
 
-    interactions.finalize(needs_receiver=needs_receiver)
     tool_server = tools.build_server(
         directory=registry,
         interaction_svc=interactions.interaction_svc,

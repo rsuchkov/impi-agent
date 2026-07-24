@@ -10,13 +10,12 @@ callbacks.
 """
 
 import logging
-from collections.abc import Mapping
 
 from aiohttp import web
 
 from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import ActionResult, InteractionDispatcher
-from crucible.ports.chat.client import ChatClient
+from crucible.interactions.presence import AgentPresence
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ class InteractionsServer:
         self,
         dispatcher: InteractionDispatcher,
         codec: CallbackCodec,
-        posters: Mapping[str, ChatClient],
+        presence: AgentPresence,
         *,
         host: str = "0.0.0.0",
         port: int = 8423,
@@ -40,7 +39,7 @@ class InteractionsServer:
     ) -> None:
         self._dispatcher = dispatcher
         self._codec = codec
-        self._posters = posters
+        self._presence = presence
         self._host = host
         self._port = port
         self._dialog_submit_url = dialog_submit_url
@@ -94,7 +93,7 @@ class InteractionsServer:
         form = await self._dispatcher.load_form(cb.form_token)
         if form is None:
             return web.json_response(self._codec.reply_replace(_BUTTONS_RETIRED_MESSAGE))
-        poster = self._posters.get(form.agent)
+        poster = self._presence.poster(form.agent)
         if poster is None or not cb.trigger:
             return web.json_response(self._codec.reply_notice(_AGENT_UNAVAILABLE_MESSAGE))
         try:
