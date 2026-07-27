@@ -1,0 +1,33 @@
+# impi deployment — base file: the engine container only. The installer picks
+# overlays on top (compose.mattermost.yaml to co-deploy Mattermost,
+# compose.external-mm.yaml for an external server, compose.podman.yaml for
+# rootless podman) and passes them as an explicit -f list with
+# --env-file $IMPI_HOME/compose.env for the ${...} interpolation below.
+#
+# The impi service has NO env_file on purpose: the engine reads the bind-mounted
+# /app/conf/.env itself (DOTENV_PATH), so secrets never enter the container
+# environment and a plain `compose restart impi` picks up edits.
+
+services:
+  impi:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        IMPI_UID: "${IMPI_UID:-1000}"
+        IMPI_GID: "${IMPI_GID:-1000}"
+    image: localhost/impi:local
+    restart: unless-stopped
+    volumes:
+      - ${IMPI_HOME:?set in compose.env}/conf:/app/conf:z
+      - ${IMPI_AGENTS_DIR:?set in compose.env}:/app/agents:z
+      - impi-data:/app/data
+      - pi-auth:/home/impi/.pi
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f impi.main || exit 1"]
+      interval: 30s
+      start_period: 20s
+
+volumes:
+  impi-data:
+  pi-auth:

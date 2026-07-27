@@ -20,8 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Importing these runs their @tool decorators so build_registry() sees them:
-# crucible's generic ask/form tools plus impi's chat-management tools.
+# crucible's generic ask/form tools plus impi's chat-management and
+# agent-provisioning tools.
 import crucible.builtin_tools  # noqa: E402,F401
+import impi.agent_tools  # noqa: E402,F401
 import impi.chat_tools  # noqa: E402,F401
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer

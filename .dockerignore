@@ -1,0 +1,10 @@
+# Allowlist build context: the engine image needs only the workspace sources.
+# Everything else (secrets, data, git history, docs, installer) stays out.
+*
+!pyproject.toml
+!uv.lock
+!.python-version
+!packages
+packages/**/__pycache__
+packages/**/*.egg-info
+!deploy

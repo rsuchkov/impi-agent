@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+# impi — host wrapper around the compose deployment ( ~/.local/bin/impi ).
+# The engine and the in-container `impi` CLI live in the container; this
+# wrapper finds the installation, assembles the compose invocation, and adds
+# the lifecycle verbs: status/logs/start/stop/restart/agent/login/update/
+# doctor/uninstall/version. bash 3.2 compatible.
+
+set -euo pipefail
+
+# --- find the installation -----------------------------------------------------
+
+IMPI_HOME="${IMPI_HOME:-$HOME/.impi}"
+[ -f "$IMPI_HOME/compose.env" ] || {
+    printf '✘ no impi installation at %s (set IMPI_HOME?)\n' "$IMPI_HOME" >&2
+    exit 1
+}
+
+# compose.env is plain KEY=VALUE (written by the installer) — safe to source.
+# shellcheck source=/dev/null
+. "$IMPI_HOME/compose.env"
+
+REPO="$IMPI_HOME/repo"
+ok()  { printf '✔ %s\n' "$*"; }
+bad() { printf '✘ %s\n' "$*" >&2; }
+die() { bad "$*"; exit 1; }
+
+compose() {
+    local _f _args=""
+    for _f in $IMPI_COMPOSE_FILES; do
+        _args="$_args -f $REPO/$_f"
+    done
+    # shellcheck disable=SC2086
+    $IMPI_COMPOSE_CMD --project-name "${IMPI_PROJECT:-impi}" $_args --env-file "$IMPI_HOME/compose.env" "$@"
+}
+
+env_set() { # KEY VALUE FILE — truncate-in-place (inode survives mounts)
+    local key=$1 value=$2 file=$3 tmp="${3}.tmp.$$"
+    case "$value" in
+        *[![:alnum:]_@%+=:,./-]*)  # quote for bash-sourceability
+            value=$(printf '%s' "$value" | sed -e 's/[\\"$`]/\\&/g')
+            value="\"$value\""
+            ;;
+    esac
+    [ -e "$file" ] || { : >"$file"; chmod 600 "$file"; }
+    ENV_SET_KEY="$key" ENV_SET_VALUE="$value" awk '
+        BEGIN { done = 0; key = ENVIRON["ENV_SET_KEY"]; value = ENVIRON["ENV_SET_VALUE"] }
+        index($0, key "=") == 1 { if (!done) { print key "=" value; done = 1 }; next }
+        { print }
+        END { if (!done) print key "=" value }
+    ' "$file" >"$tmp"
+    cat "$tmp" >"$file"
+    rm -f "$tmp"
+}
+
+confirm() { # "Question" default(y|n)
+    local q=$1 d=${2:-y} a hint
+    [ "$d" = y ] && hint="Y/n" || hint="y/N"
+    printf '%s [%s] ' "$q" "$hint"
+    IFS= read -r a || a=""
+    [ -z "$a" ] && a=$d
+    case "$(printf '%s' "$a" | tr '[:upper:]' '[:lower:]')" in
+        y|yes|д|да) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+usage() {
+    cat <<'EOF'
+impi — manage your impi deployment
+
+  impi status              services + installed version
+  impi logs [-f] [SVC]     engine (or SVC) logs
+  impi start | stop        bring the stack up / stop it
+  impi restart             restart the engine (picks up .env + new agents)
+  impi agent add|list ...  manage agents (runs the CLI inside the container)
+  impi login               interactive pi model login inside the container
+  impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
+  impi update [--yes]      update to the newest release tag and rebuild
+  impi doctor              basic health checks
+  impi uninstall           stop and remove containers (keeps your data)
+  impi version             wrapper / repo version
+EOF
+}
+
+cmd_status() {
+    compose ps
+    printf 'installed: %s (repo %s)\n' "${IMPI_VERSION_INSTALLED:-?}" \
+        "v$(cat "$REPO/VERSION" 2>/dev/null || echo '?')"
+}
+
+cmd_logs() {
+    if [ $# -gt 0 ] && [ "$1" != -f ]; then
+        compose logs "$@"
+    else
+        compose logs "$@" impi
+    fi
+}
+
+cmd_restart() {
+    compose restart impi
+    ok "engine restarted"
+}
+
+cmd_agent() {
+    compose run --rm impi impi agent "$@"
+    if [ "${1:-}" = add ]; then
+        if confirm "Restart the engine now so the new agent starts?" y; then
+            cmd_restart
+        fi
+    fi
+}
+
+cmd_login() {
+    if [ "${1:-}" = --copy-auth ]; then
+        local src="${2:-$HOME/.pi/agent/auth.json}"
+        [ -s "$src" ] || die "no credentials at $src"
+        compose run --rm -T impi sh -c \
+            'mkdir -p ~/.pi/agent && cat > ~/.pi/agent/auth.json && chmod 600 ~/.pi/agent/auth.json' <"$src"
+        ok "pi credentials imported"
+        return
+    fi
+    printf 'Opening pi inside the container. Type /login, follow the flow, then exit.\n'
+    compose run --rm --service-ports impi pi || true
+    if compose run --rm -T impi test -s /home/impi/.pi/agent/auth.json >/dev/null 2>&1; then
+        ok "pi credentials saved"
+    else
+        bad "still no credentials — try again or use: impi login --copy-auth"
+    fi
+}
+
+cmd_update() {
+    local yes=0 latest current prev
+    [ "${1:-}" = --yes ] && yes=1
+    git -C "$REPO" fetch --tags --quiet origin
+    latest=$(git -C "$REPO" tag -l 'v*' | sort -V | tail -n 1)
+    current="v$(cat "$REPO/VERSION" 2>/dev/null || echo 0.0.0)"
+    [ -n "$latest" ] || die "no release tags in the repository yet"
+    if [ "$latest" = "$current" ]; then
+        ok "up to date ($current)"
+        return 0
+    fi
+    printf 'Update available: %s -> %s\n' "$current" "$latest"
+    git -C "$REPO" log --oneline "$current".."$latest" 2>/dev/null | sed 's/^/  /' || true
+    if [ "$yes" != 1 ]; then
+        confirm "Update now?" y || return 0
+    fi
+    [ -z "$(git -C "$REPO" status --porcelain)" ] \
+        || die "repo at $REPO has local changes — commit/stash them or reinstall"
+    prev=$current
+    git -C "$REPO" checkout --quiet "$latest"
+    # Overlays can change between releases — re-derive the file list.
+    COMPOSE_ROOTLESS=0
+    case "$IMPI_COMPOSE_CMD" in
+        podman*) [ "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" = true ] && COMPOSE_ROOTLESS=1 ;;
+    esac
+    mode=external
+    case " $IMPI_COMPOSE_FILES " in
+        *compose.mattermost.yaml*) mode=codeploy ;;
+        *compose.external-mm.yaml*) mode=external ;;
+        *) mode=slack ;;
+    esac
+    files="deploy/compose.yaml"
+    [ "$mode" = codeploy ] && files="$files deploy/compose.mattermost.yaml"
+    [ "$mode" = external ] && files="$files deploy/compose.external-mm.yaml"
+    [ "$COMPOSE_ROOTLESS" = 1 ] && files="$files deploy/compose.podman.yaml"
+    env_set IMPI_COMPOSE_FILES "$files" "$IMPI_HOME/compose.env"
+    IMPI_COMPOSE_FILES=$files
+    if ! compose build impi || ! compose up -d; then
+        bad "update failed"
+        if confirm "Roll back to $prev?" y; then
+            git -C "$REPO" checkout --quiet "$prev"
+            compose build impi && compose up -d
+            die "rolled back to $prev"
+        fi
+        exit 1
+    fi
+    i=0
+    while [ "$i" -lt 30 ]; do
+        if compose logs impi 2>/dev/null | grep -q "app built:"; then break; fi
+        sleep 2
+        i=$((i + 1))
+    done
+    if [ "$i" -ge 30 ]; then
+        bad "engine did not report readiness after the update — check \`impi logs\`"
+        if confirm "Roll back to $prev?" n; then
+            git -C "$REPO" checkout --quiet "$prev"
+            compose build impi && compose up -d
+            die "rolled back to $prev"
+        fi
+    fi
+    cp "$REPO/installer/bin/impi" "$HOME/.local/bin/impi"
+    chmod +x "$HOME/.local/bin/impi"
+    env_set IMPI_VERSION_INSTALLED "$latest" "$IMPI_HOME/compose.env"
+    ok "updated to $latest"
+}
+
+cmd_doctor() {
+    compose ps || true
+    if [ -f "$IMPI_HOME/conf/.env" ]; then
+        perms=$(stat -c '%a' "$IMPI_HOME/conf/.env" 2>/dev/null || stat -f '%Lp' "$IMPI_HOME/conf/.env" 2>/dev/null)
+        if [ "$perms" = 600 ]; then
+            ok "conf/.env permissions: 600"
+        else
+            bad "conf/.env permissions: ${perms:-?} (expected 600)"
+        fi
+    else
+        bad "missing $IMPI_HOME/conf/.env"
+    fi
+    if compose logs impi 2>/dev/null | grep -q "app built:"; then
+        ok "engine reported readiness (app built)"
+    else
+        bad "engine never logged 'app built:' — see \`impi logs\`"
+    fi
+    compose run --rm -T impi impi health || true
+}
+
+cmd_uninstall() {
+    confirm "Stop and remove the impi containers?" n || exit 0
+    compose down
+    if confirm "ALSO delete the data volumes (engine DB, pi credentials, Mattermost data)?" n; then
+        compose down -v
+    fi
+    rm -f "$HOME/.local/bin/impi"
+    ok "uninstalled. $IMPI_HOME (config, agents, repo) was kept — remove it manually if you are sure."
+}
+
+case "${1:-}" in
+    status)    shift; cmd_status "$@" ;;
+    logs)      shift; cmd_logs "$@" ;;
+    start)     shift; compose up -d; ok "started" ;;
+    stop)      shift; compose stop; ok "stopped" ;;
+    restart)   shift; cmd_restart ;;
+    agent)     shift; cmd_agent "$@" ;;
+    login)     shift; cmd_login "$@" ;;
+    update)    shift; cmd_update "$@" ;;
+    doctor)    shift; cmd_doctor ;;
+    uninstall) shift; cmd_uninstall ;;
+    version)   printf 'impi %s (%s)\n' "${IMPI_VERSION_INSTALLED:-?}" "$IMPI_HOME" ;;
+    ''|help|-h|--help) usage ;;
+    *) bad "unknown command: $1"; usage; exit 2 ;;
+esac

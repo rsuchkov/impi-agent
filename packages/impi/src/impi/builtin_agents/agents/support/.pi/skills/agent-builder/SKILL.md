@@ -6,9 +6,15 @@ description: Scaffold, wire, and reload an impi agent under $AGENTS_PATH. Use wh
 # Building an impi agent
 
 An agent is a directory under `$AGENTS_PATH/agents/<name>/` plus a chat-platform
-bot account and its token in the engine `.env`. You write the files; the operator
-provisions the bot and restarts/reloads. Always use **absolute paths** and only
-write under `$AGENTS_PATH`.
+bot account and its token in the engine `.env`.
+
+**Preferred path (Mattermost):** call the `create_agent` tool — it provisions the
+bot account, scaffolds the profile, and stores the token in one confirmed step
+(see section 3). Then refine `.pi/SYSTEM.md` and `agent.yaml` with the file
+tools. Fall back to the manual flow below only when `create_agent` is missing
+from your tools or reports that no admin token is configured.
+
+Always use **absolute paths** and only write under `$AGENTS_PATH`.
 
 The human reference for this is `$IMPI_ROOT/docs/creating-agents.md` (and
 `configuration.md` for the `.env` keys) — read it if you need more detail than this
@@ -54,7 +60,18 @@ lacks (e.g. channel-admin tools on a Slack agent) and logs it.
 ## 3. Provision the bot + apply
 
 A **new** agent only appears after an engine **restart** (agents are enumerated at
-startup). Tell the operator to:
+startup).
+
+**With the `create_agent` tool (Mattermost, preferred):** call it with `name`,
+`role`, and optionally `display_name`, `description`, `system_prompt`. It creates
+the bot account, writes the profile skeleton, and stores the token — the operator
+confirms via a button before it runs. Afterwards edit the generated files as
+needed and ask the operator to **restart** (`impi restart` in a deployment). If
+the tool reports a missing admin token, ask the operator to set
+`TOOL_CREATE_AGENT_ADMIN_TOKEN` in the engine `.env` — or use the manual flow.
+
+**Manual flow** (Slack, or no admin token): write the profile files yourself,
+then tell the operator to:
 
 1. Create a bot account for the agent on its gateway (Mattermost bot, or a Slack
    app for `GATEWAY=slack`).

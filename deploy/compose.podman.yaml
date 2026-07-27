@@ -1,0 +1,8 @@
+# Overlay: rootless podman. keep-id maps the host user to the same uid inside
+# the container, so writes to the bind-mounted conf/ and agents/ come out owned
+# by the operator (the image's `impi` user is built with IMPI_UID/IMPI_GID).
+# The :z volume labels in the base file handle SELinux relabeling.
+
+services:
+  impi:
+    userns_mode: "keep-id:uid=${IMPI_UID:-1000},gid=${IMPI_GID:-1000}"

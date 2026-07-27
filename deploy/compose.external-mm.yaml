@@ -1,0 +1,14 @@
+# Overlay: impi talks to an EXTERNAL Mattermost server. The widget-callback
+# receiver must be reachable from that server, so its port is published and
+# INTEGRATIONS_PUBLIC_URL (written by the installer) carries an explicit
+# http://<host-ip>:<port> — never "auto", which would detect the container IP.
+# extra_hosts lets a Mattermost running on this same host be addressed as
+# host.docker.internal / host.containers.internal from inside the container.
+
+services:
+  impi:
+    ports:
+      - "${IMPI_INTEGRATIONS_PORT:-8423}:8423"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "host.containers.internal:host-gateway"

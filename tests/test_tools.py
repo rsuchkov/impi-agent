@@ -7,6 +7,7 @@ from crucible.ports.chat.types import PostSnippet
 from crucible.tools.base import ToolContext, ToolError
 from crucible.tools.registry import build_registry
 from crucible.tools.server import ToolServer
+from impi.agent_tools import CreateAgent
 from impi.chat_tools import (
     CreateChannel,
     CreateChannelSettings,
@@ -15,6 +16,7 @@ from impi.chat_tools import (
     ReadChannel,
     SendMessage,
 )
+from impi.provisioning import BotCredentials, CreateAgentSettings
 
 
 class FakeDirectory:
@@ -349,7 +351,7 @@ def test_registry_knows_all_default_tools() -> None:
     reg = build_registry()
     assert set(reg.names()) == {
         "list_agents", "create_channel", "invite_to_channel", "get_channel_members",
-        "send_message", "read_channel",
+        "send_message", "read_channel", "create_agent",
         "ask_user_buttons", "ask_user_select", "open_form",
     }
 
@@ -568,3 +570,105 @@ async def test_open_form_rejects_empty_fields() -> None:
         raise AssertionError("expected ToolError")
     except ToolError:
         pass
+
+
+# --- create_agent -------------------------------------------------------------
+
+
+def _create_agent_settings(tmp_path) -> CreateAgentSettings:
+    return CreateAgentSettings(
+        _env_file=None,  # hermetic: never read the developer's real .env  # pyright: ignore[reportCallIssue]
+        admin_token="admin-pat",
+        mattermost_url="http://mm:8065",
+        agents_path=str(tmp_path / "profiles"),
+        dotenv_path=str(tmp_path / ".env"),
+        gateway="mattermost",
+    )
+
+
+def _support_ctx(settings) -> ToolContext:
+    return ToolContext(
+        agent_name="support", directory=FakeDirectory(AGENTS), settings=settings
+    )
+
+
+async def test_create_agent_is_refused_to_non_support_agents(tmp_path) -> None:
+    ctx = ToolContext(
+        agent_name="assistant",  # a user agent that somehow allowlisted the tool
+        directory=FakeDirectory(AGENTS),
+        settings=_create_agent_settings(tmp_path),
+    )
+    try:
+        await CreateAgent().execute(ctx, {"name": "x", "role": "r"})
+        raise AssertionError("expected ToolError")
+    except ToolError as exc:
+        assert "support" in str(exc)
+    assert not (tmp_path / "profiles").exists()  # nothing was written
+
+
+async def test_create_agent_provisions_and_writes_everything(tmp_path, monkeypatch) -> None:
+    import impi.agent_tools as agent_tools
+
+    async def fake_provision(url, admin_token, *, username, **kwargs):
+        assert (url, admin_token, username) == ("http://mm:8065", "admin-pat", "tutor")
+        return BotCredentials(user_id="uid", username=username, token="minted", team="main")
+
+    monkeypatch.setattr(agent_tools, "provision_mm_bot", fake_provision)
+    result = await CreateAgent().execute(
+        _support_ctx(_create_agent_settings(tmp_path)),
+        {"name": "tutor", "role": "tutor", "system_prompt": "Ты репетитор.\n"},
+    )
+    assert result["created"] is True and result["restart_required"] is True
+    profile = tmp_path / "profiles" / "agents" / "tutor"
+    assert (profile / "agent.yaml").exists()
+    assert (profile / ".pi" / "SYSTEM.md").read_text() == "Ты репетитор.\n"
+    assert "AGENTS_MM_TOKEN__TUTOR=minted" in (tmp_path / ".env").read_text()
+
+
+async def test_create_agent_writes_gateway_override_on_slack_default(tmp_path, monkeypatch) -> None:
+    import impi.agent_tools as agent_tools
+
+    async def fake_provision(url, admin_token, *, username, **kwargs):
+        return BotCredentials(user_id="uid", username=username, token="minted")
+
+    monkeypatch.setattr(agent_tools, "provision_mm_bot", fake_provision)
+    settings = _create_agent_settings(tmp_path)
+    settings.gateway = "slack"  # engine default gateway is not mattermost
+    await CreateAgent().execute(_support_ctx(settings), {"name": "mm-one", "role": "r"})
+    assert "AGENTS_GATEWAY__MM_ONE=mattermost" in (tmp_path / ".env").read_text()
+
+
+async def test_create_agent_rolls_back_profile_when_provisioning_fails(tmp_path, monkeypatch) -> None:
+    import impi.agent_tools as agent_tools
+    from impi.provisioning import ProvisioningError
+
+    async def fail(*args, **kwargs):
+        raise ProvisioningError("username taken")
+
+    monkeypatch.setattr(agent_tools, "provision_mm_bot", fail)
+    try:
+        await CreateAgent().execute(
+            _support_ctx(_create_agent_settings(tmp_path)), {"name": "dup", "role": "r"}
+        )
+        raise AssertionError("expected ToolError")
+    except ToolError as exc:
+        assert "taken" in str(exc)
+    # No orphan profile is left behind for a bot that was never created.
+    assert not (tmp_path / "profiles" / "agents" / "dup").exists()
+
+
+async def test_create_agent_requires_admin_token(tmp_path) -> None:
+    settings = _create_agent_settings(tmp_path)
+    settings.admin_token = ""
+    try:
+        await CreateAgent().execute(_support_ctx(settings), {"name": "x", "role": "r"})
+        raise AssertionError("expected ToolError")
+    except ToolError as exc:
+        assert "TOOL_CREATE_AGENT_ADMIN_TOKEN" in str(exc)
+
+
+def test_create_agent_is_confirmation_gated() -> None:
+    # The runtime's confirm gate reads the manifest flag — it must travel.
+    reg = build_registry()
+    entry = next(e for e in reg.manifest(("create_agent",)))
+    assert entry["requires_confirmation"] is True

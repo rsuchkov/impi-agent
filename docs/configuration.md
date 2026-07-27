@@ -87,6 +87,7 @@ An agent is present only if its token is set; a tokenless profile is skipped.
 |---|---|---|
 | `DATA_DIR` | `data` | base dir for the SQLite inventory, `pi` session dirs, logs |
 | `DB_PATH` | `""` | SQLite path; default `{DATA_DIR}/impi.db` |
+| `DOTENV_PATH` | `.env` | where the `.env` file itself lives — containers mount the config directory and point this at `/app/conf/.env` |
 
 ## pi runtime
 
@@ -109,6 +110,16 @@ An agent is present only if its token is set; a tokenless profile is skipped.
 Individual tools read their own settings from `TOOL_<TOOL>_*` keys (loaded by the
 registry, not declared centrally), e.g. `TOOL_CREATE_CHANNEL_OWNER_USERNAME` — the
 human owner auto-added to private channels an agent creates.
+
+### Agent provisioning (`create_agent` tool + `impi agent add`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TOOL_CREATE_AGENT_ADMIN_TOKEN` | `""` | Mattermost **system-admin** PAT; enables automatic bot creation (the support agent's `create_agent` tool and the `impi agent add` CLI) |
+| `TOOL_CREATE_AGENT_TEAM` | `""` | team new bots join; empty = the server's first team |
+| `TOOL_CREATE_AGENT_MATTERMOST_URL` | `""` | override; falls back to `MATTERMOST_URL` |
+| `TOOL_CREATE_AGENT_AGENTS_PATH` | `""` | override; falls back to `AGENTS_PATH` |
+| `TOOL_CREATE_AGENT_DOTENV_PATH` | `""` | override; falls back to `DOTENV_PATH` |
 
 ## Interactivity (widget/form callbacks)
 

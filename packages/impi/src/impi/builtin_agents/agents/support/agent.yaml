@@ -11,7 +11,8 @@ runtime:
   # SUPPORT_PROVIDER/SUPPORT_MODEL (or DEFAULT_PROVIDER/DEFAULT_MODEL, or pi's
   # own default), so a public checkout runs on whatever backend is configured.
   timeout: 240
-  # Builder: pi's built-in file tools, used on the agents dir by absolute path.
+  # Builder: pi's built-in file tools, used on the agents dir by absolute path,
+  # plus the engine's create_agent (bot + profile + .env in one confirmed step).
   # (This is the ONE allowlist — built-ins are enabled only by naming them here.)
   tools:
     - read
@@ -21,6 +22,7 @@ runtime:
     - grep
     - find
     - ls
+    - create_agent
   # Bundled skills, referenced by name (resolved to .pi/skills/<name>). Toggle per
   # deployment with AGENTS_SKILLS__SUPPORT (CSV); unset = these defaults.
   skills:

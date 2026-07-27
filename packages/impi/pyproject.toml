@@ -7,6 +7,9 @@ dependencies = [
     "crucible",
 ]
 
+[project.scripts]
+impi = "impi.cli:main"
+
 [tool.uv.sources]
 crucible = { workspace = true }
 

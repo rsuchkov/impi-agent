@@ -1,4 +1,4 @@
-.PHONY: install test run run-bg stop reload lint
+.PHONY: install test run run-bg stop reload lint installer-lint installer-test e2e-install
 
 install:
 	uv sync
@@ -39,3 +39,28 @@ lint:
 	uv run ruff check packages tests
 	uv run lint-imports
 	uv run pyright
+
+# Installer shell sources: shellcheck locally if present, else via a container.
+INSTALLER_SH = install.sh installer/main.sh installer/bin/impi installer/lib/*.sh
+installer-lint:
+	@if command -v shellcheck >/dev/null 2>&1; then \
+		shellcheck -x -s bash -e SC1091 $(INSTALLER_SH); \
+	else \
+		podman run --rm -v "$$PWD:/mnt:ro,z" -w /mnt docker.io/koalaman/shellcheck:stable \
+			-x -s bash -e SC1091 $(INSTALLER_SH); \
+	fi
+	@for f in $(INSTALLER_SH); do bash -n $$f || exit 1; done
+	@echo "installer-lint OK"
+
+# bats unit tests for the installer libraries.
+installer-test:
+	@if command -v bats >/dev/null 2>&1; then \
+		bats installer/tests; \
+	else \
+		podman run --rm -v "$$PWD:/code:ro,z" -w /code docker.io/bats/bats:latest installer/tests; \
+	fi
+
+# Full local install into a throwaway IMPI_HOME (Linux + podman/docker; slow).
+# KEEP=1 leaves the stack running for inspection; E2E_LLM=1 adds a live DM check.
+e2e-install:
+	bash installer/tests/e2e.sh

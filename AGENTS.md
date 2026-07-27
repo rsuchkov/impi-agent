@@ -22,8 +22,13 @@ engine never calls an LLM directly — every agent turn is delegated to the exte
 | `make reload` | hot-reload agent profiles (re-read every `agent.yaml` + `.pi/`) |
 | `make test` | `uv run pytest` |
 | `make lint` | ruff + import-linter (layer boundaries) + pyright |
+| `make installer-lint` | shellcheck + `bash -n` over `install.sh` / `installer/` |
+| `make installer-test` | bats unit tests for the installer libraries |
+| `make e2e-install` | full throwaway compose install (Linux; slow, needs podman/docker) |
 
-Run `make lint` and `make test` before considering a change done; both must be green.
+Run `make lint` and `make test` before considering a change done; both must be
+green. Touching `install.sh`, `installer/`, or `deploy/` additionally requires a
+green `make installer-lint` + `make installer-test`.
 
 ## Project structure
 
@@ -33,6 +38,13 @@ A [uv](https://docs.astral.sh/uv/) workspace of two packages:
   driver, tools, interactivity, storage, and the neutral ports). Application-agnostic.
 - **`packages/impi`** — the application: multi-agent wiring, the gateway factory,
   inter-agent tools, and the bundled `support` agent.
+
+Alongside the packages (deliberately not intertwined with them):
+
+- **`deploy/`** — the deployment Dockerfile + compose base/overlay files.
+- **`installer/`** + **`install.sh`** — the curl|bash TUI installer, the host
+  `impi` wrapper, and their bats tests. Bash 3.2 compatible (macOS).
+- **`scripts/release.sh`** — cut a release (bump `VERSION`, tag `vX.Y.Z`, push).
 
 See [docs/architecture.md](docs/architecture.md) and
 [packages/crucible/README.md](packages/crucible/README.md) for detail — don't

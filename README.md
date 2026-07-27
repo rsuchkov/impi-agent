@@ -23,8 +23,25 @@ engine owns identity, routing, persistence, interactivity, and the domain tools.
 
 ## Status
 
-Early development (version `0.1.0`; pre-1.0 under SemVer, so interfaces and layout
-may still change). Usable for its purpose, but not yet production-hardened.
+Early development (see [`VERSION`](VERSION); pre-1.0 under SemVer, so interfaces
+and layout may still change). Usable for its purpose, but not yet
+production-hardened.
+
+## Install
+
+The one-liner deploys impi (and optionally a Mattermost Team Edition) with
+compose, walks you through an interactive setup, and creates your first agents:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rsuchkov/impi-agent/main/install.sh | bash
+```
+
+Needs Linux or macOS, git, and Docker (compose v2) or podman. Afterwards manage
+the deployment with the `impi` wrapper (`impi status|logs|restart|agent add|
+update|uninstall`). Full guide: [docs/installation.md](docs/installation.md).
+
+The rest of this README is the **development** setup — running the engine from
+a checkout.
 
 ## Repository layout
 
@@ -82,9 +99,13 @@ To add your own agent (its profile, tools, and personality), see
 | `make reload` | hot-reload agent profiles (re-read every `agent.yaml` + `.pi/`) |
 | `make test` | run the test suite |
 | `make lint` | ruff + import-linter (layer boundaries) + pyright |
+| `make installer-lint` | shellcheck + syntax check for the installer scripts |
+| `make installer-test` | bats unit tests for the installer libraries |
+| `make e2e-install` | full throwaway install via compose (Linux; slow) |
 
 ## Documentation
 
+- [docs/installation.md](docs/installation.md) — the installer, the `impi` wrapper, updates.
 - [docs/architecture.md](docs/architecture.md) — how the engine works, the layers, and the request flows.
 - [docs/creating-agents.md](docs/creating-agents.md) — write and register an agent.
 - [docs/configuration.md](docs/configuration.md) — every `.env` / config knob.

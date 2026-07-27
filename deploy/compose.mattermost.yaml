@@ -1,0 +1,66 @@
+# Overlay: co-deploy Mattermost Team Edition + Postgres next to impi (the same
+# stack as the dev compose.yaml at the repo root, pinned and pre-configured for
+# zero-touch bootstrap). Local mode lets the installer create the first admin
+# and team via mmctl inside the container — no web-UI signup step.
+#
+# Widget callbacks flow container-to-container: Mattermost reaches the engine at
+# http://impi:8423 (the installer writes that INTEGRATIONS_PUBLIC_URL), so the
+# receiver port is never published to the host.
+
+services:
+  db:
+    image: docker.io/library/postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: "${IMPI_MM_DB_PASSWORD:-mmuser_password}"
+      POSTGRES_DB: mattermost
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 10s
+      start_period: 15s
+
+  mattermost:
+    image: docker.io/mattermost/mattermost-team-edition:11.9
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${IMPI_MM_PORT:-8065}:8065"
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: "postgres://mmuser:${IMPI_MM_DB_PASSWORD:-mmuser_password}@db:5432/mattermost?sslmode=disable&connect_timeout=10"
+      MM_SERVICESETTINGS_SITEURL: "http://localhost:${IMPI_MM_PORT:-8065}"
+      # Zero-touch bootstrap + bot provisioning + widget callbacks:
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
+      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: "impi localhost 127.0.0.1"
+    volumes:
+      - mm-config:/mattermost/config
+      - mm-data:/mattermost/data
+      - mm-logs:/mattermost/logs
+      - mm-plugins:/mattermost/plugins
+      - mm-client-plugins:/mattermost/client/plugins
+    healthcheck:
+      # The mattermost image is distroless (no sh/curl) — probe with the
+      # bundled mmctl over local mode instead.
+      test: ["CMD", "mmctl", "--local", "system", "status"]
+      interval: 10s
+      start_period: 60s
+
+  impi:
+    depends_on:
+      mattermost:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  mm-config:
+  mm-data:
+  mm-logs:
+  mm-plugins:
+  mm-client-plugins:

@@ -82,6 +82,13 @@ Slack formatting rules to that agent's system prompt automatically.
 
 ## Provisioning and applying
 
+**Shortcut:** `impi agent add` (the CLI; in a deployment: the `impi agent add`
+wrapper command) does all of the below in one go — with a Mattermost
+system-admin token (`TOOL_CREATE_AGENT_ADMIN_TOKEN`) it creates the bot account
+itself; without one it asks for a manually created bot token. In chat, the
+bundled `support` agent can do the same via its `create_agent` tool. The manual
+steps:
+
 1. **Create the bot account** on the platform and copy its token:
    - Mattermost: System Console → Integrations → Bot Accounts.
    - Slack: create an app with Socket Mode + a bot user.

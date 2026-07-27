@@ -1,0 +1,20 @@
+# Answers for the local e2e install (make e2e-install). Non-standard MM port
+# and a dedicated compose project so the run never collides with a real
+# deployment or the dev stack on the same machine.
+IMPI_GATEWAY=mattermost
+IMPI_MM_MODE=codeploy
+IMPI_MM_PORT=8066
+IMPI_MM_ADMIN_USER=admin
+IMPI_MM_ADMIN_EMAIL=admin@e2e.impi.local
+IMPI_MM_ADMIN_PASSWORD=Impi-e2e-Passw0rd
+IMPI_MM_TEAM=impi
+IMPI_SUPPORT=yes
+IMPI_FIRST_AGENT=assistant
+IMPI_FIRST_AGENT_ROLE=personal assistant
+IMPI_WIDGETS=yes
+IMPI_LLM_MODE=endpoint
+IMPI_LLM_BASE_URL=http://e2e-llm.invalid/v1
+IMPI_LLM_API_KEY=e2e-dummy-key
+IMPI_LLM_MODEL=e2e-model
+IMPI_CONFIRM=yes
+IMPI_ASSUME_YES=1

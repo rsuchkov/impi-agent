@@ -5,6 +5,7 @@ messaging / loop-protection knobs (impi is the multi-agent configuration).
 
 from __future__ import annotations
 
+import os
 from typing import ClassVar
 
 from crucible.config import Settings
@@ -30,5 +31,8 @@ class ImpiSettings(Settings):
 
 
 def load_settings() -> ImpiSettings:
-    """Build an ImpiSettings instance from the current environment / .env."""
-    return ImpiSettings()
+    """Build an ImpiSettings instance from the current environment / .env.
+    DOTENV_PATH relocates the .env file itself (containers mount it under
+    /app/conf); unset keeps the historical ./.env."""
+    # _env_file is a runtime-only pydantic-settings kwarg pyright cannot see.
+    return ImpiSettings(_env_file=os.environ.get("DOTENV_PATH", ".env"))  # pyright: ignore[reportCallIssue]
