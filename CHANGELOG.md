@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.3.0 — 2026-07-28
+
 - **Slack output formatting is now the gateway's job.** Outgoing agent prose is
   converted from Markdown to Slack mrkdwn at the adapter boundary (headings,
   bold/italic, links, images, bullet/task lists, strikethrough; tables are
