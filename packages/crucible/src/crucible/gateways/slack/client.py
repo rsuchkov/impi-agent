@@ -9,6 +9,7 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from crucible.gateways.slack.events import ts_time
+from crucible.gateways.slack.formatter import markdown_to_mrkdwn
 from crucible.gateways.slack.rendering import build_action_blocks, build_modal_view
 from crucible.ports.chat.admin import ChannelMember
 from crucible.ports.chat.types import (
@@ -55,13 +56,19 @@ class SlackChatClient:
     async def post_reply(self, ref: ConversationRef, text: str, *, hop_depth: int = 0) -> None:
         # hop_depth is not propagated: Slack messages carry no round-tripping
         # metadata another agent could read (unlike MM post props).
+        # Agent prose is Markdown; convert BEFORE chunking so a code fence or
+        # link never straddles a chunk boundary mid-token.
+        await self._post_chunks(ref, markdown_to_mrkdwn(text))
+
+    async def post_notice(self, ref: ConversationRef, text: str) -> None:
+        # Port contract: notices are fixed system strings, sent verbatim.
+        await self._post_chunks(ref, text)
+
+    async def _post_chunks(self, ref: ConversationRef, text: str) -> None:
         for chunk in chunk_text(text, self._max_post_chars):
             await self._client.chat_postMessage(
                 channel=ref.channel_id, thread_ts=ref.thread_root_id or None, text=chunk
             )
-
-    async def post_notice(self, ref: ConversationRef, text: str) -> None:
-        await self.post_reply(ref, text)
 
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:
         try:
@@ -125,6 +132,9 @@ class SlackChatClient:
     ) -> str:
         # callback_url is unused: Socket Mode delivers clicks over the WebSocket,
         # routed by action_id, not to a URL.
+        # The prompt text is model-authored (ask_user_* tools) — convert it; the
+        # section block renders mrkdwn.
+        text = markdown_to_mrkdwn(text)
         resp = await self._client.chat_postMessage(
             channel=ref.channel_id,
             thread_ts=ref.thread_root_id or None,
@@ -193,8 +203,11 @@ class SlackChatClient:
 
     async def post_message(self, channel_id: str, message: str, *, hop_depth: int = 0) -> str:
         # hop_depth is not carried on Slack (no message metadata); loop protection
-        # falls back to the rate window.
-        resp = await self._client.chat_postMessage(channel=channel_id, text=message)
+        # falls back to the rate window. The message is model-authored Markdown
+        # (send_message tool) — convert like a reply.
+        resp = await self._client.chat_postMessage(
+            channel=channel_id, text=markdown_to_mrkdwn(message)
+        )
         return resp.get("ts", "")
 
     async def get_channel_posts(self, channel_id: str, limit: int = 20) -> list[PostSnippet]:

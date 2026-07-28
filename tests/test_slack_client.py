@@ -138,3 +138,52 @@ async def test_resolve_username_scans_the_workspace() -> None:
     web = FakeWeb(users_list={"members": [{"name": "roman", "id": "U1"}, {"name": "dev", "id": "U2"}]})
     assert await _sc(web).resolve_username("@dev") == "U2"
     assert await _sc(web).resolve_username("nobody") is None
+
+
+# --- outgoing formatting (markdown -> mrkdwn at the adapter boundary) ---------
+
+
+async def test_post_reply_converts_markdown_to_mrkdwn() -> None:
+    web = FakeWeb()
+    await _sc(web).post_reply(_ref(), "# Report\n**done**, see [docs](https://x.com)")
+    text = web.last("chat_postMessage")["text"]
+    assert text == "*Report*\n*done*, see <https://x.com|docs>"
+
+
+async def test_post_notice_is_verbatim() -> None:
+    # Port contract: notices are fixed system strings, never reformatted.
+    web = FakeWeb()
+    await _sc(web).post_notice(_ref(), "**not** rendered [x](y)")
+    assert web.last("chat_postMessage")["text"] == "**not** rendered [x](y)"
+
+
+async def test_post_actions_section_text_is_converted() -> None:
+    web = FakeWeb(chat_postMessage={"channel": "C1", "ts": "1.2"})
+    await _sc(web).post_actions(
+        _ref(), "Deploy **prod**?", [Action(id="a1", label="Go")], callback_url="unused"
+    )
+    kw = web.last("chat_postMessage")
+    assert kw["text"] == "Deploy *prod*?"
+    section = kw["blocks"][0]
+    assert section["text"]["text"] == "Deploy *prod*?"
+
+
+async def test_post_message_converts_markdown() -> None:
+    web = FakeWeb(chat_postMessage={"ts": "3.4"})
+    await _sc(web).post_message("C9", "**ping** [here](https://a.b)")
+    assert web.last("chat_postMessage")["text"] == "*ping* <https://a.b|here>"
+
+
+async def test_long_reply_formats_before_chunking_fence_not_split() -> None:
+    # A fence longer than the chunk limit: conversion must happen before the
+    # splitter, and chunk boundaries must not fall mid-token (paragraph cuts).
+    web = FakeWeb()
+    client = SlackChatClient(web, max_post_chars=200)  # type: ignore[arg-type]
+    code = "\n".join(f"line_{i} = '**not bold**'" for i in range(20))
+    text = f"**intro**\n\n```python\n{code}\n```\n\ntail **bold**"
+    await client.post_reply(_ref(), text)
+    chunks = [kw["text"] for n, kw in web.calls if n == "chat_postMessage"]
+    joined = "\n\n".join(chunks)
+    assert "**not bold**" in joined          # fence content untouched
+    assert "*intro*" in joined and "tail *bold*" in joined
+    assert all(len(c) <= 200 for c in chunks)
