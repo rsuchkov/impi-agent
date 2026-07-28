@@ -43,10 +43,31 @@ case "$BUMP" in
 esac
 git rev-parse -q --verify "refs/tags/v$NEW" >/dev/null && { echo "tag v$NEW already exists" >&2; exit 1; }
 
+# Release notes gate: the Unreleased section must actually say something.
+NOTES=$(awk '/^## Unreleased/{f=1; next} /^## /{f=0} f' CHANGELOG.md \
+    | grep -v '^[[:space:]]*$' | grep -v '_Nothing yet._' || true)
+[ -n "$NOTES" ] || {
+    echo "CHANGELOG.md: the 'Unreleased' section is empty — write the release notes first" >&2
+    exit 1
+}
+
 if [ "$VERIFY" = 1 ]; then
     make lint
     make test
 fi
+
+# Stamp the notes: Unreleased -> v$NEW with today's date, fresh placeholder on top.
+python3 - CHANGELOG.md "$NEW" "$(date +%Y-%m-%d)" <<'EOF'
+import sys
+path, version, date = sys.argv[1:4]
+text = open(path).read()
+marker = "## Unreleased"
+assert marker in text, "CHANGELOG.md has no Unreleased section"
+text = text.replace(
+    marker, f"## Unreleased\n\n_Nothing yet._\n\n## v{version} — {date}", 1
+)
+open(path, "w").write(text)
+EOF
 
 printf '%s\n' "$NEW" > VERSION
 for f in packages/crucible/pyproject.toml packages/impi/pyproject.toml; do
@@ -61,7 +82,7 @@ EOF
 done
 uv lock --quiet
 
-git add VERSION packages/crucible/pyproject.toml packages/impi/pyproject.toml uv.lock
+git add VERSION CHANGELOG.md packages/crucible/pyproject.toml packages/impi/pyproject.toml uv.lock
 git commit -m "release v$NEW"
 git tag -a "v$NEW" -m "impi v$NEW"
 echo "tagged v$NEW"

@@ -89,6 +89,9 @@ keep the suite green (`uv run pytest`), and keep `make lint` green before finish
 
 - **Commit only when explicitly asked.** Otherwise leave changes in the working tree
   and offer a commit — the maintainer reviews the uncommitted diff.
+- **User-visible changes get a bullet in `CHANGELOG.md`** under `Unreleased`
+  (features, fixes, behavior changes — not internal refactors). The release
+  script refuses to cut a release while that section is empty.
 - **Write commit messages inline** with `git commit -m` (not `-F <file>`).
 - **State only what the change does** — concrete facts, not plans, discussion, or
   what was deferred. Verification results (test/lint counts) are fine.

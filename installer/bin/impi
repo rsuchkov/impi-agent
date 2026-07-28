@@ -142,7 +142,15 @@ cmd_update() {
         return 0
     fi
     printf 'Update available: %s -> %s\n' "$current" "$latest"
-    git -C "$REPO" log --oneline "$current".."$latest" 2>/dev/null | sed 's/^/  /' || true
+    # Prefer the curated release notes for the target version; fall back to the
+    # raw commit list when the tag predates CHANGELOG.md.
+    notes=$(git -C "$REPO" show "$latest:CHANGELOG.md" 2>/dev/null \
+        | awk -v ver="$latest" 'index($0, "## " ver) == 1 {f=1; next} /^## /{f=0} f')
+    if [ -n "$notes" ]; then
+        printf '%s\n' "$notes" | sed 's/^/  /'
+    else
+        git -C "$REPO" log --oneline "$current".."$latest" 2>/dev/null | sed 's/^/  /' || true
+    fi
     if [ "$yes" != 1 ]; then
         confirm "Update now?" y || return 0
     fi

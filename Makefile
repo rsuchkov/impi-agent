@@ -41,7 +41,7 @@ lint:
 	uv run pyright
 
 # Installer shell sources: shellcheck locally if present, else via a container.
-INSTALLER_SH = install.sh installer/main.sh installer/bin/impi installer/lib/*.sh
+INSTALLER_SH = install.sh installer/main.sh installer/bin/impi installer/lib/*.sh scripts/release.sh
 installer-lint:
 	@if command -v shellcheck >/dev/null 2>&1; then \
 		shellcheck -x -s bash -e SC1091 $(INSTALLER_SH); \

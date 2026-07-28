@@ -81,10 +81,12 @@ The installer drops a small CLI into `~/.local/bin/impi`:
 ## Updates and versioning
 
 Releases are SemVer 0.x git tags (`vX.Y.Z`, created with `scripts/release.sh`);
-the `VERSION` file mirrors the tag. `impi update` fetches tags, shows the
-changes (`git log --oneline`), checks out the newest tag, rebuilds the image,
-and restarts — with a health gate and an offered rollback if the new engine
-does not come up.
+the `VERSION` file mirrors the tag, and [`CHANGELOG.md`](../CHANGELOG.md)
+carries the release notes (the release script stamps the `Unreleased` section
+with the version and refuses to cut a release with empty notes). `impi update`
+fetches tags, shows the target version's release notes, checks out the newest
+tag, rebuilds the image, and restarts — with a health gate and an offered
+rollback if the new engine does not come up.
 
 ## Non-interactive installs (CI / e2e)
 
