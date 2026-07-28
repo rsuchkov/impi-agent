@@ -59,6 +59,11 @@ no tools at all**. Two rules to remember:
 - A typed tool is **dropped** (and logged) if the agent's gateway/config doesn't
   provide a capability it requires — e.g. channel-admin tools on a Slack agent, or
   widget tools when interactivity is disabled.
+- **Built-ins work relative to the profile directory** (the runtime's cwd) — so
+  relative state like a skill's `state/*.json` lands there. To read data that
+  lives elsewhere (a mounted repo, a docs folder), give the agent the **absolute
+  path** in its SYSTEM.md, or wrap access in your own typed tool with a pinned
+  root. See [runtime-notes.md](runtime-notes.md).
 
 ## Skills
 

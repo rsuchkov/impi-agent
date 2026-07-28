@@ -58,12 +58,32 @@ then the agent's per-agent env, then a per-session value.
 - For engine-owned agents (`support`): `AGENTS_PATH` (their editable workspace) and
   `IMPI_ROOT` (the engine checkout, read-only, so `support` can diagnose the engine).
 
+## Built-in tools & the working directory
+
+`pi`'s built-in tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`)
+operate relative to the process's **current working directory**, and the engine
+spawns `pi` with cwd = the agent's **profile directory** — that is what makes
+`pi` load the agent's own `.pi/*` (SYSTEM.md, skills) natively. Consequences:
+
+- Relative paths in prompts/skills resolve inside the profile dir; that's the
+  right place for per-agent state (e.g. a skill writing `state/*.json`).
+- Data that lives OUTSIDE the profile (a mounted repo checkout, a docs folder)
+  is still reachable, but only by **absolute paths** — tell the agent the root
+  in its SYSTEM.md (this is exactly how the bundled `support` agent works
+  against `$AGENTS_PATH`). For tighter control, wrap access in your own typed
+  tool with a pinned root.
+- Standalone crucible apps can additionally point a whole turn at a checkout
+  via the runtime port: `run_stateful(..., cwd=...)`. There is deliberately no
+  per-agent `workdir` knob: moving the cwd away from the profile would stop
+  `.pi/*` auto-loading and would auto-trust a foreign checkout's own `.pi/` —
+  see the tracker before reaching for that.
+
 ## `pi` facts the engine relies on
 
 - **Built-in tools** are exactly `read`, `bash`, `edit`, `write`, `grep`, `find`,
-  `ls`. `--tools` is a single allowlist over these plus extension tools and the
-  engine's typed tools; naming a tool is the only way to enable it, and `--tools ""`
-  yields no tools at all.
+  `ls`, operating relative to the cwd (see above). `--tools` is a single
+  allowlist over these plus extension tools and the engine's typed tools; naming
+  a tool is the only way to enable it, and `--tools ""` yields no tools at all.
 - **Skills** are `SKILL.md` capability packages the model reads on demand and drives
   via `bash` — so a skill needs `read` + `bash` in the agent's `tools`. `--skill`
   takes a path; the engine also accepts a bare skill name and resolves it to
@@ -73,6 +93,11 @@ then the agent's per-agent env, then a per-session value.
   one yet.
 - **No MCP.** `pi` deliberately has no MCP; the engine's own tools reach it through
   the tool-bridge extension instead.
+- **`models.json` env interpolation is limited.** In `~/.pi/agent/models.json`,
+  `$VAR` / `${VAR}` interpolation works only in `apiKey` and `headers` — **not**
+  in `baseUrl`. A literal `"baseUrl": "$LLM_BASE_URL"` is used verbatim and every
+  turn fails with `Invalid URL`; put a real URL there and keep only the secret in
+  `apiKey`.
 - **Packages.** `pi install <npm:|git:|https:|local>` installs extensions and/or
   skills; the engine does not depend on this, but agents can.
 - **Config is baked at spawn.** `pi` reads `.pi/*` and the CLI flags when the

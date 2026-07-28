@@ -33,3 +33,45 @@ async def test_spawn_sets_large_stream_limit() -> None:
     limit = mock_exec.await_args.kwargs["limit"]
     assert limit == SubprocessTransport._STREAM_LIMIT
     assert limit >= 1024 * 1024  # comfortably above the 64 KiB default
+
+
+async def test_exit_detail_carries_exit_code_and_stderr_tail() -> None:
+    import sys
+
+    code = "import sys; print('boom: real cause', file=sys.stderr); sys.exit(3)"
+    transport = await SubprocessTransport.spawn(sys.executable, ["-c", code])
+    async for _ in transport.lines():  # drain stdout to EOF
+        pass
+    detail = await transport.exit_detail()
+    assert "exit code 3" in detail
+    assert "boom: real cause" in detail
+    await transport.aclose()
+
+
+async def test_exit_detail_excludes_settings_lock_noise() -> None:
+    import sys
+
+    code = (
+        "import sys;"
+        "print('EROFS mkdir /x/.pi/settings.json.lock', file=sys.stderr);"
+        "sys.exit(1)"
+    )
+    transport = await SubprocessTransport.spawn(sys.executable, ["-c", code])
+    async for _ in transport.lines():
+        pass
+    detail = await transport.exit_detail()
+    assert "exit code 1" in detail
+    assert "settings.json.lock" not in detail  # noise stays out of the tail
+    await transport.aclose()
+
+
+async def test_exit_detail_clips_long_tails() -> None:
+    import sys
+
+    code = "import sys\nfor i in range(200): print('e' * 100, file=sys.stderr)\nsys.exit(1)"
+    transport = await SubprocessTransport.spawn(sys.executable, ["-c", code])
+    async for _ in transport.lines():
+        pass
+    detail = await transport.exit_detail()
+    assert len(detail) < 2000  # bounded: 40-line deque + char clip
+    await transport.aclose()

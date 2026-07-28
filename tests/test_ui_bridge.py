@@ -150,3 +150,24 @@ async def test_cancel_for_conversation_unblocks_outstanding(tmp_path: Path) -> N
         assert len(poster.retracted) == 1  # buttons retracted on cancel-by-typing
     finally:
         await store.close()
+
+
+async def test_post_failure_declines_and_names_the_cause(tmp_path: Path, caplog) -> None:
+    # The platform error summary must land in the log MESSAGE itself (grep-able
+    # without the traceback: missing_scope vs channel_not_found etc.).
+    class BoomPoster(FakePoster):
+        async def post_actions(self, ref, text, actions, *, callback_url) -> str:
+            raise RuntimeError("slack says: missing_scope")
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster, pending = BoomPoster(), PendingUiRequests()
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        with caplog.at_level("ERROR"):
+            outcome = await _bridge(store, poster, pending).request(
+                rec.runtime_session_id, UiRequest(request_id="r", method="confirm", title="?")
+            )
+        assert outcome.cancelled is True
+        assert any("missing_scope" in r.message for r in caplog.records)
+    finally:
+        await store.close()

@@ -205,10 +205,23 @@ class PiRpcSession:
             raise
         except Exception as exc:  # transport blew up
             logger.exception("pi read loop crashed")
-            self._fail_turn(PiProcessError(f"pi read loop crashed: {exc}"))
+            self._fail_turn(PiProcessError(await self._death_message(f"pi read loop crashed: {exc}")))
             return
-        # EOF: process exited. Any in-flight turn must fail.
-        self._fail_turn(PiProcessError("pi process exited unexpectedly"))
+        # EOF: process exited. Any in-flight turn must fail — with the exit code
+        # and stderr tail, which carry the actual cause the bare message hides.
+        self._fail_turn(PiProcessError(await self._death_message("pi process exited unexpectedly")))
+
+    async def _death_message(self, base: str) -> str:
+        """Fold the process's exit detail (exit code + stderr tail) into a
+        process-death error. Test fakes without exit_detail() pass through."""
+        detail_fn = getattr(self._transport, "exit_detail", None)
+        if detail_fn is None:
+            return base
+        try:
+            detail = await detail_fn()
+        except Exception:
+            return base
+        return f"{base} ({detail})" if detail else base
 
     def _fail_turn(self, exc: Exception) -> None:
         turn = self._turn
@@ -315,8 +328,8 @@ class PiRpcSession:
         self._ui_wait_started = loop.time()
         try:
             outcome = await self._ui_bridge.request(self._session_id, req)
-        except Exception:
-            logger.exception("ui bridge failed; defaulting to a declined response")
+        except Exception as exc:
+            logger.exception("ui bridge failed (%s); defaulting to a declined response", exc)
             outcome = UiOutcome(cancelled=True)
         finally:
             if self._ui_wait_started is not None:

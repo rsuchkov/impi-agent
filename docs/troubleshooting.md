@@ -35,6 +35,38 @@ Confirm the agent's `provider`/`model` resolve to something the backend accepts
 (see [runtime-notes.md](runtime-notes.md)). An agent that omits them inherits
 `DEFAULT_PROVIDER`/`DEFAULT_MODEL`.
 
+## "pi process exited unexpectedly"
+
+The `pi` subprocess died mid-turn. The error now carries the **exit code and
+the last stderr lines** — read them, they name the actual cause. Typical ones:
+
+- a custom endpoint that is down or misconfigured (`Invalid URL` — check
+  `~/.pi/agent/models.json`; note `baseUrl` does NOT interpolate `$VARS`, see
+  [runtime-notes.md](runtime-notes.md));
+- a provider/model that doesn't exist for the backend (`pi --list-models` with
+  the same env shows what pi actually sees);
+- a missing `models.json` when the setup expects a custom provider.
+
+To reproduce outside the engine: run
+`pi --provider <p> --model <m> -p "ping"` by hand with the same environment.
+
+## The model says a tool was denied / "blocked by security policy"
+
+The agent answers that it is not allowed to use its tools, or logs show
+`User denied tool '<name>'`. That denial comes from **pi's permission system**,
+not from the engine (the engine's own gate is the `--tools` allowlist). On a
+headless bot a permission "ask" cannot be answered by a human, so it resolves
+to a denial. Check, in order:
+
+1. **Local pi config**: a third-party permissions module/extension in
+   `~/.pi/agent/settings.json` applies to every pi the engine spawns — remove
+   it for headless use, or add a per-agent allow policy (next item).
+2. **Per-agent policy**: ship `.pi/agent/pi-permissions.jsonc` inside the
+   agent's profile dir allowing exactly its tools.
+3. **pi version drift**: behavior differs across pi versions — align the local
+   `pi --version` with the version the engine was verified against
+   (see [runtime-notes.md](runtime-notes.md)).
+
 ## Widget/form clicks do nothing
 
 Clicks reach the engine through the interactions receiver. For a **Slack** agent
@@ -53,6 +85,13 @@ must be able to POST back to the receiver:
   config.
 
 Confirm `INTEGRATIONS_ENABLED=true`.
+
+Related Slack failure: `ui bridge: failed to post widget (...)` in the log —
+posting interactive components needs **Interactivity enabled** on the Slack app
+(and the usual bot scopes); the log message includes the Slack error code. A
+widget-free bot (read-only Q&A, no `ask_user_*`/forms) can simply set
+`INTEGRATIONS_ENABLED=false` — then interactive runtime requests are declined
+locally instead of attempting a post.
 
 ## A tool isn't available to an agent
 

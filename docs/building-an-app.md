@@ -125,6 +125,24 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
 `run` then starts the tool server, the interaction receiver, and each gateway's
 WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`.
 
+## Composition notes from the field
+
+- **Widget-free bots: turn interactivity off.** If your agents declare no
+  `ask_user_*`/form tools and nothing `requires_confirmation`, don't wire
+  `InteractionWiring` (or set `INTEGRATIONS_ENABLED=false`). With interactivity
+  on, any interactive request the runtime emits makes the UI bridge try to post
+  a real widget — on Slack that additionally requires the app's Interactivity
+  setup, and a failure is logged and declined. Off = declined locally, quietly.
+- **Sharing tool settings.** `settings_cls` is declared per tool, but several
+  tools may declare the **same class**: each gets its own instance, loaded from
+  the same env keys — so a tool group with one config (one repo root, one base
+  URL) just reuses one `BaseSettings` class. No per-tool duplication needed.
+- **Built-ins see the profile dir.** The runtime process's cwd is the agent's
+  profile directory; data outside it is reachable by absolute paths or your own
+  typed tools — see [runtime-notes.md](runtime-notes.md) "Built-in tools & the
+  working directory". A standalone app can also pass `cwd=` per turn on
+  `run_stateful` for checkout-scoped runs.
+
 ## Why not a `build_engine(config)`?
 
 Because apps diverge: a different app may want different interactivity, different

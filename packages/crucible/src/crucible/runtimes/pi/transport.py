@@ -5,6 +5,7 @@ Splitting the byte/stream plumbing from the protocol logic lets tests drive a
 """
 
 import asyncio
+import collections
 import logging
 from typing import AsyncIterator, Protocol, runtime_checkable
 
@@ -45,6 +46,9 @@ class SubprocessTransport:
 
     def __init__(self, process: asyncio.subprocess.Process) -> None:
         self._process = process
+        self._stderr_tail: collections.deque[str] = collections.deque(
+            maxlen=self._STDERR_TAIL_LINES
+        )
         self._stderr_task: asyncio.Task[None] | None = None
         if process.stderr is not None:
             self._stderr_task = asyncio.ensure_future(self._drain_stderr(process.stderr))
@@ -53,6 +57,10 @@ class SubprocessTransport:
     # or message) can exceed asyncio's default 64 KiB StreamReader buffer, which
     # would raise LimitOverrunError and crash the read loop. Give the reader room.
     _STREAM_LIMIT = 16 * 1024 * 1024
+    # The retained stderr tail: enough to carry the actual crash cause into a
+    # process-death error without unbounded growth.
+    _STDERR_TAIL_LINES = 40
+    _STDERR_TAIL_CHARS = 1500
 
     @classmethod
     async def spawn(
@@ -89,6 +97,28 @@ class SubprocessTransport:
                 break
             yield raw.decode("utf-8", errors="replace")
 
+    async def exit_detail(self) -> str:
+        """Exit code + retained stderr tail for a process-death error message —
+        the tail carries the actual cause (bad model config, invalid URL, ...)
+        that a bare "exited unexpectedly" hides. Waits briefly so the exit code
+        and the final stderr lines settle; empty when nothing is known."""
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=2.0)
+        except (asyncio.TimeoutError, ProcessLookupError):
+            pass
+        if self._stderr_task is not None:
+            try:
+                await asyncio.wait_for(asyncio.shield(self._stderr_task), timeout=0.5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+        parts = []
+        if self._process.returncode is not None:
+            parts.append(f"exit code {self._process.returncode}")
+        tail = "\n".join(self._stderr_tail)[-self._STDERR_TAIL_CHARS:]
+        if tail:
+            parts.append(f"last stderr: {tail}")
+        return "; ".join(parts)
+
     async def aclose(self) -> None:
         process = self._process
         if process.returncode is None:
@@ -114,6 +144,9 @@ class SubprocessTransport:
                     break
                 text = raw.decode("utf-8", errors="replace").rstrip()
                 if text:
-                    logger.log(_stderr_log_level(text), "pi stderr: %s", text)
+                    level = _stderr_log_level(text)
+                    logger.log(level, "pi stderr: %s", text)
+                    if level >= logging.WARNING:  # keep lock noise out of the tail
+                        self._stderr_tail.append(text)
         except asyncio.CancelledError:
             pass

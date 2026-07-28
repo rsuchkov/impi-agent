@@ -75,8 +75,11 @@ class WidgetUiBridge:
             post_id = await poster.post_actions(
                 ref, self._prompt_text(req), actions, callback_url=self._callback_url
             )
-        except Exception:
-            logger.exception("ui bridge: failed to post widget; declining")
+        except Exception as exc:
+            # The exception summary goes into the message itself: platform error
+            # codes (missing_scope, channel_not_found, interactivity off) must be
+            # greppable without unfolding the traceback.
+            logger.exception("ui bridge: failed to post widget (%s); declining", exc)
             self._pending.discard(token)
             return UiOutcome(cancelled=True)
 
@@ -102,8 +105,8 @@ class WidgetUiBridge:
         turn (the outcome is already decided)."""
         try:
             await poster.retract(post_id, text)
-        except Exception:
-            logger.debug("ui bridge: retract failed for post %s", post_id)
+        except Exception as exc:
+            logger.debug("ui bridge: retract failed for post %s (%s)", post_id, exc)
 
     def _build_actions(self, req: UiRequest, token: str) -> list[Action] | None:
         if req.method == "confirm":
