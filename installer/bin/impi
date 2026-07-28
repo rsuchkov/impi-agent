@@ -120,7 +120,9 @@ cmd_login() {
         return
     fi
     printf 'Opening pi inside the container. Type /login, follow the flow, then exit.\n'
-    compose run --rm --service-ports impi pi || true
+    # 1455: the openai-codex OAuth flow runs a fixed localhost callback server
+    # inside the container; the browser lives on the host.
+    compose run --rm -p 1455:1455 impi pi || true
     if compose run --rm -T impi test -s /home/impi/.pi/agent/auth.json >/dev/null 2>&1; then
         ok "pi credentials saved"
     else

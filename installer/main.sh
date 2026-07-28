@@ -355,7 +355,9 @@ if [ "$IMPI_LLM_MODE" = subscription ]; then
         CONFIRM_LOGIN=""
         confirm CONFIRM_LOGIN "Open it now?" y || true
         if [ "$CONFIRM_LOGIN" = yes ]; then
-            compose run --rm --service-ports impi pi </dev/tty || true
+            # 1455: the openai-codex OAuth flow runs a fixed localhost callback
+            # server inside the container; the browser lives on the host.
+            compose run --rm -p 1455:1455 impi pi </dev/tty || true
         fi
         if compose run --rm -T impi test -s /home/impi/.pi/agent/auth.json >>"$TUI_LOG" 2>&1; then
             ok "pi credentials saved (pi-auth volume)"
