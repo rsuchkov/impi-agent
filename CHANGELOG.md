@@ -6,7 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: co-deploying Mattermost failed on Apple Silicon** with `no matching
+  manifest for linux/arm64` — Mattermost ships amd64 images only (no tag has an
+  arm64 manifest). The service now pins `platform: linux/amd64` so an ARM host
+  emulates it, its health start-period allows for the slower emulated boot, and
+  the installer says so up front on an ARM machine.
+- **The provider/model questions explain what "default" means.** Leaving them
+  empty passes no provider/model flag at all, so `pi` follows its own settings —
+  i.e. whatever you pick during the login step; filling them in pins a backend
+  that an agent's `agent.yaml` can still override. The summary now spells out
+  which of the two you ended up with.
 
 ## v0.4.2 — 2026-08-03
 

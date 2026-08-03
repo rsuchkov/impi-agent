@@ -107,6 +107,13 @@ HAS_ADMIN=0
 if [ "$IMPI_MM_MODE" = codeploy ]; then
     title "Fresh Mattermost"
     dim "The imp will conjure the whole thing: admin account, team, bots. No browser needed."
+    case "$(uname -m)" in
+        arm64|aarch64)
+            dim "Note: Mattermost ships amd64 images only, so on this machine it runs"
+            dim "emulated — the first start takes a few minutes. Your runtime needs"
+            dim "amd64 emulation on (Docker Desktop: Rosetta; podman: qemu)."
+            ;;
+    esac
     ask IMPI_MM_ADMIN_USER "Admin username" "admin"
     ask IMPI_MM_ADMIN_EMAIL "Admin email" "admin@impi.local"
     if [ -z "${IMPI_MM_ADMIN_PASSWORD:-}" ]; then
@@ -191,9 +198,13 @@ if [ "$IMPI_LLM_MODE" = endpoint ]; then
     ask IMPI_LLM_MODEL "Model name" ""
 else
     dim "After the build you will log in once inside the container (pi's /login);"
-    dim "credentials persist in a volume."
-    ask_opt IMPI_DEFAULT_PROVIDER "Default pi provider (e.g. openai-codex; Enter = pi's default)"
-    ask_opt IMPI_DEFAULT_MODEL "Default model (Enter = provider default)"
+    dim "credentials persist in a volume. The provider you pick there is what your"
+    dim "agents use — the two answers below are OPTIONAL pins on top of it:"
+    dim "left empty, the engine passes no provider/model flag at all and pi follows"
+    dim "its own settings. Fill them in only to force one (an agent can still"
+    dim "override both in its agent.yaml)."
+    ask_opt IMPI_DEFAULT_PROVIDER "Pin a provider, e.g. openai-codex (Enter = the one you log in with)"
+    ask_opt IMPI_DEFAULT_MODEL "Pin a model (Enter = that provider's own default)"
 fi
 
 # --- summary -------------------------------------------------------------------
@@ -210,7 +221,11 @@ say "  Agents dir        : $IMPI_AGENTS_DIR"
 say "  First agent       : $IMPI_FIRST_AGENT ($IMPI_FIRST_AGENT_ROLE)"
 say "  Support bot       : ${IMPI_SUPPORT}"
 say "  Widgets           : ${IMPI_WIDGETS:-no}"
-say "  Model backend     : $IMPI_LLM_MODE"
+if [ "$IMPI_LLM_MODE" = subscription ]; then
+    say "  Model backend     : subscription login (provider: ${IMPI_DEFAULT_PROVIDER:-whatever you log in with}, model: ${IMPI_DEFAULT_MODEL:-its default})"
+else
+    say "  Model backend     : endpoint ${IMPI_LLM_BASE_URL} (model: ${IMPI_LLM_MODEL:-endpoint default})"
+fi
 hr
 IMPI_CONFIRM=${IMPI_CONFIRM:-${IMPI_ASSUME_YES:+yes}}
 confirm IMPI_CONFIRM "Summon the imp?" y || die "aborted — nothing was written"

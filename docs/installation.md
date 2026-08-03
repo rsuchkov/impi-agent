@@ -108,6 +108,12 @@ asserts services, bootstrap, bots, config, and engine readiness.
   fall back to numbered prompts on plain terminals. In a menu you can always
   type the option's number instead of using the arrows.
 - Docker Desktop or podman machine must be running before you start.
+- **Apple Silicon:** Mattermost publishes amd64 images only, so a co-deployed
+  server runs **emulated** — turn on amd64 emulation (Docker Desktop: Settings →
+  General → *Use Rosetta*; podman: the machine's qemu) and expect the first
+  start to take minutes. Without it the pull fails with `no matching manifest
+  for linux/arm64`. The impi image itself builds natively. An external
+  Mattermost (or Slack) has none of this.
 - The image keeps its default uid/gid (1000) here instead of the Mac's: the
   engine runs in a VM that maps bind-mount ownership on its own, so matching
   the host ids buys nothing (and macOS gid 20 is a system group in the image's

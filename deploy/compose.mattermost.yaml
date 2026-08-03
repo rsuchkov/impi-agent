@@ -24,6 +24,11 @@ services:
 
   mattermost:
     image: docker.io/mattermost/mattermost-team-edition:11.9
+    # Mattermost publishes amd64 images only — no arm64 manifest for ANY tag.
+    # Pinning the platform makes an ARM host (Apple Silicon) emulate it (Docker
+    # Desktop's Rosetta / podman machine's qemu) instead of failing the pull with
+    # "no matching manifest for linux/arm64". A no-op on amd64 hosts.
+    platform: linux/amd64
     restart: unless-stopped
     depends_on:
       db:
@@ -50,7 +55,9 @@ services:
       # bundled mmctl over local mode instead.
       test: ["CMD", "mmctl", "--local", "system", "status"]
       interval: 10s
-      start_period: 60s
+      # Generous: under emulation on ARM the server needs minutes to come up, and
+      # a premature "unhealthy" would fail impi's service_healthy dependency.
+      start_period: 240s
 
   impi:
     depends_on:
