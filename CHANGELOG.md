@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.4.2 — 2026-08-03
+
 - **Fixed: installer prompts were not in raw mode under `curl … | bash` on
   macOS.** bash 3.2 applies `read`'s `-s`/`-n` terminal settings to fd 0
   whatever `-u` says, and there fd 0 is the pipe — so the tty stayed in cooked
