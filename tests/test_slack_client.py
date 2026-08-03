@@ -195,3 +195,11 @@ async def test_post_ephemeral_converts_markdown_and_targets_user() -> None:
     kw = web.last("chat_postEphemeral")
     assert kw["channel"] == "C1" and kw["user"] == "U9"
     assert kw["text"] == "*secret* <https://a.b|x>"
+
+
+async def test_snippets_carry_the_author_user_id() -> None:
+    web = FakeWeb(conversations_replies={"messages": [
+        {"ts": "100.1", "user": "U-author", "text": "hello"},
+    ]})
+    snippets = await _sc(web).get_thread_posts(_ref())
+    assert [(s.message_id, s.user_id) for s in snippets] == [("100.1", "U-author")]

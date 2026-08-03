@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Agents no longer miss thread messages posted between their replies.** In a
+  channel an agent only runs when mentioned, so anything said in the thread in
+  between never reached it. Every turn now replays the messages posted since the
+  agent's last reply (its own posts excluded — those are already in its session).
 - **Agents can send ephemeral messages** (visible to one user only) via the new
   `send_ephemeral` tool, where the platform supports it — Mattermost and Slack;
   the ws gateway doesn't advertise it. Targets the user who triggered the turn

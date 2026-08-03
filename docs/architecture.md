@@ -160,9 +160,20 @@ tool-server, then the interactions receiver, then N supervised gateway loops
 `IncomingMessage` (applying the respond decision + `LoopGuard`) → `MessageCoalescer`
 (one worker per conversation; messages that arrive mid-turn are batched into the
 next turn) → `AgentFlow.handle_batch` dedups, gets/creates the session, renders a
-prompt (with a one-shot history backfill on the first turn), and calls
+prompt (with replayed history, below), and calls
 `AgentRuntime.run_stateful` → the `pi` subprocess runs the turn → `AgentFlow` posts
 the reply.
+
+**Replayed history.** The conversation itself lives in the runtime session, so a
+prompt normally carries only the new messages plus sender identity. Two cases add
+context: on the **first turn** of a session with prior history (a pre-existing
+thread, or a channel session) the whole transcript is replayed; on **later turns**
+only what was posted since the agent's last reply (the session's `last_active` is
+the cursor). The second case matters because in a channel the agent runs only when
+mentioned — anything said in between never reached it as a turn. The agent's own
+posts are left out of that catch-up (they are already in its runtime session),
+which is why the gateway's login identity is pushed into the flow
+(`AgentFlow.set_identity`). Both transcripts are budgeted by character count.
 
 **Tool call.** mid-turn, `pi` invokes a tool → the tool-bridge extension
 `POST`s to the tool-server with the agent's token → `ToolServer` authenticates,

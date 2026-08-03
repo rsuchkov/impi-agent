@@ -244,3 +244,22 @@ async def test_post_ephemeral_calls_create_post_ephemeral() -> None:
     call = next(kw for name, kw in driver.calls if name == "create_post_ephemeral")
     assert call["user_id"] == "u-42"
     assert call["post"] == {"channel_id": "chan1", "message": "only you see this"}
+
+
+async def test_snippets_carry_the_author_user_id() -> None:
+    # The flow needs the author id to tell its own posts apart in a backfill.
+    class WithThread(_Recorder):
+        def __init__(self):
+            super().__init__()
+            recorder = self
+
+            class Posts:
+                async def get_post_thread(self, root_id):
+                    recorder.calls.append(("get_post_thread", {"root_id": root_id}))
+                    return {"posts": {"p1": {"id": "p1", "user_id": "u-author",
+                                             "message": "hello", "create_at": 1}}}
+
+            self.posts = Posts()
+
+    snippets = await _client(WithThread()).get_thread_posts(REF)
+    assert [(s.message_id, s.user_id) for s in snippets] == [("p1", "u-author")]

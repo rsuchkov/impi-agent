@@ -37,6 +37,9 @@ class PostSnippet:
     username: str
     text: str
     timestamp: datetime | None = None  # when it was sent (UTC-aware); None if unknown
+    # Author's platform user id ("" if unknown) — lets a flow tell the agent's own
+    # posts apart from everyone else's when replaying history.
+    user_id: str = ""
 
 
 @dataclass(frozen=True)

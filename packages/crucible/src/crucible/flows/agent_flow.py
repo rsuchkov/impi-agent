@@ -31,12 +31,24 @@ LOADING_REACTION = "eyes"
 EMPTY_ANSWER_MESSAGE = "I thought about it but produced no answer — please try rephrasing."
 _MAX_BACKFILL_CHARS = 6000
 _CHANNEL_BACKFILL_LIMIT = 20
+_FIRST_TURN_HEADER = "[context: earlier conversation]"
+# Later turns: what people said in this conversation while the agent wasn't
+# addressed (in a channel it only runs when mentioned, so those messages never
+# reached it as a turn).
+_CATCH_UP_HEADER = "[context: posted since your last reply]"
 
 
 def _format_time(dt: datetime) -> str:
     """Render a message time for the prompt envelope. UTC keeps it unambiguous; the
     newest message is ~now, so the agent can reason about when things were said."""
     return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _parse_iso(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 class AgentFlow:
@@ -52,6 +64,13 @@ class AgentFlow:
         self._profile = profile
         self._sessions = sessions
         self._agent_name = agent_name
+        self._own_user_id = ""
+
+    def set_identity(self, user_id: str) -> None:
+        """This agent's own platform user id, learned at gateway login. Used to
+        keep the agent's own posts out of replayed history (they are already in
+        its runtime session). Unset = no filtering."""
+        self._own_user_id = user_id
 
     def set_profile(self, profile: AgentProfile) -> None:
         """Swap the profile the next turn runs with (hot-reload). Only affects
@@ -81,7 +100,11 @@ class AgentFlow:
             self._agent_name, anchor.channel_id, anchor.conversation_id, anchor.kind,
             user_id=anchor.user_id,
         )
-        prompt = await self._render_prompt(fresh, chat, first_turn=created)
+        # On a later turn, last_active is still the PREVIOUS turn's end (touch()
+        # runs after the turn, and get_or_create doesn't refresh it) — exactly the
+        # cursor for "what was said while we weren't addressed".
+        since = None if created else _parse_iso(record.last_active)
+        prompt = await self._render_prompt(fresh, chat, first_turn=created, since=since)
 
         await chat.add_reaction(anchor.ref, LOADING_REACTION)
         try:
@@ -115,24 +138,29 @@ class AgentFlow:
     # -- internals ----------------------------------------------------------
 
     async def _render_prompt(
-        self, msgs: list[IncomingMessage], chat: ChatClient, *, first_turn: bool
+        self, msgs: list[IncomingMessage], chat: ChatClient, *, first_turn: bool,
+        since: datetime | None = None,
     ) -> str:
-        """Envelope: who is speaking (+ one-shot history backfill).
+        """Envelope: who is speaking (+ replayed history).
 
         The conversation itself lives in the runtime session, so only sender
         identity travels with each message — vital once multiple people and agents
-        share a channel. On the FIRST turn of a session with prior history (a
-        pre-existing thread, or a channel session), the transcript is replayed into
-        the prompt — the runtime has no history-injection API."""
+        share a channel. History is replayed into the prompt (the runtime has no
+        history-injection API) in two shapes: on the FIRST turn of a session with
+        prior history, the whole transcript; on later turns, only what was posted
+        since our last reply — in a channel the agent only runs when mentioned, so
+        anything said in between never reached it as a turn."""
         anchor = msgs[-1]
         parts: list[str] = []
-        if first_turn:
-            batch_ids = {m.ref.message_id for m in msgs}
-            transcript = self._render_transcript(
-                await self._backfill_snippets(anchor, chat), exclude=batch_ids
-            )
+        batch_ids = {m.ref.message_id for m in msgs}
+        snippets = await self._backfill_snippets(anchor, chat)
+        if not first_turn:
+            snippets = self._since(snippets, since)
+        if snippets:
+            transcript = self._render_transcript(snippets, exclude=batch_ids)
             if transcript:
-                parts.append(f"[context: earlier conversation]\n{transcript}\n[/context]")
+                header = _FIRST_TURN_HEADER if first_turn else _CATCH_UP_HEADER
+                parts.append(f"{header}\n{transcript}\n[/context]")
         for m in msgs:
             author = f"@{m.username}" if m.username else m.user_id
             when = f" · {_format_time(m.timestamp)}" if m.timestamp else ""
@@ -150,6 +178,21 @@ class AgentFlow:
                 msg.channel_id, limit=_CHANNEL_BACKFILL_LIMIT
             )
         return []
+
+    def _since(self, snippets: list[PostSnippet], since: datetime | None) -> list[PostSnippet]:
+        """Catch-up filter: only messages posted after our last reply, and not our
+        own (those are already in the runtime session). A snippet without a
+        timestamp can't be placed in time, so it is left out rather than replayed
+        on every turn."""
+        if since is None:
+            return []
+        return [
+            s
+            for s in snippets
+            if s.timestamp is not None
+            and s.timestamp > since
+            and not (self._own_user_id and s.user_id == self._own_user_id)
+        ]
 
     @staticmethod
     def _render_transcript(snippets: list[PostSnippet], *, exclude: set[str]) -> str:

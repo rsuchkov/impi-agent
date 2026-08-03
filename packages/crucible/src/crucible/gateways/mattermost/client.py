@@ -139,6 +139,7 @@ class MattermostChatClient:
                 username=await self._username(post.get("user_id", "")),
                 text=post["message"],
                 timestamp=post_time(post),
+                user_id=post.get("user_id", ""),
             )
             for post in posts
         ]

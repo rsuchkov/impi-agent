@@ -305,3 +305,124 @@ async def test_handle_batch_merges_messages_into_one_prompt_and_reply(tmp_path: 
     assert len(chat.replies) == 1
     assert chat.replies[0][0].message_id == "p2"  # anchored on the newest
     await store.close()
+
+
+# --- catch-up backfill (messages posted while the agent wasn't addressed) ------
+
+
+from datetime import timedelta  # noqa: E402
+
+
+def _at(offset_s: int) -> datetime:
+    return datetime.now(timezone.utc) + timedelta(seconds=offset_s)
+
+
+async def test_later_turn_backfills_messages_posted_since_last_reply(tmp_path: Path) -> None:
+    # In a channel the agent only runs when mentioned, so whatever people said
+    # in the thread between two mentions must be replayed on the next turn.
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+    chat.thread_posts["root1"] = [
+        PostSnippet(message_id="root1", username="roman", text="thread root", timestamp=_at(-3600)),
+    ]
+
+    await flow.handle(_thread_msg(post="p2"), chat)  # first turn: full backfill
+
+    # Colleagues keep talking without mentioning the agent, then someone pings it.
+    chat.thread_posts["root1"] += [
+        PostSnippet(message_id="pA", username="colleague", text="missed while away",
+                    timestamp=_at(60), user_id="u2"),
+        PostSnippet(message_id="p3", username="roman", text="a question in the thread",
+                    timestamp=_at(120), user_id="u1"),
+    ]
+    await flow.handle(_thread_msg(post="p3"), chat)
+
+    second = runtime.calls[1][1]
+    assert "posted since your last reply" in second
+    assert "missed while away" in second
+    assert "thread root" not in second  # old history isn't replayed again
+    assert second.count("a question in the thread") == 1  # current message not duplicated
+
+
+async def test_catch_up_skips_the_agents_own_posts(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    flow.set_identity("uid-bot")  # learned at gateway login
+    chat = FakeChat()
+    chat.thread_posts["root1"] = []
+
+    await flow.handle(_thread_msg(post="p2"), chat)
+
+    chat.thread_posts["root1"] = [
+        PostSnippet(message_id="pBot", username="agent", text="my own earlier reply",
+                    timestamp=_at(60), user_id="uid-bot"),
+        PostSnippet(message_id="pHuman", username="colleague", text="human follow-up",
+                    timestamp=_at(90), user_id="u2"),
+    ]
+    await flow.handle(_thread_msg(post="p3"), chat)
+
+    second = runtime.calls[1][1]
+    assert "human follow-up" in second
+    assert "my own earlier reply" not in second  # already in the runtime session
+    await store.close()
+
+
+async def test_catch_up_ignores_snippets_without_a_timestamp(tmp_path: Path) -> None:
+    # Undatable posts can't be placed against the cursor — replaying them every
+    # turn would duplicate history endlessly.
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+    chat.thread_posts["root1"] = [
+        PostSnippet(message_id="pX", username="colleague", text="undated line"),
+    ]
+
+    await flow.handle(_thread_msg(post="p2"), chat)
+    await flow.handle(_thread_msg(post="p3"), chat)
+
+    assert "undated line" in runtime.calls[0][1]  # first turn: full replay
+    assert "undated line" not in runtime.calls[1][1]  # later turn: skipped
+    await store.close()
+
+
+async def test_dm_turns_have_no_catch_up_block(tmp_path: Path) -> None:
+    # A DM delivers every message as a turn, so there is nothing to catch up on.
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+
+    await flow.handle(_dm("first"), chat)
+    await flow.handle(
+        IncomingMessage(
+            ref=ConversationRef(channel_id="dm1", conversation_id="dm1", message_id="p2"),
+            text="second", user_id="u1", username="roman", kind=KIND_DM, is_dm=True,
+        ),
+        chat,
+    )
+
+    assert "[context:" not in runtime.calls[1][1]
+    await store.close()
+
+
+async def test_channel_session_catches_up_too(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+    chat.recent_posts["ch1"] = []
+
+    def _channel_msg(post_id: str) -> IncomingMessage:
+        return IncomingMessage(
+            ref=ConversationRef(channel_id="ch1", conversation_id="ch1", message_id=post_id),
+            text="question", user_id="u1", username="roman", kind=KIND_CHANNEL,
+        )
+
+    await flow.handle(_channel_msg("p1"), chat)
+    chat.recent_posts["ch1"] = [
+        PostSnippet(message_id="pB", username="other-bot", text="a bot notice",
+                    timestamp=_at(60), user_id="u-bot"),
+    ]
+    await flow.handle(_channel_msg("p2"), chat)
+
+    assert "a bot notice" in runtime.calls[1][1]
+    await store.close()

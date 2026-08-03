@@ -233,6 +233,7 @@ class SlackChatClient:
                     username=await self._username(user_id),
                     text=m["text"],
                     timestamp=ts_time(m.get("ts", "")),
+                    user_id=user_id,
                 )
             )
         return snippets
