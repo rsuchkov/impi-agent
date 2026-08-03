@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.4.1 — 2026-08-03
+
 - **Fixed: the image failed to build on macOS.** The engine image is built with
   the operator's uid/gid, and macOS gid 20 (`staff`) is already Debian's
   `dialout`, so `groupadd` aborted the build (exit 4). The image now reuses
