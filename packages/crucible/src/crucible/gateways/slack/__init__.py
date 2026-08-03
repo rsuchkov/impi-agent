@@ -9,7 +9,10 @@ gateway.py   — Socket Mode loop + respond decision; interactive callbacks rout
 """
 
 from crucible.gateways.slack.client import SlackChatClient
-from crucible.gateways.slack.gateway import SlackGateway
+from crucible.gateways.slack.gateway import (
+    DEFAULT_COMMAND_SHORTCUT_PREFIX,
+    SlackGateway,
+)
 
 # Appended to a Slack agent's system prompt. The gateway converts outgoing
 # Markdown to mrkdwn itself (formatter.py); the model only needs to write plain
@@ -20,4 +23,9 @@ PROMPT_HINT = (
     "lists over Markdown tables (tables get flattened into lists)."
 )
 
-__all__ = ["PROMPT_HINT", "SlackChatClient", "SlackGateway"]
+__all__ = [
+    "DEFAULT_COMMAND_SHORTCUT_PREFIX",
+    "PROMPT_HINT",
+    "SlackChatClient",
+    "SlackGateway",
+]

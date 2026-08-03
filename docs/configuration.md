@@ -49,6 +49,7 @@ HTTP receiver is needed.
 |---|---|---|
 | `SLACK_BOT_TOKEN` | `""` | `xoxb-…` bot token for the default agent |
 | `SLACK_APP_TOKEN` | `""` | `xapp-…` app-level token (scope `connections:write`) |
+| `SLACK_COMMAND_PREFIX` | `crux_` | message shortcuts whose callback id starts with this are commands; the rest of the id is the command name (empty = every shortcut is one). See [commands.md](commands.md) |
 
 ## Gateway selection
 
@@ -151,6 +152,13 @@ human owner auto-added to private channels an agent creates.
 | `INTEGRATIONS_PORT` | `8423` | receiver port |
 | `INTEGRATIONS_PUBLIC_URL` | `""` | URL a containerized Mattermost calls back to; default `http://host.containers.internal:{port}`; `auto` = detect the host LAN IP at startup |
 | `INTEGRATIONS_UI_TIMEOUT` | `90` | seconds to await a human on a blocking confirm/select before default-reject |
+
+Commands (slash commands) reach the same receiver at
+`POST {INTEGRATIONS_PUBLIC_URL}/command/<agent>` — register that URL with the
+platform's command and put the token it issues in the dynamic key
+`AGENTS_COMMAND_TOKENS__<AGENT>` (CSV, one per command). An agent with no tokens
+refuses every command. Slack needs no URL — it uses `crux_*` message shortcuts
+over its socket. See [commands.md](commands.md).
 
 See [troubleshooting.md](troubleshooting.md) if callbacks don't arrive.
 

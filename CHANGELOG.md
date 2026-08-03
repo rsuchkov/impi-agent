@@ -6,6 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Commands: agents can be invoked by a slash command or a message shortcut.**
+  Mattermost posts a slash command to `/command/<agent>` on the interactions
+  receiver (verified by the command's token, `AGENTS_COMMAND_TOKENS__<AGENT>`);
+  Slack uses `crux_*` message shortcuts over its socket (`SLACK_COMMAND_PREFIX`),
+  since it forbids custom slash commands in threads. Either becomes an ordinary
+  turn in the invoking thread, answered there like any message; what a command
+  means is up to the agent's SYSTEM.md. New guide: docs/commands.md — including
+  the pattern for commands whose result must stay private or be produced
+  deterministically: handle them beside the agent with `run_stateless` instead
+  of leaving delivery to the model.
 - **Agents no longer miss thread messages posted between their replies.** In a
   channel an agent only runs when mentioned, so anything said in the thread in
   between never reached it. Every turn now replays the messages posted since the

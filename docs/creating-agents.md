@@ -98,6 +98,16 @@ automatically. A `ws` agent talks to your own programs over the engine's
 WebSocket hub — no per-agent token; access is authorized by service tokens
 (see [ws-gateway.md](ws-gateway.md)). Kinds mix freely in one engine.
 
+## Commands (slash commands / shortcuts)
+
+An agent can also be invoked by a command — `/summarize` in a Mattermost thread,
+or a `crux_*` message shortcut in Slack. It arrives as an ordinary message and
+is answered in that conversation, so nothing needs enabling in `agent.yaml`:
+just say what the command means in `.pi/SYSTEM.md` and register it on the
+platform. (For a command whose result must stay private or be produced
+deterministically, handle it beside the agent instead.) Full guide:
+[commands.md](commands.md).
+
 ## Provisioning and applying
 
 **Shortcut:** `impi agent add` (the CLI; in a deployment: the `impi agent add`

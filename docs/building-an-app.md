@@ -137,6 +137,13 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base
   URL) just reuses one `BaseSettings` class. No per-tool duplication needed.
+- **Not everything has to be a turn.** `AgentRuntime.run_stateless(profile,
+  prompt)` is a one-shot, memoryless run — the runtime used as a plain function.
+  It's the right tool when your app must control the prompt and the delivery
+  itself: a `/summarize` handler that reads the thread through `ChatClient`,
+  runs one stateless call, and posts the result with `ChatAdmin.post_ephemeral`.
+  Deterministic where a turn depends on the model choosing a tool, and it leaves
+  the agent's session untouched. Worked example: [commands.md](commands.md).
 - **Built-ins see the profile dir.** The runtime process's cwd is the agent's
   profile directory; data outside it is reachable by absolute paths or your own
   typed tools — see [runtime-notes.md](runtime-notes.md) "Built-in tools & the

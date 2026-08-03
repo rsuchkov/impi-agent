@@ -17,7 +17,7 @@ from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import InteractionDispatcher
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.presence import AgentPresence
-from crucible.interactions.server import InteractionsServer
+from crucible.interactions.server import CommandTokens, InteractionsServer
 from crucible.interactions.service import InteractionService
 from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.chat.types import IncomingMessage
@@ -37,6 +37,7 @@ class InteractionWiring:
         *,
         codec: CallbackCodec,
         needs_receiver: bool,
+        command_tokens: CommandTokens | None = None,
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
         # service need its InteractionStore + FormStore facets too.
@@ -75,6 +76,7 @@ class InteractionWiring:
                 self.dispatcher, codec, presence,
                 host=integrations.host, port=integrations.port,
                 dialog_submit_url=integrations.dialog_url,
+                command_tokens=command_tokens,
             )
 
     def on_arrival_for(self, name: str) -> Callable[[IncomingMessage], object] | None:

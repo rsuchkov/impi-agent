@@ -25,7 +25,7 @@ from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.gateway import AgentIdentity
-from crucible.ports.chat.types import IncomingMessage
+from crucible.ports.chat.types import KIND_DM, KIND_THREAD, IncomingMessage
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,13 @@ logger = logging.getLogger(__name__)
 # gateway updates the message itself.
 _CHOSE_PREFIX = "Selected: "
 _FORM_OPENED = "📝 Opening form…"
+
+# Default prefix for message shortcuts an agent answers as commands: the callback
+# id starts with it and the rest is the command name (crux_summarize ->
+# "summarize"). Slack forbids custom slash commands inside threads, so a shortcut
+# is the thread-aware entry. Configurable per deployment (SLACK_COMMAND_PREFIX) —
+# a workspace may already have its own naming convention.
+DEFAULT_COMMAND_SHORTCUT_PREFIX = "crux_"
 
 
 class SlackGateway:
@@ -44,14 +51,20 @@ class SlackGateway:
         sink: MessageSink,
         chat: ChatClient,
         *,
+        agent: str = "",
         poster: ChatClient | None = None,
         dispatcher: GatewayDispatcher | None = None,
         directory: AgentDirectory | None = None,
         loop_guard: LoopGuard | None = None,
         reply_to_agents: bool = True,
+        command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX,
     ) -> None:
         self._app = app
         self._handler = AsyncSocketModeHandler(app, app_token)
+        self._agent = agent  # our own name; a command names the agent to run
+        # Which message shortcuts are commands, and where the command name starts.
+        # Empty = every shortcut is a command and its callback id IS the name.
+        self._command_prefix = command_prefix
         self._sink = sink
         self._chat = chat
         self._poster = poster  # opens modals on a form-open click (same agent)
@@ -84,6 +97,10 @@ class SlackGateway:
         # One handler for every engine widget (action ids share a prefix).
         self._app.action(re.compile(f"^{WIDGET_ACTION_PREFIX}"))(self._on_action)
         self._app.view(FORM_CALLBACK)(self._on_view)
+        # Message shortcuts are the thread-aware command entry (Slack forbids
+        # custom slash commands in threads); one handler for the whole family.
+        # escape(): the prefix is configuration, not a pattern.
+        self._app.shortcut(re.compile(f"^{re.escape(self._command_prefix)}"))(self._on_shortcut)
 
     async def _on_message(self, event: dict) -> None:
         try:
@@ -104,6 +121,13 @@ class SlackGateway:
             await self._handle_view(body)
         except Exception:
             logger.exception("failed to handle Slack view submission")
+
+    async def _on_shortcut(self, ack, body: dict) -> None:
+        await ack()  # Slack demands an ack within 3s; the turn runs after it
+        try:
+            self._handle_shortcut(body)
+        except Exception:
+            logger.exception("failed to handle Slack shortcut")
 
     # -- inbound messages ---------------------------------------------------
 
@@ -159,6 +183,41 @@ class SlackGateway:
         # Slack won't retire the buttons on its own — strip them off the message so a
         # fire-and-forget widget can't be clicked twice.
         await self._strip_buttons(body, f"{_CHOSE_PREFIX}{value}")
+
+    def _handle_shortcut(self, body: dict) -> None:
+        """A message shortcut runs a command in the conversation of the message it
+        was invoked on — the thread if there is one, else the message itself (which
+        is what a reply would start). The callback id names the command."""
+        if self._dispatcher is None:
+            return
+        command = str(body.get("callback_id", "")).removeprefix(self._command_prefix)
+        if not command:
+            return
+        message = body.get("message") or {}
+        channel_id = (body.get("channel") or {}).get("id", "")
+        user = body.get("user") or {}
+        ts = str(message.get("ts") or "")
+        thread_ts = str(message.get("thread_ts") or "")
+        # Same conversation rule as an inbound message (slack/events.py): the
+        # thread wins; a DM without a thread is the DM-channel session.
+        if thread_ts and thread_ts != ts:
+            conversation_id, kind = thread_ts, KIND_THREAD
+        elif channel_id.startswith("D"):  # the shortcut payload carries no channel type
+            conversation_id, kind = channel_id, KIND_DM
+        else:
+            conversation_id, kind = ts, KIND_THREAD
+        if not conversation_id:
+            logger.warning("shortcut %s: no conversation in the payload", command)
+            return
+        self._dispatcher.invoke_command(
+            self._agent,
+            channel_id=channel_id,
+            conversation_id=conversation_id,
+            kind=kind,
+            text=f"/{command}",
+            user_id=user.get("id", ""),
+            username=user.get("username", "") or user.get("name", ""),
+        )
 
     async def _open_modal(self, body: dict, form_token: str) -> bool:
         if self._dispatcher is None or self._poster is None:

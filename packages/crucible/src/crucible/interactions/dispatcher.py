@@ -10,6 +10,7 @@ message. It knows nothing about HTTP or any platform's payload shape.
 import logging
 from dataclasses import dataclass
 from enum import Enum, auto
+from uuid import uuid4
 
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.presence import AgentPresence
@@ -105,6 +106,49 @@ class InteractionDispatcher:
         )
         target.sink.submit(msg, target.chat)
         logger.info("interaction %s resolved: %r by %s", record.interaction_id, value, user_id)
+        return ActionResult.FED
+
+    def invoke_command(
+        self,
+        agent: str,
+        *,
+        channel_id: str,
+        conversation_id: str,
+        kind: str,
+        text: str,
+        user_id: str,
+        username: str = "",
+    ) -> ActionResult:
+        """A slash command / message shortcut: run it as an ordinary turn of the
+        agent, in the conversation it was invoked from — the reply is posted
+        there like any other answer.
+
+        Unlike a click there is no stored record — the transport supplies the
+        agent and the conversation it resolved from its own payload.
+
+        Synchronous like the sink it feeds — submitting is fire-and-forget."""
+        target = self._presence.sink(agent)
+        if target is None:
+            return ActionResult.UNAVAILABLE
+        thread_root = conversation_id if kind == KIND_THREAD else ""
+        msg = IncomingMessage(
+            ref=ConversationRef(
+                channel_id=channel_id,
+                conversation_id=conversation_id,
+                # Unique per invocation: the flow dedups on this id, so reusing
+                # the triggering message's id would swallow repeat invocations.
+                message_id=f"cmd-{uuid4().hex[:12]}",
+                thread_root_id=thread_root,
+            ),
+            text=text,
+            user_id=user_id,
+            username=username,
+            kind=kind,
+            mentioned=True,  # the command WAS addressed to this agent
+            synthetic=True,  # engine-generated from a command, not typed
+        )
+        target.sink.submit(msg, target.chat)
+        logger.info("command for %s in %s by %s: %r", agent, conversation_id, user_id, text)
         return ActionResult.FED
 
     async def submit_form(

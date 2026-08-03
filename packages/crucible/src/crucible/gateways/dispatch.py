@@ -25,3 +25,17 @@ class GatewayDispatcher(Protocol):
     async def submit_form(
         self, state: str, submission: dict, cancelled: bool, user_id: str
     ) -> object: ...
+    def invoke_command(
+        self,
+        agent: str,
+        *,
+        channel_id: str,
+        conversation_id: str,
+        kind: str,
+        text: str,
+        user_id: str,
+        username: str = "",
+    ) -> object:
+        """Run a command (slash command / message shortcut) as a private turn of
+        ``agent`` in the conversation it was invoked from."""
+        ...

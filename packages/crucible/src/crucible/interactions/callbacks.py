@@ -31,16 +31,39 @@ class DialogCallback:
     user_id: str = ""
 
 
+@dataclass(frozen=True)
+class CommandCallback:
+    """A normalized slash-command invocation.
+
+    ``root_id`` is the thread the command was typed in ("" outside a thread) —
+    it becomes the conversation the agent's turn runs in. ``token`` is the
+    platform's per-command verification token, checked against the configured
+    ones before anything reaches an agent."""
+
+    command: str = ""  # the trigger, e.g. "/summarize"
+    text: str = ""  # arguments typed after the trigger
+    channel_id: str = ""
+    root_id: str = ""  # thread root, "" when invoked outside a thread
+    user_id: str = ""  # who invoked it
+    user_name: str = ""
+    token: str = ""  # per-command verification token
+    response_url: str = ""  # for delayed replies (unused today)
+
+
 class CallbackCodec(Protocol):
     """A gateway's translation between its callback wire-shape and the neutral
     callbacks/replies. Injected into the receiver so the receiver stays neutral.
 
     ``reply_*`` return the response body a platform expects for a callback:
     ``reply_replace`` swaps the widget message text and drops its buttons,
-    ``reply_notice`` shows an ephemeral note, ``reply_none`` makes no change."""
+    ``reply_notice`` shows an ephemeral note, ``reply_none`` makes no change,
+    ``reply_ack`` answers a command immediately (a receipt — the agent's own
+    reply follows in the conversation when the turn finishes)."""
 
     def parse_action(self, body: dict) -> ActionCallback: ...
     def parse_dialog(self, body: dict) -> DialogCallback: ...
+    def parse_command(self, body: dict) -> CommandCallback: ...
     def reply_replace(self, text: str) -> dict: ...
     def reply_notice(self, text: str) -> dict: ...
     def reply_none(self) -> dict: ...
+    def reply_ack(self, text: str) -> dict: ...

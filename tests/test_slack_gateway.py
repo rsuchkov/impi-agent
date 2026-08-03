@@ -60,6 +60,11 @@ class FakeDispatcher:
     async def submit_form(self, state, submission, cancelled, user_id):
         self.calls.append(("submit_form", state, submission, cancelled, user_id))
 
+    def invoke_command(self, agent, *, channel_id, conversation_id, kind, text, user_id, username=""):
+        self.calls.append(
+            ("invoke_command", agent, channel_id, conversation_id, kind, text, user_id, username)
+        )
+
 
 class FakePoster:
     def __init__(self) -> None:
@@ -73,10 +78,10 @@ async def _ack() -> None:
     return None
 
 
-def _gateway(sink, dispatcher=None, poster=None):
+def _gateway(sink, dispatcher=None, poster=None, **kwargs):
     app = AsyncApp(token="xoxb-fake", signing_secret="x" * 16)
     gw = SlackGateway(
-        app, "xapp-fake", sink, object(), poster=poster, dispatcher=dispatcher  # type: ignore[arg-type]
+        app, "xapp-fake", sink, object(), poster=poster, dispatcher=dispatcher, **kwargs  # type: ignore[arg-type]
     )
     _HANDLERS.append(gw._handler)
     gw._own_user_id = OWN
@@ -188,3 +193,97 @@ async def test_view_submission_feeds_form_values() -> None:
     }
     await gw._handle_view(body)
     assert ("submit_form", "FTOK", {"s": "hello"}, False, "U2") in dispatcher.calls
+
+
+# --- message shortcuts (the thread-aware command entry) -----------------------
+
+# A real Slack payload (captured live): a crux_ shortcut used on a message that
+# lives inside a thread. Slack forbids custom slash commands in threads, so this
+# is the only entry that carries thread context.
+SHORTCUT_IN_THREAD = {
+    "type": "message_action",
+    "callback_id": "crux_summarize",
+    "channel": {"id": "C0BC51KQWTX", "name": "privategroup"},
+    "user": {"id": "U0HNU8P60", "username": "roman.suchkov", "name": "roman.suchkov"},
+    "message_ts": "1782309753.848289",
+    "message": {
+        "ts": "1782309753.848289",
+        "thread_ts": "1782309611.465749",
+        "text": "a reply in the thread",
+        "user": "U0HNU8P60",
+    },
+    "trigger_id": "11739525603684.6556695416068.842c0fee722",
+}
+
+
+async def test_shortcut_in_thread_invokes_command_on_the_thread() -> None:
+    dispatcher = FakeDispatcher()
+    gw = _gateway(FakeSink(), dispatcher=dispatcher)
+    gw._agent = "assistant"
+
+    gw._handle_shortcut(SHORTCUT_IN_THREAD)
+
+    call = dispatcher.calls[0]
+    assert call[0] == "invoke_command" and call[1] == "assistant"
+    assert call[2] == "C0BC51KQWTX"  # channel
+    assert call[3] == "1782309611.465749"  # conversation = the thread root
+    assert call[4] == "thread"
+    assert call[5] == "/summarize"  # callback id minus the crux_ prefix
+    assert call[6] == "U0HNU8P60" and call[7] == "roman.suchkov"
+
+
+async def test_shortcut_on_a_top_level_message_uses_that_message_as_root() -> None:
+    dispatcher = FakeDispatcher()
+    gw = _gateway(FakeSink(), dispatcher=dispatcher)
+    body = {**SHORTCUT_IN_THREAD, "message": {"ts": "111.2", "text": "top level"}}
+
+    gw._handle_shortcut(body)
+
+    call = dispatcher.calls[0]
+    assert call[3] == "111.2" and call[4] == "thread"  # a reply would start this thread
+
+
+async def test_shortcut_in_a_dm_runs_as_the_dm_conversation() -> None:
+    dispatcher = FakeDispatcher()
+    gw = _gateway(FakeSink(), dispatcher=dispatcher)
+    body = {
+        **SHORTCUT_IN_THREAD,
+        "channel": {"id": "D0123", "name": "dm"},
+        "message": {"ts": "111.2", "text": "hi"},
+    }
+
+    gw._handle_shortcut(body)
+
+    call = dispatcher.calls[0]
+    assert call[3] == "D0123" and call[4] == "dm"
+
+
+async def test_shortcut_without_a_command_name_is_ignored() -> None:
+    dispatcher = FakeDispatcher()
+    gw = _gateway(FakeSink(), dispatcher=dispatcher)
+
+    gw._handle_shortcut({**SHORTCUT_IN_THREAD, "callback_id": "crux_"})
+
+    assert dispatcher.calls == []
+
+
+async def test_command_prefix_is_configurable() -> None:
+    # A workspace with its own shortcut naming: the prefix is config, and the
+    # command name is whatever follows it.
+    dispatcher = FakeDispatcher()
+    gw = _gateway(FakeSink(), dispatcher=dispatcher, command_prefix="acme-")
+    body = {**SHORTCUT_IN_THREAD, "callback_id": "acme-summarize"}
+
+    gw._handle_shortcut(body)
+
+    assert dispatcher.calls[0][5] == "/summarize"
+
+
+async def test_empty_prefix_makes_the_callback_id_the_command() -> None:
+    dispatcher = FakeDispatcher()
+    gw = _gateway(FakeSink(), dispatcher=dispatcher, command_prefix="")
+    body = {**SHORTCUT_IN_THREAD, "callback_id": "summarize"}
+
+    gw._handle_shortcut(body)
+
+    assert dispatcher.calls[0][5] == "/summarize"

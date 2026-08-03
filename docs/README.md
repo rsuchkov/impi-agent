@@ -13,6 +13,11 @@ people. Keep them accurate to the code.
 - **[creating-agents.md](creating-agents.md)** — write and register an agent:
   the `agent.yaml` schema, `.pi/SYSTEM.md`, tool gating, skills, and how to apply
   changes (restart vs reload).
+- **[commands.md](commands.md)** — slash commands and message shortcuts: how a
+  command becomes an ordinary turn, per-platform setup (Mattermost / Slack), and
+  the pattern for private, deterministic results (a handler beside the agent).
+- **[ws-gateway.md](ws-gateway.md)** — the WebSocket gateway for your own client
+  services: the frame protocol, conversation isolation, a minimal client.
 - **[configuration.md](configuration.md)** — every configuration knob: the `.env`
   variables, their defaults, and what reads them.
 - **[runtime-notes.md](runtime-notes.md)** — the `pi` flags the engine passes and

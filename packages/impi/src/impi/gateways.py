@@ -47,6 +47,7 @@ def resolve_gateway(settings: ImpiSettings, agent: str) -> GatewayConfig | None:
             kind="slack",
             slack_bot_token=bot,
             slack_app_token=app_token,
+            slack_command_prefix=settings.slack_command_prefix,
             max_post_chars=settings.mm_max_post_chars,
             reply_to_agents=settings.agents_reply_to_agents,
         )

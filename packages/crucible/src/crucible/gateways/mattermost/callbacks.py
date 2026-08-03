@@ -8,7 +8,11 @@ posts ``state`` + ``submission``. Responses use MM's "update the message" /
 ephemeral shapes. This is the ONLY place that shape lives.
 """
 
-from crucible.interactions.callbacks import ActionCallback, DialogCallback
+from crucible.interactions.callbacks import (
+    ActionCallback,
+    CommandCallback,
+    DialogCallback,
+)
 
 
 class MattermostCallbackCodec:
@@ -32,6 +36,20 @@ class MattermostCallbackCodec:
             user_id=str(body.get("user_id") or ""),
         )
 
+    def parse_command(self, body: dict) -> CommandCallback:
+        # MM posts a slash command as a form; a command typed inside a thread
+        # carries that thread's root_id (verified against a live server).
+        return CommandCallback(
+            command=str(body.get("command") or ""),
+            text=str(body.get("text") or ""),
+            channel_id=str(body.get("channel_id") or ""),
+            root_id=str(body.get("root_id") or ""),
+            user_id=str(body.get("user_id") or ""),
+            user_name=str(body.get("user_name") or ""),
+            token=str(body.get("token") or ""),
+            response_url=str(body.get("response_url") or ""),
+        )
+
     def reply_replace(self, text: str) -> dict:
         return {"update": {"message": text, "props": {"attachments": []}}}
 
@@ -40,3 +58,8 @@ class MattermostCallbackCodec:
 
     def reply_none(self) -> dict:
         return {}
+
+    def reply_ack(self, text: str) -> dict:
+        # Answers the command POST itself: visible only to the invoker, and
+        # replaced by nothing — the real answer is delivered by the agent later.
+        return {"response_type": "ephemeral", "text": text}

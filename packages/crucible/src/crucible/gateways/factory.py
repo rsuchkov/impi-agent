@@ -18,8 +18,12 @@ from crucible.gateways.mattermost import (
     MattermostGateway,
     driver_options,
 )
+from crucible.gateways.slack import (
+    DEFAULT_COMMAND_SHORTCUT_PREFIX,
+    SlackChatClient,
+    SlackGateway,
+)
 from crucible.gateways.slack import PROMPT_HINT as SLACK_PROMPT_HINT
-from crucible.gateways.slack import SlackChatClient, SlackGateway
 from crucible.gateways.ws import WsChatClient, WsGateway, WsHub
 from crucible.loopguard import LoopGuard
 from crucible.ports.chat.admin import ChatAdmin
@@ -57,6 +61,7 @@ class GatewayConfig:
     # Slack
     slack_bot_token: str = ""
     slack_app_token: str = ""
+    slack_command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX  # command shortcuts
     # ws carries no per-agent secrets: access is authorized by the client
     # services' tokens on the hub, not by the agent.
 
@@ -136,9 +141,10 @@ class GatewayFactory:
         def create_gateway(sink: MessageSink) -> Gateway:
             return SlackGateway(
                 app, config.slack_app_token, sink, chat,
-                poster=chat, dispatcher=self._dispatcher,
+                agent=agent, poster=chat, dispatcher=self._dispatcher,
                 directory=self._directory, loop_guard=self._loop_guard,
                 reply_to_agents=config.reply_to_agents,
+                command_prefix=config.slack_command_prefix,
             )
 
         return GatewayHandle(

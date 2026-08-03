@@ -426,3 +426,29 @@ async def test_channel_session_catches_up_too(tmp_path: Path) -> None:
 
     assert "a bot notice" in runtime.calls[1][1]
     await store.close()
+
+
+# --- command invocations ------------------------------------------------------
+
+
+async def test_command_turn_replies_like_any_other_message(tmp_path: Path) -> None:
+    # A command is a synthetic message and nothing more: its answer is posted
+    # into the conversation exactly like a typed message's would be.
+    runtime = FakeRuntime(result=PiResult(text="here is the summary"))
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+    msg = IncomingMessage(
+        ref=ConversationRef(
+            channel_id="ch1", conversation_id="root1", message_id="cmd-abc", thread_root_id="root1"
+        ),
+        text="/summarize", user_id="u1", username="roman", kind=KIND_THREAD,
+        mentioned=True, synthetic=True,
+    )
+
+    await flow.handle(msg, chat)
+
+    assert "/summarize" in runtime.calls[0][1]
+    assert [(ref.conversation_id, text) for ref, text in chat.replies] == [
+        ("root1", "here is the summary")
+    ]
+    await store.close()

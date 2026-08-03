@@ -249,6 +249,7 @@ def build_app(settings: ImpiSettings) -> App:
     interactions = InteractionWiring(
         settings.integrations, sessions, presence,
         codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
+        command_tokens=settings.command_tokens_for,
     )
 
     # TODO(runtime-backend): build_app hardcodes the pi backend. When a second

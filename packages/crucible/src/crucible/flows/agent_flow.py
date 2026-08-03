@@ -112,6 +112,7 @@ class AgentFlow:
                 self._profile, record.runtime_session_id, prompt
             )
         except AgentTimeout:
+            logger.warning("agent turn timed out for %s", record.runtime_session_id)
             await chat.post_notice(anchor.ref, LLM_FALLBACK_MESSAGE)
             return
         except AgentError:

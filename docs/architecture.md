@@ -181,6 +181,15 @@ checks the allowlist, builds a scoped `ToolContext`, runs `Tool.execute` against
 live engine state (e.g. `ctx.require_chat_admin().create_channel(...)`) → the JSON
 result returns into `pi`'s turn.
 
+**Command.** a user runs a slash command (Mattermost `POST`s to
+`/command/{agent}` on the receiver, verified by the command's token) or picks a
+`crux_*` message shortcut (Slack, over the socket) → the transport resolves the
+agent and the conversation (thread root) → `InteractionDispatcher.invoke_command`
+feeds a synthetic message → an ordinary turn, whose answer is posted into that
+conversation like any other reply. A command whose result must stay private (or
+be produced deterministically) is better handled beside the agent, with
+`run_stateless` — see [commands.md](commands.md).
+
 **Widget click.** a user clicks a button/select → Mattermost `POST`s to the
 receiver (`/interact`) or Slack delivers it over the socket → the platform's
 `CallbackCodec` normalizes it → `InteractionDispatcher` resolves the blocking

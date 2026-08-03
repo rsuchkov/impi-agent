@@ -65,6 +65,11 @@ class IntegrationsSettings(BaseModel):
         """Callback for a modal form's submission."""
         return self._endpoint("dialog")
 
+    def command_url(self, agent: str) -> str:
+        """Request URL to register a slash command with, for one agent — the path
+        carries the agent, since a command payload doesn't say whom it addresses."""
+        return self._endpoint(f"command/{agent}")
+
     def _endpoint(self, path: str) -> str:
         # Safe join: a trailing slash on public_url must not double up.
         return f"{self.public_url.rstrip('/')}/{path}"
@@ -101,6 +106,10 @@ class Settings(BaseSettings):
     # HTTP receiver is needed). Empty tokens = the Slack gateway is not started.
     slack_bot_token: str = ""  # xoxb-… bot token
     slack_app_token: str = ""  # xapp-… app-level token for Socket Mode
+    # Message shortcuts whose callback id starts with this are commands, and the
+    # rest of the id is the command name (crux_summarize -> "summarize"). Change
+    # it to match a workspace's own naming; empty = every shortcut is a command.
+    slack_command_prefix: str = "crux_"
 
     # ws gateway (duplex WebSocket hub for custom client services). The hub is
     # started only when some agent runs on the "ws" gateway; access is per
@@ -204,6 +213,13 @@ class Settings(BaseSettings):
         if raw is None:
             return None
         return tuple(s.strip() for s in raw.split(",") if s.strip())
+
+    def command_tokens_for(self, agent: str) -> tuple[str, ...]:
+        """Verification tokens of the slash commands this agent accepts:
+        AGENTS_COMMAND_TOKENS__<AGENT> (CSV — one command, one token). Empty =
+        commands are disabled for the agent and its endpoint refuses everything."""
+        raw = self._token(f"AGENTS_COMMAND_TOKENS__{agent.upper().replace('-', '_')}")
+        return tuple(t.strip() for t in raw.split(",") if t.strip())
 
     def ws_services(self) -> dict[str, tuple[str, tuple[str, ...] | None]]:
         """Client services allowed on the ws gateway hub: name -> (bearer token,

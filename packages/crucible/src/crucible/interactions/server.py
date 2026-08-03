@@ -10,12 +10,14 @@ callbacks.
 """
 
 import logging
+from collections.abc import Callable
 
 from aiohttp import web
 
 from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import ActionResult, InteractionDispatcher
 from crucible.interactions.presence import AgentPresence
+from crucible.ports.chat.types import KIND_CHANNEL, KIND_THREAD
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,10 @@ logger = logging.getLogger(__name__)
 _BUTTONS_RETIRED_MESSAGE = "These buttons are no longer active."
 _AGENT_UNAVAILABLE_MESSAGE = "The agent is currently unavailable."
 _CHOSE_PREFIX = "Selected: "
+_COMMAND_ACK_MESSAGE = "Working on it — the answer will appear in this conversation."
+
+# Which command tokens an agent accepts; empty tuple = commands are off for it.
+CommandTokens = Callable[[str], tuple[str, ...]]
 
 
 class InteractionsServer:
@@ -36,6 +42,7 @@ class InteractionsServer:
         host: str = "0.0.0.0",
         port: int = 8423,
         dialog_submit_url: str = "",
+        command_tokens: CommandTokens | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._codec = codec
@@ -43,17 +50,22 @@ class InteractionsServer:
         self._host = host
         self._port = port
         self._dialog_submit_url = dialog_submit_url
+        self._command_tokens = command_tokens
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
         app = web.Application()
         app.router.add_post("/interact", self._interact)
         app.router.add_post("/dialog", self._dialog)
+        # Slash commands are per-agent: the platform's command is registered with
+        # the agent's own URL, so the path says whom to run.
+        app.router.add_post("/command/{agent}", self._command)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         await web.TCPSite(self._runner, self._host, self._port).start()
         logger.info(
-            "integrations receiver on http://%s:%d (/interact, /dialog)", self._host, self._port
+            "integrations receiver on http://%s:%d (/interact, /dialog, /command/{agent})",
+            self._host, self._port,
         )
 
     async def stop(self) -> None:
@@ -116,3 +128,42 @@ class InteractionsServer:
         cb = self._codec.parse_dialog(body)
         await self._dispatcher.submit_form(cb.state, cb.submission, cb.cancelled, cb.user_id)
         return web.json_response(self._codec.reply_none())  # empty 200 → close the dialog
+
+    async def _command(self, request: web.Request) -> web.Response:
+        """A slash command for one agent: verify it, start the turn, answer at
+        once. The turn takes as long as it takes and posts its own reply into the
+        conversation — this response is only the receipt (ephemeral, so the
+        receipt itself doesn't clutter the thread)."""
+        agent = request.match_info["agent"]
+        # Commands arrive form-encoded (Mattermost), unlike the JSON callbacks.
+        try:
+            body = dict(await request.post())
+        except Exception:
+            return web.json_response({"error": "bad request"}, status=400)
+        cb = self._codec.parse_command(body)
+
+        allowed = self._command_tokens(agent) if self._command_tokens else ()
+        if not allowed or cb.token not in allowed:
+            # Anything that can reach this port could otherwise run a turn as the
+            # agent: an unconfigured agent or a wrong token is a hard stop.
+            logger.warning("command %s for %s: rejected (token mismatch)", cb.command, agent)
+            return web.json_response({"error": "forbidden"}, status=403)
+
+        # A command typed in a thread belongs to that thread; outside one it runs
+        # as the channel's own conversation.
+        conversation_id = cb.root_id or cb.channel_id
+        kind = KIND_THREAD if cb.root_id else KIND_CHANNEL
+        text = f"{cb.command} {cb.text}".strip()
+        result = self._dispatcher.invoke_command(
+            agent,
+            channel_id=cb.channel_id,
+            conversation_id=conversation_id,
+            kind=kind,
+            text=text,
+            user_id=cb.user_id,
+            username=cb.user_name,
+        )
+        if result is ActionResult.UNAVAILABLE:
+            logger.warning("command %s: agent %s has no live presence", cb.command, agent)
+            return web.json_response(self._codec.reply_ack(_AGENT_UNAVAILABLE_MESSAGE))
+        return web.json_response(self._codec.reply_ack(_COMMAND_ACK_MESSAGE))
