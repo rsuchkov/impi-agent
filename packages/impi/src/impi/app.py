@@ -188,7 +188,9 @@ def _build_units(
         if handle is None:
             continue  # unknown gateway kind (factory logged why)
         profiles.set_hint(spec.name, handle.prompt_hint)
-        tools.enroll(spec, handle.admin)  # must precede profiles.build (reads caps/env)
+        # must precede profiles.build (reads caps/env); handle.caps carries
+        # gateway-kind capabilities like ephemeral.
+        tools.enroll(spec, handle.admin, extra_caps=handle.caps)
         if spec.name in engine_names:
             # Engine-owned agents (support) get the agents directory path (their
             # editable workspace) and the engine source root (read-only) so their
@@ -301,10 +303,18 @@ def build_app(settings: ImpiSettings) -> App:
     if not units:
         raise RuntimeError("No agents with a gateway token — nothing to run")
 
+    async def _resolve_conversation(runtime_session_id: str) -> tuple[str, str] | None:
+        # Gives tools the current turn's channel + triggering user (e.g. for an
+        # ephemeral reply). Strings only cross into the tool layer; the store
+        # stays here.
+        record = await sessions.get_by_runtime_session(runtime_session_id)
+        return (record.channel_id, record.last_user_id) if record else None
+
     tool_server = tools.build_server(
         directory=registry,
         interaction_svc=interactions.interaction_svc,
         dotenv_path=settings.dotenv_path,
+        session_resolver=_resolve_conversation,
     )
     reloader = ProfileReloader(
         profiles=profiles,

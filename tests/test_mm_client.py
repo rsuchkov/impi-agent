@@ -26,6 +26,12 @@ class _Recorder:
                 recorder.calls.append(("patch_post", {"post_id": post_id, **options}))
                 return {"id": post_id}
 
+            async def create_post_ephemeral(self, user_id, post):
+                recorder.calls.append(
+                    ("create_post_ephemeral", {"user_id": user_id, "post": post})
+                )
+                return {"id": "eph-id"}
+
         class Reactions:
             async def save_reaction(self, options):
                 recorder.calls.append(("save_reaction", options))
@@ -230,3 +236,11 @@ async def test_open_dialog_builds_elements_from_form() -> None:
     assert els[1]["type"] == "select"
     assert els[1]["options"] == [{"text": "low", "value": "low"}, {"text": "high", "value": "high"}]
     assert els[2] == {"display_name": "Urgent", "name": "u", "type": "bool", "optional": True}
+
+
+async def test_post_ephemeral_calls_create_post_ephemeral() -> None:
+    driver = _Recorder()
+    await _client(driver).post_ephemeral("chan1", "u-42", "only you see this")
+    call = next(kw for name, kw in driver.calls if name == "create_post_ephemeral")
+    assert call["user_id"] == "u-42"
+    assert call["post"] == {"channel_id": "chan1", "message": "only you see this"}

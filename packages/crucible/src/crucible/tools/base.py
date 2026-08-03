@@ -18,9 +18,10 @@ from crucible.ports.chat.interactions import InteractionService
 # Capabilities a tool may require (Tool.requires). The composition root advertises
 # a tool to an agent only when its gateway/config provides every required
 # capability, so a tool never runs without the dependency it declares.
-CAP_CHAT_ADMIN = "chat_admin"  # channel administration (Mattermost; Slack has none)
+CAP_CHAT_ADMIN = "chat_admin"  # channel administration (Mattermost + Slack)
 CAP_WIDGETS = "widgets"  # interactive widgets (buttons / selects)
 CAP_FORMS = "forms"  # modal forms
+CAP_EPHEMERAL = "ephemeral"  # messages visible only to one user (Mattermost + Slack)
 
 
 class ToolError(Exception):
@@ -48,6 +49,12 @@ class ToolContext:
     # form round-trip.
     runtime_session_id: str = ""
     interaction_svc: InteractionService | None = None
+    # The conversation this call runs inside, resolved from runtime_session_id by
+    # the server (plain strings — the tool layer stays free of store types).
+    # channel_id: where the turn happened; user_id: who last triggered it. Empty
+    # when the server can't resolve them (e.g. no session yet).
+    channel_id: str = ""
+    user_id: str = ""
 
     def require_chat_admin(self) -> ChatAdmin:
         """The agent's channel-admin client, or a ToolError if its gateway has none

@@ -7,7 +7,14 @@ its own tool modules. Tools depend only on ports (the interaction service)."""
 from typing import Any, ClassVar
 
 from crucible.ports.chat.types import Form, FormField
-from crucible.tools.base import CAP_FORMS, CAP_WIDGETS, Tool, ToolContext, ToolError
+from crucible.tools.base import (
+    CAP_EPHEMERAL,
+    CAP_FORMS,
+    CAP_WIDGETS,
+    Tool,
+    ToolContext,
+    ToolError,
+)
 from crucible.tools.registry import tool
 
 _FIELD_TYPES = ("text", "textarea", "select", "bool")
@@ -159,3 +166,54 @@ class OpenForm(Tool):
         if not posted:
             raise ToolError("could not post the form (conversation not resolved)")
         return {"status": "posted", "awaiting_submit": True}
+
+
+@tool
+class SendEphemeral(Tool):
+    name: ClassVar[str] = "send_ephemeral"
+    requires: ClassVar[frozenset[str]] = frozenset({CAP_EPHEMERAL})
+    description: ClassVar[str] = (
+        "Post a message in THIS conversation visible ONLY to one user (an "
+        "ephemeral message — others in the channel don't see it, and it isn't "
+        "stored in the conversation history). Defaults to the user who triggered "
+        "this turn; pass `target` to send it to a specific @username instead. Use "
+        "for a private hint or a heads-up you don't want to broadcast."
+    )
+    parameters: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "message": {"type": "string", "description": "The message text (Markdown)"},
+            "target": {
+                "type": "string",
+                "description": "Who sees it: an @username; omit to send to the "
+                "user who triggered this turn",
+            },
+        },
+        "required": ["message"],
+    }
+
+    async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+        message = _require_str(args, "message")
+        admin = ctx.require_chat_admin()
+        if not ctx.channel_id:
+            raise ToolError("no conversation context for an ephemeral message")
+        target = str(args.get("target") or "").strip()
+        if target:
+            user_id = await admin.resolve_username(target)
+            if not user_id:
+                raise ToolError(f"could not resolve user {target!r}")
+        elif ctx.user_id:
+            user_id = ctx.user_id
+        else:
+            raise ToolError("no target user in this conversation (pass `target`)")
+        try:
+            await admin.post_ephemeral(ctx.channel_id, user_id, message)
+        except Exception as exc:
+            # Platforms gate ephemeral posts (Mattermost needs the
+            # create_post_ephemeral permission, which a bot lacks by default) —
+            # report it rather than crash the turn.
+            raise ToolError(
+                f"could not post the ephemeral message (does the bot have "
+                f"permission to post ephemeral messages?): {exc}"
+            ) from exc
+        return {"delivered": True, "ephemeral": True, "user_id": user_id}

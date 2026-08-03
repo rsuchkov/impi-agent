@@ -128,3 +128,69 @@ async def test_interaction_is_one_shot(tmp_path: Path) -> None:
         assert await store.take_interaction("unknown") is None
     finally:
         await store.close()
+
+
+async def test_get_or_create_records_last_user_and_refreshes_it(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        rec, created = await store.get_or_create(
+            "assistant", "ch1", "root1", KIND_THREAD, user_id="u-first"
+        )
+        assert created and rec.last_user_id == "u-first"
+        # A later turn by another user in the same conversation refreshes it,
+        # so a mid-turn tool addresses THIS turn's user.
+        rec2, created2 = await store.get_or_create(
+            "assistant", "ch1", "root1", KIND_THREAD, user_id="u-second"
+        )
+        assert not created2 and rec2.last_user_id == "u-second"
+    finally:
+        await store.close()
+
+
+async def test_touch_updates_last_user_when_given(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD, user_id="u1")
+        await store.touch("assistant", "root1", user_id="u2")
+        rec = await store.get_by_runtime_session(
+            derive_runtime_session_id("assistant", "root1")
+        )
+        assert rec is not None and rec.last_user_id == "u2"
+        # touch without a user_id leaves it intact
+        await store.touch("assistant", "root1")
+        rec2 = await store.get_by_runtime_session(
+            derive_runtime_session_id("assistant", "root1")
+        )
+        assert rec2 is not None and rec2.last_user_id == "u2"
+    finally:
+        await store.close()
+
+
+async def test_migration_adds_last_user_id_to_old_db(tmp_path: Path) -> None:
+    import sqlite3
+
+    # Simulate a pre-ephemeral DB: sessions table WITHOUT last_user_id.
+    db = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        "CREATE TABLE sessions (id INTEGER PRIMARY KEY, agent TEXT NOT NULL, "
+        "channel_id TEXT NOT NULL, conversation_id TEXT NOT NULL, kind TEXT NOT NULL, "
+        "runtime_session_id TEXT NOT NULL, created_at TEXT NOT NULL, last_active TEXT NOT NULL, "
+        "UNIQUE (agent, conversation_id));"
+        "INSERT INTO sessions (agent, channel_id, conversation_id, kind, runtime_session_id, "
+        "created_at, last_active) VALUES "
+        "('assistant','ch1','root1','thread','assistant--root1','2020-01-01','2020-01-01');"
+    )
+    conn.commit()
+    conn.close()
+
+    store = SqliteSessionStore(db)  # opening runs the migration
+    try:
+        rec = await store.get_by_runtime_session("assistant--root1")
+        assert rec is not None and rec.last_user_id == ""  # backfilled default
+        # And the column is writable now.
+        await store.touch("assistant", "root1", user_id="u9")
+        rec2 = await store.get_by_runtime_session("assistant--root1")
+        assert rec2 is not None and rec2.last_user_id == "u9"
+    finally:
+        await store.close()

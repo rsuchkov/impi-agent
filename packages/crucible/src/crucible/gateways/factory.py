@@ -27,6 +27,7 @@ from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.gateway import Gateway
+from crucible.tools.base import CAP_EPHEMERAL
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,10 @@ class GatewayHandle:
     create_gateway: Callable[[MessageSink], Gateway]
     prompt_hint: str = ""
     needs_http_receiver: bool = False
+    # Extra capabilities this gateway kind provides beyond what admin/interactivity
+    # imply (e.g. CAP_EPHEMERAL on Mattermost/Slack, absent on ws). Unioned into the
+    # agent's cap set in ToolWiring.enroll.
+    caps: frozenset[str] = frozenset()
 
 
 class GatewayFactory:
@@ -121,6 +126,7 @@ class GatewayFactory:
         return GatewayHandle(
             chat=chat, admin=chat, create_gateway=create_gateway,
             prompt_hint="", needs_http_receiver=needs_http_receiver(config.kind),
+            caps=frozenset({CAP_EPHEMERAL}),
         )
 
     def _slack(self, agent: str, config: GatewayConfig) -> GatewayHandle:
@@ -138,6 +144,7 @@ class GatewayFactory:
         return GatewayHandle(
             chat=chat, admin=chat, create_gateway=create_gateway,
             prompt_hint=SLACK_PROMPT_HINT, needs_http_receiver=needs_http_receiver(config.kind),
+            caps=frozenset({CAP_EPHEMERAL}),
         )
 
     def _ws(self, agent: str, config: GatewayConfig) -> GatewayHandle | None:

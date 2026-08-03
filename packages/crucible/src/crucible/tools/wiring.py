@@ -21,7 +21,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.interactions import InteractionService
 from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FORMS, CAP_WIDGETS
 from crucible.tools.registry import ToolRegistry, build_registry
-from crucible.tools.server import ToolServer
+from crucible.tools.server import SessionResolver, ToolServer
 
 logger = logging.getLogger(__name__)
 
@@ -67,15 +67,22 @@ class ToolWiring:
     def enabled(self) -> bool:
         return self.registry is not None
 
-    def enroll(self, spec: AgentSpec, admin: ChatAdmin | None) -> None:
+    def enroll(
+        self, spec: AgentSpec, admin: ChatAdmin | None,
+        *, extra_caps: frozenset[str] = frozenset(),
+    ) -> None:
         if self.registry is None:
             return
         token = secrets.token_hex(16)
         self.tokens[token] = spec.name
         if admin is not None:
             self.admins[spec.name] = admin
-        caps = self.base_caps | (
-            frozenset({CAP_CHAT_ADMIN}) if admin is not None else frozenset()
+        # base (widgets/forms) + chat-admin if the agent has an admin client +
+        # whatever extra capabilities its gateway kind advertises (e.g. ephemeral).
+        caps = (
+            self.base_caps
+            | (frozenset({CAP_CHAT_ADMIN}) if admin is not None else frozenset())
+            | extra_caps
         )
         self.caps[spec.name] = caps
         advertised, dropped = _gate_tools(self.registry, spec.tools, caps)
@@ -106,6 +113,7 @@ class ToolWiring:
         directory: AgentDirectory,
         interaction_svc: InteractionService | None,
         dotenv_path: str,
+        session_resolver: SessionResolver | None = None,
     ) -> ToolServer | None:
         if self.registry is None:
             return None
@@ -119,4 +127,5 @@ class ToolWiring:
             port=self._tools.server_port,
             tool_configs=self.registry.load_configs(env_file=dotenv_path),
             interaction_svc=interaction_svc,
+            session_resolver=session_resolver,
         )

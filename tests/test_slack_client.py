@@ -187,3 +187,11 @@ async def test_long_reply_formats_before_chunking_fence_not_split() -> None:
     assert "**not bold**" in joined          # fence content untouched
     assert "*intro*" in joined and "tail *bold*" in joined
     assert all(len(c) <= 200 for c in chunks)
+
+
+async def test_post_ephemeral_converts_markdown_and_targets_user() -> None:
+    web = FakeWeb()
+    await _sc(web).post_ephemeral("C1", "U9", "**secret** [x](https://a.b)")
+    kw = web.last("chat_postEphemeral")
+    assert kw["channel"] == "C1" and kw["user"] == "U9"
+    assert kw["text"] == "*secret* <https://a.b|x>"

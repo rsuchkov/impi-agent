@@ -39,6 +39,10 @@ class SessionRecord:
     runtime_session_id: str
     created_at: str  # ISO8601 UTC
     last_active: str
+    # The user who most recently triggered a turn in this conversation. Lets a
+    # tool address that person (e.g. an ephemeral reply) without the runtime
+    # forwarding per-message identity. "" when unknown.
+    last_user_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -104,13 +108,16 @@ class SessionStore(Protocol):
     """Inventory of conversations -> runtime sessions, surviving restarts."""
 
     async def get_or_create(
-        self, agent: str, channel_id: str, conversation_id: str, kind: str
+        self, agent: str, channel_id: str, conversation_id: str, kind: str,
+        user_id: str = "",
     ) -> tuple[SessionRecord, bool]:
         """Returns (record, created); created=True on first sight of the
-        conversation — flows use it to backfill thread context once."""
+        conversation — flows use it to backfill thread context once. ``user_id``
+        (the triggering user) is recorded as the conversation's last user, so a
+        mid-turn tool can address them."""
         ...
 
-    async def touch(self, agent: str, conversation_id: str) -> None: ...
+    async def touch(self, agent: str, conversation_id: str, user_id: str = "") -> None: ...
 
     async def list(self, agent: str | None = None) -> list[SessionRecord]: ...
 

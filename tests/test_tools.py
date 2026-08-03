@@ -35,6 +35,7 @@ class FakeAdmin:
         self.created: list[tuple] = []
         self.invited: list[tuple] = []
         self.posted: list[tuple] = []  # (channel_id, message, hop_depth)
+        self.ephemeral: list[tuple] = []  # (channel_id, user_id, message)
         self.channel_posts: list[PostSnippet] = []
 
     async def create_channel(self, name, display_name, *, private=True, purpose=""):
@@ -56,6 +57,9 @@ class FakeAdmin:
 
     async def get_channel_posts(self, channel_id, limit=20):
         return self.channel_posts[:limit]
+
+    async def post_ephemeral(self, channel_id, user_id, message):
+        self.ephemeral.append((channel_id, user_id, message))
 
 
 AGENTS = [
@@ -352,7 +356,7 @@ def test_registry_knows_all_default_tools() -> None:
     assert set(reg.names()) == {
         "list_agents", "create_channel", "invite_to_channel", "get_channel_members",
         "send_message", "read_channel", "create_agent",
-        "ask_user_buttons", "ask_user_select", "open_form",
+        "ask_user_buttons", "ask_user_select", "open_form", "send_ephemeral",
     }
 
 
@@ -672,3 +676,116 @@ def test_create_agent_is_confirmation_gated() -> None:
     reg = build_registry()
     entry = next(e for e in reg.manifest(("create_agent",)))
     assert entry["requires_confirmation"] is True
+
+
+# --- send_ephemeral -----------------------------------------------------------
+
+
+from crucible.builtin_tools import SendEphemeral  # noqa: E402
+from crucible.tools.base import CAP_EPHEMERAL  # noqa: E402
+
+
+def _ctx_ephemeral(admin, *, channel="C1", user="u-triggered") -> ToolContext:
+    return ToolContext(
+        agent_name="assistant", directory=FakeDirectory(AGENTS), chat_admin=admin,
+        channel_id=channel, user_id=user,
+    )
+
+
+async def test_send_ephemeral_targets_current_user_by_default() -> None:
+    admin = FakeAdmin()
+    result = await SendEphemeral().execute(_ctx_ephemeral(admin), {"message": "psst"})
+    assert result["delivered"] is True and result["ephemeral"] is True
+    assert admin.ephemeral == [("C1", "u-triggered", "psst")]
+
+
+async def test_send_ephemeral_resolves_target_username() -> None:
+    admin = FakeAdmin()
+    await SendEphemeral().execute(
+        _ctx_ephemeral(admin), {"message": "hi", "target": "@someone"}
+    )
+    # FakeAdmin.resolve_username -> "uid-someone"
+    assert admin.ephemeral == [("C1", "uid-someone", "hi")]
+
+
+async def test_send_ephemeral_needs_a_target() -> None:
+    admin = FakeAdmin()
+    ctx = _ctx_ephemeral(admin, user="")  # no triggering user, no target arg
+    try:
+        await SendEphemeral().execute(ctx, {"message": "hi"})
+        raise AssertionError("expected ToolError")
+    except ToolError as exc:
+        assert "target" in str(exc)
+    assert admin.ephemeral == []
+
+
+async def test_send_ephemeral_needs_conversation_context() -> None:
+    admin = FakeAdmin()
+    ctx = _ctx_ephemeral(admin, channel="")
+    try:
+        await SendEphemeral().execute(ctx, {"message": "hi"})
+        raise AssertionError("expected ToolError")
+    except ToolError:
+        pass
+
+
+async def test_send_ephemeral_errors_when_username_unknown() -> None:
+    class NoResolve(FakeAdmin):
+        async def resolve_username(self, username):
+            return None
+
+    admin = NoResolve()
+    try:
+        await SendEphemeral().execute(
+            _ctx_ephemeral(admin), {"message": "hi", "target": "@ghost"}
+        )
+        raise AssertionError("expected ToolError")
+    except ToolError as exc:
+        assert "ghost" in str(exc)
+
+
+def test_send_ephemeral_declares_ephemeral_capability() -> None:
+    assert SendEphemeral.requires == frozenset({CAP_EPHEMERAL})
+
+
+async def test_server_resolves_conversation_into_context() -> None:
+    # A tool that echoes the resolved conversation context; the server fills
+    # ctx.channel_id/user_id from the injected resolver keyed on the session header.
+    from typing import ClassVar
+
+    from crucible.tools.base import Tool
+    from crucible.tools.registry import ToolRegistry
+
+    class _Echo(Tool):
+        name: ClassVar[str] = "echo_ctx"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {}
+
+        async def execute(self, ctx, args):
+            return {"channel_id": ctx.channel_id, "user_id": ctx.user_id}
+
+    reg = ToolRegistry((_Echo(),))  # type: ignore[arg-type]
+
+    async def resolver(rsid: str):
+        return ("C-resolved", "U-resolved") if rsid == "assistant--conv" else None
+
+    server = ToolServer(
+        reg,
+        directory=FakeDirectory(AGENTS),
+        admins={},
+        tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"echo_ctx"})},
+        port=8470,
+        session_resolver=resolver,
+    )
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8470/tool/echo_ctx", json={},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--conv"},
+            ) as resp:
+                body = (await resp.json())["result"]
+        assert body == {"channel_id": "C-resolved", "user_id": "U-resolved"}
+    finally:
+        await server.stop()

@@ -57,8 +57,18 @@ no tools at all**. Two rules to remember:
 - **Skills need `read` + `bash`** to function (the agent reads `SKILL.md` and runs
   its scripts via `bash`).
 - A typed tool is **dropped** (and logged) if the agent's gateway/config doesn't
-  provide a capability it requires — e.g. channel-admin tools on a Slack agent, or
-  widget tools when interactivity is disabled.
+  provide a capability it requires — e.g. widget tools when interactivity is
+  disabled, or `send_ephemeral` on a gateway that can't post ephemeral messages.
+  Capabilities per gateway: Mattermost and Slack provide channel administration
+  and ephemeral messages; the ws gateway provides neither (widgets/forms depend
+  on interactivity being enabled). So a tool listed by an agent whose gateway
+  lacks the capability simply isn't advertised to it.
+  - **`send_ephemeral`** posts a message only one user sees (the turn's user by
+    default, or a given `@username`). **Mattermost gates this behind the
+    `create_post_ephemeral` permission**, which a bot account lacks by default —
+    grant it to the bot's role (e.g. `mmctl permissions add system_user
+    create_post_ephemeral`, or via the System Console) or the tool returns a
+    permission error. Slack bots can post ephemeral messages out of the box.
 - **Built-ins work relative to the profile directory** (the runtime's cwd) — so
   relative state like a skill's `state/*.json` lands there. To read data that
   lives elsewhere (a mounted repo, a docs folder), give the agent the **absolute

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   runtime_session_id TEXT NOT NULL,
   created_at TEXT NOT NULL,        -- ISO8601 UTC
   last_active TEXT NOT NULL,
+  last_user_id TEXT NOT NULL DEFAULT '',  -- who last triggered a turn here
   UNIQUE (agent, conversation_id)
 );
 
@@ -69,7 +70,11 @@ _INTERACTION_COLUMNS = (
 )
 _FORM_COLUMNS = "token, agent, channel_id, conversation_id, kind, spec, created_at"
 
-_COLUMNS = "agent, channel_id, conversation_id, kind, runtime_session_id, created_at, last_active"
+# Order matches SessionRecord's fields (SessionRecord(*row)); last_user_id last.
+_COLUMNS = (
+    "agent, channel_id, conversation_id, kind, runtime_session_id, "
+    "created_at, last_active, last_user_id"
+)
 
 
 def _now_iso() -> str:
@@ -88,19 +93,30 @@ class SqliteSessionStore:
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.executescript(_SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns absent from DBs created by older versions. Guarded so a
+        second run is a no-op (CREATE TABLE IF NOT EXISTS won't ALTER)."""
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(sessions)")}
+        if "last_user_id" not in cols:
+            self._conn.execute(
+                "ALTER TABLE sessions ADD COLUMN last_user_id TEXT NOT NULL DEFAULT ''"
+            )
 
     # -- async facade (SessionStore port) ------------------------------------
 
     async def get_or_create(
-        self, agent: str, channel_id: str, conversation_id: str, kind: str
+        self, agent: str, channel_id: str, conversation_id: str, kind: str,
+        user_id: str = "",
     ) -> tuple[SessionRecord, bool]:
         return await asyncio.to_thread(
-            self.get_or_create_sync, agent, channel_id, conversation_id, kind
+            self.get_or_create_sync, agent, channel_id, conversation_id, kind, user_id
         )
 
-    async def touch(self, agent: str, conversation_id: str) -> None:
-        await asyncio.to_thread(self.touch_sync, agent, conversation_id)
+    async def touch(self, agent: str, conversation_id: str, user_id: str = "") -> None:
+        await asyncio.to_thread(self.touch_sync, agent, conversation_id, user_id)
 
     async def list(self, agent: str | None = None) -> list[SessionRecord]:
         return await asyncio.to_thread(self.list_sync, agent)
@@ -141,17 +157,27 @@ class SqliteSessionStore:
     # -- sync core (also used by the cleanup CLI) -----------------------------
 
     def get_or_create_sync(
-        self, agent: str, channel_id: str, conversation_id: str, kind: str
+        self, agent: str, channel_id: str, conversation_id: str, kind: str,
+        user_id: str = "",
     ) -> tuple[SessionRecord, bool]:
         now = _now_iso()
         runtime_session_id = derive_runtime_session_id(agent, conversation_id)
         with self._lock:
             cursor = self._conn.execute(
-                f"INSERT INTO sessions ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                f"INSERT INTO sessions ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (agent, conversation_id) DO NOTHING",
-                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now),
+                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now, user_id),
             )
             created = cursor.rowcount == 1
+            # Refresh the last user on an existing row too, so a tool called
+            # mid-turn addresses THIS turn's user, not the one who opened the
+            # conversation. (ON CONFLICT DO NOTHING keeps the `created` flag clean.)
+            if not created and user_id:
+                self._conn.execute(
+                    "UPDATE sessions SET last_user_id = ? "
+                    "WHERE agent = ? AND conversation_id = ?",
+                    (user_id, agent, conversation_id),
+                )
             self._conn.commit()
             row = self._conn.execute(
                 f"SELECT {_COLUMNS} FROM sessions WHERE agent = ? AND conversation_id = ?",
@@ -159,12 +185,20 @@ class SqliteSessionStore:
             ).fetchone()
         return SessionRecord(*row), created
 
-    def touch_sync(self, agent: str, conversation_id: str) -> None:
+    def touch_sync(self, agent: str, conversation_id: str, user_id: str = "") -> None:
         with self._lock:
-            self._conn.execute(
-                "UPDATE sessions SET last_active = ? WHERE agent = ? AND conversation_id = ?",
-                (_now_iso(), agent, conversation_id),
-            )
+            if user_id:
+                self._conn.execute(
+                    "UPDATE sessions SET last_active = ?, last_user_id = ? "
+                    "WHERE agent = ? AND conversation_id = ?",
+                    (_now_iso(), user_id, agent, conversation_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE sessions SET last_active = ? "
+                    "WHERE agent = ? AND conversation_id = ?",
+                    (_now_iso(), agent, conversation_id),
+                )
             self._conn.commit()
 
     def list_sync(self, agent: str | None = None) -> list[SessionRecord]:

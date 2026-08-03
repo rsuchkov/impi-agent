@@ -213,6 +213,12 @@ class SlackChatClient:
     async def get_channel_posts(self, channel_id: str, limit: int = 20) -> list[PostSnippet]:
         return await self.get_recent_posts(channel_id, limit)
 
+    async def post_ephemeral(self, channel_id: str, user_id: str, message: str) -> None:
+        # Visible only to user_id; convert Markdown to mrkdwn like a normal reply.
+        await self._client.chat_postEphemeral(
+            channel=channel_id, user=user_id, text=markdown_to_mrkdwn(message)
+        )
+
     # -- internals ----------------------------------------------------------
 
     async def _to_snippets(self, messages: list[dict]) -> list[PostSnippet]:

@@ -44,3 +44,9 @@ class ChatAdmin(Protocol):
     async def get_channel_posts(self, channel_id: str, limit: int = 20) -> list[PostSnippet]:
         """The channel's most recent posts, chronological (oldest first)."""
         ...
+
+    async def post_ephemeral(self, channel_id: str, user_id: str, message: str) -> None:
+        """Post a message in ``channel_id`` visible ONLY to ``user_id`` (an
+        ephemeral post). Platform-gated: only gateways that advertise the
+        ephemeral capability offer it (Mattermost, Slack; not every platform)."""
+        ...

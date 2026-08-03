@@ -291,6 +291,12 @@ class MattermostChatClient:
     async def get_channel_posts(self, channel_id: str, limit: int = 20) -> list[PostSnippet]:
         return await self.get_recent_posts(channel_id, limit)
 
+    async def post_ephemeral(self, channel_id: str, user_id: str, message: str) -> None:
+        # Only user_id sees it; markdown is native in MM, so post as-is.
+        await self._driver.posts.create_post_ephemeral(
+            user_id=user_id, post={"channel_id": channel_id, "message": message}
+        )
+
     async def _resolve_team_id(self) -> str:
         if self._team_id:
             return self._team_id

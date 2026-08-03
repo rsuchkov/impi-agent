@@ -78,7 +78,8 @@ class AgentFlow:
         anchor = fresh[-1]
 
         record, created = await self._sessions.get_or_create(
-            self._agent_name, anchor.channel_id, anchor.conversation_id, anchor.kind
+            self._agent_name, anchor.channel_id, anchor.conversation_id, anchor.kind,
+            user_id=anchor.user_id,
         )
         prompt = await self._render_prompt(fresh, chat, first_turn=created)
 

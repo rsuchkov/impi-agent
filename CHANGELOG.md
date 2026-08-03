@@ -6,6 +6,14 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Agents can send ephemeral messages** (visible to one user only) via the new
+  `send_ephemeral` tool, where the platform supports it — Mattermost and Slack;
+  the ws gateway doesn't advertise it. Targets the user who triggered the turn
+  by default, or a given `@username`. Gated by a new `CAP_EPHEMERAL` capability;
+  the session now records the last triggering user so a mid-turn tool can
+  address them. Note: Mattermost requires the `create_post_ephemeral` permission
+  (a bot lacks it by default — grant it to the bot's role); see
+  docs/creating-agents.md.
 - **`ws` gateway: plug your own services into the engine.** A duplex WebSocket
   hub (`WS_PORT`, default 8424): a client service dials in with its service
   token (`impi ws add-service`) and exchanges JSON frames — `message` in,
