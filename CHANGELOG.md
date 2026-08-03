@@ -6,7 +6,17 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: the image failed to build on macOS.** The engine image is built with
+  the operator's uid/gid, and macOS gid 20 (`staff`) is already Debian's
+  `dialout`, so `groupadd` aborted the build (exit 4). The image now reuses
+  whatever group/user holds those ids and only creates what is missing (the
+  same collision hit Linux hosts with a gid like 100), and the installer keeps
+  the default ids on macOS — where the engine runs in a VM that maps bind-mount
+  ownership itself.
+- **Fixed: arrow keys did not move the installer menu on macOS.** Escape
+  sequences are now read one byte at a time and both forms are accepted — CSI
+  (`ESC [ A`) and the SS3 (`ESC O A`) that terminals send in application cursor
+  mode. The menu also shows its keys (`↑/↓ or j/k · Enter · number`).
 
 ## v0.4.0 — 2026-08-03
 

@@ -28,9 +28,15 @@ RUN npm install -g @earendil-works/pi-coding-agent@${PI_VERSION} \
 
 # Match the host user so bind-mounted conf/ and agents/ writes stay owned by
 # the operator (rootful docker; rootless podman adds userns keep-id on top).
+# Either id may already belong to a group/user of the base image — macOS gid 20
+# (staff) is Debian's `dialout` — so create only what is missing and address the
+# account numerically from here on, since its NAME may not be `impi`.
 ARG IMPI_UID=1000
 ARG IMPI_GID=1000
-RUN groupadd -g ${IMPI_GID} impi && useradd -m -u ${IMPI_UID} -g impi impi
+RUN set -eu; \
+    getent group "${IMPI_GID}" >/dev/null || groupadd -g "${IMPI_GID}" impi; \
+    getent passwd "${IMPI_UID}" >/dev/null \
+      || useradd -M -u "${IMPI_UID}" -g "${IMPI_GID}" -d /home/impi -s /bin/bash impi
 
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 \
@@ -49,13 +55,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # Container-fixed paths; the actual content arrives via volumes/bind mounts.
+# HOME is pinned rather than inherited from the account: the pi auth volume is
+# mounted at /home/impi/.pi, and a pre-existing uid would bring its own home.
 ENV PATH=/app/.venv/bin:$PATH \
+    HOME=/home/impi \
     DOTENV_PATH=/app/conf/.env \
     AGENTS_PATH=/app/agents \
     DATA_DIR=/app/data \
     PI_BIN=pi
 RUN mkdir -p /app/data /app/conf /app/agents /home/impi/.pi \
- && chown -R impi:impi /app /home/impi
-USER impi
+ && chown -R "${IMPI_UID}:${IMPI_GID}" /app /home/impi
+USER ${IMPI_UID}:${IMPI_GID}
 
 CMD ["python", "-m", "impi.main"]

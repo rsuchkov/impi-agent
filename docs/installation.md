@@ -105,8 +105,13 @@ asserts services, bootstrap, bots, config, and engine readiness.
 ## macOS notes
 
 - The installer is bash-3.2 compatible (the stock macOS bash); arrow-key menus
-  fall back to numbered prompts on plain terminals.
+  fall back to numbered prompts on plain terminals. In a menu you can always
+  type the option's number instead of using the arrows.
 - Docker Desktop or podman machine must be running before you start.
+- The image keeps its default uid/gid (1000) here instead of the Mac's: the
+  engine runs in a VM that maps bind-mount ownership on its own, so matching
+  the host ids buys nothing (and macOS gid 20 is a system group in the image's
+  Debian base). On Linux the image is built with your own ids.
 - The LAN-IP suggestion for external-Mattermost widget callbacks uses
   `route get default` + `ipconfig getifaddr`; confirm or override the URL when
   prompted.

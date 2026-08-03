@@ -149,7 +149,7 @@ confirm() {
 # plain terminals. Pre-set VAR (answers mode) skips the menu entirely.
 menu() {
     local _var=$1 _title=$2; shift 2
-    local _value='' _n=$# _i _key _seq _choice=0
+    local _value='' _n=$# _i _key _seq _choice=0 _ESC=$'\033'
     eval "_value=\${$_var:-}"
     if [ -n "$_value" ]; then return 0; fi
     _need_tty "$_var"
@@ -166,6 +166,7 @@ menu() {
         done
     fi
     # Fancy path: reverse-video cursor row, redraw in place.
+    printf '%s  ↑/↓ or j/k · Enter to choose · or press its number%s\n' "$_C_DIM" "$_C_RST"
     printf '\033[?25l'  # hide cursor
     while :; do
         _i=0
@@ -178,12 +179,24 @@ menu() {
             _i=$((_i + 1))
         done
         IFS= read -rsn1 -u3 _key || _key=""
-        if [ "$_key" = "$(printf '\033')" ]; then
+        if [ "$_key" = "$_ESC" ]; then
+            # An arrow is ESC + an introducer + a final byte: CSI ("\033[A") in
+            # normal mode, SS3 ("\033OA") when the terminal is in application
+            # cursor mode (macOS terminals switch into it). Read the bytes ONE
+            # at a time — a -n2 read is a single-shot that different bash
+            # versions satisfy differently, and it can't be told apart from a
+            # bare ESC keypress.
             _seq=""
-            IFS= read -rsn2 -t 1 -u3 _seq || _seq=""
+            IFS= read -rsn1 -t 1 -u3 _seq || _seq=""
             case "$_seq" in
-                '[A') _choice=$(( (_choice + _n - 1) % _n )) ;;
-                '[B') _choice=$(( (_choice + 1) % _n )) ;;
+                '['|O)
+                    _seq=""
+                    IFS= read -rsn1 -t 1 -u3 _seq || _seq=""
+                    case "$_seq" in
+                        A) _choice=$(( (_choice + _n - 1) % _n )) ;;
+                        B) _choice=$(( (_choice + 1) % _n )) ;;
+                    esac
+                    ;;
             esac
         else
             case "$_key" in

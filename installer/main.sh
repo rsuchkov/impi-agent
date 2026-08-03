@@ -229,8 +229,15 @@ COMPOSE_ENV="$IMPI_HOME/compose.env"
 env_set IMPI_HOME "$IMPI_HOME" "$COMPOSE_ENV"
 env_set IMPI_PROJECT "${IMPI_PROJECT:-impi}" "$COMPOSE_ENV"
 env_set IMPI_AGENTS_DIR "$IMPI_AGENTS_DIR" "$COMPOSE_ENV"
-env_set IMPI_UID "$(id -u)" "$COMPOSE_ENV"
-env_set IMPI_GID "$(id -g)" "$COMPOSE_ENV"
+# The image is built with these ids so bind-mount writes stay owned by the
+# operator. That mapping only exists on Linux: macOS runs the engine in a VM
+# (Docker Desktop / podman machine) that translates ownership on its own, and
+# its ids are the VM's, not the Mac's — so keep the image defaults there.
+case "$(uname -s)" in
+    Darwin) env_set IMPI_UID 1000 "$COMPOSE_ENV"; env_set IMPI_GID 1000 "$COMPOSE_ENV" ;;
+    *)      env_set IMPI_UID "$(id -u)" "$COMPOSE_ENV"
+            env_set IMPI_GID "$(id -g)" "$COMPOSE_ENV" ;;
+esac
 env_set IMPI_COMPOSE_CMD "$COMPOSE_CMD" "$COMPOSE_ENV"
 env_set IMPI_COMPOSE_FILES "$IMPI_COMPOSE_FILES" "$COMPOSE_ENV"
 env_set IMPI_MM_PORT "${IMPI_MM_PORT:-8065}" "$COMPOSE_ENV"
