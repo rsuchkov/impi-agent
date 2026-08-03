@@ -5,6 +5,11 @@
 # Input comes from fd 3 (opened on /dev/tty), never stdin — under
 # `curl ... | bash` stdin is the script itself. Answers mode (IMPI_ASSUME_YES)
 # never reads at all: every prompt takes its value from an IMPI_* variable.
+#
+# Every prompt reads with `read ... <&3`, NOT `read -u3`: bash 3.2 applies the
+# -s/-n terminal settings to fd 0 whatever -u says, so under `curl | bash` (fd 0
+# = the pipe) the tty stays in cooked mode — keystrokes echo as ^[[B and nothing
+# reacts until Enter. The redirection makes fd 0 the tty for that read.
 
 # --- state -------------------------------------------------------------------
 
@@ -83,12 +88,12 @@ ask() {
     else
         printf '%s%s%s: ' "$_C_BOLD" "$_label" "$_C_RST"
     fi
-    IFS= read -r -u3 _value || _value=""
+    IFS= read -r _value <&3 || _value=""
     [ -z "$_value" ] && _value=$_default
     while [ -z "$_value" ]; do
         printf '%s  (a value is required)%s\n' "$_C_DIM" "$_C_RST"
         printf '%s%s%s: ' "$_C_BOLD" "$_label" "$_C_RST"
-        IFS= read -r -u3 _value || _value=""
+        IFS= read -r _value <&3 || _value=""
     done
     eval "$_var=\$_value"
 }
@@ -102,7 +107,7 @@ ask_opt() {
     if [ -n "$_value" ] || [ -n "${IMPI_ASSUME_YES:-}" ]; then return 0; fi
     [ "$TUI_FANCY" = 1 ] || return 0
     printf '%s%s%s %s[skip]%s: ' "$_C_BOLD" "$_label" "$_C_RST" "$_C_DIM" "$_C_RST"
-    IFS= read -r -u3 _value || _value=""
+    IFS= read -r _value <&3 || _value=""
     eval "$_var=\$_value"
 }
 
@@ -113,12 +118,12 @@ ask_secret() {
     if [ -n "$_value" ]; then return 0; fi
     _need_tty "$_var"
     printf '%s%s%s: ' "$_C_BOLD" "$_label" "$_C_RST"
-    IFS= read -rs -u3 _value || _value=""
+    IFS= read -rs _value <&3 || _value=""
     printf '\n'
     while [ -z "$_value" ]; do
         printf '%s  (a value is required)%s\n' "$_C_DIM" "$_C_RST"
         printf '%s%s%s: ' "$_C_BOLD" "$_label" "$_C_RST"
-        IFS= read -rs -u3 _value || _value=""
+        IFS= read -rs _value <&3 || _value=""
         printf '\n'
     done
     eval "$_var=\$_value"
@@ -135,7 +140,7 @@ confirm() {
         _need_tty "$_var"
         [ "$_default" = y ] && _hint="Y/n" || _hint="y/N"
         printf '%s%s%s %s[%s]%s ' "$_C_BOLD" "$_question" "$_C_RST" "$_C_DIM" "$_hint" "$_C_RST"
-        IFS= read -r -u3 _value || _value=""
+        IFS= read -r _value <&3 || _value=""
         [ -z "$_value" ] && _value=$_default
     fi
     case "$(printf '%s' "$_value" | tr '[:upper:]' '[:lower:]')" in
@@ -159,7 +164,7 @@ menu() {
         for _opt in "$@"; do printf '  %d) %s\n' "$_i" "$_opt"; _i=$((_i + 1)); done
         while :; do
             printf 'Choice [1-%d]: ' "$_n"
-            IFS= read -r -u3 _value || _value=""
+            IFS= read -r _value <&3 || _value=""
             case "$_value" in
                 [1-9]|[1-9][0-9]) if [ "$_value" -le "$_n" ]; then eval "$_var=$((_value - 1))"; return 0; fi ;;
             esac
@@ -178,7 +183,7 @@ menu() {
             fi
             _i=$((_i + 1))
         done
-        IFS= read -rsn1 -u3 _key || _key=""
+        IFS= read -rsn1 _key <&3 || _key=""
         if [ "$_key" = "$_ESC" ]; then
             # An arrow is ESC + an introducer + a final byte: CSI ("\033[A") in
             # normal mode, SS3 ("\033OA") when the terminal is in application
@@ -187,11 +192,11 @@ menu() {
             # versions satisfy differently, and it can't be told apart from a
             # bare ESC keypress.
             _seq=""
-            IFS= read -rsn1 -t 1 -u3 _seq || _seq=""
+            IFS= read -rsn1 -t 1 _seq <&3 || _seq=""
             case "$_seq" in
                 '['|O)
                     _seq=""
-                    IFS= read -rsn1 -t 1 -u3 _seq || _seq=""
+                    IFS= read -rsn1 -t 1 _seq <&3 || _seq=""
                     case "$_seq" in
                         A) _choice=$(( (_choice + _n - 1) % _n )) ;;
                         B) _choice=$(( (_choice + 1) % _n )) ;;
