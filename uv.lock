@@ -181,7 +181,7 @@ wheels = [
 
 [[package]]
 name = "crucible"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/crucible" }
 dependencies = [
     { name = "aiohttp" },
@@ -375,7 +375,7 @@ wheels = [
 
 [[package]]
 name = "impi"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/impi" }
 dependencies = [
     { name = "crucible" },

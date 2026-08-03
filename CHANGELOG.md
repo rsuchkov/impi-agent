@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.4.0 — 2026-08-03
+
 - **Commands: agents can be invoked by a slash command or a message shortcut.**
   Mattermost posts a slash command to `/command/<agent>` on the interactions
   receiver (verified by the command's token, `AGENTS_COMMAND_TOKENS__<AGENT>`);
