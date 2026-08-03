@@ -133,3 +133,32 @@ def test_mm_bootstrap_token_prints_only_the_token(monkeypatch, capsys, _isolated
     captured = capsys.readouterr()
     assert captured.out == "the-pat\n"  # stdout is machine-readable: token only
     assert "admin-uid" in captured.err
+
+
+def test_agent_add_ws_writes_only_gateway_override(tmp_path, _isolated_env):
+    rc = cli.main(["agent", "add", "--name", "wsbot", "--role", "r",
+                   "--gateway", "ws", "--yes"])
+    assert rc == 0
+    content = _read_env(_isolated_env)
+    assert "AGENTS_GATEWAY__WSBOT=ws" in content
+    assert "AGENTS_MM_TOKEN__WSBOT" not in content  # no per-agent ws credentials
+    assert (tmp_path / "profiles" / "agents" / "wsbot" / "agent.yaml").exists()
+
+
+def test_ws_add_service_registers_token_and_allowlist(capsys, _isolated_env):
+    rc = cli.main(["ws", "add-service", "my-svc", "--agents", "wsbot,scribe"])
+    assert rc == 0
+    content = _read_env(_isolated_env)
+    assert "WS_SERVICE_TOKEN__MY_SVC=" in content
+    assert "WS_SERVICE_AGENTS__MY_SVC=" in content and "wsbot,scribe" in content
+    token_line = next(
+        line for line in content.splitlines()
+        if line.startswith("WS_SERVICE_TOKEN__MY_SVC=")
+    )
+    token = token_line.split("=", 1)[1]
+    assert len(token) == 48  # token_hex(24)
+    assert token in capsys.readouterr().out  # printed once for the operator
+
+
+def test_ws_add_service_rejects_bad_names(_isolated_env):
+    assert cli.main(["ws", "add-service", "Bad Name"]) == 2

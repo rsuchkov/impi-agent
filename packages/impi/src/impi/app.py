@@ -34,6 +34,7 @@ from crucible.gateways import (
     needs_http_receiver,
 )
 from crucible.gateways.mattermost import MattermostCallbackCodec
+from crucible.gateways.ws import WsHub
 from crucible.interactions import (
     AgentSink,
     InteractionsServer,
@@ -103,6 +104,7 @@ class App:
     tool_server: ToolServer | None
     integrations: InteractionsServer | None
     reloader: ProfileReloader
+    ws_hub: WsHub | None = None
 
 
 # Engine-owned agent profiles (e.g. `support`) ship WITH impi, under the package.
@@ -272,8 +274,22 @@ def build_app(settings: ImpiSettings) -> App:
         interactivity_on=settings.integrations.enabled,
     )
     profile_builder = ProfileBuilder(tools)
+    # The ws hub exists only when some agent lives on the "ws" gateway; client
+    # services authenticate against it with their own tokens (WS_SERVICE_TOKEN__*).
+    ws_hub: WsHub | None = None
+    if any(cfg is not None and cfg.kind == "ws" for cfg in configs.values()):
+        ws_services = settings.ws_services()
+        if not ws_services:
+            logger.warning(
+                "ws agents configured but no client services "
+                "(set WS_SERVICE_TOKEN__<NAME>) — nothing can connect to the hub"
+            )
+        ws_hub = WsHub(
+            settings.ws_host, settings.ws_port, ws_services, directory=registry
+        )
     gateway_factory = GatewayFactory(
-        directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher
+        directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher,
+        ws_hub=ws_hub,
     )
 
     units = _build_units(
@@ -299,12 +315,13 @@ def build_app(settings: ImpiSettings) -> App:
     )
 
     logger.info(
-        "app built: agents=[%s], mm=%s, data=%s, tools=%s, widgets=%s",
+        "app built: agents=[%s], mm=%s, data=%s, tools=%s, widgets=%s, ws=%s",
         ", ".join(u.spec.name for u in units),
         settings.mattermost_url,
         settings.data_dir,
         "on" if tool_server else "off",
         "on" if interactions.receiver else "off",
+        f"on:{settings.ws_port}" if ws_hub else "off",
     )
     return App(
         settings=settings,
@@ -315,6 +332,7 @@ def build_app(settings: ImpiSettings) -> App:
         tool_server=tool_server,
         integrations=interactions.receiver,
         reloader=reloader,
+        ws_hub=ws_hub,
     )
 
 
@@ -345,6 +363,8 @@ async def run(settings: ImpiSettings) -> None:
         await app.tool_server.start()
     if app.integrations is not None:
         await app.integrations.start()
+    if app.ws_hub is not None:
+        await app.ws_hub.start()
     try:
         identities = {}
         for unit in app.units:
@@ -360,6 +380,8 @@ async def run(settings: ImpiSettings) -> None:
         # N supervised WS loops in one process; each isolated from the others.
         await asyncio.gather(*(_supervise(u.spec.name, u.gateway) for u in app.units))
     finally:
+        if app.ws_hub is not None:
+            await app.ws_hub.stop()
         if app.integrations is not None:
             await app.integrations.stop()
         if app.tool_server is not None:

@@ -50,6 +50,10 @@ def resolve_gateway(settings: ImpiSettings, agent: str) -> GatewayConfig | None:
             max_post_chars=settings.mm_max_post_chars,
             reply_to_agents=settings.agents_reply_to_agents,
         )
+    if kind == "ws":
+        # No per-agent token gate: access to a ws agent is authorized by the
+        # client services' tokens on the hub (WS_SERVICE_TOKEN__*).
+        return GatewayConfig(kind="ws", reply_to_agents=settings.agents_reply_to_agents)
     return GatewayConfig(kind=kind)
 
 

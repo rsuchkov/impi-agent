@@ -102,8 +102,14 @@ class Settings(BaseSettings):
     slack_bot_token: str = ""  # xoxb-… bot token
     slack_app_token: str = ""  # xapp-… app-level token for Socket Mode
 
-    # Which chat gateway an agent runs on ("mattermost" | "slack"). The default
-    # for all agents; override per agent with AGENTS_GATEWAY__<AGENT>.
+    # ws gateway (duplex WebSocket hub for custom client services). The hub is
+    # started only when some agent runs on the "ws" gateway; access is per
+    # SERVICE, via dynamic WS_SERVICE_TOKEN__<NAME> keys (see ws_services()).
+    ws_host: str = "0.0.0.0"
+    ws_port: int = 8424
+
+    # Which chat gateway an agent runs on ("mattermost" | "slack" | "ws"). The
+    # default for all agents; override per agent with AGENTS_GATEWAY__<AGENT>.
     gateway: str = "mattermost"
 
     # Agents directory (profiles) + which agents to run. A plain directory, not
@@ -198,6 +204,33 @@ class Settings(BaseSettings):
         if raw is None:
             return None
         return tuple(s.strip() for s in raw.split(",") if s.strip())
+
+    def ws_services(self) -> dict[str, tuple[str, tuple[str, ...] | None]]:
+        """Client services allowed on the ws gateway hub: name -> (bearer token,
+        agent allowlist or None). Dynamic keys, like the per-agent tokens:
+        WS_SERVICE_TOKEN__<NAME> registers a service (value = its token);
+        WS_SERVICE_AGENTS__<NAME> (CSV) restricts which agents it may address —
+        unset = every ws agent, set-but-empty = none. The service name is the
+        key suffix, lower-cased with '_' back to '-' (mirroring the agent-key
+        transform)."""
+        prefix = "WS_SERVICE_TOKEN__"
+        merged = {**self._dotenv, **os.environ}
+        services: dict[str, tuple[str, tuple[str, ...] | None]] = {}
+        for key, token in merged.items():
+            if not key.startswith(prefix) or not token:
+                continue
+            suffix = key[len(prefix):]
+            name = suffix.lower().replace("_", "-")
+            raw_allow = os.environ.get(f"WS_SERVICE_AGENTS__{suffix}")
+            if raw_allow is None:
+                raw_allow = self._dotenv.get(f"WS_SERVICE_AGENTS__{suffix}")
+            allow = (
+                None
+                if raw_allow is None
+                else tuple(a.strip() for a in raw_allow.split(",") if a.strip())
+            )
+            services[name] = (token, allow)
+        return services
 
     def _token(self, key: str) -> str:
         return os.environ.get(key) or self._dotenv.get(key) or ""

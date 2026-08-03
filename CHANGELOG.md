@@ -6,7 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **`ws` gateway: plug your own services into the engine.** A duplex WebSocket
+  hub (`WS_PORT`, default 8424): a client service dials in with its service
+  token (`impi ws add-service`) and exchanges JSON frames — `message` in,
+  addressed to any allowed agent per frame, `reply`/`notice` out on the same
+  socket, `{type: agents}` for discovery. Conversations are isolated per
+  `(agent, service, conversation_id)`; replies to an offline service buffer
+  and flush on reconnect. Agents opt in with `AGENTS_GATEWAY__<AGENT>=ws`.
+  See docs/ws-gateway.md.
+- Documented that gateway kinds mix freely in one engine process (Slack +
+  Mattermost + ws side by side) — this already worked, now it's official.
 
 ## v0.3.0 — 2026-07-28
 

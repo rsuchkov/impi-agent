@@ -54,7 +54,28 @@ HTTP receiver is needed.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GATEWAY` | `mattermost` | which gateway agents run on (`mattermost` \| `slack`); override per agent below |
+| `GATEWAY` | `mattermost` | which gateway agents run on (`mattermost` \| `slack` \| `ws`); override per agent below |
+
+Gateway kinds mix freely in one engine process — agent A on Slack, agent B on
+Mattermost, agent C on ws, each with its own connection, supervised
+independently. One constraint: all Mattermost agents share the single
+`MATTERMOST_URL` (one MM server per process).
+
+## ws gateway (custom client services)
+
+A duplex WebSocket hub for your own programs — see
+[ws-gateway.md](ws-gateway.md). Started only when some agent has
+`AGENTS_GATEWAY__<AGENT>=ws`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WS_HOST` | `0.0.0.0` | hub bind host |
+| `WS_PORT` | `8424` | hub port (`ws://host:port/ws`) |
+
+Client services are dynamic keys (register with `impi ws add-service`):
+`WS_SERVICE_TOKEN__<NAME>` — the service's bearer token;
+`WS_SERVICE_AGENTS__<NAME>` — CSV allowlist of agents it may address
+(unset = every ws agent).
 
 ## Agents
 

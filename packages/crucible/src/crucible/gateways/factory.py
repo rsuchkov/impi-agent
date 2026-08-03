@@ -20,6 +20,7 @@ from crucible.gateways.mattermost import (
 )
 from crucible.gateways.slack import PROMPT_HINT as SLACK_PROMPT_HINT
 from crucible.gateways.slack import SlackChatClient, SlackGateway
+from crucible.gateways.ws import WsChatClient, WsGateway, WsHub
 from crucible.loopguard import LoopGuard
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.client import ChatClient
@@ -46,7 +47,7 @@ class GatewayConfig:
     agent's gateway. An application maps its own settings onto this (which agent
     runs on which transport, and with which tokens)."""
 
-    kind: str  # "mattermost" | "slack"
+    kind: str  # "mattermost" | "slack" | "ws"
     reply_to_agents: bool = True
     max_post_chars: int = 16000
     # Mattermost
@@ -55,6 +56,8 @@ class GatewayConfig:
     # Slack
     slack_bot_token: str = ""
     slack_app_token: str = ""
+    # ws carries no per-agent secrets: access is authorized by the client
+    # services' tokens on the hub, not by the agent.
 
 
 @dataclass
@@ -79,13 +82,16 @@ class GatewayFactory:
         directory: AgentDirectory,
         loop_guard: LoopGuard,
         dispatcher: GatewayDispatcher | None,
+        ws_hub: WsHub | None = None,
     ) -> None:
         self._directory = directory
         self._loop_guard = loop_guard
         self._dispatcher = dispatcher
-        self._builders: dict[str, Callable[[str, GatewayConfig], GatewayHandle]] = {
+        self._ws_hub = ws_hub
+        self._builders: dict[str, Callable[[str, GatewayConfig], GatewayHandle | None]] = {
             "mattermost": self._mattermost,
             "slack": self._slack,
+            "ws": self._ws,
         }
 
     def create(self, agent: str, config: GatewayConfig) -> GatewayHandle | None:
@@ -95,7 +101,7 @@ class GatewayFactory:
         builder = self._builders.get(config.kind)
         if builder is None:
             logger.warning(
-                "agent %s: unknown gateway %r (use 'mattermost' or 'slack') — skipping",
+                "agent %s: unknown gateway %r (use 'mattermost', 'slack' or 'ws') — skipping",
                 agent, config.kind,
             )
             return None
@@ -132,4 +138,25 @@ class GatewayFactory:
         return GatewayHandle(
             chat=chat, admin=chat, create_gateway=create_gateway,
             prompt_hint=SLACK_PROMPT_HINT, needs_http_receiver=needs_http_receiver(config.kind),
+        )
+
+    def _ws(self, agent: str, config: GatewayConfig) -> GatewayHandle | None:
+        hub = self._ws_hub
+        if hub is None:
+            logger.warning(
+                "agent %s: gateway 'ws' but the app built no WsHub — skipping", agent
+            )
+            return None
+        chat = WsChatClient(hub, agent)
+
+        def create_gateway(sink: MessageSink) -> Gateway:
+            # The hub owns the shared server; the per-agent gateway only carries
+            # the lifecycle contract. Registration here (not at handle build)
+            # because the sink exists only now.
+            hub.register_agent(agent, sink, chat)
+            return WsGateway(agent)
+
+        return GatewayHandle(
+            chat=chat, admin=None, create_gateway=create_gateway,
+            prompt_hint="", needs_http_receiver=False,
         )

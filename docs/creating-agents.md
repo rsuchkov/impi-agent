@@ -81,9 +81,12 @@ how you turn a bundled agent's skills on or off.
 ## Choosing a gateway
 
 By default an agent runs on `GATEWAY` (Mattermost). Override per agent with
-`AGENTS_GATEWAY__<AGENT>=slack`. A Slack agent needs Slack tokens instead of a
-Mattermost token (see [configuration.md](configuration.md)); the engine appends
-Slack formatting rules to that agent's system prompt automatically.
+`AGENTS_GATEWAY__<AGENT>=slack` or `=ws`. A Slack agent needs Slack tokens
+instead of a Mattermost token (see [configuration.md](configuration.md)); the
+engine appends Slack formatting rules to that agent's system prompt
+automatically. A `ws` agent talks to your own programs over the engine's
+WebSocket hub — no per-agent token; access is authorized by service tokens
+(see [ws-gateway.md](ws-gateway.md)). Kinds mix freely in one engine.
 
 ## Provisioning and applying
 
