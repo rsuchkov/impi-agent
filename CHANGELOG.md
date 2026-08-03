@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.4.3 — 2026-08-03
+
 - **Fixed: co-deploying Mattermost failed on Apple Silicon** with `no matching
   manifest for linux/arm64` — Mattermost ships amd64 images only (no tag has an
   arm64 manifest). The service now pins `platform: linux/amd64` so an ARM host
