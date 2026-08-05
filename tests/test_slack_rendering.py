@@ -10,7 +10,7 @@ from crucible.gateways.slack.rendering import (
     extract_submission,
     picked_kind,
 )
-from crucible.ports.chat.types import Action, Choice, Form, FormField
+from crucible.ports.chat.types import Action, Card, Choice, Form, FormField
 
 
 def _button_element(blocks) -> dict:
@@ -37,30 +37,35 @@ def test_form_open_button_round_trips_form_token() -> None:
 
 def test_select_round_trips_token_and_pick() -> None:
     action = Action(id="sel", label="Pick", kind="select", options=Choice.of("a", "b"), context={"token": "T2"})
-    el = _button_element(build_action_blocks("Choose", [action]))
+    blocks = build_action_blocks("Choose", [action])
+    el = _button_element(blocks)
     assert el["type"] == "static_select"
-    assert el["block_id"] == "tok:T2"
-    # simulate the block_actions payload Slack sends when "b" is picked:
-    clicked = {**el, "selected_option": {"value": "b", "text": {"type": "plain_text", "text": "b"}}}
+    assert blocks[1]["block_id"] == "tok:T2"  # on the block, per Block Kit
+    # simulate the block_actions payload Slack sends when "b" is picked: it stamps
+    # the containing block's id onto the action.
+    clicked = {**el, "block_id": blocks[1]["block_id"],
+               "selected_option": {"value": "b", "text": {"type": "plain_text", "text": "b"}}}
     token, form_token, value = decode_action(clicked)
     assert (token, form_token, value) == ("T2", "", "b")
 
 
 def test_user_picker_round_trips_the_picked_id() -> None:
     action = Action(id="sel", label="Who?", kind="user_select", context={"token": "T3"})
-    el = _button_element(build_action_blocks("Assign to", [action]))
+    blocks = build_action_blocks("Assign to", [action])
+    el = _button_element(blocks)
     assert el["type"] == "users_select"
     assert "options" not in el  # the workspace supplies them
-    clicked = {**el, "selected_user": "U0777"}
+    clicked = {**el, "block_id": blocks[1]["block_id"], "selected_user": "U0777"}
     assert decode_action(clicked) == ("T3", "", "U0777")
     assert picked_kind(clicked) == "user"  # -> the engine resolves the id to a name
 
 
 def test_channel_picker_round_trips_the_picked_id() -> None:
     action = Action(id="sel", label="Where?", kind="channel_select", context={"token": "T4"})
-    el = _button_element(build_action_blocks("Post to", [action]))
+    blocks = build_action_blocks("Post to", [action])
+    el = _button_element(blocks)
     assert el["type"] == "channels_select"
-    clicked = {**el, "selected_channel": "C0123"}
+    clicked = {**el, "block_id": blocks[1]["block_id"], "selected_channel": "C0123"}
     assert decode_action(clicked) == ("T4", "", "C0123")
     assert picked_kind(clicked) == "channel"
 
@@ -222,3 +227,70 @@ def test_the_element_table_covers_the_whole_vocabulary() -> None:
 
     assert set(_FIELD_ELEMENTS) == set(FIELD_TYPES) - STATIC_FIELD_TYPES
     assert set(_MENU_TYPES) == set(ACTION_KINDS) - {ACTION_BUTTON}
+
+
+# --- where block_id belongs ------------------------------------------------------
+
+
+def test_a_menu_puts_its_token_on_the_block_not_the_element() -> None:
+    # Slack rejects the whole message when block_id appears on an element:
+    # "invalid additional property: block_id [json-pointer:/blocks/1/elements/0]"
+    # (caught live against chat.postMessage).
+    action = Action(id="sel", label="Pick", kind="select",
+                    options=Choice.of("a", "b"), context={"token": "T1"})
+
+    blocks = build_action_blocks("Choose", [action])
+
+    assert blocks[1]["type"] == "actions"
+    assert blocks[1]["block_id"] == "tok:T1"
+    assert "block_id" not in blocks[1]["elements"][0]
+
+
+def test_a_picker_puts_its_token_on_the_block_too() -> None:
+    for kind in ("user_select", "channel_select"):
+        blocks = build_action_blocks(
+            "Who?", [Action(id="sel", label="Pick", kind=kind, context={"token": "T2"})]
+        )
+        assert blocks[1]["block_id"] == "tok:T2"
+        assert "block_id" not in blocks[1]["elements"][0], kind
+
+
+def test_buttons_alone_need_no_block_id() -> None:
+    blocks = build_action_blocks(
+        "Choose", [Action(id="y", label="Yes", value="Yes", context={"token": "T3"})]
+    )
+    assert "block_id" not in blocks[1]  # a button carries its token in `value`
+
+
+def test_the_token_still_round_trips_from_the_block() -> None:
+    # Slack echoes the containing block's block_id on every action it delivers.
+    incoming = {"type": "static_select", "block_id": "tok:T1",
+                "selected_option": {"value": "a"}}
+    assert decode_action(incoming) == ("T1", "", "a")
+
+
+def test_a_card_menu_keeps_its_screen_state_on_the_block() -> None:
+    from crucible.gateways.slack.rendering import build_card_blocks
+    from crucible.interactions.screens import ScreenState, screen_action
+
+    state = ScreenState(screen="skills", agent="assistant", data={"page": 1})
+    card = Card(
+        text="**greek-drill**",
+        actions=(
+            screen_action(state, id="open", label="Details", value="open:greek-drill"),
+            screen_action(state, id="give", label="Give it to…", kind="select",
+                          options=(Choice(label="tutor", value="assign:greek-drill:tutor"),)),
+        ),
+    )
+
+    blocks = build_card_blocks([card])
+
+    actions_block = blocks[1]
+    assert actions_block["block_id"].startswith("scr:skills|")
+    assert all("block_id" not in e for e in actions_block["elements"])
+    # And a click on either control still routes to the screen.
+    from crucible.gateways.slack.rendering import decode_screen
+    picked = {"type": "static_select", "block_id": actions_block["block_id"],
+              "selected_option": {"value": "assign:greek-drill:tutor"}}
+    screen, raw = decode_screen(picked)
+    assert screen == "skills" and ScreenState.decode(raw) == state

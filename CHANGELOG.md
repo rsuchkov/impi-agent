@@ -6,7 +6,13 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: every dropdown crashed on Slack.** `block_id` is a property of a
+  Block Kit *block*, and the renderer put it on the menu *element* — Slack
+  rejected the whole message (`invalid additional property: block_id`), so
+  `ask_user_select`, the people/channel pickers and the `/skills` card menus all
+  failed on that gateway; buttons and modal forms were unaffected. The token now
+  rides on the containing actions block, which Slack echoes back on the action,
+  so nothing about decoding a click changed. Reported against 0.5.0.
 
 ## v0.6.0 — 2026-08-05
 

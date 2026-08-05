@@ -85,10 +85,9 @@ _PICK_KINDS = {
 
 def build_action_blocks(text: str, actions: list[Action]) -> list[dict[str, Any]]:
     """A section with ``text`` above an actions block of buttons / a select."""
-    elements = [_element(a, i) for i, a in enumerate(actions)]
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text or " "}},
-        {"type": "actions", "elements": elements},
+        _actions_block(actions),
     ]
 
 
@@ -106,13 +105,32 @@ def build_card_blocks(cards: list[Card]) -> list[dict[str, Any]]:
         if card.text:
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": card.text}})
         if card.actions:
-            blocks.append({
-                "type": "actions",
-                # action_ids must be unique across the WHOLE message, not the card.
-                "elements": [_element(a, index + i) for i, a in enumerate(card.actions)],
-            })
+            # action_ids must be unique across the WHOLE message, not the card.
+            blocks.append(_actions_block(list(card.actions), offset=index))
             index += len(card.actions)
     return blocks
+
+
+def _actions_block(actions: list[Action], *, offset: int = 0) -> dict[str, Any]:
+    """One actions block, carrying what its MENU needs to round-trip.
+
+    ``block_id`` is a property of a BLOCK — Slack rejects the whole message when
+    it appears on an element ("invalid additional property: block_id"). So the
+    menu's token/screen state lives here, on the block, and Slack echoes it back
+    on the action it delivers. Buttons need none: they carry theirs in ``value``.
+
+    One menu per block, which every caller satisfies today (a widget posts a
+    single dropdown; a screen card pairs at most one menu with buttons). Two
+    menus in one block would need a block each — they'd otherwise share this id.
+    """
+    block: dict[str, Any] = {
+        "type": "actions",
+        "elements": [_element(a, offset + i) for i, a in enumerate(actions)],
+    }
+    menu = next((a for a in actions if a.kind in _MENU_TYPES), None)
+    if menu is not None:
+        block["block_id"] = _menu_block_id(menu)
+    return block
 
 
 def _element(action: Action, index: int) -> dict[str, Any]:
@@ -121,7 +139,7 @@ def _element(action: Action, index: int) -> dict[str, Any]:
         menu: dict[str, Any] = {
             "type": _MENU_TYPES[action.kind],
             "action_id": action_id,
-            "block_id": _menu_block_id(action),
+            # No block_id here: it belongs to the containing block (_actions_block).
             "placeholder": {"type": "plain_text", "text": action.label[:_LABEL_MAX]},
         }
         if action.kind == ACTION_SELECT:
