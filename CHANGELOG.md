@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.5.0 — 2026-08-05
+
 - **Widgets and forms gained the full control vocabulary of both platforms.** A
   form field can now be `text`/`textarea`, `number`/`email`/`url`/`tel`,
   `select`/`multiselect`/`radio`, `bool`, a workspace picker
