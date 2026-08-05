@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.6.1 — 2026-08-05
+
 - **Fixed: every dropdown crashed on Slack.** `block_id` is a property of a
   Block Kit *block*, and the renderer put it on the menu *element* — Slack
   rejected the whole message (`invalid additional property: block_id`), so
