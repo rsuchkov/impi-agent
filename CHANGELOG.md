@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.6.0 — 2026-08-05
+
 - **A shared skill library.** A skill no longer has to live inside one agent's
   profile: install it once into `SKILLS_PATH` — its own directory, ideally its
   own git repository — and give it to any agent with `registry:<name>` in that
