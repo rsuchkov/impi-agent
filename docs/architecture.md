@@ -189,6 +189,15 @@ checks the allowlist, builds a scoped `ToolContext`, runs `Tool.execute` against
 live engine state (e.g. `ctx.require_chat_admin().create_channel(...)`) → the JSON
 result returns into `pi`'s turn.
 
+**Screen.** a few commands are answered by the ENGINE rather than an agent —
+`/skills` browses the skill library and hands skills to agents. A
+`ScreenRegistry` is consulted **before** the agent is chosen; the screen renders
+a `View` (text + actions), and each click carries its own state back and
+**rewrites the same message** (`ChatClient.update_actions`) — no turn, no second
+message. Listing what exists and editing a profile are facts and edits, so a
+model in the loop would only add latency and a chance to name a skill that isn't
+there. See [skills.md](skills.md).
+
 **Command.** a user runs a slash command (Mattermost `POST`s to
 `/command/{agent}` on the receiver, verified by the command's token) or picks a
 `crux_*` message shortcut (Slack, over the socket) → the transport resolves the
@@ -215,6 +224,11 @@ back the same way.
   composition root.
 - **English only** in code — strings, logs, comments, docstrings. (An agent's own
   personality in `.pi/SYSTEM.md` may be any language.)
+- **Skills are a library; assignments are profiles.** `crucible.skills` is a
+  plain file store over `SKILLS_PATH` — scan, install from a directory or a
+  pinned git commit, remove. Which agent gets which skill lives in that agent's
+  `agent.yaml` (`registry:<name>`), edited round-trip so the comments a person
+  wrote survive. One source of truth, visible in a diff.
 - **State is inventory, not truth.** The SQLite store maps conversations to
   deterministic session ids; the source of truth is `pi`'s on-disk memory.
 - **Schema changes are additive, applied on open.** There is no migration tool:

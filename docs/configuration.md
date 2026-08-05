@@ -84,6 +84,8 @@ Client services are dynamic keys (register with `impi ws add-service`):
 |---|---|---|
 | `AGENTS_PATH` | `""` | directory holding `agents/<name>/agent.yaml` + `.pi/`. A plain directory (may be a git repo, but nothing requires it). |
 | `AGENTS_ENABLED` | `""` | CSV of agent names to run; empty = all found in `AGENTS_PATH` |
+| `SKILLS_COMMAND` | `skills` | trigger word of the library browser: the platform's slash command must use this exact word, or it goes to an agent instead |
+| `SKILLS_PATH` | `""` | the shared skill library (its own directory, ideally its own git repo); empty = `_skills` beside the agents. See [skills.md](skills.md) |
 | `AGENT_NAME` | `assistant` | the agent that `MATTERMOST_TOKEN`/`SLACK_*` fall back to |
 | `DOTENV_PATH` | `.env` | file the per-agent keys below are read from |
 

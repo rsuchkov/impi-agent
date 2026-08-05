@@ -22,6 +22,11 @@ class ActionCallback:
     # "user" / "channel" when the widget was a picker — then ``value`` is a
     # platform id the engine resolves to a name before the agent sees it.
     pick: str = ""
+    # Set when the click belongs to a screen the engine renders itself: which
+    # screen, its encoded state, and the message to rewrite in place.
+    screen: str = ""
+    state: str = ""
+    post_id: str = ""
 
 
 @dataclass(frozen=True)

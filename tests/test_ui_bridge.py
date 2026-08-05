@@ -93,7 +93,8 @@ async def test_select_posts_dropdown_and_resolves_with_value(tmp_path: Path) -> 
 
         await _wait_until(lambda: len(poster.posted) >= 1)
         action = poster.posted[0][2][0]
-        assert action.kind == "select" and action.options == ("A", "B", "C")
+        assert action.kind == "select"
+        assert [c.label for c in action.options] == ["A", "B", "C"]
 
         pending.resolve(action.context["token"], "B")  # selected_option
         outcome = await task

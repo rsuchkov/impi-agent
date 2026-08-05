@@ -357,6 +357,7 @@ def test_registry_knows_all_default_tools() -> None:
         "list_agents", "create_channel", "invite_to_channel", "get_channel_members",
         "send_message", "read_channel", "create_agent",
         "ask_user_buttons", "ask_user_select", "open_form", "send_ephemeral",
+        "list_skills", "install_skill", "assign_skill", "remove_skill",
     }
 
 

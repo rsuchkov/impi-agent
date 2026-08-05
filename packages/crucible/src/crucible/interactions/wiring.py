@@ -17,6 +17,7 @@ from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import InteractionDispatcher
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.presence import AgentPresence
+from crucible.interactions.screens import ScreenRegistry
 from crucible.interactions.server import CommandTokens, InteractionsServer
 from crucible.interactions.service import InteractionService
 from crucible.interactions.ui_bridge import WidgetUiBridge
@@ -38,6 +39,7 @@ class InteractionWiring:
         codec: CallbackCodec,
         needs_receiver: bool,
         command_tokens: CommandTokens | None = None,
+        screens: ScreenRegistry | None = None,
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
         # service need its InteractionStore + FormStore facets too.
@@ -62,7 +64,11 @@ class InteractionWiring:
         # Transport-neutral dispatch: resolves a blocking mid-turn request or feeds a
         # click back as a synthetic message. Shared by the HTTP receiver and every
         # socket-driven gateway. Feeds the gateway factory.
-        self.dispatcher = InteractionDispatcher(sessions, presence, self.pending_ui, sessions)
+        self.dispatcher = InteractionDispatcher(
+            sessions, presence, self.pending_ui, sessions,
+            # Commands the engine answers itself, and the clicks that redraw them.
+            screens=screens, callback_url=integrations.interact_url,
+        )
         # One service for widgets (ask) and forms (open_form). The one concrete store
         # backs all three store facets.
         self.interaction_svc = InteractionService(

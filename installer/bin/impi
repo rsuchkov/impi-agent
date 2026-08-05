@@ -72,6 +72,8 @@ impi — manage your impi deployment
   impi logs [-f] [SVC]     engine (or SVC) logs
   impi start | stop        bring the stack up / stop it
   impi restart             restart the engine (picks up .env + new agents)
+  impi reload              re-read agent profiles in place (skills, tools, prompts)
+  impi skill list|install|assign ...   the shared skill library
   impi agent add|list ...  manage agents (runs the CLI inside the container)
   impi login               interactive pi model login inside the container
   impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
@@ -99,6 +101,13 @@ cmd_logs() {
 cmd_restart() {
     compose restart impi
     ok "engine restarted"
+}
+
+# Re-read the agent profiles without dropping the process: SIGHUP is what the
+# engine listens for, and live conversations keep their memory.
+cmd_reload() {
+    compose kill -s HUP impi
+    ok "profiles reloaded (agents pick them up on their next turn)"
 }
 
 cmd_agent() {
@@ -240,6 +249,8 @@ case "${1:-}" in
     start)     shift; compose up -d; ok "started" ;;
     stop)      shift; compose stop; ok "stopped" ;;
     restart)   shift; cmd_restart ;;
+    reload)    shift; cmd_reload ;;
+    skill)     shift; compose run --rm impi impi skill "$@" ;;
     agent)     shift; cmd_agent "$@" ;;
     login)     shift; cmd_login "$@" ;;
     update)    shift; cmd_update "$@" ;;

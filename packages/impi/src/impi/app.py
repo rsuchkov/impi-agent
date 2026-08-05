@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import os
 import random
 import signal
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from pathlib import Path
 import crucible.builtin_tools  # noqa: E402,F401
 import impi.agent_tools  # noqa: E402,F401
 import impi.chat_tools  # noqa: E402,F401
+import impi.skill_tools  # noqa: E402,F401
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import (
@@ -41,6 +43,7 @@ from crucible.interactions import (
     InteractionWiring,
     MappingPresence,
 )
+from crucible.interactions.screens import ScreenRegistry
 from crucible.loopguard import LoopGuard
 from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
 from crucible.ports.chat.gateway import Gateway
@@ -48,6 +51,7 @@ from crucible.profiles import CompositeProfileStore, FsProfileStore, ProfileStor
 from crucible.reloader import ProfileReloader
 from crucible.runtimes.pi import EXTENSION_PATH, build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
+from crucible.skills import SkillLibrary
 from crucible.store.base import SessionStore
 from crucible.store.sessions import SqliteSessionStore
 from crucible.tools import ToolServer, ToolWiring
@@ -55,6 +59,7 @@ from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
 from impi.gateways import resolve_gateway
 from impi.registry import RegistryService
+from impi.skill_screen import SkillScreen
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +110,12 @@ class App:
     integrations: InteractionsServer | None
     reloader: ProfileReloader
     ws_hub: WsHub | None = None
+
+
+def _signal_reload() -> None:
+    """Re-read the agent profiles in place — the same thing SIGHUP from `impi
+    reload` does, raised from inside the process that installs the handler."""
+    os.kill(os.getpid(), signal.SIGHUP)
 
 
 # Engine-owned agent profiles (e.g. `support`) ship WITH impi, under the package.
@@ -210,12 +221,15 @@ def _build_units(
 
 
 def build_app(settings: ImpiSettings) -> App:
+    # The shared skill library: profiles resolve `registry:<name>` through it.
+    library = SkillLibrary(settings.resolved_skills_path)
     user_store = FsProfileStore(
         settings.agents_path,
         default_timeout=settings.pi_timeout,
         default_provider=settings.default_provider,
         default_model=settings.default_model,
         skills_override=settings.skills_for,
+        library=library.path_if_present,
     )
     # Engine-owned agents (support) are always enumerated (not subject to the user
     # AGENTS_ENABLED list); the token gate still skips them without a token. Their
@@ -226,6 +240,7 @@ def build_app(settings: ImpiSettings) -> App:
         default_provider=settings.support_provider or settings.default_provider,
         default_model=settings.support_model or settings.default_model,
         skills_override=settings.skills_for,
+        library=library.path_if_present,
     )
     engine_names = {spec.name for spec in engine_store.list()}
     profiles = CompositeProfileStore([user_store, engine_store])  # rejects duplicate names
@@ -246,10 +261,23 @@ def build_app(settings: ImpiSettings) -> App:
     presence = MappingPresence(sinks_by_agent)
     # Interaction plumbing: its ui_bridge feeds the runtime and its dispatcher feeds
     # the gateway factory. Holds no per-agent state.
+    # Commands the engine answers itself. Each screen declares the trigger word
+    # it binds to (SkillScreen.command == "skills", i.e. /skills), and a matching
+    # command never reaches an agent: browsing the library and editing a profile
+    # are facts and edits. SIGHUP after an edit is how the agent picks it up (the
+    # same path as `impi reload`).
+    screens = ScreenRegistry()
+    screens.register(
+        SkillScreen(
+            library, settings.agents_path,
+            command=settings.skills_command, reload=_signal_reload,
+        )
+    )
     interactions = InteractionWiring(
         settings.integrations, sessions, presence,
         codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
         command_tokens=settings.command_tokens_for,
+        screens=screens,
     )
 
     # TODO(runtime-backend): build_app hardcodes the pi backend. When a second

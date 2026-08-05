@@ -125,6 +125,14 @@ class Settings(BaseSettings):
     # necessarily a git repo (it may be one, but nothing here assumes it).
     agents_path: str = ""
     agents_enabled: str = ""  # CSV of agent names; empty = all agents in the dir
+    # The shared skill library any agent can be given skills from — its own
+    # directory (ideally its own git repo). Empty = "_skills" beside the agents,
+    # so an existing deployment keeps working without new configuration.
+    skills_path: str = ""
+    # The slash command that opens the library browser. Configurable because a
+    # workspace may already use /skills for something else; the platform's
+    # command must be registered under this exact word.
+    skills_command: str = "skills"
     agent_name: str = "assistant"  # the agent MATTERMOST_TOKEN falls back to
     # Where mm_token_for() looks up dynamic AGENTS_MM_TOKEN__* keys. Explicit
     # (not the class env_file) so tests can point it away from the real .env.
@@ -295,6 +303,14 @@ class Settings(BaseSettings):
         if self.pi_session_dir:
             return Path(self.pi_session_dir)
         return Path(self.data_dir) / "pi-sessions"
+
+    @property
+    def resolved_skills_path(self) -> Path:
+        """The shared skill library. Its own directory when configured; otherwise
+        ``_skills`` beside the agents, which needs no deployment change."""
+        if self.skills_path:
+            return Path(self.skills_path)
+        return Path(self.agents_path or ".") / "_skills"
 
 
 def load_settings() -> Settings:

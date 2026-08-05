@@ -13,11 +13,13 @@ from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
 from crucible.gateways.dispatch import GatewayDispatcher
+from crucible.gateways.slack.client import MESSAGE_ID_SEP
 from crucible.gateways.slack.events import event_to_incoming
 from crucible.gateways.slack.rendering import (
     FORM_CALLBACK,
     WIDGET_ACTION_PREFIX,
     decode_action,
+    decode_screen,
     extract_submission,
     picked_kind,
 )
@@ -177,6 +179,13 @@ class SlackGateway:
             return
         token, form_token, value = decode_action(actions[0])
         user_id = (body.get("user") or {}).get("id", "")
+        screen, state = decode_screen(actions[0])
+        if screen:
+            # An engine screen: redraw the message it came from, no turn.
+            await self._dispatcher.redraw_screen(
+                state, value, post_id=self._message_id(body), user_id=user_id
+            )
+            return
         if form_token:
             # The button deliberately SURVIVES the open: a modal closed without
             # submitting can then be reopened. It is retired when the form is
@@ -244,6 +253,14 @@ class SlackGateway:
             logger.exception("failed to open Slack modal for form %s", form_token[:8])
             return False
         return True
+
+    @staticmethod
+    def _message_id(body: dict) -> str:
+        """The clicked message in the composite form SlackChatClient uses, so a
+        screen redraw goes through the neutral update verb."""
+        channel = (body.get("channel") or {}).get("id", "")
+        ts = (body.get("message") or {}).get("ts", "")
+        return f"{channel}{MESSAGE_ID_SEP}{ts}" if channel and ts else ""
 
     async def _strip_buttons(self, body: dict, text: str) -> None:
         """Best-effort: replace the clicked message's text and drop its interactive

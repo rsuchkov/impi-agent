@@ -15,6 +15,7 @@ from crucible.ports.chat.types import (
     ACTION_USER_SELECT,
     PICKER_KINDS,
     Action,
+    Card,
     ConversationRef,
     Form,
     PostSnippet,
@@ -184,48 +185,39 @@ class MattermostChatClient:
     async def post_actions(
         self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str
     ) -> str:
-        # MM interactive actions: props.attachments[].actions[]. type must be
-        # "button" or "select" (else MM silently drops the integration), each
-        # with an integration.{url,context} that fires on click. A button carries
-        # its value in context statically; a select's value is dynamic — MM adds
-        # the picked option to the callback context as "selected_option".
-        att_actions = []
-        for a in actions:
-            if a.kind in _MENU_KINDS:
-                menu: dict[str, Any] = {
-                    "id": a.id,
-                    "name": a.label,
-                    "type": _MM_MENU,
-                    "integration": {"url": callback_url, "context": {**a.context}},
-                }
-                # A picker's choices come from the server (people / channels);
-                # a plain select carries its own.
-                source = _MM_DATA_SOURCES.get(a.kind)
-                if source:
-                    menu["data_source"] = source
-                else:
-                    menu["options"] = [{"text": o, "value": o} for o in a.options]
-                att_actions.append(menu)
-            else:
-                att_actions.append(
-                    {
-                        "id": a.id,
-                        "name": a.label,
-                        "type": _MM_BUTTON,
-                        **({"style": a.style} if a.style else {}),
-                        "integration": {
-                            "url": callback_url,
-                            "context": {**a.context, "value": a.value},
-                        },
-                    }
-                )
         post = await self._driver.posts.create_post(
             channel_id=ref.channel_id,
             message=text,
             root_id=ref.thread_root_id or None,
-            props={"attachments": [{"actions": att_actions}]},
+            props={"attachments": [{"actions": _attachment_actions(actions, callback_url)}]},
         )
         return post["id"]
+
+    async def post_cards(
+        self, ref: ConversationRef, cards: list[Card], *, callback_url: str
+    ) -> str:
+        # One attachment per card: MM renders each with its own markdown text,
+        # coloured edge and row of controls (it keeps as many as we send).
+        post = await self._driver.posts.create_post(
+            channel_id=ref.channel_id,
+            message="",
+            root_id=ref.thread_root_id or None,
+            props={"attachments": _card_attachments(cards, callback_url)},
+        )
+        return post["id"]
+
+    async def update_cards(
+        self, post_id: str, cards: list[Card], *, callback_url: str
+    ) -> None:
+        # Same shape, applied to an existing message: a screen redraws itself in
+        # place instead of adding a message per click.
+        await self._driver.posts.patch_post(
+            post_id,
+            message="",
+            props={  # type: ignore[arg-type]  # the driver mistypes props as str
+                "attachments": _card_attachments(cards, callback_url)
+            },
+        )
 
     async def retract(self, post_id: str, text: str) -> None:
         # Rewrite the message and drop its attachments, so an expired/cancelled
@@ -327,3 +319,70 @@ def _slugify(name: str) -> str:
     """Coerce a channel name to Mattermost's slug rules (lowercase [a-z0-9-])."""
     slug = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
     return slug or "channel"
+
+
+def _attachment_actions(
+    actions: list[Action], callback_url: str, *, offset: int = 0
+) -> list[dict[str, Any]]:
+    """Neutral actions -> MM's props.attachments[].actions[]. ``type`` must be
+    "button" or "select" (MM silently drops an integration otherwise), each with
+    an integration.{url,context} that fires on click: a button carries its value
+    in the context statically, a select's pick arrives as ``selected_option``."""
+    built: list[dict[str, Any]] = []
+    for index, a in enumerate(actions, start=offset):
+        action_id = _safe_action_id(a.id, index)
+        if a.kind in _MENU_KINDS:
+            menu: dict[str, Any] = {
+                "id": action_id,
+                "name": a.label,
+                "type": _MM_MENU,
+                "integration": {"url": callback_url, "context": {**a.context}},
+            }
+            # A picker's choices come from the server (people / channels); a
+            # plain select carries its own.
+            source = _MM_DATA_SOURCES.get(a.kind)
+            if source:
+                menu["data_source"] = source
+            else:
+                menu["options"] = [{"text": c.label, "value": c.value} for c in a.options]
+            built.append(menu)
+        else:
+            built.append(
+                {
+                    "id": action_id,
+                    "name": a.label,
+                    "type": _MM_BUTTON,
+                    **({"style": a.style} if a.style else {}),
+                    "integration": {
+                        "url": callback_url,
+                        "context": {**a.context, "value": a.value},
+                    },
+                }
+            )
+    return built
+
+
+def _card_attachments(cards: list[Card], callback_url: str) -> list[dict[str, Any]]:
+    """Cards -> MM attachments. The card's text goes INSIDE the attachment, where
+    Mattermost renders markdown and draws the coloured edge."""
+    built: list[dict[str, Any]] = []
+    seen = 0  # action ids must be unique across the MESSAGE, not the card
+    for card in cards:
+        attachment: dict[str, Any] = {"text": card.text}
+        if card.accent:
+            attachment["color"] = card.accent
+        if card.actions:
+            attachment["actions"] = _attachment_actions(
+                list(card.actions), callback_url, offset=seen
+            )
+            seen += len(card.actions)
+        built.append(attachment)
+    return built
+
+
+def _safe_action_id(action_id: str, index: int) -> str:
+    """Mattermost routes a click as /posts/{post}/actions/{action_id} and its
+    router only matches ALPHANUMERIC ids — a readable id like "open-greek-drill"
+    404s, and the click never reaches the engine. Strip it down and append the
+    position, which also keeps ids unique within the message."""
+    return f"{''.join(c for c in action_id if c.isalnum())}{index}"

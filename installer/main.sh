@@ -164,6 +164,8 @@ title "Agents"
 ask IMPI_AGENTS_DIR "Agents directory (your agents' profiles live here)" "$IMPI_HOME/agents"
 ask IMPI_FIRST_AGENT "First agent name" "assistant"
 ask IMPI_FIRST_AGENT_ROLE "Its role (one line)" "personal assistant"
+dim "Skills are shared: installed once, given to any agent (\`impi skill\`)."
+ask IMPI_SKILLS_DIR "Skill library directory" "$IMPI_HOME/skills"
 
 title "Interactivity"
 dim "Widgets let agents ask with buttons and open forms right in the chat."
@@ -218,6 +220,7 @@ case "$IMPI_MM_MODE" in
     external) say "  Mattermost        : ${IMPI_MM_URL} (admin token: $([ "$HAS_ADMIN" = 1 ] && echo yes || echo no))" ;;
 esac
 say "  Agents dir        : $IMPI_AGENTS_DIR"
+say "  Skill library     : $IMPI_SKILLS_DIR"
 say "  First agent       : $IMPI_FIRST_AGENT ($IMPI_FIRST_AGENT_ROLE)"
 say "  Support bot       : ${IMPI_SUPPORT}"
 say "  Widgets           : ${IMPI_WIDGETS:-no}"
@@ -238,12 +241,13 @@ IMPI_COMPOSE_CMD=$COMPOSE_CMD
 IMPI_COMPOSE_FILES=$(derive_compose_files "$IMPI_MM_MODE")
 export IMPI_HOME IMPI_COMPOSE_CMD IMPI_COMPOSE_FILES
 
-mkdir -p "$IMPI_HOME/conf" "$IMPI_AGENTS_DIR"
+mkdir -p "$IMPI_HOME/conf" "$IMPI_AGENTS_DIR" "$IMPI_SKILLS_DIR"
 
 COMPOSE_ENV="$IMPI_HOME/compose.env"
 env_set IMPI_HOME "$IMPI_HOME" "$COMPOSE_ENV"
 env_set IMPI_PROJECT "${IMPI_PROJECT:-impi}" "$COMPOSE_ENV"
 env_set IMPI_AGENTS_DIR "$IMPI_AGENTS_DIR" "$COMPOSE_ENV"
+env_set IMPI_SKILLS_DIR "$IMPI_SKILLS_DIR" "$COMPOSE_ENV"
 # The image is built with these ids so bind-mount writes stay owned by the
 # operator. That mapping only exists on Linux: macOS runs the engine in a VM
 # (Docker Desktop / podman machine) that translates ownership on its own, and
@@ -304,8 +308,13 @@ fi
 [ -n "${IMPI_MM_ADMIN_TOKEN:-}" ] && env_set TOOL_CREATE_AGENT_ADMIN_TOKEN "$IMPI_MM_ADMIN_TOKEN" "$ENV_FILE"
 ok "conf/.env written (chmod 600)"
 
-if command -v git >/dev/null 2>&1 && [ ! -d "$IMPI_AGENTS_DIR/.git" ]; then
-    (cd "$IMPI_AGENTS_DIR" && git init -q) && ok "agents dir: git repository initialized"
+# Both directories hold things worth reviewing in a diff: your agents, and
+# whatever skill code you installed from elsewhere.
+if command -v git >/dev/null 2>&1; then
+    for _dir in "$IMPI_AGENTS_DIR" "$IMPI_SKILLS_DIR"; do
+        [ -d "$_dir/.git" ] && continue
+        (cd "$_dir" && git init -q) && ok "$(basename "$_dir") dir: git repository initialized"
+    done
 fi
 
 run_step "Building the impi image (a few minutes on first run)" compose build impi || die "build failed"

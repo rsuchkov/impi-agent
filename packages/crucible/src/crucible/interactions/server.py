@@ -83,6 +83,14 @@ class InteractionsServer:
         # platform->host hop is the usual failure point for widget callbacks).
         logger.info("interact callback: token=%s form=%s", cb.token, bool(cb.form_token))
 
+        # A screen redraws itself in place: no turn, and the message it came from
+        # is rewritten rather than replaced by a response body.
+        if cb.screen:
+            await self._dispatcher.redraw_screen(
+                cb.state, cb.value, post_id=cb.post_id, user_id=cb.user_id
+            )
+            return web.json_response(self._codec.reply_none())
+
         # Form-open click: open the modal synchronously — the trigger expires within
         # seconds.
         if cb.form_token:
@@ -156,6 +164,15 @@ class InteractionsServer:
         conversation_id = cb.root_id or cb.channel_id
         kind = KIND_THREAD if cb.root_id else KIND_CHANNEL
         text = f"{cb.command} {cb.text}".strip()
+
+        # Engine-answered commands (the skill library, …) never reach an agent:
+        # the answer is a fact, and a model would only slow it down.
+        if await self._dispatcher.open_screen(
+            agent, cb.command,
+            channel_id=cb.channel_id, conversation_id=conversation_id,
+            kind=kind, user_id=cb.user_id,
+        ):
+            return web.json_response(self._codec.reply_none())
         result = self._dispatcher.invoke_command(
             agent,
             channel_id=cb.channel_id,

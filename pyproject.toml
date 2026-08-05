@@ -131,3 +131,17 @@ name = "Profile loading is runtime-agnostic (produces neutral AgentSpec, not a p
 type = "forbidden"
 source_modules = ["crucible.profiles"]
 forbidden_modules = ["crucible.runtimes.pi"]
+
+[[tool.importlinter.contracts]]
+name = "The skill library is a plain file store — no runtime, chat or engine machinery"
+type = "forbidden"
+source_modules = ["crucible.skills"]
+forbidden_modules = [
+    "crucible.runtimes.pi",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.tools",
+    "crucible.interactions",
+    "crucible.store",
+    "crucible.profiles",
+]

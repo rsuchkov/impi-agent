@@ -10,7 +10,7 @@ from crucible.gateways.slack.rendering import (
     extract_submission,
     picked_kind,
 )
-from crucible.ports.chat.types import Action, Form, FormField
+from crucible.ports.chat.types import Action, Choice, Form, FormField
 
 
 def _button_element(blocks) -> dict:
@@ -36,7 +36,7 @@ def test_form_open_button_round_trips_form_token() -> None:
 
 
 def test_select_round_trips_token_and_pick() -> None:
-    action = Action(id="sel", label="Pick", kind="select", options=("a", "b"), context={"token": "T2"})
+    action = Action(id="sel", label="Pick", kind="select", options=Choice.of("a", "b"), context={"token": "T2"})
     el = _button_element(build_action_blocks("Choose", [action]))
     assert el["type"] == "static_select"
     assert el["block_id"] == "tok:T2"

@@ -6,7 +6,34 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A shared skill library.** A skill no longer has to live inside one agent's
+  profile: install it once into `SKILLS_PATH` — its own directory, ideally its
+  own git repository — and give it to any agent with `registry:<name>` in that
+  agent's `runtime.skills`. `impi skill list|show|install|update|remove|assign`
+  manages it from the CLI; the support agent has the same operations as tools
+  (`list_skills`, `install_skill`, `assign_skill`, `remove_skill`), so "write a
+  skill and give it to the tutor" works from chat.
+  Installing from a repository (`owner/repo[/path][@ref]`, or any git URL)
+  **pins the exact commit** and lists every file, executables marked, before
+  copying anything — a skill's scripts run inside the engine with the agent's
+  tools. A skill that declares `requires_tools` is checked against the agent's
+  allowlist, so it can't be assigned and then quietly do nothing. Assignments
+  edit `agent.yaml` in place, keeping its comments. The `SKILL.md` format is the
+  one Claude Code, Hermes and ClawHub share, so skills written for them install
+  unchanged. New guide: docs/skills.md.
+- **`/skills` browses the library in chat.** Each skill is a card of its own —
+  name, version, what it does, who has it — with its controls beside it, and
+  clicking one redraws that same message instead of starting an agent turn or
+  posting a new one. It is the first of a kind of command the engine answers
+  itself (`ScreenRegistry`), which also gives the chat clients two general
+  verbs: post a message as cards, and rewrite one in place. Rename the command
+  with `SKILLS_COMMAND` if your workspace already uses `/skills`.
+- **A dropdown option now has a label of its own** (`Choice`), so a menu shows
+  what a person should read while the value carries the machinery. Before this,
+  any option whose value wasn't meant for human eyes was displayed raw.
+- **`impi reload`** re-reads agent profiles in place (SIGHUP): no restart, and
+  conversations in flight keep their memory. Assignments made from chat trigger
+  it themselves.
 
 ## v0.5.0 — 2026-08-05
 

@@ -15,6 +15,7 @@ from uuid import uuid4
 from crucible.interactions.labels import humanize
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.presence import AgentPresence
+from crucible.interactions.screens import ScreenRegistry, ScreenState
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.interactions import form_from_json
@@ -63,11 +64,17 @@ class InteractionDispatcher:
         presence: AgentPresence,
         pending: PendingUiRequests,
         forms: FormStore,
+        *,
+        screens: ScreenRegistry | None = None,
+        callback_url: str = "",
     ) -> None:
         self._interactions = interactions
         self._presence = presence
         self._pending = pending
         self._forms = forms
+        # Screens the engine answers itself (empty = every command is an agent's).
+        self._screens = screens
+        self._callback_url = callback_url
 
     def resolve_pending(self, token: str, value: str) -> bool:
         """A blocking mid-turn confirm/select: resolve the Future the paused turn
@@ -160,6 +167,56 @@ class InteractionDispatcher:
         target.sink.submit(msg, target.chat)
         logger.info("command for %s in %s by %s: %r", agent, conversation_id, user_id, text)
         return ActionResult.FED
+
+    async def open_screen(
+        self,
+        agent: str,
+        command: str,
+        *,
+        channel_id: str,
+        conversation_id: str,
+        kind: str,
+        user_id: str,
+    ) -> bool:
+        """A command the ENGINE answers: render its first view and post it as
+        ``agent``. False when no screen owns the command (the caller then routes
+        it to the agent as usual) or the agent isn't available."""
+        screen = self._screens.get(command) if self._screens else None
+        target = self._presence.poster(agent)
+        if screen is None or target is None:
+            return False
+        state = ScreenState(screen=screen.command, agent=agent)
+        view = await screen.render(state, user_id=user_id)
+        thread_root = conversation_id if kind == KIND_THREAD else ""
+        ref = ConversationRef(
+            channel_id=channel_id,
+            conversation_id=conversation_id,
+            message_id=conversation_id,
+            thread_root_id=thread_root,
+        )
+        await target.post_cards(ref, list(view.cards), callback_url=self._callback_url)
+        logger.info("screen %s opened for %s by %s", screen.command, agent, user_id)
+        return True
+
+    async def redraw_screen(
+        self, state_raw: str, value: str, *, post_id: str, user_id: str
+    ) -> bool:
+        """A click on a screen: render the state it carried and rewrite the same
+        message. No turn, no new message — this is a UI, not a conversation."""
+        state = ScreenState.decode(state_raw)
+        screen = self._screens.get(state.screen) if (self._screens and state) else None
+        if state is None or screen is None:
+            return False
+        poster = self._presence.poster(state.agent)
+        if poster is None or not post_id:
+            return False
+        if value:
+            # What the control returned (a picked option, a button's value) is the
+            # screen's input for this render.
+            state = state.with_data(value=value)
+        view = await screen.render(state, user_id=user_id)
+        await poster.update_cards(post_id, list(view.cards), callback_url=self._callback_url)
+        return True
 
     async def submit_form(
         self, state: str, submission: dict, cancelled: bool, user_id: str

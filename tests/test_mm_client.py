@@ -183,12 +183,12 @@ async def test_post_actions_renders_interactive_buttons() -> None:
 
 
 async def test_post_actions_renders_select_menu() -> None:
-    from crucible.ports.chat.types import Action
+    from crucible.ports.chat.types import Action, Choice
     driver = _Recorder()
     chat = _client(driver)
     ref = ConversationRef(channel_id="ch1", conversation_id="dm1", message_id="dm1", thread_root_id="")
     actions = [Action(id="sel", label="Select an option", kind="select",
-                      options=("A", "B", "C"), context={"token": "t1"})]
+                      options=Choice.of("A", "B", "C"), context={"token": "t1"})]
 
     await chat.post_actions(ref, "City?", actions, callback_url="http://x/interact")
 
@@ -374,3 +374,41 @@ def test_the_dialog_builder_covers_the_whole_vocabulary() -> None:
         # a dropdown must be fed by something: our options or the server
         if el["type"] == "select":
             assert "options" in el or "data_source" in el
+
+
+async def test_action_ids_are_alphanumeric_and_unique() -> None:
+    # Mattermost routes a click as /posts/{post}/actions/{action_id} and its
+    # router matches alphanumerics only: a readable id like "open-greek-drill"
+    # 404s and the click never reaches the engine (caught live).
+    from crucible.ports.chat.types import Action, Card
+    driver = _Recorder()
+    cards = [
+        Card(text="a", actions=(Action(id="open-greek-drill", label="Details"),)),
+        Card(text="b", actions=(Action(id="open-greek-drill", label="Details"),)),
+    ]
+
+    await _client(driver).post_cards(REF, cards, callback_url="http://x/interact")
+
+    posted = next(kw for name, kw in driver.calls if name == "create_post")
+    ids = [a["id"] for att in posted["props"]["attachments"] for a in att["actions"]]
+    assert all(i.isalnum() for i in ids), ids
+    assert len(set(ids)) == len(ids)  # the same label twice must not collide
+
+
+async def test_cards_become_one_attachment_each() -> None:
+    from crucible.ports.chat.types import Action, Card
+    driver = _Recorder()
+
+    await _client(driver).post_cards(
+        REF,
+        [
+            Card(text="**header**", accent="#7a5299"),
+            Card(text="skill", actions=(Action(id="open", label="Details"),), accent="#3db887"),
+        ],
+        callback_url="http://x/interact",
+    )
+
+    attachments = next(kw for name, kw in driver.calls if name == "create_post")["props"]["attachments"]
+    assert [a["text"] for a in attachments] == ["**header**", "skill"]
+    assert [a["color"] for a in attachments] == ["#7a5299", "#3db887"]
+    assert "actions" not in attachments[0]  # a card without controls has none

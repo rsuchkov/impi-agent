@@ -21,6 +21,7 @@ from crucible.ports.chat.types import (
     ACTION_USER_SELECT,
     PICK_FIELD_BY_KIND,
     Action,
+    Card,
     Form,
     FormField,
 )
@@ -30,6 +31,11 @@ WIDGET_ACTION_PREFIX = "cruxw"
 # One constant callback id for every engine modal; the gateway binds app.view on it.
 FORM_CALLBACK = "crux_form"
 _TOKEN_BLOCK_PREFIX = "tok:"
+# A menu inside an engine screen: its block_id carries the screen and its state
+# (a button uses its value for the same job). Block ids cap at 255 characters,
+# which is why screen state is deliberately small.
+_SCREEN_BLOCK_PREFIX = "scr:"
+_SCREEN_BLOCK_SEP = "|"
 # Slack hard limits.
 _TITLE_MAX = 24
 _LABEL_MAX = 75
@@ -86,30 +92,54 @@ def build_action_blocks(text: str, actions: list[Action]) -> list[dict[str, Any]
     ]
 
 
+def build_card_blocks(cards: list[Card]) -> list[dict[str, Any]]:
+    """Cards -> Block Kit: each card is a section with its text, followed by its
+    own actions block, so a control sits under the thing it acts on. A divider
+    between cards keeps a long list readable."""
+    blocks: list[dict[str, Any]] = []
+    index = 0
+    for card in cards:
+        # A text-less card is a continuation row (more controls for the card
+        # above), so it gets no divider of its own.
+        if blocks and card.text:
+            blocks.append({"type": "divider"})
+        if card.text:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": card.text}})
+        if card.actions:
+            blocks.append({
+                "type": "actions",
+                # action_ids must be unique across the WHOLE message, not the card.
+                "elements": [_element(a, index + i) for i, a in enumerate(card.actions)],
+            })
+            index += len(card.actions)
+    return blocks
+
+
 def _element(action: Action, index: int) -> dict[str, Any]:
     action_id = f"{WIDGET_ACTION_PREFIX}{index}"
     if action.kind in _MENU_TYPES:
         menu: dict[str, Any] = {
             "type": _MENU_TYPES[action.kind],
             "action_id": action_id,
-            "block_id": f"{_TOKEN_BLOCK_PREFIX}{action.context.get('token', '')}",
+            "block_id": _menu_block_id(action),
             "placeholder": {"type": "plain_text", "text": action.label[:_LABEL_MAX]},
         }
         if action.kind == ACTION_SELECT:
-            menu["options"] = [
-                {"text": {"type": "plain_text", "text": o[:_LABEL_MAX]}, "value": o}
-                for o in action.options
-            ]
+            menu["options"] = [_option(c.value, c.label) for c in action.options]
         return menu
     element: dict[str, Any] = {
         "type": "button",
         "text": {"type": "plain_text", "text": action.label[:_LABEL_MAX], "emoji": True},
         "action_id": f"{WIDGET_ACTION_PREFIX}{index}",
+        # Slack has no free-form callback context, so everything the click must
+        # carry — widget token, form token, screen routing — rides in the value.
         "value": json.dumps(
             {
                 "token": action.context.get("token", ""),
                 "form": action.context.get("form", ""),
                 "value": action.value,
+                "screen": action.context.get("screen", ""),
+                "state": action.context.get("state", ""),
             }
         ),
     }
@@ -128,6 +158,35 @@ def decode_action(action: dict[str, Any]) -> tuple[str, str, str]:
         return token, "", str(_picked(action) or "")
     meta = _load_json(action.get("value"))
     return str(meta.get("token", "")), str(meta.get("form", "")), str(meta.get("value", ""))
+
+
+def _menu_block_id(action: Action) -> str:
+    """Where a menu parks what its click must carry: a screen's routing, or the
+    widget token it answers."""
+    screen = action.context.get("screen", "")
+    if screen:
+        return (
+            f"{_SCREEN_BLOCK_PREFIX}{screen}{_SCREEN_BLOCK_SEP}"
+            f"{action.context.get('state', '')}"
+        )
+    return f"{_TOKEN_BLOCK_PREFIX}{action.context.get('token', '')}"
+
+
+def _split_screen_block(block_id: str) -> tuple[str, str]:
+    name, _, state = block_id[len(_SCREEN_BLOCK_PREFIX):].partition(_SCREEN_BLOCK_SEP)
+    return name, state
+
+
+def decode_screen(action: dict[str, Any]) -> tuple[str, str]:
+    """(screen name, encoded state) when the click belongs to an engine screen,
+    ("", "") otherwise. A menu keeps it in its block_id, a button in its value."""
+    meta = _load_json(action.get("value"))
+    if meta.get("screen"):
+        return str(meta["screen"]), str(meta.get("state", ""))
+    block_id = str(action.get("block_id", ""))
+    if block_id.startswith(_SCREEN_BLOCK_PREFIX):
+        return _split_screen_block(block_id)
+    return "", ""
 
 
 def picked_kind(action: dict[str, Any]) -> str:

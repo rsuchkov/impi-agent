@@ -10,10 +10,15 @@ from slack_sdk.web.async_client import AsyncWebClient
 
 from crucible.gateways.slack.events import ts_time
 from crucible.gateways.slack.formatter import markdown_to_mrkdwn
-from crucible.gateways.slack.rendering import build_action_blocks, build_modal_view
+from crucible.gateways.slack.rendering import (
+    build_action_blocks,
+    build_card_blocks,
+    build_modal_view,
+)
 from crucible.ports.chat.admin import ChannelMember
 from crucible.ports.chat.types import (
     Action,
+    Card,
     ConversationRef,
     Form,
     PostSnippet,
@@ -22,9 +27,9 @@ from crucible.ports.chat.types import (
 
 logger = logging.getLogger(__name__)
 
-# Encodes (channel, ts) into the opaque id post_actions returns, because Slack's
-# chat.update needs both to edit a message later (retract).
-_ID_SEP = "\x1f"
+# Slack addresses a message by (channel, ts) but the neutral port passes ONE
+# id, so the two travel joined by a separator no id of either can contain.
+MESSAGE_ID_SEP = "\x1f"
 
 
 def chunk_text(text: str, limit: int) -> list[str]:
@@ -149,16 +154,38 @@ class SlackChatClient:
             text=text,
             blocks=build_action_blocks(text, actions),
         )
-        return f"{resp.get('channel', ref.channel_id)}{_ID_SEP}{resp.get('ts', '')}"
+        return f"{resp.get('channel', ref.channel_id)}{MESSAGE_ID_SEP}{resp.get('ts', '')}"
 
     async def retract(self, post_id: str, text: str) -> None:
-        channel, _, ts = post_id.partition(_ID_SEP)
+        await self._rewrite(post_id, text, [])
+
+    async def post_cards(
+        self, ref: ConversationRef, cards: list[Card], *, callback_url: str
+    ) -> str:
+        # callback_url is unused: Socket Mode delivers clicks over the WebSocket.
+        resp = await self._client.chat_postMessage(
+            channel=ref.channel_id,
+            thread_ts=ref.thread_root_id or None,
+            text=_fallback_text(cards),
+            blocks=build_card_blocks(cards),
+        )
+        return f"{resp.get('channel', ref.channel_id)}{MESSAGE_ID_SEP}{resp.get('ts', '')}"
+
+    async def update_cards(
+        self, post_id: str, cards: list[Card], *, callback_url: str
+    ) -> None:
+        # A click's context rides inside the blocks, so a redraw is the same
+        # blocks rebuilt from the new state.
+        await self._rewrite(post_id, _fallback_text(cards), build_card_blocks(cards))
+
+    async def _rewrite(self, post_id: str, text: str, blocks: list) -> None:
+        channel, _, ts = post_id.partition(MESSAGE_ID_SEP)
         if not ts:
             return
         try:
-            await self._client.chat_update(channel=channel, ts=ts, text=text, blocks=[])
+            await self._client.chat_update(channel=channel, ts=ts, text=text, blocks=blocks)
         except SlackApiError:
-            logger.debug("chat_update (retract) failed for %s", post_id, exc_info=True)
+            logger.debug("chat_update failed for %s", post_id, exc_info=True)
 
     async def open_dialog(
         self, trigger_id: str, form: Form, *, submit_url: str, state: str
@@ -266,3 +293,8 @@ def _slug(name: str) -> str:
     """Coerce a channel name to Slack's rules (lowercase, [a-z0-9-_], <= 80)."""
     slug = re.sub(r"[^a-z0-9_-]+", "-", name.lower()).strip("-_")
     return (slug or "channel")[:80]
+
+
+def _fallback_text(cards: list[Card]) -> str:
+    """The notification line for clients that don't render blocks."""
+    return next((c.text.splitlines()[0] for c in cards if c.text.strip()), " ")

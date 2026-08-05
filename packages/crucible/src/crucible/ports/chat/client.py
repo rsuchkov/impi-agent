@@ -5,6 +5,7 @@ from typing import Protocol
 
 from crucible.ports.chat.types import (
     Action,
+    Card,
     ConversationRef,
     Form,
     PostSnippet,
@@ -68,6 +69,22 @@ class ChatClient(Protocol):
         """Replace a previously-posted widget's text and drop its buttons — used
         when a blocking request expires or is cancelled, so no stale button can be
         clicked afterwards. Best-effort (a failure must not break the turn)."""
+        ...
+
+    async def post_cards(
+        self, ref: ConversationRef, cards: list[Card], *, callback_url: str
+    ) -> str:
+        """Post a message built from cards — each with its own text and its own
+        controls, so a button sits next to the thing it acts on. Returns the
+        posted message id."""
+        ...
+
+    async def update_cards(
+        self, post_id: str, cards: list[Card], *, callback_url: str
+    ) -> None:
+        """Rewrite a posted message as these cards — how a screen redraws itself
+        in place (paging a list must not post a new message every click).
+        ``retract`` is the degenerate case: one card, no controls."""
         ...
 
     async def open_dialog(

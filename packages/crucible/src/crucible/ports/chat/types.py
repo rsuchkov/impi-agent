@@ -54,6 +54,21 @@ PICKER_KINDS = frozenset({ACTION_USER_SELECT, ACTION_CHANNEL_SELECT})
 
 
 @dataclass(frozen=True)
+class Choice:
+    """One option of a dropdown: what the human reads, and what comes back when
+    they pick it. They differ whenever the value is machinery — an id, a routing
+    key — that no one should be shown."""
+
+    label: str
+    value: str
+
+    @staticmethod
+    def of(*labels: str) -> tuple["Choice", ...]:
+        """Choices whose value IS their label — a plain list to pick from."""
+        return tuple(Choice(label=label, value=label) for label in labels)
+
+
+@dataclass(frozen=True)
 class Action:
     """An affordance on an interactive message (``kind`` ∈ ``ACTION_KINDS``).
     ``context`` is opaque per-action data the adapter round-trips (we stash the
@@ -65,7 +80,7 @@ class Action:
     style: str = ""  # e.g. "primary" | "danger" (adapter maps it)
     context: dict[str, Any] = field(default_factory=dict)
     kind: str = ACTION_BUTTON
-    options: tuple[str, ...] = ()  # dropdown choices when kind is ACTION_SELECT
+    options: tuple[Choice, ...] = ()  # dropdown choices when kind is ACTION_SELECT
 
 
 # The neutral field vocabulary of a modal form. Adapters translate each name into
@@ -90,6 +105,20 @@ STATIC_FIELD_TYPES = frozenset({"label"})
 # is read off the payload on Slack), so the engine knows a value is an id to
 # resolve into a name — see crucible.interactions.labels.
 PICK_FIELD_BY_KIND = {ACTION_USER_SELECT: "user", ACTION_CHANNEL_SELECT: "channel"}
+
+
+@dataclass(frozen=True)
+class Card:
+    """A block of text with its own controls — one row of a rendered screen.
+
+    A message built from cards puts the buttons NEXT TO what they act on (a
+    skill and its "Details"), instead of one prompt above a row of buttons.
+    ``accent`` is a colour hint an adapter may use for the card's edge (""=none);
+    platforms without the notion ignore it."""
+
+    text: str
+    actions: tuple[Action, ...] = ()
+    accent: str = ""
 
 
 @dataclass(frozen=True)

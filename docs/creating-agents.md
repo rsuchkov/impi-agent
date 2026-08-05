@@ -128,11 +128,21 @@ message attachments have no such control.
 
 ## Skills
 
-A skill is a `SKILL.md` capability package the agent reads on demand. List a
-skill in `runtime.skills` by **bare name** (resolved to `.pi/skills/<name>`) or by
-path. To author one, see the `support` agent's `skill-authoring` skill; the format
-is the [Agent Skills](https://agentskills.io) standard (a `SKILL.md` with a `name`
-and `description` in front matter, plus optional `scripts/`).
+A skill is a `SKILL.md` capability package the agent reads on demand. Three ways
+to name one in `runtime.skills`:
+
+| Reference | Resolves to | Use for |
+|---|---|---|
+| `vocabulary-trainer` | `<profile>/.pi/skills/<name>` | a skill only this agent has |
+| `registry:greek-tutor` | the shared library (`SKILLS_PATH`) | a skill several agents share, or one installed from a repository |
+| `../shared/thing` | a path, relative to the profile | anything else on disk |
+
+The library is what `impi skill` and `/skills` manage — installing, updating and
+handing skills to agents. See **[skills.md](skills.md)**. To author one, see the
+`support` agent's `skill-authoring` skill; the format is the
+[Agent Skills](https://agentskills.io) standard (a `SKILL.md` with a `name` and
+`description` in front matter, plus optional `scripts/`) — the same one Claude
+Code and Hermes use, so their skills work here unchanged.
 
 Skills are **toggleable per agent without editing `agent.yaml`** via the
 `AGENTS_SKILLS__<AGENT>` environment variable (CSV of names): a set value replaces

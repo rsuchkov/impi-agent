@@ -26,6 +26,7 @@ from crucible.ports.chat.types import (
     KIND_THREAD,
     PICK_FIELD_BY_KIND,
     Action,
+    Choice,
     ConversationRef,
     Form,
 )
@@ -110,7 +111,7 @@ class InteractionService:
             # One dropdown action; the gateway's codec maps the pick back on click.
             actions = [
                 Action(id="sel", label=_SELECT_PLACEHOLDER, kind=ACTION_SELECT,
-                       options=tuple(options), context=ctx)
+                       options=Choice.of(*options), context=ctx)
             ]
         else:
             actions = [

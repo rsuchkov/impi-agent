@@ -10,6 +10,7 @@ import logging
 
 from crucible.ports.chat.types import (
     Action,
+    Card,
     ConversationRef,
     Form,
     PostSnippet,
@@ -67,6 +68,17 @@ class WsChatClient:
 
     async def retract(self, post_id: str, text: str) -> None:
         pass
+
+    async def post_cards(
+        self, ref: ConversationRef, cards: list[Card], *, callback_url: str
+    ) -> str:
+        logger.warning("ws agent %s asked to post cards — unsupported here", self._agent)
+        return ""
+
+    async def update_cards(
+        self, post_id: str, cards: list[Card], *, callback_url: str
+    ) -> None:
+        pass  # no widgets on this gateway, so nothing to redraw
 
     async def open_dialog(
         self, trigger_id: str, form: Form, *, submit_url: str, state: str

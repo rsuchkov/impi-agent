@@ -69,7 +69,7 @@ async def test_widget_service_select_posts_one_dropdown(tmp_path: Path) -> None:
         assert text == "City?"
         assert len(actions) == 1  # a select is ONE action carrying all options
         assert actions[0].kind == "select"
-        assert actions[0].options == ("A", "B", "C")
+        assert [c.value for c in actions[0].options] == ["A", "B", "C"]
         assert "token" in actions[0].context
     finally:
         await store.close()

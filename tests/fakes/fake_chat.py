@@ -2,6 +2,7 @@
 
 from crucible.ports.chat.types import (
     Action,
+    Card,
     ConversationRef,
     Form,
     PostSnippet,
@@ -19,6 +20,8 @@ class FakeChat:
         self.recent_posts: dict[str, list[PostSnippet]] = {}  # channel_id -> history
         self.posted_actions: list[tuple] = []  # (ref, text, actions, callback_url)
         self.retracted: list[tuple[str, str]] = []  # (post_id, text)
+        self.posted_cards: list[tuple] = []  # (ref, cards, callback_url)
+        self.updated: list[tuple] = []  # (post_id, cards) — screen redraws
         self.dialogs: list[tuple] = []  # (trigger_id, form, submit_url, state)
         self.channel_names: dict[str, str] = {}  # channel_id -> display name
 
@@ -58,6 +61,17 @@ class FakeChat:
 
     async def retract(self, post_id: str, text: str) -> None:
         self.retracted.append((post_id, text))
+
+    async def post_cards(
+        self, ref: ConversationRef, cards: list[Card], *, callback_url: str
+    ) -> str:
+        self.posted_cards.append((ref, cards, callback_url))
+        return "widget-post-id"
+
+    async def update_cards(
+        self, post_id: str, cards: list[Card], *, callback_url: str
+    ) -> None:
+        self.updated.append((post_id, cards))
 
     async def open_dialog(
         self, trigger_id: str, form: Form, *, submit_url: str, state: str

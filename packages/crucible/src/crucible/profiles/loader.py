@@ -19,10 +19,26 @@ from crucible.profiles.errors import ProfileError
 logger = logging.getLogger(__name__)
 
 
-def _resolve_skill(ref: str, profile_dir: Path) -> str:
-    """Resolve a skill reference against the profile dir. Absolute paths and
-    path-like refs (containing a separator) resolve here; a bare name passes
-    through untouched for the runtime to resolve to its own skill layout."""
+# A skill from the shared library rather than the agent's own directory.
+LIBRARY_PREFIX = "registry:"
+
+
+def _resolve_skill(
+    ref: str, profile_dir: Path, library: Callable[[str], Path | None] | None
+) -> str:
+    """Resolve a skill reference. Three forms, in order: ``registry:<name>`` is a
+    skill from the shared library; an absolute or path-like ref resolves against
+    the profile dir; a bare name passes through untouched for the runtime to
+    resolve to its own per-agent skill layout."""
+    if ref.startswith(LIBRARY_PREFIX):
+        name = ref[len(LIBRARY_PREFIX):].strip()
+        path = library(name) if library else None
+        if path is None:
+            raise ProfileError(
+                f"unknown library skill {name!r} — install it first "
+                f"(a missing skill would otherwise reach the runtime as a broken path)"
+            )
+        return str(path)
     if Path(ref).is_absolute():
         return ref
     if "/" not in ref and "\\" not in ref:
@@ -48,6 +64,7 @@ class FsProfileStore:
         default_provider: str = "",
         default_model: str = "",
         skills_override: Callable[[str], tuple[str, ...] | None] | None = None,
+        library: Callable[[str], Path | None] | None = None,
     ) -> None:
         self._root = Path(profiles_path)
         self._default_timeout = default_timeout
@@ -58,6 +75,9 @@ class FsProfileStore:
         # once) so a hot-reload re-applies it. Kept a plain callback so the store
         # stays free of config knowledge.
         self._skills_override = skills_override
+        # Resolves a shared-library skill name to its directory (None = unknown).
+        # A callback for the same reason: the library lives in config, not here.
+        self._library = library
         self._specs: dict[str, AgentSpec] = {}
         self.reload()
 
@@ -124,7 +144,9 @@ class FsProfileStore:
         # A config override, when present, replaces the agent.yaml list entirely.
         override = self._skills_override(name) if self._skills_override else None
         skill_refs = override if override is not None else tuple(skills)
-        skill_paths = tuple(_resolve_skill(s, manifest.parent) for s in skill_refs)
+        skill_paths = tuple(
+            _resolve_skill(s, manifest.parent, self._library) for s in skill_refs
+        )
         timeout = runtime.get("timeout", self._default_timeout)
         if not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ProfileError(f"{manifest}: runtime.timeout must be a positive number")

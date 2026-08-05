@@ -21,6 +21,9 @@ services:
     volumes:
       - ${IMPI_HOME:?set in compose.env}/conf:/app/conf:z
       - ${IMPI_AGENTS_DIR:?set in compose.env}:/app/agents:z
+      # The shared skill library: its own directory (its own git repo, ideally),
+      # so what you installed from someone else's repository is reviewable.
+      - ${IMPI_SKILLS_DIR:-${IMPI_HOME}/skills}:/app/skills:z
       - impi-data:/app/data
       - pi-auth:/home/impi/.pi
     healthcheck:

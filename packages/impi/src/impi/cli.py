@@ -87,6 +87,17 @@ def _apply_env(env_file: str, updates: dict[str, str]) -> None:
         _ok(f"{key} -> {env_file}")
 
 
+def _reload_hint() -> None:
+    """A skill assignment only changes an existing agent's config, so a reload is
+    enough — no restart, and live conversations keep their memory."""
+    print()
+    print(
+        _bold("Reload to apply: ")
+        + "an agent picks up its new skills on the next turn.\n"
+        + _dim("  deployment: `impi reload`; dev checkout: `make reload`")
+    )
+
+
 def _restart_hint() -> None:
     print()
     print(
@@ -247,6 +258,193 @@ def _cmd_agent_list(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- impi skill ------------------------------------------------------------------
+
+
+def _library(args: argparse.Namespace):
+    from crucible.skills import SkillLibrary
+
+    settings = _settings()
+    root = getattr(args, "skills_dir", None) or settings.resolved_skills_path
+    return SkillLibrary(root)
+
+
+def _manifest_of(args: argparse.Namespace, agent: str) -> Path:
+    """The agent's profile, which is where an assignment is recorded."""
+    settings = _settings()
+    agents_dir = getattr(args, "agents_dir", None) or settings.agents_path
+    if not agents_dir:
+        raise FileNotFoundError("no agents directory (set AGENTS_PATH)")
+    manifest = Path(agents_dir) / "agents" / agent / "agent.yaml"
+    if not manifest.is_file():
+        raise FileNotFoundError(f"no agent {agent!r} at {manifest}")
+    return manifest
+
+
+def _cmd_skill_list(args: argparse.Namespace) -> int:
+    library = _library(args)
+    skills = library.list()
+    if not skills:
+        print(f"no skills in {library.root}")
+        return 0
+    users = _skill_users(args)
+    for skill in skills:
+        where = ", ".join(users.get(skill.name, ())) or _dim("unassigned")
+        origin = skill.source.describe() if skill.source else "local"
+        print(f"{_bold(skill.name):<32} {skill.description[:48]:<50} {where}")
+        print(f"{'':<32} {_dim(origin)}")
+    return 0
+
+
+def _skill_users(args: argparse.Namespace) -> dict[str, list[str]]:
+    """skill name -> agents that reference it, read from the profiles themselves."""
+    from crucible.skills import assigned_skills
+
+    settings = _settings()
+    agents_dir = getattr(args, "agents_dir", None) or settings.agents_path
+    out: dict[str, list[str]] = {}
+    if not agents_dir:
+        return out
+    for manifest in sorted(Path(agents_dir).glob("agents/*/agent.yaml")):
+        for name in assigned_skills(manifest):
+            out.setdefault(name, []).append(manifest.parent.name)
+    return out
+
+
+def _cmd_skill_show(args: argparse.Namespace) -> int:
+    from crucible.skills import SkillError
+
+    try:
+        skill = _library(args).get(args.name)
+    except SkillError as exc:
+        _fail(str(exc))
+        return 2
+    print(_bold(skill.name), f"({skill.version})" if skill.version else "")
+    print(skill.description)
+    print(_dim(f"path:     {skill.path}"))
+    if skill.source:
+        print(_dim(f"source:   {skill.source.describe()}"))
+    if skill.requires_tools:
+        print(_dim(f"needs:    {', '.join(skill.requires_tools)}"))
+    if skill.tags:
+        print(_dim(f"tags:     {', '.join(skill.tags)}"))
+    used_by = _skill_users(args).get(skill.name, [])
+    print(_dim(f"assigned: {', '.join(used_by) if used_by else 'nobody'}"))
+    return 0
+
+
+def _cmd_skill_install(args: argparse.Namespace) -> int:
+    from crucible.skills import SkillError, install, stage
+
+    library = _library(args)
+    try:
+        staged = stage(args.source)
+    except SkillError as exc:
+        _fail(str(exc))
+        return 2
+    with staged:
+        print(f"{_bold(staged.skill.name)} — {staged.skill.description}")
+        print(_dim(f"from {staged.source.describe()}"))
+        # A skill's scripts run inside the engine with the agent's tools, so show
+        # what is about to land before copying anything.
+        for name, size, executable in staged.files():
+            mark = _sgr("33", " exec") if executable else ""
+            print(f"  {name:<44} {size:>8}B{mark}")
+        if staged.skill.requires_tools:
+            print(_dim(f"needs tools: {', '.join(staged.skill.requires_tools)}"))
+        if not args.yes and not _confirm(f"Install into {library.root}?", True):
+            print("cancelled")
+            return 1
+        try:
+            skill = install(library, staged, name=args.name or "", force=args.force)
+        except SkillError as exc:
+            _fail(str(exc))
+            return 2
+    _ok(f"installed {skill.name} -> {skill.path}")
+    return 0
+
+
+def _cmd_skill_update(args: argparse.Namespace) -> int:
+    from crucible.skills import SkillError, install, stage
+
+    library = _library(args)
+    try:
+        current = library.get(args.name)
+    except SkillError as exc:
+        _fail(str(exc))
+        return 2
+    if current.source is None or current.source.kind != "git":
+        _fail(f"{args.name} was not installed from a repository — nothing to update")
+        return 2
+    spec = current.source.location
+    if current.source.path:
+        spec += f"#{current.source.path}"
+    if current.source.ref:
+        spec += f"@{current.source.ref}"
+    with stage(spec) as staged:
+        if staged.source.sha and staged.source.sha == current.source.sha:
+            print(f"{args.name} is already at {current.source.sha[:7]}")
+            return 0
+        print(f"{current.source.sha[:7] or '?'} -> {staged.source.sha[:7]}")
+        if not args.yes and not _confirm(f"Update {args.name}?", True):
+            print("cancelled")
+            return 1
+        install(library, staged, name=args.name, force=True)
+    _ok(f"updated {args.name}")
+    return 0
+
+
+def _cmd_skill_remove(args: argparse.Namespace) -> int:
+    import shutil
+
+    library = _library(args)
+    if not library.has(args.name):
+        _fail(f"no skill {args.name!r} in {library.root}")
+        return 2
+    users = _skill_users(args).get(args.name, [])
+    if users and not args.force:
+        _fail(f"{args.name} is still assigned to: {', '.join(users)} (unassign first, or --force)")
+        return 2
+    if not args.yes and not _confirm(f"Remove {args.name} from {library.root}?", False):
+        print("cancelled")
+        return 1
+    shutil.rmtree(library.path_of(args.name))
+    _ok(f"removed {args.name}")
+    return 0
+
+
+def _cmd_skill_assign(args: argparse.Namespace) -> int:
+    from crucible.skills import SkillError, assign_skill, declared_tools, unassign_skill
+
+    library = _library(args)
+    try:
+        manifest = _manifest_of(args, args.agent)
+    except FileNotFoundError as exc:
+        _fail(str(exc))
+        return 2
+    if args.remove:
+        changed = unassign_skill(manifest, args.name)
+        _ok(f"{args.agent}: removed {args.name}" if changed else f"{args.agent} did not have {args.name}")
+        _reload_hint()
+        return 0
+    try:
+        skill = library.get(args.name)
+    except SkillError as exc:
+        _fail(str(exc))
+        return 2
+    missing = [t for t in skill.requires_tools if t not in declared_tools(manifest)]
+    if missing:
+        # Without these the skill installs and then quietly does nothing.
+        _fail(f"{args.agent} lacks the tools {args.name} needs: {', '.join(missing)}")
+        print(_dim(f"add them to runtime.tools in {manifest}"))
+        if not args.yes and not _confirm("Assign anyway?", False):
+            return 1
+    changed = assign_skill(manifest, skill.name)
+    _ok(f"{args.agent}: added {skill.name}" if changed else f"{args.agent} already had {skill.name}")
+    _reload_hint()
+    return 0
+
+
 # --- impi mm bootstrap-token ----------------------------------------------------
 
 
@@ -390,6 +588,38 @@ def _build_parser() -> argparse.ArgumentParser:
     lst = agent_sub.add_parser("list", help="list profiles and token status")
     lst.add_argument("--agents-dir")
     lst.set_defaults(func=_cmd_agent_list)
+
+    skill = sub.add_parser("skill", help="the shared skill library")
+    skill_sub = skill.add_subparsers(dest="skill_command", required=True)
+    for name, help_text, handler in (
+        ("list", "list installed skills and who uses them", _cmd_skill_list),
+        ("show", "one skill in detail", _cmd_skill_show),
+        ("install", "install a skill from a directory or a repository", _cmd_skill_install),
+        ("update", "re-fetch a skill from its source", _cmd_skill_update),
+        ("remove", "delete a skill from the library", _cmd_skill_remove),
+        ("assign", "give a skill to an agent (or take it away)", _cmd_skill_assign),
+    ):
+        cmd = skill_sub.add_parser(name, help=help_text)
+        cmd.add_argument("--skills-dir", help="skill library (default: SKILLS_PATH)")
+        cmd.add_argument("--agents-dir", help="profiles directory (default: AGENTS_PATH)")
+        if name == "install":
+            cmd.add_argument(
+                "source",
+                help="a directory, owner/repo[/path][@ref], or a git URL[#path][@ref]",
+            )
+            cmd.add_argument("--name", help="install under this name (default: the skill's own)")
+            cmd.add_argument("--force", action="store_true", help="overwrite an installed skill")
+        elif name == "assign":
+            cmd.add_argument("name", help="skill name")
+            cmd.add_argument("agent", help="agent name")
+            cmd.add_argument("--remove", action="store_true", help="unassign instead")
+        elif name != "list":
+            cmd.add_argument("name", help="skill name")
+        if name in ("install", "update", "remove", "assign"):
+            cmd.add_argument("--yes", action="store_true", help="don't ask")
+        if name == "remove":
+            cmd.add_argument("--force", action="store_true", help="remove even if assigned")
+        cmd.set_defaults(func=handler)
 
     mm = sub.add_parser("mm", help="Mattermost helpers")
     mm_sub = mm.add_subparsers(dest="mm_command", required=True)

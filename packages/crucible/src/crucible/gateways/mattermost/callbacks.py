@@ -29,6 +29,11 @@ class MattermostCallbackCodec:
             # Set by the engine at post time: MM echoes the whole context back, so
             # a picker's own context says what kind of id came back.
             pick=str(context.get("pick") or ""),
+            # A screen's click carries its own routing in the same context, and MM
+            # names the post it came from — that's the message to redraw.
+            screen=str(context.get("screen") or ""),
+            state=str(context.get("state") or ""),
+            post_id=str(body.get("post_id") or ""),
         )
 
     def parse_dialog(self, body: dict) -> DialogCallback:

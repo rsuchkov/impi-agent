@@ -108,6 +108,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/installation.md](docs/installation.md) — the installer, the `impi` wrapper, updates.
 - [docs/architecture.md](docs/architecture.md) — how the engine works, the layers, and the request flows.
 - [docs/creating-agents.md](docs/creating-agents.md) — write and register an agent.
+- [docs/skills.md](docs/skills.md) — the shared skill library and `/skills`.
 - [docs/commands.md](docs/commands.md) — slash commands and shortcuts, and how to answer one privately.
 - [docs/ws-gateway.md](docs/ws-gateway.md) — plug your own service in over WebSocket.
 - [docs/configuration.md](docs/configuration.md) — every `.env` / config knob.

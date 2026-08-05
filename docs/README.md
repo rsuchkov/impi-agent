@@ -13,6 +13,9 @@ people. Keep them accurate to the code.
 - **[creating-agents.md](creating-agents.md)** — write and register an agent:
   the `agent.yaml` schema, `.pi/SYSTEM.md`, tool gating, skills, the widget/form
   control types per platform, and how to apply changes (restart vs reload).
+- **[skills.md](skills.md)** — the shared skill library: installing from a
+  directory or a repository, giving skills to agents, `/skills`, and what
+  carries over from other tools' skill formats.
 - **[commands.md](commands.md)** — slash commands and message shortcuts: how a
   command becomes an ordinary turn, per-platform setup (Mattermost / Slack), and
   the pattern for private, deterministic results (a handler beside the agent).

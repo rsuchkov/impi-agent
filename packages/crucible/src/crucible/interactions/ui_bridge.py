@@ -21,6 +21,7 @@ from crucible.ports.chat.types import (
     ACTION_SELECT,
     KIND_THREAD,
     Action,
+    Choice,
     ConversationRef,
 )
 from crucible.store.base import SessionStore
@@ -124,7 +125,7 @@ class WidgetUiBridge:
         if req.method == "select" and req.options:
             return [
                 Action(id="sel", label=_SELECT_PLACEHOLDER, kind=ACTION_SELECT,
-                       options=req.options, context={"token": token})
+                       options=Choice.of(*req.options), context={"token": token})
             ]
         return None
 

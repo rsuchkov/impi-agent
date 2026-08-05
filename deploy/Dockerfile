@@ -61,9 +61,10 @@ ENV PATH=/app/.venv/bin:$PATH \
     HOME=/home/impi \
     DOTENV_PATH=/app/conf/.env \
     AGENTS_PATH=/app/agents \
+    SKILLS_PATH=/app/skills \
     DATA_DIR=/app/data \
     PI_BIN=pi
-RUN mkdir -p /app/data /app/conf /app/agents /home/impi/.pi \
+RUN mkdir -p /app/data /app/conf /app/agents /app/skills /home/impi/.pi \
  && chown -R "${IMPI_UID}:${IMPI_GID}" /app /home/impi
 USER ${IMPI_UID}:${IMPI_GID}
 
