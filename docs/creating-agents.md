@@ -84,8 +84,11 @@ arrives later as a new message.
 - **`ask_user_buttons`** — 2–5 buttons.
 - **`ask_user_select`** — a dropdown of 2–20 options, or, with
   `source: users` / `source: channels`, a picker fed by the workspace itself.
-- **`open_form`** — a "Fill in…" button that opens a modal collecting up to 15
-  fields at once.
+- **`open_form`** — a button that opens a modal collecting up to 15 fields at
+  once. Its wording is the agent's to choose (`open_label`, e.g. "Report a bug";
+  the default is "📝 Fill in…"). The button survives a closed modal (so it can be
+  reopened) and is struck off its message once the form is submitted — the same
+  on both platforms.
 
 ### Form field types
 

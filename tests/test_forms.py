@@ -82,7 +82,9 @@ class SinkSpy:
 async def _server(port: int, store, poster) -> tuple[InteractionsServer, SinkSpy]:
     spy = SinkSpy()
     dispatcher = InteractionDispatcher(
-        store, presence_of(object(), sink=spy), PendingUiRequests(), store  # type: ignore[arg-type]
+        # Same client on both sides: the dispatcher retires the button through the
+        # agent's chat client, and the test reads it back off the poster.
+        store, presence_of(poster, sink=spy), PendingUiRequests(), store
     )
     server = InteractionsServer(
         dispatcher, MattermostCallbackCodec(), presence_of(poster),
@@ -142,12 +144,15 @@ async def test_dialog_submission_feeds_back_and_consumes(tmp_path: Path) -> None
         assert "crash" in text and "high" in text and "yes" in text  # bool -> yes
         assert spy.submitted[0].synthetic is True
         assert await store.get_form(token) is None  # one-shot: consumed
+        # The button is struck off its own message: the form is answered, and a
+        # second click would find nothing to open.
+        assert poster.retracted == [("pid", "✅ Submitted.")]  # the button's own post
     finally:
         await server.stop()
         await store.close()
 
 
-async def test_dialog_cancel_consumes_without_feedback(tmp_path: Path) -> None:
+async def test_dialog_cancel_keeps_the_form_open_for_a_second_try(tmp_path: Path) -> None:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     poster = FakePoster()
     server, spy = await _server(8483, store, poster)
@@ -162,7 +167,10 @@ async def test_dialog_cancel_consumes_without_feedback(tmp_path: Path) -> None:
                 assert resp.status == 200
 
         assert spy.submitted == []  # cancel -> nothing fed back
-        assert await store.get_form(token) is None  # still consumed
+        # …but the form survives: closing the modal by accident must not cost the
+        # user the button.
+        assert await store.get_form(token) is not None
+        assert poster.retracted == []
     finally:
         await server.stop()
         await store.close()
@@ -170,8 +178,25 @@ async def test_dialog_cancel_consumes_without_feedback(tmp_path: Path) -> None:
 
 # --- the extended field vocabulary --------------------------------------------
 
+async def test_open_button_wears_the_form_s_own_label(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/i")
+
+        await svc.open_form("assistant", rec.runtime_session_id, _form())
+        assert poster.posted[0][2][0].label == "📝 Fill in…"  # engine default
+
+        titled = Form(title="Bug", fields=_form().fields, open_label="Report a bug")
+        await svc.open_form("assistant", rec.runtime_session_id, titled)
+        assert poster.posted[1][2][0].label == "Report a bug"
+    finally:
+        await store.close()
+
+
 def test_form_json_roundtrip_carries_every_attribute() -> None:
-    form = Form(title="T", fields=(
+    form = Form(title="T", open_label="Report a bug", fields=(
         FormField(name="tags", label="Tags", type="multiselect", options=("a", "b"),
                   help_text="as many as apply", placeholder="pick", optional=True),
         FormField(name="who", label="Who", type="user"),

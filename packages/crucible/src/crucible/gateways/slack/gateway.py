@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 # interactive elements via the ack (unlike Mattermost's callback response), so the
 # gateway updates the message itself.
 _CHOSE_PREFIX = "Selected: "
-_FORM_OPENED = "📝 Opening form…"
+# Shown in place of a "fill in" button whose form is gone (already answered, or
+# expired) — the same wording the HTTP receiver uses for a stale widget.
+_BUTTONS_RETIRED = "These buttons are no longer active."
 
 # Default prefix for message shortcuts an agent answers as commands: the callback
 # id starts with it and the rest is the command name (crux_summarize ->
@@ -176,8 +178,12 @@ class SlackGateway:
         token, form_token, value = decode_action(actions[0])
         user_id = (body.get("user") or {}).get("id", "")
         if form_token:
-            if await self._open_modal(body, form_token):
-                await self._strip_buttons(body, _FORM_OPENED)
+            # The button deliberately SURVIVES the open: a modal closed without
+            # submitting can then be reopened. It is retired when the form is
+            # answered (InteractionDispatcher.submit_form) or when its click finds
+            # nothing left to open.
+            if not await self._open_modal(body, form_token):
+                await self._strip_buttons(body, _BUTTONS_RETIRED)
             return
         if not self._dispatcher.resolve_pending(token, value):
             # Slack names the element that fired, so a picker's id is resolvable.

@@ -46,7 +46,9 @@ An application depends only on these; concretes are swappable behind them.
   interaction, post, and match the callback later.
 - `MessageSink` / `Flow` — where a gateway hands an incoming message.
 - `AgentDirectory` — who our agents are (for dispatch decisions).
-- `types` — the neutral vocabulary (`ConversationRef`, `IncomingMessage`, `Action`, `Form`, …).
+- `types` — the neutral vocabulary (`ConversationRef`, `IncomingMessage`, `Action`, `Form`, …),
+  including the control types a form may use (`FIELD_TYPES`) and the widget kinds
+  (`ACTION_KINDS`); each adapter maps them onto its own platform's elements.
 
 ## Layer boundaries
 

@@ -160,6 +160,45 @@ async def test_form_open_click_opens_modal() -> None:
     assert poster.opened and poster.opened[0][0] == "TRIG" and poster.opened[0][2] == "F1"
 
 
+async def test_form_open_leaves_the_button_alive_for_a_second_try() -> None:
+    # Closing the modal without submitting must not cost the button: it is retired
+    # when the form is answered, not when it is opened.
+    form = SimpleNamespace(agent="assistant", form=Form(title="T", fields=(FormField(name="s", label="S"),)))
+    gw = _gateway(FakeSink(), dispatcher=FakeDispatcher(form=form), poster=FakePoster())
+    updates: list = []
+
+    async def _rec(**kwargs):
+        updates.append(kwargs)
+
+    gw._app.client.chat_update = _rec  # type: ignore[attr-defined]
+    await gw._handle_action({
+        "user": {"id": "U2"}, "trigger_id": "TRIG",
+        "channel": {"id": "C1"}, "message": {"ts": "1.1"},
+        "actions": [{"type": "button", "action_id": "cruxw0",
+                     "value": json.dumps({"token": "", "form": "F1", "value": ""})}],
+    })
+    assert updates == []  # the message was left untouched
+
+
+async def test_form_open_retires_a_button_whose_form_is_gone() -> None:
+    # Already answered (or expired): say so instead of leaving a dead button.
+    gw = _gateway(FakeSink(), dispatcher=FakeDispatcher(form=None), poster=FakePoster())
+    updates: list = []
+
+    async def _rec(**kwargs):
+        updates.append(kwargs)
+
+    gw._app.client.chat_update = _rec  # type: ignore[attr-defined]
+    await gw._handle_action({
+        "user": {"id": "U2"}, "trigger_id": "TRIG",
+        "channel": {"id": "C1"}, "message": {"ts": "1.1"},
+        "actions": [{"type": "button", "action_id": "cruxw0",
+                     "value": json.dumps({"token": "", "form": "F1", "value": ""})}],
+    })
+    assert updates and "no longer active" in updates[0]["text"]
+    assert updates[0]["blocks"] == []
+
+
 async def test_button_click_strips_the_buttons() -> None:
     # After a fire-and-forget click, Slack won't retire the buttons — the gateway
     # updates the message (blocks dropped) so it can't be clicked again.

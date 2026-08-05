@@ -16,6 +16,13 @@ when a release is cut, and `impi update` shows the target version's section.
   channel picker. Picked people and channels come back as `@name (id)` /
   `~name (id)`, so the agent reads a name and can still pass the id to a tool.
   Type table and Mattermost version floors: docs/creating-agents.md.
+- **The form button's wording is the agent's call** — `open_form` takes
+  `open_label` ("Report a bug", "Book a slot"); omitted, it stays "📝 Fill in…".
+- **A form's "Fill in…" button now behaves the same on both platforms:** it
+  survives a modal closed without submitting (so it can be reopened) and is
+  struck off its message when the form is answered. Previously Slack retired it
+  the moment the modal opened, while Mattermost left it clickable forever — a
+  click after submitting hit a form that no longer existed.
 
 ## v0.4.3 — 2026-08-03
 

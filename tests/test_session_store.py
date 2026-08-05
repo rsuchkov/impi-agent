@@ -3,6 +3,7 @@ from pathlib import Path
 from crucible.ports.chat.types import KIND_DM, KIND_THREAD
 from crucible.runtimes.pi.runtime import _safe_session_id
 from crucible.store import SqliteSessionStore, derive_runtime_session_id
+from crucible.store.base import FormRecord
 
 
 async def test_get_or_create_is_idempotent(tmp_path: Path) -> None:
@@ -194,3 +195,67 @@ async def test_migration_adds_last_user_id_to_old_db(tmp_path: Path) -> None:
         assert rec2 is not None and rec2.last_user_id == "u9"
     finally:
         await store.close()
+
+
+async def test_migration_adds_post_id_to_old_pending_forms(tmp_path: Path) -> None:
+    import sqlite3
+
+    # Simulate a DB from before the form button could be retired: pending_forms
+    # WITHOUT post_id, holding a form that was already waiting for a click.
+    db = tmp_path / "old-forms.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        "CREATE TABLE pending_forms (token TEXT PRIMARY KEY, agent TEXT NOT NULL, "
+        "channel_id TEXT NOT NULL, conversation_id TEXT NOT NULL, kind TEXT NOT NULL, "
+        "spec TEXT NOT NULL, created_at TEXT NOT NULL);"
+        "INSERT INTO pending_forms VALUES ('t-old','assistant','ch1','root1','thread',"
+        "'{}','2020-01-01');"
+    )
+    conn.commit()
+    conn.close()
+
+    store = SqliteSessionStore(db)  # opening runs the migration
+    try:
+        old = await store.get_form("t-old")
+        assert old is not None and old.post_id == ""  # nothing to retire: no id was recorded
+        await store.create_form(
+            FormRecord(token="t-new", agent="assistant", channel_id="ch1",
+                       conversation_id="root1", kind="thread", spec="{}",
+                       created_at="2026-01-01", post_id="p-42")
+        )
+        fresh = await store.get_form("t-new")
+        assert fresh is not None and fresh.post_id == "p-42"  # and the column is writable
+    finally:
+        await store.close()
+
+
+async def test_an_older_engine_still_reads_a_migrated_db(tmp_path: Path) -> None:
+    """`impi update` offers a rollback, so yesterday's engine must survive today's
+    schema. It queries by explicit column lists, so an added column is invisible
+    to it — this pins that."""
+    import sqlite3
+
+    db = tmp_path / "new.sqlite"
+    store = SqliteSessionStore(db)  # current schema
+    await store.create_form(
+        FormRecord(token="t1", agent="assistant", channel_id="ch1", conversation_id="root1",
+                   kind="thread", spec="{}", created_at="2026-01-01", post_id="p1")
+    )
+    await store.get_or_create("assistant", "ch1", "root1", "thread", user_id="u1")
+    await store.close()
+
+    old_form_cols = "token, agent, channel_id, conversation_id, kind, spec, created_at"
+    old_session_cols = ("agent, channel_id, conversation_id, kind, runtime_session_id, "
+                        "created_at, last_active")
+    conn = sqlite3.connect(str(db))
+    try:
+        assert len(conn.execute(f"SELECT {old_form_cols} FROM pending_forms").fetchone()) == 7
+        assert len(conn.execute(f"SELECT {old_session_cols} FROM sessions").fetchone()) == 7
+        # Writing the old way works too: the added columns carry defaults.
+        conn.execute(
+            f"INSERT INTO pending_forms ({old_form_cols}) VALUES (?,?,?,?,?,?,?)",
+            ("t2", "assistant", "ch1", "root1", "thread", "{}", "2026-01-01"),
+        )
+        conn.commit()
+    finally:
+        conn.close()

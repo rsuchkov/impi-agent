@@ -633,6 +633,35 @@ async def test_open_form_rejects_options_where_they_make_no_sense() -> None:
             pass
 
 
+async def test_open_form_passes_a_custom_button_label() -> None:
+    from crucible.builtin_tools import OpenForm
+
+    forms = FakeForms()
+    await OpenForm().execute(_ctx_forms(forms), {
+        "title": "Bug", "open_label": "  Report a bug  ",
+        "fields": [{"name": "s", "label": "Summary"}],
+    })
+    assert forms.calls[0][2].open_label == "Report a bug"  # trimmed
+
+    await OpenForm().execute(_ctx_forms(forms), {
+        "title": "Bug", "fields": [{"name": "s", "label": "Summary"}],
+    })
+    assert forms.calls[1][2].open_label == ""  # unset -> the engine's default
+
+
+async def test_open_form_rejects_an_oversized_button_label() -> None:
+    from crucible.builtin_tools import OpenForm
+
+    try:
+        await OpenForm().execute(_ctx_forms(FakeForms()), {
+            "title": "Bug", "open_label": "x" * 76,
+            "fields": [{"name": "s", "label": "Summary"}],
+        })
+        raise AssertionError("expected ToolError")
+    except ToolError:
+        pass
+
+
 async def test_open_form_rejects_a_form_that_collects_nothing() -> None:
     from crucible.builtin_tools import OpenForm
 

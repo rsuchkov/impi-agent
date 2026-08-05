@@ -27,6 +27,8 @@ from crucible.tools.registry import tool
 # one (the platform supplies the choices, or there are none).
 _CHOICE_TYPES = frozenset({"select", "multiselect", "radio"})
 _MAX_FIELDS = 15
+# Slack's own cap on button text; Mattermost has no hard one but wraps badly.
+_BUTTON_LABEL_MAX = 75
 # The tool's own `source` argument (part of its public schema) -> how the
 # interaction service renders it.
 _STYLES = {"options": ASK_SELECT, "users": ASK_USERS, "channels": ASK_CHANNELS}
@@ -133,10 +135,11 @@ class OpenForm(Tool):
     name: ClassVar[str] = "open_form"
     requires: ClassVar[frozenset[str]] = frozenset({CAP_FORMS})
     description: ClassVar[str] = (
-        "Collect several fields from the user in ONE modal form. Posts a 'Fill in' "
-        "button; the user clicks it, fills the modal, and the submitted values come "
-        "back as a message. Use for structured input (a few related fields at once) "
-        "rather than asking field-by-field. Field types: text, textarea, number, "
+        "Collect several fields from the user in ONE modal form. Posts a button "
+        "(label it with `open_label`); the user clicks it, fills the modal, and the "
+        "submitted values come back as a message. Use for structured input (a few "
+        "related fields at once) rather than asking field-by-field. Field types: "
+        "text, textarea, number, "
         "email, url, tel; select, multiselect, radio (these need options); bool; "
         "user, users, channel, channels (pick from the workspace — the answer is a "
         "name with its id); date, datetime, time; label (static text, no input)."
@@ -145,7 +148,12 @@ class OpenForm(Tool):
         "type": "object",
         "properties": {
             "title": {"type": "string", "description": "The modal's title"},
-            "intro": {"type": "string", "description": "Shown next to the 'Fill in' button"},
+            "intro": {"type": "string", "description": "Shown next to the button that opens the form"},
+            "open_label": {
+                "type": "string",
+                "description": "Text on that button — word it for the task "
+                "('Report a bug', 'Book a slot'). Omit for the default 'Fill in…'.",
+            },
             "fields": {
                 "type": "array",
                 "description": f"1-{_MAX_FIELDS} fields to collect, in order",
@@ -211,7 +219,16 @@ class OpenForm(Tool):
             )
         if all(f.type in STATIC_FIELD_TYPES for f in fields):
             raise ToolError("a form needs at least one field that collects a value")
-        form = Form(title=title, intro=str(args.get("intro", "")), fields=tuple(fields))
+        open_label = str(args.get("open_label", "")).strip()
+        if len(open_label) > _BUTTON_LABEL_MAX:
+            raise ToolError(
+                f"open_label must be at most {_BUTTON_LABEL_MAX} characters "
+                f"(platforms truncate longer button text)"
+            )
+        form = Form(
+            title=title, intro=str(args.get("intro", "")), fields=tuple(fields),
+            open_label=open_label,
+        )
         posted = await ctx.require_interactions().open_form(ctx.agent_name, ctx.runtime_session_id, form)
         if not posted:
             raise ToolError("could not post the form (conversation not resolved)")

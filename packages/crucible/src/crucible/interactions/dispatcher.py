@@ -29,6 +29,9 @@ from crucible.store.base import FormRecord, FormStore, InteractionStore
 
 logger = logging.getLogger(__name__)
 
+# Replaces the "fill in" message once its form has been answered (engine chrome).
+_FORM_SUBMITTED_MESSAGE = "✅ Submitted."
+
 
 @dataclass(frozen=True)
 class AgentSink:
@@ -161,15 +164,19 @@ class InteractionDispatcher:
     async def submit_form(
         self, state: str, submission: dict, cancelled: bool, user_id: str
     ) -> bool:
-        """Modal-form submission: consume the pending form and, unless cancelled,
-        feed the rendered values back as a synthetic message. Returns whether a
-        message was fed."""
+        """Modal-form submission: consume the pending form and feed the rendered
+        values back as a synthetic message. Returns whether a message was fed.
+
+        A CANCELLED modal leaves the form pending on purpose — the "fill in"
+        button stays live, so closing the dialog by accident costs nothing. Only
+        an actual submission consumes the form and retires the button."""
         record = await self._forms.get_form(state) if state else None
         if record is None:
             return False
-        await self._forms.delete_form(state)  # one-shot
         if cancelled:
+            logger.info("form %s cancelled — its button stays live", state[:8])
             return False
+        await self._forms.delete_form(state)  # one-shot: answered
         target = self._presence.sink(record.agent)
         if target is None:
             return False
@@ -188,7 +195,20 @@ class InteractionDispatcher:
         )
         target.sink.submit(msg, target.chat)
         logger.info("form %s submitted: %d field(s)", state[:8], len(submission))
+        await self._retire_button(record, target.chat)
         return True
+
+    @staticmethod
+    async def _retire_button(record: FormRecord, chat: ChatClient) -> None:
+        """Strike the "fill in" button off its message once the form is answered —
+        the platforms don't do it themselves, and a second click would find
+        nothing. Best-effort: a failure must not undo the submission."""
+        if not record.post_id:  # written before the engine recorded the post id
+            return
+        try:
+            await chat.retract(record.post_id, _FORM_SUBMITTED_MESSAGE)
+        except Exception:
+            logger.warning("could not retire the form button %s", record.post_id, exc_info=True)
 
 
 async def _render_submission(record: FormRecord, submission: dict, chat: ChatClient) -> str:

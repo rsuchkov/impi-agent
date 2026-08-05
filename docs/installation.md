@@ -88,6 +88,12 @@ fetches tags, shows the target version's release notes, checks out the newest
 tag, rebuilds the image, and restarts — with a health gate and an offered
 rollback if the new engine does not come up.
 
+Your data survives an update untouched: the SQLite inventory lives in a volume,
+and the engine applies any schema change itself at startup (columns are added,
+never rewritten). That also makes the rollback safe — an older engine ignores
+columns it doesn't know, so it keeps running on a database a newer one has
+already migrated.
+
 ## Non-interactive installs (CI / e2e)
 
 Every prompt maps 1:1 to an `IMPI_*` variable; pass them as a file:

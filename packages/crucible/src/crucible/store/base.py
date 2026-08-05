@@ -74,7 +74,8 @@ class InteractionStore(Protocol):
 class FormRecord:
     """A pending modal form (open_form). The button was posted; on click we
     rebuild the dialog from ``spec`` (opaque JSON — a serialized chat.Form), on
-    submit we feed the values back into the conversation."""
+    submit we feed the values back into the conversation and retire the button
+    message (``post_id``)."""
 
     token: str
     agent: str
@@ -83,6 +84,9 @@ class FormRecord:
     kind: str
     spec: str
     created_at: str
+    # The message carrying the "fill in" button, so submitting can strike it out.
+    # "" for records written before the engine started recording it.
+    post_id: str = ""
 
 
 class FormStore(Protocol):

@@ -111,12 +111,17 @@ class FormField:
 @dataclass(frozen=True)
 class Form:
     """A structured modal collected in one submit. ``intro`` shows next to the
-    "fill in" button that opens it (a modal needs a click for its trigger)."""
+    "fill in" button that opens it (a modal needs a click for its trigger).
+
+    Two labels, two buttons: ``open_label`` is the one in the conversation that
+    opens the modal ("" = the engine's default wording), ``submit_label`` the one
+    inside it."""
 
     title: str
     fields: tuple[FormField, ...]
     intro: str = ""
     submit_label: str = "Submit"
+    open_label: str = ""
 
 
 @dataclass(frozen=True)

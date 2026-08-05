@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 # The dropdown's pre-selection label (engine chrome). The prompt shows above it.
 _SELECT_PLACEHOLDER = "Select an option"
-_OPEN_LABEL = "📝 Fill in…"
+_OPEN_LABEL = "📝 Fill in…"  # default wording; a form may bring its own
 # ask(style=…) for the workspace pickers -> the Action kind and its placeholder.
 # The pick marker itself comes from the ports table, so it can't drift.
 _PICKERS = {
@@ -128,6 +128,17 @@ class InteractionService:
             return False
 
         token = secrets.token_hex(16)
+        # context.form marks this as a form-open click (vs a widget choice); the
+        # receiver looks the spec up by this token and opens the modal.
+        actions = [
+            Action(id="openform", label=form.open_label or _OPEN_LABEL, context={"form": token})
+        ]
+        post_id = await poster.post_actions(
+            self._ref(record), form.intro or form.title, actions, callback_url=self._callback_url
+        )
+        # Registered AFTER posting, unlike a widget: the record carries the button's
+        # own post id so submitting can retire it, and that id exists only now. A
+        # click can't outrace this — it travels through the platform first.
         await self._forms.create_form(
             FormRecord(
                 token=token,
@@ -137,13 +148,8 @@ class InteractionService:
                 kind=record.kind,
                 spec=form_to_json(form),
                 created_at=_now(),
+                post_id=post_id,
             )
-        )
-        # context.form marks this as a form-open click (vs a widget choice); the
-        # receiver looks the spec up by this token and opens the modal.
-        actions = [Action(id="openform", label=_OPEN_LABEL, context={"form": token})]
-        await poster.post_actions(
-            self._ref(record), form.intro or form.title, actions, callback_url=self._callback_url
         )
         return True
 

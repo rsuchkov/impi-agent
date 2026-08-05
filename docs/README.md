@@ -11,8 +11,8 @@ people. Keep them accurate to the code.
   packages, the layers and their boundaries, the `pi` runtime, gateways, tools,
   interactivity, and the request flows end to end.
 - **[creating-agents.md](creating-agents.md)** — write and register an agent:
-  the `agent.yaml` schema, `.pi/SYSTEM.md`, tool gating, skills, and how to apply
-  changes (restart vs reload).
+  the `agent.yaml` schema, `.pi/SYSTEM.md`, tool gating, skills, the widget/form
+  control types per platform, and how to apply changes (restart vs reload).
 - **[commands.md](commands.md)** — slash commands and message shortcuts: how a
   command becomes an ordinary turn, per-platform setup (Mattermost / Slack), and
   the pattern for private, deterministic results (a handler beside the agent).

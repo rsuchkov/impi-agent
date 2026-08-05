@@ -217,3 +217,11 @@ back the same way.
   personality in `.pi/SYSTEM.md` may be any language.)
 - **State is inventory, not truth.** The SQLite store maps conversations to
   deterministic session ids; the source of truth is `pi`'s on-disk memory.
+- **Schema changes are additive, applied on open.** There is no migration tool:
+  `SqliteSessionStore` runs its `CREATE TABLE IF NOT EXISTS` script and then
+  `_migrate()`, which reads `PRAGMA table_info` and `ALTER TABLE … ADD COLUMN`s
+  whatever is missing — idempotent, so it self-heals whichever version wrote the
+  file. Every query names its columns explicitly, so an older engine keeps
+  working on a database a newer one has migrated (which is what makes `impi
+  update`'s rollback safe). Anything beyond adding a defaulted column — renames,
+  backfills, dropped tables — has no mechanism yet and would need a real one.

@@ -57,6 +57,7 @@ def form_to_json(form: Form) -> str:
             "title": form.title,
             "intro": form.intro,
             "submit_label": form.submit_label,
+            "open_label": form.open_label,
             "fields": [
                 {
                     "name": f.name,
@@ -79,6 +80,7 @@ def form_from_json(spec: str) -> Form:
         title=d["title"],
         intro=d.get("intro", ""),
         submit_label=d.get("submit_label", "Submit"),
+        open_label=d.get("open_label", ""),
         fields=tuple(
             FormField(
                 name=f["name"],

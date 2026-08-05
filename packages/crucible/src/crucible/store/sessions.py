@@ -61,14 +61,15 @@ CREATE TABLE IF NOT EXISTS pending_forms (
   conversation_id TEXT NOT NULL,
   kind TEXT NOT NULL,
   spec TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  post_id TEXT NOT NULL DEFAULT ''
 );
 """
 
 _INTERACTION_COLUMNS = (
     "interaction_id, token, agent, channel_id, conversation_id, kind, created_at"
 )
-_FORM_COLUMNS = "token, agent, channel_id, conversation_id, kind, spec, created_at"
+_FORM_COLUMNS = "token, agent, channel_id, conversation_id, kind, spec, created_at, post_id"
 
 # Order matches SessionRecord's fields (SessionRecord(*row)); last_user_id last.
 _COLUMNS = (
@@ -103,6 +104,11 @@ class SqliteSessionStore:
         if "last_user_id" not in cols:
             self._conn.execute(
                 "ALTER TABLE sessions ADD COLUMN last_user_id TEXT NOT NULL DEFAULT ''"
+            )
+        form_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(pending_forms)")}
+        if "post_id" not in form_cols:
+            self._conn.execute(
+                "ALTER TABLE pending_forms ADD COLUMN post_id TEXT NOT NULL DEFAULT ''"
             )
 
     # -- async facade (SessionStore port) ------------------------------------
@@ -261,8 +267,9 @@ class SqliteSessionStore:
     def create_form_sync(self, r: FormRecord) -> None:
         with self._lock:
             self._conn.execute(
-                f"INSERT INTO pending_forms ({_FORM_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (r.token, r.agent, r.channel_id, r.conversation_id, r.kind, r.spec, r.created_at),
+                f"INSERT INTO pending_forms ({_FORM_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (r.token, r.agent, r.channel_id, r.conversation_id, r.kind, r.spec,
+                 r.created_at, r.post_id),
             )
             self._conn.commit()
 

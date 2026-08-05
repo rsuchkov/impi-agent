@@ -86,6 +86,13 @@ must be able to POST back to the receiver:
 
 Confirm `INTEGRATIONS_ENABLED=true`.
 
+**The modal never opens on Mattermost.** The log carries
+`Mattermost refused the dialog (field types: …)`. Usually the server is older
+than a control the form uses: `multiselect` needs **11.0**, `date`/`datetime`
+need **11.1** (see the type table in
+[creating-agents.md](creating-agents.md)). Drop those types or upgrade the
+server. The co-deployed Mattermost is new enough.
+
 Related Slack failure: `ui bridge: failed to post widget (...)` in the log —
 posting interactive components needs **Interactivity enabled** on the Slack app
 (and the usual bot scopes); the log message includes the Slack error code. A
