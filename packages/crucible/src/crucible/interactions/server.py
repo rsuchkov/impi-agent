@@ -94,7 +94,9 @@ class InteractionsServer:
         if self._dispatcher.resolve_pending(cb.token, cb.value):
             return web.json_response(self._codec.reply_replace(f"{_CHOSE_PREFIX}{cb.value}"))
 
-        result = await self._dispatcher.consume_action(cb.token, cb.value, cb.user_id)
+        result = await self._dispatcher.consume_action(
+            cb.token, cb.value, cb.user_id, pick=cb.pick
+        )
         if result is ActionResult.UNKNOWN:
             return web.json_response(self._codec.reply_replace(_BUTTONS_RETIRED_MESSAGE))
         if result is ActionResult.UNAVAILABLE:

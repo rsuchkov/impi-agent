@@ -102,6 +102,14 @@ class SlackChatClient:
             is_bot=bool(user.get("is_bot")),
         )
 
+    async def resolve_channel(self, channel_id: str) -> str:
+        try:
+            resp = await self._client.conversations_info(channel=channel_id)
+        except SlackApiError:
+            logger.warning("conversations_info %s failed", channel_id, exc_info=True)
+            return ""
+        return (resp.get("channel") or {}).get("name", "")
+
     async def get_thread_posts(self, ref: ConversationRef) -> list[PostSnippet]:
         root = ref.thread_root_id or ref.conversation_id
         try:

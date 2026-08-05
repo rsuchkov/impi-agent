@@ -17,7 +17,12 @@ from crucible.interactions.pending_ui import CONFIRM_NO, CONFIRM_YES, PendingUiR
 from crucible.interactions.presence import AgentPresence
 from crucible.ports.agent.ui import UiOutcome, UiRequest
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.types import KIND_THREAD, Action, ConversationRef
+from crucible.ports.chat.types import (
+    ACTION_SELECT,
+    KIND_THREAD,
+    Action,
+    ConversationRef,
+)
 from crucible.store.base import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -118,7 +123,7 @@ class WidgetUiBridge:
             ]
         if req.method == "select" and req.options:
             return [
-                Action(id="sel", label=_SELECT_PLACEHOLDER, kind="select",
+                Action(id="sel", label=_SELECT_PLACEHOLDER, kind=ACTION_SELECT,
                        options=req.options, context={"token": token})
             ]
         return None

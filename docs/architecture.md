@@ -135,6 +135,14 @@ transport-neutral brain: a click either **resolves a blocking mid-turn request**
 the same dispatcher over its socket. The `InteractionService` is the outbound half
 — it posts widgets and opens modal forms on behalf of a tool (`ask`, `open_form`).
 
+Controls are described in a **neutral vocabulary** (`FIELD_TYPES` /
+`ACTION_KINDS` in the chat ports): each adapter translates a field type into its
+own element — Mattermost dialog elements in `gateways/mattermost/dialogs.py`,
+Block Kit in `gateways/slack/rendering.py` — and normalizes the answer back to
+one string per field. A picker returns a platform id, which
+`interactions/labels.py` resolves to `@name (id)` before the agent sees it. The
+per-platform table is in [creating-agents.md](creating-agents.md).
+
 None of these collaborators own per-agent state: they look up an agent's outbound
 client (`poster`) and inbound sink (`AgentSink`) through an **`AgentPresence`** at
 request time. The application owns that registry (a `{agent: AgentSink}` map wrapped

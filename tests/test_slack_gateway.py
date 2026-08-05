@@ -43,6 +43,7 @@ class FakeSink:
 class FakeDispatcher:
     def __init__(self, *, form=None, pending_ok=False) -> None:
         self.calls: list = []
+        self.picks: list[str] = []  # the pick kind of each consumed action
         self._form = form
         self._pending_ok = pending_ok
 
@@ -50,8 +51,9 @@ class FakeDispatcher:
         self.calls.append(("resolve_pending", token, value))
         return self._pending_ok
 
-    async def consume_action(self, token, value, user_id):
+    async def consume_action(self, token, value, user_id, *, pick=""):
         self.calls.append(("consume_action", token, value, user_id))
+        self.picks.append(pick)
 
     async def load_form(self, form_token):
         self.calls.append(("load_form", form_token))

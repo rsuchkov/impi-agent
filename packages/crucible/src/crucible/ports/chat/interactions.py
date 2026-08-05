@@ -18,6 +18,14 @@ from typing import Protocol
 
 from crucible.ports.chat.types import Form, FormField
 
+# How ``ask`` renders the question. The first two carry options of the caller's
+# own; the pickers are filled by the platform with its people / channels.
+ASK_BUTTONS = "buttons"
+ASK_SELECT = "select"
+ASK_USERS = "users"
+ASK_CHANNELS = "channels"
+ASK_STYLES = (ASK_BUTTONS, ASK_SELECT, ASK_USERS, ASK_CHANNELS)
+
 
 class InteractionService(Protocol):
     """``runtime_session_id`` ties the interaction back to the conversation the
@@ -31,10 +39,10 @@ class InteractionService(Protocol):
         prompt: str,
         options: list[str],
         *,
-        style: str = "buttons",
+        style: str = ASK_BUTTONS,
     ) -> bool:
-        """Post the choices (``style`` = "buttons" | "select"); the click returns
-        later as a message. False if the conversation couldn't be resolved."""
+        """Post the choices (``style`` ∈ ``ASK_STYLES``); the click returns later
+        as a message. False if the conversation couldn't be resolved."""
         ...
 
     async def open_form(self, agent: str, runtime_session_id: str, form: Form) -> bool:
@@ -57,6 +65,7 @@ def form_to_json(form: Form) -> str:
                     "options": list(f.options),
                     "optional": f.optional,
                     "placeholder": f.placeholder,
+                    "help_text": f.help_text,
                 }
                 for f in form.fields
             ],
@@ -78,6 +87,7 @@ def form_from_json(spec: str) -> Form:
                 options=tuple(f.get("options", ())),
                 optional=f.get("optional", False),
                 placeholder=f.get("placeholder", ""),
+                help_text=f.get("help_text", ""),
             )
             for f in d["fields"]
         ),

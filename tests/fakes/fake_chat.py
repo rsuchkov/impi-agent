@@ -20,6 +20,7 @@ class FakeChat:
         self.posted_actions: list[tuple] = []  # (ref, text, actions, callback_url)
         self.retracted: list[tuple[str, str]] = []  # (post_id, text)
         self.dialogs: list[tuple] = []  # (trigger_id, form, submit_url, state)
+        self.channel_names: dict[str, str] = {}  # channel_id -> display name
 
     async def post_reply(self, ref: ConversationRef, text: str, *, hop_depth: int = 0) -> None:
         self.replies.append((ref, text))
@@ -36,6 +37,9 @@ class FakeChat:
 
     async def get_user_profile(self, user_id: str) -> UserProfile | None:
         return UserProfile(username="roman", display_name="Roman")
+
+    async def resolve_channel(self, channel_id: str) -> str:
+        return self.channel_names.get(channel_id, "")
 
     async def get_thread_posts(self, ref: ConversationRef) -> list[PostSnippet]:
         return self.thread_posts.get(ref.thread_root_id or ref.conversation_id, [])

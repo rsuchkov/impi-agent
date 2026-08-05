@@ -516,6 +516,30 @@ async def test_ask_user_select_validates_option_count() -> None:
             pass
 
 
+async def test_ask_user_select_can_pick_from_the_workspace() -> None:
+    from crucible.builtin_tools import AskUserSelect
+
+    widgets = FakeWidgets()
+    for source in ("users", "channels"):
+        await AskUserSelect().execute(_ctx_widgets(widgets), {"prompt": "Who?", "source": source})
+    # No options of our own: the platform supplies the people / channels.
+    assert [(c[3], c[4]) for c in widgets.calls] == [((), "users"), ((), "channels")]
+
+
+async def test_ask_user_select_rejects_a_bad_or_conflicting_source() -> None:
+    from crucible.builtin_tools import AskUserSelect
+
+    for args in (
+        {"prompt": "x", "source": "aliens"},  # unknown source
+        {"prompt": "x", "source": "users", "options": ["a", "b"]},  # options aren't ours to set
+    ):
+        try:
+            await AskUserSelect().execute(_ctx_widgets(FakeWidgets()), args)
+            raise AssertionError("expected ToolError")
+        except ToolError:
+            pass
+
+
 # --- open_form --------------------------------------------------------------
 
 
@@ -571,6 +595,51 @@ async def test_open_form_rejects_empty_fields() -> None:
 
     try:
         await OpenForm().execute(_ctx_forms(FakeForms()), {"title": "X", "fields": []})
+        raise AssertionError("expected ToolError")
+    except ToolError:
+        pass
+
+
+async def test_open_form_accepts_the_whole_vocabulary() -> None:
+    from crucible.builtin_tools import OpenForm
+    from crucible.ports.chat.types import FIELD_TYPES
+
+    forms = FakeForms()
+    fields = [
+        {"name": t, "label": t, "type": t,
+         **({"options": ["a", "b"]} if t in ("select", "multiselect", "radio") else {})}
+        for t in FIELD_TYPES
+    ]
+    # More types than the per-form limit, so validate them in two batches.
+    for batch in (fields[:9], fields[9:]):
+        await OpenForm().execute(_ctx_forms(forms), {"title": "All", "fields": batch})
+    built = [f.type for _a, _r, form in forms.calls for f in form.fields]
+    assert built == list(FIELD_TYPES)
+
+
+async def test_open_form_rejects_options_where_they_make_no_sense() -> None:
+    from crucible.builtin_tools import OpenForm
+
+    for field in (
+        {"name": "u", "label": "Who", "type": "user", "options": ["a", "b"]},  # workspace-fed
+        {"name": "t", "label": "T", "type": "text", "options": ["a", "b"]},    # free text
+        {"name": "m", "label": "M", "type": "multiselect"},                    # needs options
+        {"name": "x", "label": "X", "type": "wat"},                            # unknown type
+    ):
+        try:
+            await OpenForm().execute(_ctx_forms(FakeForms()), {"title": "X", "fields": [field]})
+            raise AssertionError(f"expected ToolError for {field}")
+        except ToolError:
+            pass
+
+
+async def test_open_form_rejects_a_form_that_collects_nothing() -> None:
+    from crucible.builtin_tools import OpenForm
+
+    try:
+        await OpenForm().execute(_ctx_forms(FakeForms()), {"title": "X", "fields": [
+            {"name": "n", "label": "just some text", "type": "label"},
+        ]})
         raise AssertionError("expected ToolError")
     except ToolError:
         pass

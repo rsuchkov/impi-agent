@@ -26,12 +26,15 @@ class MattermostCallbackCodec:
             form_token=str(context.get("form") or ""),
             trigger=str(body.get("trigger_id") or ""),
             user_id=str(body.get("user_id") or ""),
+            # Set by the engine at post time: MM echoes the whole context back, so
+            # a picker's own context says what kind of id came back.
+            pick=str(context.get("pick") or ""),
         )
 
     def parse_dialog(self, body: dict) -> DialogCallback:
         return DialogCallback(
             state=str(body.get("state") or ""),
-            submission=body.get("submission") or {},
+            submission=_normalize(body.get("submission") or {}),
             cancelled=bool(body.get("cancelled")),
             user_id=str(body.get("user_id") or ""),
         )
@@ -63,3 +66,20 @@ class MattermostCallbackCodec:
         # Answers the command POST itself: visible only to the invoker, and
         # replaced by nothing — the real answer is delivered by the agent later.
         return {"response_type": "ephemeral", "text": text}
+
+
+def _normalize(submission: dict) -> dict[str, str]:
+    """Mattermost's per-element value shapes -> the neutral string-per-field the
+    dispatcher renders: a checkbox arrives as a real boolean, a multiselect as
+    one comma-separated string, an untouched optional as null."""
+    out: dict[str, str] = {}
+    for name, value in submission.items():
+        if isinstance(value, bool):
+            out[name] = "yes" if value else "no"
+        elif value is None:
+            out[name] = ""
+        elif isinstance(value, list):  # defensive: some builds send a real list
+            out[name] = ", ".join(str(v) for v in value)
+        else:
+            out[name] = str(value)
+    return out

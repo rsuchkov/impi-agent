@@ -75,6 +75,54 @@ no tools at all**. Two rules to remember:
   path** in its SYSTEM.md, or wrap access in your own typed tool with a pinned
   root. See [runtime-notes.md](runtime-notes.md).
 
+## Asking with controls (widgets and forms)
+
+Three tools let an agent ask with real controls instead of prose, and all three
+are **fire-and-forget**: the widget is posted, the turn ends, and the answer
+arrives later as a new message.
+
+- **`ask_user_buttons`** — 2–5 buttons.
+- **`ask_user_select`** — a dropdown of 2–20 options, or, with
+  `source: users` / `source: channels`, a picker fed by the workspace itself.
+- **`open_form`** — a "Fill in…" button that opens a modal collecting up to 15
+  fields at once.
+
+### Form field types
+
+One neutral vocabulary; each platform renders its own control. Nothing in an
+agent's profile mentions Mattermost or Slack.
+
+| `type` | Mattermost | Slack | The agent gets back |
+|---|---|---|---|
+| `text` / `textarea` | text / textarea | plain-text input (multiline for textarea) | the text |
+| `number`, `email`, `url`, `tel` | text with that subtype | number / email / URL input (`tel` → plain text) | the text |
+| `select` | dropdown | static select | the chosen option |
+| `multiselect` | multi-select dropdown | multi static select | `a, b` |
+| `radio` | radio group | radio buttons | the chosen option |
+| `bool` | checkbox | one checkbox | `yes` / `no` |
+| `user` / `users` | people picker (single / multi) | users select (single / multi) | `@name (id)` |
+| `channel` / `channels` | channel picker (single / multi) | channels select (single / multi) | `~name (id)` |
+| `date` | date picker | date picker | `YYYY-MM-DD` |
+| `datetime` | datetime picker | datetime picker | ISO 8601 |
+| `time` | *(no picker — a text field hinting HH:MM)* | time picker | `HH:MM` |
+| `label` | folded into the modal's intro text | a text block | nothing — it's static text |
+
+`select`, `multiselect` and `radio` require `options`; the pickers must not
+carry any (the platform supplies them). Every field takes `optional`,
+`placeholder` and `help_text` (a hint under the control).
+
+Picker answers arrive as **name and id together** — the name is what the model
+reasons about, the id is what it passes to another tool afterwards. If a lookup
+fails, the raw id is shown rather than nothing.
+
+**Mattermost server floors:** `multiselect` needs 11.0, `date`/`datetime` need
+11.1 (the installer's co-deployed server is newer). On an older server the modal
+refuses to open and the engine logs the field types it tried to use.
+
+**Widgets in a message** are single-value by nature: buttons, a dropdown, or a
+user/channel picker. Multi-select exists only inside a form — Mattermost's
+message attachments have no such control.
+
 ## Skills
 
 A skill is a `SKILL.md` capability package the agent reads on demand. List a

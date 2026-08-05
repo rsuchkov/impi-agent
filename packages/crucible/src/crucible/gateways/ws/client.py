@@ -41,6 +41,9 @@ class WsChatClient:
     async def get_user_profile(self, user_id: str) -> UserProfile | None:
         return None
 
+    async def resolve_channel(self, channel_id: str) -> str:
+        return ""  # a ws conversation is the service's own id, not a channel
+
     async def get_thread_posts(self, ref: ConversationRef) -> list[PostSnippet]:
         return []  # the engine's own session memory is the only history
 

@@ -166,3 +166,99 @@ async def test_dialog_cancel_consumes_without_feedback(tmp_path: Path) -> None:
     finally:
         await server.stop()
         await store.close()
+
+
+# --- the extended field vocabulary --------------------------------------------
+
+def test_form_json_roundtrip_carries_every_attribute() -> None:
+    form = Form(title="T", fields=(
+        FormField(name="tags", label="Tags", type="multiselect", options=("a", "b"),
+                  help_text="as many as apply", placeholder="pick", optional=True),
+        FormField(name="who", label="Who", type="user"),
+        FormField(name="note", label="*heads up*", type="label"),
+    ))
+    assert form_from_json(form_to_json(form)) == form
+
+
+async def test_submission_resolves_people_and_channels(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    # The sink's chat is what the dispatcher resolves ids through.
+    chat = FakeChat()
+    chat.channel_names["c-77"] = "incidents"
+    spy = SinkSpy()
+    dispatcher = InteractionDispatcher(
+        store, presence_of(chat, sink=spy), PendingUiRequests(), store
+    )
+    server = InteractionsServer(
+        dispatcher, MattermostCallbackCodec(), presence_of(poster),
+        host="127.0.0.1", port=8484, dialog_submit_url="http://x/dialog",
+    )
+    await server.start()
+    try:
+        form = Form(title="Assign", fields=(
+            FormField(name="note", label="*fill this in*", type="label"),
+            FormField(name="who", label="Assignee", type="user"),
+            FormField(name="team", label="Reviewers", type="users"),
+            FormField(name="where", label="Channel", type="channel"),
+            FormField(name="tags", label="Tags", type="multiselect", options=("a", "b")),
+            FormField(name="urgent", label="Urgent", type="bool"),
+        ))
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/i")
+        await svc.open_form("assistant", rec.runtime_session_id, form)
+        token = poster.posted[0][2][0].context["form"]
+
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8484/dialog",
+                json={"state": token, "cancelled": False, "user_id": "u", "submission": {
+                    "who": "u-1", "team": "u-1,u-2", "where": "c-77",
+                    "tags": "a, b", "urgent": True}},
+            ) as resp:
+                assert resp.status == 200
+
+        text = spy.submitted[0].text
+        assert "- Assignee: @roman (u-1)" in text  # id resolved, id kept
+        assert "- Reviewers: @roman (u-1), @roman (u-2)" in text
+        assert "- Channel: ~incidents (c-77)" in text
+        assert "- Tags: a, b" in text
+        assert "- Urgent: yes" in text  # MM sends a real boolean
+        assert "fill this in" not in text  # a label collects nothing
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_unresolvable_id_degrades_to_the_raw_value(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    spy = SinkSpy()
+    # A chat client with no channel directory at all (e.g. an offline lookup).
+    dispatcher = InteractionDispatcher(
+        store, presence_of(FakeChat(), sink=spy), PendingUiRequests(), store
+    )
+    server = InteractionsServer(
+        dispatcher, MattermostCallbackCodec(), presence_of(poster),
+        host="127.0.0.1", port=8485, dialog_submit_url="http://x/dialog",
+    )
+    await server.start()
+    try:
+        form = Form(title="T", fields=(FormField(name="where", label="Channel", type="channel"),))
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/i")
+        await svc.open_form("assistant", rec.runtime_session_id, form)
+        token = poster.posted[0][2][0].context["form"]
+
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8485/dialog",
+                json={"state": token, "cancelled": False, "user_id": "u",
+                      "submission": {"where": "c-unknown"}},
+            ) as resp:
+                assert resp.status == 200
+
+        assert "- Channel: c-unknown" in spy.submitted[0].text  # raw, never blank
+    finally:
+        await server.stop()
+        await store.close()

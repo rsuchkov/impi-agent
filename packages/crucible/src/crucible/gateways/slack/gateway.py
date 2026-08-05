@@ -19,6 +19,7 @@ from crucible.gateways.slack.rendering import (
     WIDGET_ACTION_PREFIX,
     decode_action,
     extract_submission,
+    picked_kind,
 )
 from crucible.loopguard import LoopGuard
 from crucible.ports.chat.client import ChatClient
@@ -179,7 +180,10 @@ class SlackGateway:
                 await self._strip_buttons(body, _FORM_OPENED)
             return
         if not self._dispatcher.resolve_pending(token, value):
-            await self._dispatcher.consume_action(token, value, user_id)
+            # Slack names the element that fired, so a picker's id is resolvable.
+            await self._dispatcher.consume_action(
+                token, value, user_id, pick=picked_kind(actions[0])
+            )
         # Slack won't retire the buttons on its own — strip them off the message so a
         # fire-and-forget widget can't be clicked twice.
         await self._strip_buttons(body, f"{_CHOSE_PREFIX}{value}")

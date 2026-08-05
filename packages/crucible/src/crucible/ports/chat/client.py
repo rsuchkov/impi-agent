@@ -36,6 +36,12 @@ class ChatClient(Protocol):
 
     async def get_user_profile(self, user_id: str) -> UserProfile | None: ...
 
+    async def resolve_channel(self, channel_id: str) -> str:
+        """Channel id -> its display name, "" if unknown. The counterpart of
+        ``get_user_profile`` for channels: a channel picker returns an id, and the
+        engine shows the agent a name. Adapters without channels return ""."""
+        ...
+
     async def get_thread_posts(self, ref: ConversationRef) -> list[PostSnippet]:
         """The whole thread ``ref`` belongs to, oldest first (context backfill).
         Takes the full ref so adapters that address a thread by (channel, root)

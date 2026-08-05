@@ -198,3 +198,52 @@ async def test_click_with_used_token_is_benign(tmp_path: Path) -> None:
     finally:
         await server.stop()
         await store.close()
+
+
+# --- workspace pickers ---------------------------------------------------------
+
+async def test_user_picker_posts_a_server_fed_menu(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/interact")
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        assert await svc.ask("assistant", rec.runtime_session_id, "Who?", [], style="users") is True
+
+        action = poster.posted[0][2][0]
+        assert action.kind == "user_select" and action.options == ()  # the workspace supplies them
+        assert action.context["pick"] == "user"  # travels so the click can be resolved
+    finally:
+        await store.close()
+
+
+async def test_picked_person_reaches_the_agent_as_a_name(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/interact")
+    spy = SinkSpy()
+    dispatcher = InteractionDispatcher(
+        store, presence_of(FakeChat(), sink=spy), PendingUiRequests(), store
+    )
+    server = InteractionsServer(
+        dispatcher, MattermostCallbackCodec(), MappingPresence({}), host="127.0.0.1", port=8477
+    )
+    await server.start()
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        await svc.ask("assistant", rec.runtime_session_id, "Who?", [], style="users")
+        ctx = poster.posted[0][2][0].context
+
+        async with aiohttp.ClientSession() as s:
+            # MM echoes the whole context back and adds the picked id.
+            async with s.post(
+                "http://127.0.0.1:8477/interact",
+                json={"user_id": "uid", "context": {**ctx, "selected_option": "u-42"}},
+            ) as resp:
+                assert resp.status == 200
+
+        # An id alone would be meaningless to the model.
+        assert spy.submitted[0].text == "@roman (u-42)"
+    finally:
+        await server.stop()
+        await store.close()

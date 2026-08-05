@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from uuid import uuid4
 
+from crucible.interactions.labels import humanize
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.presence import AgentPresence
 from crucible.ports.chat.client import ChatClient
@@ -19,6 +20,7 @@ from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.interactions import form_from_json
 from crucible.ports.chat.types import (
     KIND_THREAD,
+    STATIC_FIELD_TYPES,
     ConversationRef,
     Form,
     IncomingMessage,
@@ -78,15 +80,20 @@ class InteractionDispatcher:
             return None
         return FormOpen(agent=record.agent, form=form_from_json(record.spec))
 
-    async def consume_action(self, token: str, value: str, user_id: str) -> ActionResult:
+    async def consume_action(
+        self, token: str, value: str, user_id: str, *, pick: str = ""
+    ) -> ActionResult:
         """Fire-and-forget widget click: consume the one-shot interaction and feed
-        the chosen ``value`` back as a synthetic message → a new turn."""
+        the chosen ``value`` back as a synthetic message → a new turn. ``pick``
+        ("user"/"channel") marks a picker, whose value is an id to resolve."""
         record = await self._interactions.take_interaction(token) if token else None
         if record is None:
             return ActionResult.UNKNOWN
         target = self._presence.sink(record.agent)
         if target is None:
             return ActionResult.UNAVAILABLE
+        if pick:
+            value = await humanize(value, pick, target.chat)
         if not value:
             # Surfaces a malformed/unknown callback shape (a codec that failed to
             # find the picked value).
@@ -174,7 +181,7 @@ class InteractionDispatcher:
                 message_id=f"form-{state[:12]}",
                 thread_root_id=thread_root,
             ),
-            text=_render_submission(record, submission),
+            text=await _render_submission(record, submission, target.chat),
             user_id=user_id,
             kind=record.kind,
             synthetic=True,
@@ -184,14 +191,19 @@ class InteractionDispatcher:
         return True
 
 
-def _render_submission(record: FormRecord, submission: dict) -> str:
+async def _render_submission(record: FormRecord, submission: dict, chat: ChatClient) -> str:
     """A readable block of the submitted values, keyed by the form's field labels,
-    for the agent to parse on its next turn."""
+    for the agent to parse on its next turn. Picked people/channels are resolved
+    to names; a static label field carries no value and is skipped."""
     form = form_from_json(record.spec)
     lines = [f"[form: {form.title}]"]
     for field_ in form.fields:
+        if field_.type in STATIC_FIELD_TYPES:
+            continue
         value = submission.get(field_.name)
         if isinstance(value, bool):
             value = "yes" if value else "no"
+        if value not in (None, ""):
+            value = await humanize(str(value), field_.type, chat)
         lines.append(f"- {field_.label}: {value if value not in (None, '') else '—'}")
     return "\n".join(lines)

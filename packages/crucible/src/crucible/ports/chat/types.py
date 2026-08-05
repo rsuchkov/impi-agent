@@ -42,34 +42,70 @@ class PostSnippet:
     user_id: str = ""
 
 
+# What an interactive message may carry. A button echoes ``value`` back; the
+# menus echo the pick — of ``options`` (select), of the workspace's people
+# (user_select) or of its channels (channel_select).
+ACTION_BUTTON = "button"
+ACTION_SELECT = "select"
+ACTION_USER_SELECT = "user_select"
+ACTION_CHANNEL_SELECT = "channel_select"
+ACTION_KINDS = (ACTION_BUTTON, ACTION_SELECT, ACTION_USER_SELECT, ACTION_CHANNEL_SELECT)
+PICKER_KINDS = frozenset({ACTION_USER_SELECT, ACTION_CHANNEL_SELECT})
+
+
 @dataclass(frozen=True)
 class Action:
-    """An affordance on an interactive message. A button (``kind="button"``, the
-    default) echoes ``value`` back when clicked; a select (``kind="select"``)
-    renders a dropdown of ``options`` and echoes the picked one back. ``context``
-    is opaque per-action data the adapter round-trips (we stash the interaction
-    token there)."""
+    """An affordance on an interactive message (``kind`` ∈ ``ACTION_KINDS``).
+    ``context`` is opaque per-action data the adapter round-trips (we stash the
+    interaction token there)."""
 
     id: str
     label: str
     value: str = ""
     style: str = ""  # e.g. "primary" | "danger" (adapter maps it)
     context: dict[str, Any] = field(default_factory=dict)
-    kind: str = "button"  # "button" | "select"
-    options: tuple[str, ...] = ()  # dropdown choices when kind == "select"
+    kind: str = ACTION_BUTTON
+    options: tuple[str, ...] = ()  # dropdown choices when kind is ACTION_SELECT
+
+
+# The neutral field vocabulary of a modal form. Adapters translate each name into
+# their own control (see the mapping table in docs/creating-agents.md); nothing
+# above the ports layer knows what a platform calls them.
+FIELD_TYPES = (
+    "text", "textarea", "number", "email", "url", "tel",  # typed free text
+    "select", "multiselect", "radio", "bool",             # choices
+    "user", "users", "channel", "channels",               # workspace pickers
+    "date", "datetime", "time",                           # temporal
+    "label",                                              # static text, no value
+)
+# Types whose value is a list of picks rather than one.
+MULTI_FIELD_TYPES = frozenset({"multiselect", "users", "channels"})
+# Types the user picks from the workspace: the platform returns an ID, which the
+# engine resolves to a readable name.
+USER_FIELD_TYPES = frozenset({"user", "users"})
+CHANNEL_FIELD_TYPES = frozenset({"channel", "channels"})
+# Types that carry no value at all — rendered as static text inside the form.
+STATIC_FIELD_TYPES = frozenset({"label"})
+# Which field type a picked widget answers with. It travels with the click (and
+# is read off the payload on Slack), so the engine knows a value is an id to
+# resolve into a name — see crucible.interactions.labels.
+PICK_FIELD_BY_KIND = {ACTION_USER_SELECT: "user", ACTION_CHANNEL_SELECT: "channel"}
 
 
 @dataclass(frozen=True)
 class FormField:
-    """One input of a modal form. ``type`` ∈ {text, textarea, select, bool}; a
-    select carries ``options``. Values come back keyed by ``name``."""
+    """One input of a modal form (``type`` ∈ ``FIELD_TYPES``). ``options`` are the
+    choices of a select/multiselect/radio; ``help_text`` is the hint shown under
+    the control. Values come back keyed by ``name`` — a ``label`` field has none
+    (it is static text)."""
 
     name: str
     label: str
     type: str = "text"
-    options: tuple[str, ...] = ()  # for type == "select"
+    options: tuple[str, ...] = ()  # for select / multiselect / radio
     optional: bool = False
     placeholder: str = ""
+    help_text: str = ""
 
 
 @dataclass(frozen=True)

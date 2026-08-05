@@ -232,10 +232,12 @@ async def test_open_dialog_builds_elements_from_form() -> None:
     assert d["title"] == "T" and d["submit_label"] == "Go" and d["state"] == "tok"
     els = d["elements"]
     assert els[0] == {"display_name": "Summary", "name": "s", "type": "text",
-                      "optional": False, "placeholder": "one line"}
+                      "subtype": "text", "optional": False, "placeholder": "one line"}
     assert els[1]["type"] == "select"
     assert els[1]["options"] == [{"text": "low", "value": "low"}, {"text": "high", "value": "high"}]
-    assert els[2] == {"display_name": "Urgent", "name": "u", "type": "bool", "optional": True}
+    # a checkbox's own caption comes from placeholder, which MM renders next to it
+    assert els[2] == {"display_name": "Urgent", "name": "u", "type": "bool",
+                      "optional": True, "placeholder": "Urgent"}
 
 
 async def test_post_ephemeral_calls_create_post_ephemeral() -> None:
@@ -263,3 +265,112 @@ async def test_snippets_carry_the_author_user_id() -> None:
 
     snippets = await _client(WithThread()).get_thread_posts(REF)
     assert [(s.message_id, s.user_id) for s in snippets] == [("p1", "u-author")]
+
+
+# --- the full field vocabulary -------------------------------------------------
+
+async def test_dialog_renders_every_field_type() -> None:
+    from crucible.ports.chat.types import Form, FormField
+    driver = _Recorder()
+    types = ("text", "textarea", "number", "email", "url", "tel", "select", "multiselect",
+             "radio", "bool", "user", "users", "channel", "channels", "date", "datetime", "time")
+    fields = tuple(
+        FormField(name=t, label=t.title(), type=t,
+                  options=("a", "b") if t in ("select", "multiselect", "radio") else ())
+        for t in types
+    )
+    await _client(driver).open_dialog(
+        "trg", Form(title="All", fields=fields), submit_url="http://x/dialog", state="s"
+    )
+
+    els = {e["name"]: e for e in driver.calls[0][1]["dialog"]["elements"]}
+    assert els["text"]["type"] == "text" and els["text"]["subtype"] == "text"
+    assert els["textarea"]["type"] == "textarea"
+    assert els["number"]["subtype"] == "number"
+    assert els["email"]["subtype"] == "email"
+    assert els["url"]["subtype"] == "url"
+    assert els["tel"]["subtype"] == "tel"
+    assert els["select"]["type"] == "select" and "multiselect" not in els["select"]
+    assert els["multiselect"]["multiselect"] is True
+    assert els["radio"]["type"] == "radio"
+    assert els["bool"]["type"] == "bool"
+    # The workspace pickers are selects fed by the server, not by us.
+    assert els["user"] == {"display_name": "User", "name": "user", "optional": False,
+                           "type": "select", "data_source": "users"}
+    assert els["users"]["data_source"] == "users" and els["users"]["multiselect"] is True
+    assert els["channel"]["data_source"] == "channels"
+    assert els["channels"]["data_source"] == "channels" and els["channels"]["multiselect"] is True
+    assert els["date"]["type"] == "date"
+    assert els["datetime"]["type"] == "datetime"
+    # No time picker in Mattermost: a text field that says what it wants.
+    assert els["time"]["type"] == "text" and els["time"]["placeholder"] == "HH:MM"
+
+
+async def test_label_fields_become_the_dialog_introduction() -> None:
+    from crucible.ports.chat.types import Form, FormField
+    driver = _Recorder()
+    form = Form(title="T", intro="Before we start:", fields=(
+        FormField(name="n1", label="**Section one**", type="label"),
+        FormField(name="who", label="Who", type="user"),
+    ))
+
+    await _client(driver).open_dialog("trg", form, submit_url="http://x", state="s")
+
+    dialog = driver.calls[0][1]["dialog"]
+    assert dialog["introduction_text"] == "Before we start:\n\n**Section one**"
+    assert [e["name"] for e in dialog["elements"]] == ["who"]  # a label collects nothing
+
+
+async def test_dialog_failure_names_the_field_types() -> None:
+    # The usual cause is a server too old for an element (date/datetime need 11.1).
+    from crucible.ports.chat.types import Form, FormField
+
+    class _Refusing:
+        async def open_interactive_dialog(self, trigger_id, url, dialog):
+            raise RuntimeError("400: invalid element type")
+
+    driver = _Recorder()
+    driver.integration_actions = _Refusing()  # type: ignore[assignment]
+    form = Form(title="T", fields=(FormField(name="d", label="When", type="date"),))
+    with pytest.raises(RuntimeError, match="field types: date"):
+        await _client(driver).open_dialog("trg", form, submit_url="http://x", state="s")
+
+
+async def test_post_actions_renders_the_workspace_pickers() -> None:
+    from crucible.ports.chat.types import Action
+    driver = _Recorder()
+    actions = [Action(id="sel", label="Who?", kind="user_select", context={"token": "T", "pick": "user"})]
+
+    await _client(driver).post_actions(REF, "Assign to", actions, callback_url="http://x/interact")
+
+    posted = next(kw for name, kw in driver.calls if name == "create_post")
+    action = posted["props"]["attachments"][0]["actions"][0]
+    assert action["type"] == "select" and action["data_source"] == "users"
+    assert "options" not in action  # the server supplies the people
+    assert action["integration"]["context"]["pick"] == "user"  # marks the id as resolvable
+
+
+def test_the_dialog_builder_covers_the_whole_vocabulary() -> None:
+    # Every neutral field type must map to a real element: an unhandled one would
+    # fall through to the select branch and produce an options-less dropdown.
+    from crucible.gateways.mattermost.dialogs import build_dialog
+    from crucible.ports.chat.types import (
+        FIELD_TYPES,
+        STATIC_FIELD_TYPES,
+        Form,
+        FormField,
+    )
+
+    fields = tuple(
+        FormField(name=t, label=t, type=t,
+                  options=("a", "b") if t in ("select", "multiselect", "radio") else ())
+        for t in FIELD_TYPES
+        if t not in STATIC_FIELD_TYPES
+    )
+    elements = build_dialog(Form(title="T", fields=fields), state="s")["elements"]
+    assert len(elements) == len(fields)
+    for el in elements:
+        assert el["type"] in ("text", "textarea", "select", "radio", "bool", "date", "datetime")
+        # a dropdown must be fed by something: our options or the server
+        if el["type"] == "select":
+            assert "options" in el or "data_source" in el

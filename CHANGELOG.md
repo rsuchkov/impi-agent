@@ -6,7 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Widgets and forms gained the full control vocabulary of both platforms.** A
+  form field can now be `text`/`textarea`, `number`/`email`/`url`/`tel`,
+  `select`/`multiselect`/`radio`, `bool`, a workspace picker
+  (`user`/`users`/`channel`/`channels`), `date`/`datetime`/`time`, or a static
+  `label` — one neutral vocabulary that Mattermost renders as dialog elements
+  and Slack as Block Kit, up to 15 fields with `help_text` hints. In a message,
+  `ask_user_select` takes `source: users` / `channels` to post a people or
+  channel picker. Picked people and channels come back as `@name (id)` /
+  `~name (id)`, so the agent reads a name and can still pass the id to a tool.
+  Type table and Mattermost version floors: docs/creating-agents.md.
 
 ## v0.4.3 — 2026-08-03
 

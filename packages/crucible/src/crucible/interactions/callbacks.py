@@ -19,6 +19,9 @@ class ActionCallback:
     form_token: str = ""  # set when the click is a "fill in" button that opens a form
     trigger: str = ""  # short-lived token to open a modal (form-open clicks only)
     user_id: str = ""  # who clicked
+    # "user" / "channel" when the widget was a picker — then ``value`` is a
+    # platform id the engine resolves to a name before the agent sees it.
+    pick: str = ""
 
 
 @dataclass(frozen=True)

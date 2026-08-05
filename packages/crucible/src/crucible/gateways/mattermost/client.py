@@ -6,9 +6,14 @@ from typing import Any
 
 from mattermostautodriver import AsyncTypedDriver
 
+from crucible.gateways.mattermost.dialogs import build_dialog
 from crucible.gateways.mattermost.events import PROPS_KEY, post_time
 from crucible.ports.chat.admin import ChannelMember
 from crucible.ports.chat.types import (
+    ACTION_CHANNEL_SELECT,
+    ACTION_SELECT,
+    ACTION_USER_SELECT,
+    PICKER_KINDS,
     Action,
     ConversationRef,
     Form,
@@ -17,6 +22,14 @@ from crucible.ports.chat.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Neutral action kinds that Mattermost draws as a message menu, and what IT calls
+# them: an attachment action is a "button" or a "select", and a select is fed
+# either by our options or by a server-side data source.
+_MENU_KINDS = frozenset({ACTION_SELECT, *PICKER_KINDS})
+_MM_MENU = "select"
+_MM_BUTTON = "button"
+_MM_DATA_SOURCES = {ACTION_USER_SELECT: "users", ACTION_CHANNEL_SELECT: "channels"}
 
 
 def chunk_text(text: str, limit: int) -> list[str]:
@@ -106,6 +119,14 @@ class MattermostChatClient:
             is_bot=bool(user.get("is_bot")),
         )
 
+    async def resolve_channel(self, channel_id: str) -> str:
+        try:
+            channel = await self._driver.channels.get_channel(channel_id)
+        except Exception:
+            logger.warning("get_channel %s failed", channel_id, exc_info=True)
+            return ""
+        return channel.get("display_name") or channel.get("name", "")
+
     async def get_thread_posts(self, ref: ConversationRef) -> list[PostSnippet]:
         root_id = ref.thread_root_id or ref.conversation_id
         try:
@@ -170,22 +191,27 @@ class MattermostChatClient:
         # the picked option to the callback context as "selected_option".
         att_actions = []
         for a in actions:
-            if a.kind == "select":
-                att_actions.append(
-                    {
-                        "id": a.id,
-                        "name": a.label,
-                        "type": "select",
-                        "options": [{"text": o, "value": o} for o in a.options],
-                        "integration": {"url": callback_url, "context": {**a.context}},
-                    }
-                )
+            if a.kind in _MENU_KINDS:
+                menu: dict[str, Any] = {
+                    "id": a.id,
+                    "name": a.label,
+                    "type": _MM_MENU,
+                    "integration": {"url": callback_url, "context": {**a.context}},
+                }
+                # A picker's choices come from the server (people / channels);
+                # a plain select carries its own.
+                source = _MM_DATA_SOURCES.get(a.kind)
+                if source:
+                    menu["data_source"] = source
+                else:
+                    menu["options"] = [{"text": o, "value": o} for o in a.options]
+                att_actions.append(menu)
             else:
                 att_actions.append(
                     {
                         "id": a.id,
                         "name": a.label,
-                        "type": "button",
+                        "type": _MM_BUTTON,
                         **({"style": a.style} if a.style else {}),
                         "integration": {
                             "url": callback_url,
@@ -218,30 +244,19 @@ class MattermostChatClient:
     ) -> None:
         # trigger_id is short-lived (~3s) — this is called synchronously from the
         # click handler. MM posts the submission to submit_url with state echoed.
-        elements: list[dict[str, Any]] = []
-        for f in form.fields:
-            el: dict[str, Any] = {
-                "display_name": f.label,
-                "name": f.name,
-                "type": f.type,
-                "optional": f.optional,
-            }
-            if f.placeholder:
-                el["placeholder"] = f.placeholder
-            if f.type == "select":
-                el["options"] = [{"text": o, "value": o} for o in f.options]
-            elements.append(el)
-        await self._driver.integration_actions.open_interactive_dialog(
-            trigger_id=trigger_id,
-            url=submit_url,
-            dialog={
-                "callback_id": "form",
-                "title": form.title,
-                "submit_label": form.submit_label,
-                "state": state,
-                "elements": elements,
-            },
-        )
+        try:
+            await self._driver.integration_actions.open_interactive_dialog(
+                trigger_id=trigger_id,
+                url=submit_url,
+                dialog=build_dialog(form, state=state),
+            )
+        except Exception as exc:
+            # Name the field types: the usual cause is a server older than the
+            # element needs (multiselect 11.0, date/datetime 11.1).
+            raise RuntimeError(
+                f"Mattermost refused the dialog (field types: "
+                f"{', '.join(sorted({f.type for f in form.fields}))}): {exc}"
+            ) from exc
 
     # -- ChatAdmin port -----------------------------------------------------
 
