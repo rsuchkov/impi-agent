@@ -70,12 +70,14 @@ The installer drops a small CLI into `~/.local/bin/impi`:
 | `impi logs [-f]` | engine logs |
 | `impi start` / `impi stop` | bring the stack up / stop it |
 | `impi restart` | restart the engine — picks up `.env` edits and new agents |
+| `impi reload` | re-read agent profiles in place (skills, tools, prompts) — no restart |
+| `impi skill …` | the shared skill library (see [skills.md](skills.md)) |
 | `impi agent add` | interactive agent creation (bot + profile + `.env`) |
 | `impi agent list` | profiles with token status |
 | `impi login` | pi subscription login inside the container |
 | `impi login --copy-auth [file]` | import `~/.pi/agent/auth.json` from a logged-in machine |
 | `impi update [--yes]` | update to the newest release tag, rebuild, restart |
-| `impi doctor` | quick health checks |
+| `impi doctor` | quick health checks, and the compose overlays it merged |
 | `impi uninstall` | remove containers (volumes only after a second confirmation; `~/.impi` is kept) |
 
 ## Updates and versioning
@@ -87,6 +89,30 @@ with the version and refuses to cut a release with empty notes). `impi update`
 fetches tags, shows the target version's release notes, checks out the newest
 tag, rebuilds the image, and restarts — with a health gate and an offered
 rollback if the new engine does not come up.
+
+## Your own compose overlays
+
+Need something else in the stack — a Cloudflare tunnel, a reverse proxy, an extra
+volume on the engine? Drop a compose file into **`$IMPI_HOME/compose.d/`**:
+
+```bash
+$EDITOR ~/.impi/compose.d/cloudflared.yaml
+impi restart
+```
+
+Every `*.yaml` there is merged after impi's own files, alphabetically, so it can
+add services or override the engine's own. The directory is yours — updates
+never read, rewrite or delete it, and `impi doctor` lists what it found there.
+
+Do **not** edit files under `~/.impi/repo/`: that is a git checkout the updater
+replaces (and `impi update` refuses to run while it has local changes). Likewise,
+the engine's own compose file list is *derived* on every call from
+`IMPI_MM_MODE` + `IMPI_COMPOSE_ROOTLESS` in `compose.env` — that is what lets a
+new release add an overlay without a stored list to regenerate. Older
+installations recorded the derived list in `IMPI_COMPOSE_FILES`; the wrapper
+reads the mode back out of it once, and if you had added files of your own there,
+it prints exactly where to move them. Everything else you put in `compose.env`
+stays: only the keys impi writes are ever rewritten.
 
 Your data survives an update untouched: the SQLite inventory lives in a volume,
 and the engine applies any schema change itself at startup (columns are added,

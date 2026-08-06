@@ -24,14 +24,12 @@ ok()  { printf '✔ %s\n' "$*"; }
 bad() { printf '✘ %s\n' "$*" >&2; }
 die() { bad "$*"; exit 1; }
 
-compose() {
-    local _f _args=""
-    for _f in $IMPI_COMPOSE_FILES; do
-        _args="$_args -f $REPO/$_f"
-    done
-    # shellcheck disable=SC2086
-    $IMPI_COMPOSE_CMD --project-name "${IMPI_PROJECT:-impi}" $_args --env-file "$IMPI_HOME/compose.env" "$@"
-}
+# The engine's compose files, the drop-in directory and compose() itself come
+# from the installed repo — ONE definition, so the wrapper and the installer can
+# never disagree about which files a deployment runs. (die is defined above; the
+# library calls it.)
+# shellcheck source=../lib/compose.sh
+. "$REPO/installer/lib/compose.sh"
 
 env_set() { # KEY VALUE FILE — truncate-in-place (inode survives mounts)
     local key=$1 value=$2 file=$3 tmp="${3}.tmp.$$"
@@ -64,6 +62,53 @@ confirm() { # "Question" default(y|n)
     esac
 }
 
+# The drop-in directory is created on demand (an installation made before it
+# existed has none) and carries the note explaining what it is for.
+ensure_dropin_dir() {
+    mkdir -p "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
+    [ -f "$IMPI_HOME/$COMPOSE_DROPIN_DIR/README.md" ] \
+        || cp "$REPO/installer/dropin-README.md" \
+              "$IMPI_HOME/$COMPOSE_DROPIN_DIR/README.md" 2>/dev/null || true
+}
+
+# Installations made before the mode was recorded stored the DERIVED file list
+# in IMPI_COMPOSE_FILES. Read the mode back out of it once, and — if a human had
+# added files of their own to that list — say where they belong now, because
+# nothing reads that key any more.
+migrate_compose_env() {
+    [ -n "${IMPI_MM_MODE:-}" ] && return 0
+    [ -n "${IMPI_COMPOSE_FILES:-}" ] || return 0
+    IMPI_MM_MODE=$(infer_mode_from_files "$IMPI_COMPOSE_FILES")
+    IMPI_COMPOSE_ROOTLESS=0
+    case " $IMPI_COMPOSE_FILES " in *compose.podman.yaml*) IMPI_COMPOSE_ROOTLESS=1 ;; esac
+    env_set IMPI_MM_MODE "$IMPI_MM_MODE" "$IMPI_HOME/compose.env"
+    env_set IMPI_COMPOSE_ROOTLESS "$IMPI_COMPOSE_ROOTLESS" "$IMPI_HOME/compose.env"
+    ok "compose.env: recorded IMPI_MM_MODE=$IMPI_MM_MODE (the file list is derived now)"
+
+    local _f _from _extra=""
+    for _f in $IMPI_COMPOSE_FILES; do
+        case "$_f" in
+            deploy/compose.yaml|deploy/compose.mattermost.yaml) continue ;;
+            deploy/compose.external-mm.yaml|deploy/compose.podman.yaml) continue ;;
+        esac
+        _extra="$_extra $_f"
+    done
+    [ -n "$_extra" ] || return 0
+    ensure_dropin_dir
+    bad "compose.env: these files are no longer read from IMPI_COMPOSE_FILES:"
+    for _f in $_extra; do printf '    %s\n' "$_f" >&2; done
+    printf '  move them to %s/ — everything *.yaml there is merged automatically:\n' \
+        "$IMPI_HOME/$COMPOSE_DROPIN_DIR" >&2
+    for _f in $_extra; do
+        case "$_f" in
+            /*)   _from=$_f ;;
+            ../*) _from="$IMPI_HOME/${_f#../}" ;;   # entries were repo-relative
+            *)    _from="$REPO/$_f" ;;
+        esac
+        printf '    mv %s %s/\n' "$_from" "$IMPI_HOME/$COMPOSE_DROPIN_DIR" >&2
+    done
+}
+
 usage() {
     cat <<'EOF'
 impi — manage your impi deployment
@@ -78,7 +123,7 @@ impi — manage your impi deployment
   impi login               interactive pi model login inside the container
   impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
   impi update [--yes]      update to the newest release tag and rebuild
-  impi doctor              basic health checks
+  impi doctor              basic health checks (and your compose overlays)
   impi uninstall           stop and remove containers (keeps your data)
   impi version             wrapper / repo version
 EOF
@@ -167,23 +212,10 @@ cmd_update() {
         || die "repo at $REPO has local changes — commit/stash them or reinstall"
     prev=$current
     git -C "$REPO" checkout --quiet "$latest"
-    # Overlays can change between releases — re-derive the file list.
-    COMPOSE_ROOTLESS=0
-    case "$IMPI_COMPOSE_CMD" in
-        podman*) [ "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" = true ] && COMPOSE_ROOTLESS=1 ;;
-    esac
-    mode=external
-    case " $IMPI_COMPOSE_FILES " in
-        *compose.mattermost.yaml*) mode=codeploy ;;
-        *compose.external-mm.yaml*) mode=external ;;
-        *) mode=slack ;;
-    esac
-    files="deploy/compose.yaml"
-    [ "$mode" = codeploy ] && files="$files deploy/compose.mattermost.yaml"
-    [ "$mode" = external ] && files="$files deploy/compose.external-mm.yaml"
-    [ "$COMPOSE_ROOTLESS" = 1 ] && files="$files deploy/compose.podman.yaml"
-    env_set IMPI_COMPOSE_FILES "$files" "$IMPI_HOME/compose.env"
-    IMPI_COMPOSE_FILES=$files
+    # Nothing to rewrite here: the engine's file list is derived from
+    # IMPI_MM_MODE on every call, so overlays added by this release apply at
+    # once — and whatever is in compose.d/ is untouched, because it was never
+    # part of a list anyone regenerates.
     if ! compose build impi || ! compose up -d; then
         bad "update failed"
         if confirm "Roll back to $prev?" y; then
@@ -207,6 +239,7 @@ cmd_update() {
             die "rolled back to $prev"
         fi
     fi
+    ensure_dropin_dir
     cp "$REPO/installer/bin/impi" "$HOME/.local/bin/impi"
     chmod +x "$HOME/.local/bin/impi"
     env_set IMPI_VERSION_INSTALLED "$latest" "$IMPI_HOME/compose.env"
@@ -215,6 +248,14 @@ cmd_update() {
 
 cmd_doctor() {
     compose ps || true
+    # What is layered on top of the engine's own files — the first thing to know
+    # when a deployment behaves unlike a stock one.
+    _dropins=$(ls "$IMPI_HOME/$COMPOSE_DROPIN_DIR"/*.yaml 2>/dev/null || true)
+    if [ -n "$_dropins" ]; then
+        ok "compose overlays: $(printf '%s' "$_dropins" | tr '\n' ' ')"
+    else
+        ok "compose overlays: none ($IMPI_HOME/$COMPOSE_DROPIN_DIR is empty)"
+    fi
     if [ -f "$IMPI_HOME/conf/.env" ]; then
         perms=$(stat -c '%a' "$IMPI_HOME/conf/.env" 2>/dev/null || stat -f '%Lp' "$IMPI_HOME/conf/.env" 2>/dev/null)
         if [ "$perms" = 600 ]; then
@@ -242,6 +283,8 @@ cmd_uninstall() {
     rm -f "$HOME/.local/bin/impi"
     ok "uninstalled. $IMPI_HOME (config, agents, repo) was kept — remove it manually if you are sure."
 }
+
+migrate_compose_env
 
 case "${1:-}" in
     status)    shift; cmd_status "$@" ;;

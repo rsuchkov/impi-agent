@@ -6,7 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Your own compose files now survive `impi update`.** Drop any `*.yaml` into
+  `$IMPI_HOME/compose.d/` — a tunnel, a proxy, an extra volume — and it is
+  merged after impi's own files on every call. Until now the only place to add
+  one was `IMPI_COMPOSE_FILES` in `compose.env`, which the updater regenerates
+  (it has to: a release may add an overlay), so the next update would have
+  dropped it. That key is gone: `compose.env` records the *intent*
+  (`IMPI_MM_MODE`, `IMPI_COMPOSE_ROOTLESS`) and the file list is derived from it,
+  leaving nothing to rewrite. An existing installation is migrated on the next
+  wrapper call, and any file it had added by hand is named with the command to
+  move it. `impi doctor` lists the overlays it merged.
 
 ## v0.6.1 — 2026-08-05
 

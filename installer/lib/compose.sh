@@ -45,9 +45,15 @@ detect_compose() {
     return 0
 }
 
-# derive_compose_files MODE -> space-separated repo-relative file list.
-# MODE: codeploy | external | slack. Re-run on update so overlays added in
-# newer releases activate automatically.
+# Where a deployment keeps ITS OWN compose overlays. Anything *.yaml in here is
+# merged after the engine's files (so it can override them) — and it is never
+# derived, written or read from config, which is what makes it survive updates.
+COMPOSE_DROPIN_DIR="compose.d"
+
+# derive_compose_files MODE -> space-separated repo-relative file list of the
+# ENGINE's own compose files. MODE: codeploy | external | slack. Derived on every
+# call, never stored: a stored list would have to be rewritten whenever a release
+# adds an overlay, taking anything a human added with it.
 derive_compose_files() {
     local files="deploy/compose.yaml"
     case "$1" in
@@ -60,13 +66,40 @@ derive_compose_files() {
     printf '%s\n' "$files"
 }
 
+# infer_mode_from_files FILES -> codeploy | external | slack. Reads the mode back
+# out of a legacy IMPI_COMPOSE_FILES list, for installations made before the mode
+# itself was recorded.
+infer_mode_from_files() {
+    case " $1 " in
+        *compose.mattermost.yaml*) printf 'codeploy\n' ;;
+        *compose.external-mm.yaml*) printf 'external\n' ;;
+        *) printf 'slack\n' ;;
+    esac
+}
+
+# compose_files MODE -> absolute paths, in merge order: the engine's files, then
+# the deployment's own drop-ins (sorted, so the order is predictable).
+compose_files() {
+    local _f _dropin
+    # Whether this deployment needs the rootless overlay: recorded in compose.env
+    # for an installed deployment, detected by detect_compose during install.
+    [ -n "${IMPI_COMPOSE_ROOTLESS:-}" ] && COMPOSE_ROOTLESS=$IMPI_COMPOSE_ROOTLESS
+    for _f in $(derive_compose_files "$1"); do
+        printf '%s\n' "$IMPI_HOME/repo/$_f"
+    done
+    for _dropin in "$IMPI_HOME/$COMPOSE_DROPIN_DIR"/*.yaml; do
+        [ -f "$_dropin" ] && printf '%s\n' "$_dropin"
+    done
+    return 0  # an empty compose.d leaves the glob unmatched; that is fine
+}
+
 # compose ARGS... — run the configured compose against $IMPI_HOME's deployment.
-# Reads IMPI_COMPOSE_CMD / IMPI_COMPOSE_FILES / IMPI_HOME from the environment
-# (main.sh exports them; the wrapper sources compose.env).
+# Reads IMPI_COMPOSE_CMD / IMPI_MM_MODE / IMPI_HOME from the environment (main.sh
+# exports them; the wrapper sources compose.env).
 compose() {
     local _f _args=""
-    for _f in $IMPI_COMPOSE_FILES; do
-        _args="$_args -f $IMPI_HOME/repo/$_f"
+    for _f in $(compose_files "${IMPI_MM_MODE:-slack}"); do
+        _args="$_args -f $_f"
     done
     # shellcheck disable=SC2086  # word splitting is the point here
     $IMPI_COMPOSE_CMD --project-name "${IMPI_PROJECT:-impi}" $_args \

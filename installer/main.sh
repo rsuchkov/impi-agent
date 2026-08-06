@@ -238,10 +238,13 @@ confirm IMPI_CONFIRM "Summon the imp?" y || die "aborted — nothing was written
 title "Installing"
 
 IMPI_COMPOSE_CMD=$COMPOSE_CMD
-IMPI_COMPOSE_FILES=$(derive_compose_files "$IMPI_MM_MODE")
-export IMPI_HOME IMPI_COMPOSE_CMD IMPI_COMPOSE_FILES
+# The compose file list is DERIVED (from the mode + rootless) on every call, not
+# stored: a stored list has to be regenerated whenever a release adds an overlay,
+# and that regeneration is what used to wipe files a human had added.
+export IMPI_HOME IMPI_COMPOSE_CMD IMPI_MM_MODE
 
-mkdir -p "$IMPI_HOME/conf" "$IMPI_AGENTS_DIR" "$IMPI_SKILLS_DIR"
+mkdir -p "$IMPI_HOME/conf" "$IMPI_AGENTS_DIR" "$IMPI_SKILLS_DIR" \
+    "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
 
 COMPOSE_ENV="$IMPI_HOME/compose.env"
 env_set IMPI_HOME "$IMPI_HOME" "$COMPOSE_ENV"
@@ -258,13 +261,16 @@ case "$(uname -s)" in
             env_set IMPI_GID "$(id -g)" "$COMPOSE_ENV" ;;
 esac
 env_set IMPI_COMPOSE_CMD "$COMPOSE_CMD" "$COMPOSE_ENV"
-env_set IMPI_COMPOSE_FILES "$IMPI_COMPOSE_FILES" "$COMPOSE_ENV"
+env_set IMPI_MM_MODE "$IMPI_MM_MODE" "$COMPOSE_ENV"
+env_set IMPI_COMPOSE_ROOTLESS "$COMPOSE_ROOTLESS" "$COMPOSE_ENV"
 env_set IMPI_MM_PORT "${IMPI_MM_PORT:-8065}" "$COMPOSE_ENV"
 env_set IMPI_INTEGRATIONS_PORT "$IMPI_INTEGRATIONS_PORT" "$COMPOSE_ENV"
 env_set IMPI_VERSION_INSTALLED "v$VERSION" "$COMPOSE_ENV"
 if [ "$IMPI_MM_MODE" = codeploy ] && [ -z "$(env_get IMPI_MM_DB_PASSWORD "$COMPOSE_ENV")" ]; then
     env_set IMPI_MM_DB_PASSWORD "$(rand_hex 16)" "$COMPOSE_ENV"
 fi
+[ -f "$IMPI_HOME/$COMPOSE_DROPIN_DIR/README.md" ] \
+    || cp "$INSTALLER_DIR/dropin-README.md" "$IMPI_HOME/$COMPOSE_DROPIN_DIR/README.md"
 ok "compose.env written"
 
 ENV_FILE="$IMPI_HOME/conf/.env"

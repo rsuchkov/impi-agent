@@ -82,3 +82,65 @@ EOF
         done
     done
 }
+
+# --- compose_files: engine files + the deployment's own drop-ins ---------------
+
+setup_home() {
+    IMPI_HOME="$BATS_TEST_TMPDIR/home"
+    mkdir -p "$IMPI_HOME/repo/deploy" "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
+    COMPOSE_ROOTLESS=0
+    unset IMPI_COMPOSE_ROOTLESS
+}
+
+@test "compose_files returns the engine's files as absolute paths" {
+    setup_home
+    run compose_files codeploy
+    [ "${lines[0]}" = "$IMPI_HOME/repo/deploy/compose.yaml" ]
+    [ "${lines[1]}" = "$IMPI_HOME/repo/deploy/compose.mattermost.yaml" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "drop-ins are merged after the engine's files, in alphabetical order" {
+    setup_home
+    : >"$IMPI_HOME/$COMPOSE_DROPIN_DIR/zebra.yaml"
+    : >"$IMPI_HOME/$COMPOSE_DROPIN_DIR/cloudflared.yaml"
+    : >"$IMPI_HOME/$COMPOSE_DROPIN_DIR/notes.txt"   # not a compose file
+    run compose_files slack
+    [ "${lines[0]}" = "$IMPI_HOME/repo/deploy/compose.yaml" ]
+    [ "${lines[1]}" = "$IMPI_HOME/$COMPOSE_DROPIN_DIR/cloudflared.yaml" ]
+    [ "${lines[2]}" = "$IMPI_HOME/$COMPOSE_DROPIN_DIR/zebra.yaml" ]
+    [ "${#lines[@]}" -eq 3 ]
+}
+
+@test "an empty or missing drop-in directory is fine" {
+    setup_home
+    run compose_files slack
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 1 ]
+
+    rmdir "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
+    run compose_files slack
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "rootless recorded in compose.env adds the podman overlay" {
+    setup_home
+    IMPI_COMPOSE_ROOTLESS=1
+    run compose_files slack
+    [ "${lines[1]}" = "$IMPI_HOME/repo/deploy/compose.podman.yaml" ]
+}
+
+# --- reading the mode back out of a legacy list --------------------------------
+
+@test "infer_mode_from_files recognizes each deployment shape" {
+    run infer_mode_from_files "deploy/compose.yaml deploy/compose.mattermost.yaml"
+    [ "$output" = codeploy ]
+    run infer_mode_from_files "deploy/compose.yaml deploy/compose.external-mm.yaml"
+    [ "$output" = external ]
+    run infer_mode_from_files "deploy/compose.yaml"
+    [ "$output" = slack ]
+    # A hand-added file must not change what the mode is read as.
+    run infer_mode_from_files "deploy/compose.yaml deploy/compose.mattermost.yaml ../compose.cloudflared.yaml"
+    [ "$output" = codeploy ]
+}
