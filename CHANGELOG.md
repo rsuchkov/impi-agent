@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.6.2 — 2026-08-06
+
 - **Your own compose files now survive `impi update`.** Drop any `*.yaml` into
   `$IMPI_HOME/compose.d/` — a tunnel, a proxy, an extra volume — and it is
   merged after impi's own files on every call. Until now the only place to add
