@@ -133,6 +133,20 @@ source_modules = ["crucible.profiles"]
 forbidden_modules = ["crucible.runtimes.pi"]
 
 [[tool.importlinter.contracts]]
+name = "Attachment storage is a plain file store — no runtime, gateway or engine machinery"
+type = "forbidden"
+source_modules = ["crucible.attachments"]
+forbidden_modules = [
+    "crucible.runtimes.pi",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.tools",
+    "crucible.interactions",
+    "crucible.store",
+    "crucible.profiles",
+]
+
+[[tool.importlinter.contracts]]
 name = "The skill library is a plain file store — no runtime, chat or engine machinery"
 type = "forbidden"
 source_modules = ["crucible.skills"]

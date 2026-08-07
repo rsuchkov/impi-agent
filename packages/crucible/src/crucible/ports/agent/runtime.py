@@ -10,8 +10,23 @@ runtime: the bot's inventory and the runtime's on-disk sessions must always
 agree on the key.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
+
+
+@dataclass(frozen=True)
+class PromptImage:
+    """An image handed to the runtime as part of a turn's input.
+
+    Images are the one kind of file a model may be able to look at directly, so
+    they travel with the prompt instead of only being named in it. A runtime that
+    can't take them ignores them — the prompt text names every attached file's
+    path either way, so the agent can always fall back to reading the file.
+    """
+
+    data: bytes
+    mime: str
 
 
 @runtime_checkable
@@ -67,6 +82,7 @@ class AgentRuntime(Protocol):
         *,
         on_event: EventCallback | None = None,
         cwd: str | None = None,
+        images: Sequence[PromptImage] = (),
     ) -> AgentResult: ...
 
     async def run_stateless(
@@ -75,6 +91,7 @@ class AgentRuntime(Protocol):
         message: str,
         *,
         on_event: EventCallback | None = None,
+        images: Sequence[PromptImage] = (),
     ) -> AgentResult: ...
 
     def start(self) -> None:

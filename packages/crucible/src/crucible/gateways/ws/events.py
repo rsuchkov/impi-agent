@@ -9,8 +9,10 @@ share a session; replies are routed back by that prefix and the namespace is
 stripped again on the way out.
 """
 
+import base64
 from uuid import uuid4
 
+from crucible.attachments import IncomingFile
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_DM,
@@ -36,14 +38,50 @@ def split_conversation(internal_id: str) -> tuple[str, str]:
 
 def frame_error(data: dict) -> str | None:
     """Why a ``message`` frame is invalid, or None when it is well-formed."""
-    for field in ("agent", "conversation_id", "text"):
+    for field in ("agent", "conversation_id"):
         value = data.get(field)
         if not isinstance(value, str) or not value.strip():
             return f"'{field}' must be a non-empty string"
+    text = data.get("text")
+    if not isinstance(text, str):
+        return "'text' must be a string"
+    files = data.get("files")
+    # A photo with no caption is a message; text is only required without files.
+    if not text.strip() and not files:
+        return "'text' must be a non-empty string unless the frame carries files"
+    if files is not None and not isinstance(files, list):
+        return "'files' must be a list"
+    for file in files or []:
+        if not isinstance(file, dict):
+            return "each entry of 'files' must be an object"
+        if not isinstance(file.get("name"), str) or not file["name"].strip():
+            return "each file needs a non-empty 'name'"
+        if not isinstance(file.get("data"), str):
+            return "each file needs base64 bytes in 'data'"
     kind = data.get("kind")
     if kind is not None and kind not in _KINDS:
         return f"'kind' must be one of {sorted(_KINDS)}"
     return None
+
+
+def frame_files(data: dict) -> list[IncomingFile]:
+    """Decode a frame's inline files. The bytes travel base64-encoded inside the
+    frame — a client service may sit behind NAT with no filesystem in common with
+    the engine, so there is nothing to fetch. Undecodable data raises."""
+    files: list[IncomingFile] = []
+    for file in data.get("files") or []:
+        try:
+            payload = base64.b64decode(file["data"], validate=True)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"file {file.get('name')!r}: 'data' is not valid base64") from exc
+        files.append(
+            IncomingFile(
+                name=str(file["name"]),
+                data=payload,
+                mime=str(file.get("mime") or ""),
+            )
+        )
+    return files
 
 
 def frame_to_incoming(service: str, data: dict) -> IncomingMessage:

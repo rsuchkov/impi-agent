@@ -6,8 +6,20 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
-
+- **Agents receive files and photos.** Attach a screenshot in Mattermost or
+  Slack (or send bytes inline over the ws gateway) and the engine downloads it,
+  keeps it under `DATA_DIR/attachments/<agent>/<conversation>/`, and names it in
+  the agent's prompt with its type, size and absolute path. Pictures also go to
+  the model directly, so an agent with no tools at all can describe one;
+  anything else the agent opens itself with `read`/`bash`. A message that is
+  nothing but a photo is now a message — until now it reached the agent as empty
+  text, and a file-only post vanished from replayed history entirely. Slack needs
+  the `files:read` scope. Only real PNG/JPEG/GIF/WebP bytes are shown to the
+  model — a file that merely claims to be an image travels as a path, because a
+  picture the backend refuses would fail every later turn of that conversation,
+  not just the one it arrived in. Limits and retention are configurable
+  (`ATTACHMENT_MAX_MB`, `ATTACHMENT_RETENTION_DAYS`, `INLINE_IMAGE_MAX_MB`,
+  `ATTACHMENTS_ENABLED`); see [docs/files.md](docs/files.md).
 ## v0.6.2 — 2026-08-06
 
 - **Your own compose files now survive `impi update`.** Drop any `*.yaml` into

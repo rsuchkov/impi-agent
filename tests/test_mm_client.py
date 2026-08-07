@@ -267,6 +267,28 @@ async def test_snippets_carry_the_author_user_id() -> None:
     assert [(s.message_id, s.user_id) for s in snippets] == [("p1", "u-author")]
 
 
+async def test_a_post_with_only_files_is_replayed_as_its_files() -> None:
+    # A shared photo has no message text; dropping it would erase it from history.
+    class WithFiles(_Recorder):
+        def __init__(self):
+            super().__init__()
+            recorder = self
+
+            class Posts:
+                async def get_post_thread(self, root_id):
+                    recorder.calls.append(("get_post_thread", {"root_id": root_id}))
+                    return {"posts": {"p1": {
+                        "id": "p1", "user_id": "u-author", "message": "",
+                        "file_ids": ["f1"], "create_at": 1,
+                        "metadata": {"files": [{"id": "f1", "name": "screen.png"}]},
+                    }}}
+
+            self.posts = Posts()
+
+    snippets = await _client(WithFiles()).get_thread_posts(REF)
+    assert [s.text for s in snippets] == ["[files: screen.png]"]
+
+
 # --- the full field vocabulary -------------------------------------------------
 
 async def test_dialog_renders_every_field_type() -> None:

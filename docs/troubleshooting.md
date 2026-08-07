@@ -110,6 +110,21 @@ locally instead of attempting a post.
 - The whole typed-tool server is off if `TOOL_ENABLED=false`.
 - Skills need `read` + `bash` in `runtime.tools` to run.
 
+## A conversation keeps failing after someone sent a picture
+
+A model backend that refuses an image refuses it **on every later turn too**: the
+runtime session replays its history, so the bad picture is in every request. The
+engine only shows the model files whose bytes really are a PNG/JPEG/GIF/WebP (a
+corrupt or renamed file travels as a path instead), so this should not happen —
+if it does, the log says so and names the way out:
+
+```bash
+uv run python -m crucible.sessions_cli delete <agent>--<conversation>
+```
+
+That forgets the conversation (inventory row + the runtime's memory for it) and
+the next message starts fresh. See [files.md](files.md).
+
 ## Changes to a profile don't take effect
 
 - **Editing** an agent (`agent.yaml`, `SYSTEM.md`, skills) applies with a **reload**:

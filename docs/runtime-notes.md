@@ -88,6 +88,13 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
   via `bash` — so a skill needs `read` + `bash` in the agent's `tools`. `--skill`
   takes a path; the engine also accepts a bare skill name and resolves it to
   `<profile>/.pi/skills/<name>`.
+- **Images ride with the prompt; other files do not.** The RPC `prompt`,
+  `steer` and `follow_up` commands take an optional
+  `images: [{type: "image", data: <base64>, mimeType}]`, which is how a photo
+  someone sent reaches the model. There is no equivalent channel for any other
+  file type (`@file` is an argv feature of the CLI, not of RPC), so the engine
+  saves those to disk and names the path in the prompt text — see
+  [files.md](files.md).
 - **No web-search built-in.** `pi` provides web search as a *skill* (e.g. a
   Brave-search skill that needs an API key), not a typed tool. impi does not ship
   one yet.

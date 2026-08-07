@@ -14,7 +14,7 @@ Conversation-key rule — the thread always wins:
 
 import json
 import logging
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -29,6 +29,52 @@ from crucible.ports.chat.types import (
 logger = logging.getLogger(__name__)
 
 EVENT_POSTED = "posted"
+
+
+@dataclass(frozen=True)
+class FileHandle:
+    """A file Mattermost says is attached to a post — what we need to fetch it.
+    ``name``/``mime``/``size`` are empty when the post carried only ids and the
+    metadata has to be fetched separately."""
+
+    file_id: str
+    name: str = ""
+    mime: str = ""
+    size: int = 0
+
+
+def parse_files(frame: dict[str, Any]) -> tuple[FileHandle, ...]:
+    """Files attached to a ``posted`` frame's post.
+
+    Mattermost normally embeds the details under ``metadata.files``; older
+    servers (and some event paths) carry only ``file_ids``, and those handles
+    come back bare for the caller to fill in."""
+    post = _embedded_json((frame.get("data") or {}).get("post"))
+    if not isinstance(post, dict):
+        return ()
+    metadata = post.get("metadata") or {}
+    described = metadata.get("files") if isinstance(metadata, dict) else None
+    by_id: dict[str, FileHandle] = {}
+    if isinstance(described, list):
+        for info in described:
+            if not isinstance(info, dict) or not info.get("id"):
+                continue
+            by_id[info["id"]] = _handle(info)
+    handles: list[FileHandle] = []
+    for file_id in post.get("file_ids") or by_id:
+        if isinstance(file_id, str) and file_id:
+            handles.append(by_id.get(file_id) or FileHandle(file_id=file_id))
+    return tuple(handles)
+
+
+def _handle(info: dict[str, Any]) -> FileHandle:
+    size = info.get("size")
+    return FileHandle(
+        file_id=info["id"],
+        name=str(info.get("name") or ""),
+        mime=str(info.get("mime_type") or ""),
+        size=size if isinstance(size, int) else 0,
+    )
 
 
 def parse_posted(frame: dict[str, Any], own_user_id: str) -> IncomingMessage | None:

@@ -16,11 +16,14 @@ import json
 import logging
 from collections import deque
 from collections.abc import Mapping
+from dataclasses import replace
 
 from aiohttp import WSMsgType, web
 
+from crucible.attachments import AttachmentStore
 from crucible.gateways.ws.events import (
     frame_error,
+    frame_files,
     frame_to_incoming,
     split_conversation,
 )
@@ -41,10 +44,12 @@ class WsHub:
         services: Mapping[str, tuple[str, tuple[str, ...] | None]],
         *,
         directory: AgentDirectory | None = None,
+        attachments: AttachmentStore | None = None,
     ) -> None:
         # services: name -> (bearer token, agent allowlist or None = all ws agents)
         self._host = host
         self._port = port
+        self._attachments = attachments
         self._by_token: dict[str, tuple[str, tuple[str, ...] | None]] = {
             token: (name, allow) for name, (token, allow) in services.items() if token
         }
@@ -172,8 +177,19 @@ class WsHub:
                 await self._error(ws, f"unknown or not allowed agent {agent!r}")
                 return
             sink, chat = self._agents[agent]
+            try:
+                files = frame_files(data)
+            except ValueError as exc:
+                await self._error(ws, str(exc))
+                return
+            msg = frame_to_incoming(service, data)
+            if files and self._attachments is not None:
+                stored = await self._attachments.save_many(
+                    agent, msg.conversation_id, files
+                )
+                msg = replace(msg, attachments=stored)
             # Fire-and-forget: a long agent turn must never block the socket.
-            sink.submit(frame_to_incoming(service, data), chat)
+            sink.submit(msg, chat)
         else:
             await self._error(ws, f"unsupported frame type {kind!r}")
 

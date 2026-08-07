@@ -14,6 +14,7 @@ Conversation-key rule — the thread always wins (mirrors the Mattermost adapter
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -82,6 +83,41 @@ def event_to_incoming(
         is_from_bot=is_from_bot,
         raw=event,
     )
+
+
+@dataclass(frozen=True)
+class FileHandle:
+    """A file Slack says is attached — what we need to fetch it. The download URL
+    is private: it only answers with the bot token in an Authorization header."""
+
+    file_id: str
+    name: str
+    url: str
+    mime: str = ""
+    size: int = 0
+
+
+def parse_files(event: dict[str, Any]) -> tuple[FileHandle, ...]:
+    """Files attached to a ``message`` event (subtype ``file_share``). A file
+    without a private download URL is skipped — that is what the bot can fetch."""
+    handles: list[FileHandle] = []
+    for info in event.get("files") or []:
+        if not isinstance(info, dict):
+            continue
+        url = str(info.get("url_private_download") or info.get("url_private") or "")
+        if not url:
+            continue
+        size = info.get("size")
+        handles.append(
+            FileHandle(
+                file_id=str(info.get("id") or ""),
+                name=str(info.get("name") or info.get("title") or "file"),
+                url=url,
+                mime=str(info.get("mimetype") or ""),
+                size=size if isinstance(size, int) else 0,
+            )
+        )
+    return tuple(handles)
 
 
 def should_respond(msg: IncomingMessage) -> bool:

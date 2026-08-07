@@ -16,6 +16,9 @@ people. Keep them accurate to the code.
 - **[skills.md](skills.md)** — the shared skill library: installing from a
   directory or a repository, giving skills to agents, `/skills`, and what
   carries over from other tools' skill formats.
+- **[files.md](files.md)** — files and photos: what happens to an attachment on
+  its way to the agent, where files are kept, the per-platform requirements, and
+  the size/retention limits.
 - **[commands.md](commands.md)** — slash commands and message shortcuts: how a
   command becomes an ordinary turn, per-platform setup (Mattermost / Slack), and
   the pattern for private, deterministic results (a handler beside the agent).

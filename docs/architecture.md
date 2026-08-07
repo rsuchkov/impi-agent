@@ -48,7 +48,8 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `MessageSink` /
   `Flow` (inbound entry point), `AgentDirectory` (who our agents are), and `types`
-  (the neutral vocabulary: `ConversationRef`, `IncomingMessage`, `Action`, `Form`, …).
+  (the neutral vocabulary: `ConversationRef`, `IncomingMessage`, `Attachment`,
+  `Action`, `Form`, …).
 
 ## The `pi` runtime driver
 
@@ -171,6 +172,15 @@ next turn) → `AgentFlow.handle_batch` dedups, gets/creates the session, render
 prompt (with replayed history, below), and calls
 `AgentRuntime.run_stateful` → the `pi` subprocess runs the turn → `AgentFlow` posts
 the reply.
+
+**Attachments.** Files travel with the message: the gateway downloads whatever
+was attached (only for messages it decided to answer), saves it under
+`DATA_DIR/attachments/<agent>/<conversation>/` through the `AttachmentStore` —
+a plain file store, like the skill library — and hands the flow an
+`IncomingMessage` carrying local paths. `AgentFlow` names every file in the
+prompt and passes pictures to `run_stateful(..., images=…)`, the runtime port's
+one non-text input. Everything else is a path the agent reads with its own
+tools. See [files.md](files.md).
 
 **Replayed history.** The conversation itself lives in the runtime session, so a
 prompt normally carries only the new messages plus sender identity. Two cases add

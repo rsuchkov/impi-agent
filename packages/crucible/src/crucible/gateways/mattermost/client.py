@@ -53,6 +53,21 @@ def chunk_text(text: str, limit: int) -> list[str]:
     return chunks
 
 
+def _snippet_text(post: dict) -> str:
+    """A replayed post's text; a file-only post is described by its files, which
+    the post metadata names (the bytes are not fetched for history)."""
+    message = post.get("message") or ""
+    if message:
+        return message
+    files = (post.get("metadata") or {}).get("files")
+    names = [
+        str(info.get("name") or "")
+        for info in files or []
+        if isinstance(info, dict) and info.get("name")
+    ]
+    return f"[files: {', '.join(names)}]" if names else "[shared a file]"
+
+
 class MattermostChatClient:
     """Posts as the agent's own bot account (markdown is native in MM)."""
 
@@ -148,18 +163,23 @@ class MattermostChatClient:
         return await self._to_snippets(data)
 
     async def _to_snippets(self, data: dict) -> list[PostSnippet]:
-        """Posts payload ({order, posts}) -> chronological snippets, no system posts."""
+        """Posts payload ({order, posts}) -> chronological snippets, no system posts.
+
+        A post with files but no text is still a message someone sent (a shared
+        photo), so it is replayed as a line naming the files rather than dropped."""
         posts = [
             post
             for post in (data.get("posts") or {}).values()
-            if isinstance(post, dict) and not post.get("type") and post.get("message")
+            if isinstance(post, dict)
+            and not post.get("type")
+            and (post.get("message") or post.get("file_ids"))
         ]
         posts.sort(key=lambda post: post.get("create_at", 0))
         return [
             PostSnippet(
                 message_id=post.get("id", ""),
                 username=await self._username(post.get("user_id", "")),
-                text=post["message"],
+                text=_snippet_text(post),
                 timestamp=post_time(post),
                 user_id=post.get("user_id", ""),
             )

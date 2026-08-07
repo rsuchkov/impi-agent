@@ -1,7 +1,12 @@
 """Pure frame normalization for the ws gateway."""
 
+import base64
+
+import pytest
+
 from crucible.gateways.ws.events import (
     frame_error,
+    frame_files,
     frame_to_incoming,
     internal_conversation,
     split_conversation,
@@ -57,3 +62,37 @@ def test_frame_error_names_the_broken_field() -> None:
     assert "kind" in str(frame_error(
         {"agent": "a", "conversation_id": "c", "text": "t", "kind": "carrier-pigeon"}
     ))
+
+
+def _file_frame(**over) -> dict:
+    frame = {
+        "agent": "a", "conversation_id": "c", "text": "",
+        "files": [{"name": "photo.jpg", "mime": "image/jpeg",
+                   "data": base64.b64encode(b"JPEGDATA").decode()}],
+    }
+    frame.update(over)
+    return frame
+
+
+def test_a_file_without_a_caption_is_a_valid_frame() -> None:
+    assert frame_error(_file_frame()) is None
+    # ...but nothing at all still isn't.
+    assert "text" in str(frame_error({"agent": "a", "conversation_id": "c", "text": ""}))
+
+
+def test_files_are_decoded_from_base64() -> None:
+    (file,) = frame_files(_file_frame())
+
+    assert (file.name, file.mime, file.data) == ("photo.jpg", "image/jpeg", b"JPEGDATA")
+    assert file.key == ""  # a service has no platform file id to dedupe on
+
+
+def test_a_malformed_file_entry_is_named_by_the_validator() -> None:
+    assert "files" in str(frame_error(_file_frame(files="nope")))
+    assert "name" in str(frame_error(_file_frame(files=[{"data": "eA=="}])))
+    assert "data" in str(frame_error(_file_frame(files=[{"name": "a.png"}])))
+
+
+def test_undecodable_bytes_raise_rather_than_reaching_an_agent() -> None:
+    with pytest.raises(ValueError, match="base64"):
+        frame_files(_file_frame(files=[{"name": "a.png", "data": "not base64!"}]))

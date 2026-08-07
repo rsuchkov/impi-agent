@@ -5,9 +5,12 @@ runtime or the platform never touches this file. Batch-native so the coalescer
 can merge messages that arrived during a long turn into a single turn/reply.
 """
 
+import asyncio
 import logging
 from datetime import datetime
+from pathlib import Path
 
+from crucible.attachments import sniff_image
 from crucible.ports.agent import (
     INTERNAL_ERROR_MESSAGE,
     LLM_FALLBACK_MESSAGE,
@@ -15,11 +18,13 @@ from crucible.ports.agent import (
     AgentProfile,
     AgentRuntime,
     AgentTimeout,
+    PromptImage,
 )
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_THREAD,
+    Attachment,
     IncomingMessage,
     PostSnippet,
 )
@@ -36,12 +41,41 @@ _FIRST_TURN_HEADER = "[context: earlier conversation]"
 # addressed (in a channel it only runs when mentioned, so those messages never
 # reached it as a turn).
 _CATCH_UP_HEADER = "[context: posted since your last reply]"
+# Attached files are named in the prompt, always: even when a picture also
+# travels to the runtime as an image, the agent needs the path to work with it.
+_ATTACHMENT_MARKER = "[attached]"
+# Defaults for showing pictures to the runtime. The size cap is per image and
+# deliberately modest — model backends reject large inline images, and an
+# oversized one is still reachable by path.
+DEFAULT_INLINE_IMAGE_MAX_BYTES = 4 * 1024 * 1024
+DEFAULT_MAX_INLINE_IMAGES = 4
+# How a model backend's complaint about a picture reads, roughly: enough to tell
+# a poisoned conversation apart from an ordinary failed turn.
+_IMAGE_ERROR_WORDS = ("image", "picture")
 
 
 def _format_time(dt: datetime) -> str:
     """Render a message time for the prompt envelope. UTC keeps it unambiguous; the
     newest message is ~now, so the agent can reason about when things were said."""
     return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _format_size(size: int) -> str:
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    if size >= 1024:
+        return f"{size / 1024:.0f} KB"
+    return f"{size} B"
+
+
+def _attachment_line(attachment: Attachment) -> str:
+    """One attached file, as the agent sees it: name, type, size, and the path it
+    can read."""
+    kind = attachment.mime or "unknown type"
+    return (
+        f"{_ATTACHMENT_MARKER} {attachment.name} — {kind}, "
+        f"{_format_size(attachment.size)} — {attachment.path}"
+    )
 
 
 def _parse_iso(value: str) -> datetime | None:
@@ -59,12 +93,16 @@ class AgentFlow:
         sessions: SessionStore,
         *,
         agent_name: str,
+        inline_image_max_bytes: int = DEFAULT_INLINE_IMAGE_MAX_BYTES,
+        max_inline_images: int = DEFAULT_MAX_INLINE_IMAGES,
     ) -> None:
         self._runtime = runtime
         self._profile = profile
         self._sessions = sessions
         self._agent_name = agent_name
         self._own_user_id = ""
+        self._inline_image_max_bytes = inline_image_max_bytes
+        self._max_inline_images = max_inline_images
 
     def set_identity(self, user_id: str) -> None:
         """This agent's own platform user id, learned at gateway login. Used to
@@ -105,18 +143,20 @@ class AgentFlow:
         # cursor for "what was said while we weren't addressed".
         since = None if created else _parse_iso(record.last_active)
         prompt = await self._render_prompt(fresh, chat, first_turn=created, since=since)
+        images = await self._inline_images(fresh)
 
         await chat.add_reaction(anchor.ref, LOADING_REACTION)
         try:
             result = await self._runtime.run_stateful(
-                self._profile, record.runtime_session_id, prompt
+                self._profile, record.runtime_session_id, prompt, images=images
             )
         except AgentTimeout:
             logger.warning("agent turn timed out for %s", record.runtime_session_id)
             await chat.post_notice(anchor.ref, LLM_FALLBACK_MESSAGE)
             return
-        except AgentError:
+        except AgentError as exc:
             logger.exception("agent run failed for %s", record.runtime_session_id)
+            self._warn_if_picture_rejected(exc, record.runtime_session_id)
             await chat.post_notice(anchor.ref, INTERNAL_ERROR_MESSAGE)
             return
         finally:
@@ -165,8 +205,63 @@ class AgentFlow:
         for m in msgs:
             author = f"@{m.username}" if m.username else m.user_id
             when = f" · {_format_time(m.timestamp)}" if m.timestamp else ""
-            parts.append(f"[{author}{when}]: {m.text}")
+            lines = [f"[{author}{when}]: {m.text}"]
+            lines += [_attachment_line(a) for a in m.attachments]
+            parts.append("\n".join(lines))
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _warn_if_picture_rejected(error: Exception, runtime_session_id: str) -> None:
+        """A picture the model backend refuses is not a one-turn problem: the
+        session replays its history, so the same request fails from then on. The
+        engine only shows pictures it has verified, so reaching this means the
+        backend refused one it accepts the format of (an enormous one, say) —
+        say so plainly, with the way out."""
+        if not any(word in str(error).lower() for word in _IMAGE_ERROR_WORDS):
+            return
+        logger.error(
+            "the model backend refused a picture in session %s. Its history "
+            "replays on every turn, so this conversation will keep failing until "
+            "it is reset: `python -m crucible.sessions_cli delete %s`",
+            runtime_session_id, runtime_session_id,
+        )
+
+    async def _inline_images(self, msgs: list[IncomingMessage]) -> list[PromptImage]:
+        """Pictures from this batch, for runtimes that can look at them.
+
+        Newest first and capped in count and size: a model backend rejects large
+        inline images, and everything attached is named by path in the prompt
+        anyway, so leaving one out costs the agent nothing but a read."""
+        images: list[PromptImage] = []
+        for msg in reversed(msgs):
+            for attachment in msg.attachments:
+                if len(images) >= self._max_inline_images:
+                    return images
+                if not attachment.is_image:
+                    continue
+                if attachment.size > self._inline_image_max_bytes:
+                    logger.info(
+                        "not showing %s inline (%d bytes); the path is in the prompt",
+                        attachment.name, attachment.size,
+                    )
+                    continue
+                try:
+                    data = await asyncio.to_thread(Path(attachment.path).read_bytes)
+                except OSError as exc:
+                    logger.warning("could not read attachment %s: %s", attachment.path, exc)
+                    continue
+                # Trust the bytes, not the label: a file that only claims to be a
+                # picture would be rejected by the model backend on this turn AND
+                # on every later one, since the session replays its history.
+                actual = sniff_image(data)
+                if not actual:
+                    logger.warning(
+                        "%s is not a picture the runtime can read despite its %s type; "
+                        "the path is in the prompt", attachment.name, attachment.mime,
+                    )
+                    continue
+                images.append(PromptImage(data=data, mime=actual))
+        return images
 
     async def _backfill_snippets(
         self, msg: IncomingMessage, chat: ChatClient

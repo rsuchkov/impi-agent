@@ -10,6 +10,7 @@ from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_DM,
     KIND_THREAD,
+    Attachment,
     ConversationRef,
     IncomingMessage,
     PostSnippet,
@@ -25,17 +26,21 @@ class FakeRuntime:
     def __init__(self, *, result: PiResult | None = None, error: Exception | None = None) -> None:
         self.calls: list[tuple[str, str]] = []  # (session_id, prompt)
         self.profiles: list[object] = []  # profile used per turn
+        self.images: list[tuple[bytes, str]] = []  # what the last turn was shown
         self._result = result or PiResult(text="agent answer")
         self._error = error
 
-    async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None):
+    async def run_stateful(
+        self, profile, session_id, message, *, on_event=None, cwd=None, images=()
+    ):
         self.calls.append((session_id, message))
         self.profiles.append(profile)
+        self.images = [(image.data, image.mime) for image in images]
         if self._error is not None:
             raise self._error
         return self._result
 
-    async def run_stateless(self, profile, message, *, on_event=None):
+    async def run_stateless(self, profile, message, *, on_event=None, images=()):
         raise AssertionError("stage-1 flow must be stateful")
 
     def start(self) -> None:
@@ -451,4 +456,159 @@ async def test_command_turn_replies_like_any_other_message(tmp_path: Path) -> No
     assert [(ref.conversation_id, text) for ref, text in chat.replies] == [
         ("root1", "here is the summary")
     ]
+    await store.close()
+
+
+# -- attachments -------------------------------------------------------------
+
+
+def _with_files(tmp_path: Path, *files: tuple[str, str, bytes]) -> IncomingMessage:
+    """A DM carrying files already on disk (as a gateway leaves them)."""
+    attachments = []
+    for name, mime, data in files:
+        path = tmp_path / name
+        path.write_bytes(data)
+        attachments.append(
+            Attachment(name=name, path=str(path), mime=mime, size=len(data))
+        )
+    msg = _dm("look at this")
+    msg.attachments = tuple(attachments)
+    return msg
+
+
+async def test_attachments_are_named_in_the_prompt_with_their_path(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    msg = _with_files(tmp_path, ("report.pdf", "application/pdf", b"x" * 2048))
+
+    await flow.handle(msg, chat := FakeChat())
+
+    _, prompt = runtime.calls[0]
+    assert prompt.startswith("[@roman]: look at this\n[attached] report.pdf — ")
+    assert "application/pdf, 2 KB" in prompt
+    assert str(tmp_path / "report.pdf") in prompt
+    assert chat.replies  # the turn ran as usual
+    await store.close()
+
+
+async def test_images_are_shown_to_the_runtime_but_documents_are_not(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    jpeg = b"\xff\xd8\xff" + b"body"
+    msg = _with_files(
+        tmp_path,
+        ("photo.jpg", "image/jpeg", jpeg),
+        ("notes.txt", "text/plain", b"hello"),
+    )
+
+    await flow.handle(msg, FakeChat())
+
+    assert runtime.images == [(jpeg, "image/jpeg")]
+    _, prompt = runtime.calls[0]
+    assert "notes.txt" in prompt  # still named, just not shown
+    await store.close()
+
+
+async def test_an_oversized_image_travels_as_a_path_only(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(
+        runtime, PROFILE, store, agent_name="assistant", inline_image_max_bytes=8
+    )
+    msg = _with_files(tmp_path, ("huge.png", "image/png", b"x" * 9))
+
+    await flow.handle(msg, FakeChat())
+
+    assert runtime.images == []
+    assert "huge.png" in runtime.calls[0][1]
+    await store.close()
+
+
+async def test_no_more_than_the_cap_of_images_is_shown(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", max_inline_images=2)
+    png = b"\x89PNG\r\n\x1a\n"
+    msg = _with_files(
+        tmp_path,
+        ("a.png", "image/png", png + b"A"),
+        ("b.png", "image/png", png + b"B"),
+        ("c.png", "image/png", png + b"C"),
+    )
+
+    await flow.handle(msg, FakeChat())
+
+    assert len(runtime.images) == 2
+    assert "c.png" in runtime.calls[0][1]  # the one left out is still in the prompt
+    await store.close()
+
+
+async def test_a_vanished_file_does_not_break_the_turn(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    msg = _dm("look")
+    msg.attachments = (
+        Attachment(name="gone.png", path=str(tmp_path / "gone.png"), mime="image/png", size=3),
+    )
+
+    await flow.handle(msg, chat := FakeChat())
+
+    assert runtime.images == []
+    assert chat.replies
+    await store.close()
+
+
+async def test_a_file_that_only_claims_to_be_a_picture_is_not_shown(tmp_path: Path) -> None:
+    # The session replays its history, so one picture the backend rejects would
+    # keep failing the conversation — the bytes decide, not the media type.
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    msg = _with_files(tmp_path, ("broken.png", "image/png", b"not really a png"))
+
+    await flow.handle(msg, chat := FakeChat())
+
+    assert runtime.images == []
+    assert "broken.png" in runtime.calls[0][1]  # still named, still readable
+    assert chat.replies
+    await store.close()
+
+
+async def test_the_sniffed_type_wins_over_the_declared_one(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    png = b"\x89PNG\r\n\x1a\n" + b"body"
+    msg = _with_files(tmp_path, ("photo.jpg", "image/jpeg", png))
+
+    await flow.handle(msg, FakeChat())
+
+    assert runtime.images == [(png, "image/png")]
+    await store.close()
+
+
+async def test_a_backend_refusing_a_picture_says_how_to_recover(
+    tmp_path: Path, caplog
+) -> None:
+    # The session replays its history, so this failure repeats forever; the log
+    # must name the way out instead of only recording the stack trace.
+    flow, store = _flow(
+        tmp_path,
+        FakeRuntime(error=PiProcessError("pi LLM error: The image data you provided is invalid")),
+    )
+
+    with caplog.at_level("ERROR"):
+        await flow.handle(_dm(), FakeChat())
+
+    assert "sessions_cli delete assistant--dm1" in caplog.text
+    await store.close()
+
+
+async def test_an_ordinary_failure_is_not_dressed_up_as_a_picture_problem(
+    tmp_path: Path, caplog
+) -> None:
+    flow, store = _flow(tmp_path, FakeRuntime(error=PiProcessError("connection reset")))
+
+    with caplog.at_level("ERROR"):
+        await flow.handle(_dm(), FakeChat())
+
+    assert "sessions_cli" not in caplog.text
     await store.close()

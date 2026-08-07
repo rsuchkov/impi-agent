@@ -10,11 +10,14 @@ Events (agent_start, message_update, tool_execution_*, agent_end, ...) stream
 asynchronously without an ``id``.
 """
 
+import base64
 import json
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from crucible.ports.agent.runtime import PromptImage
 from crucible.runtimes.pi.errors import PiProtocolError
 
 # --- Command types (bot -> pi, written to stdin) ---------------------------
@@ -55,12 +58,42 @@ def _encode(command: dict[str, Any]) -> str:
     return json.dumps(command, ensure_ascii=False) + "\n"
 
 
-def encode_prompt(message: str, *, command_id: str) -> str:
-    return _encode({"id": command_id, "type": CMD_PROMPT, "message": message})
+def _images_field(images: Sequence[PromptImage]) -> list[dict[str, str]]:
+    """Neutral prompt images -> pi's ImageContent blocks (base64 payload).
+
+    pi accepts `images` on prompt/steer/follow_up; there is no channel for any
+    other kind of file, which is why non-images are named by path in the message
+    text instead."""
+    return [
+        {
+            "type": "image",
+            "data": base64.b64encode(image.data).decode("ascii"),
+            "mimeType": image.mime,
+        }
+        for image in images
+    ]
 
 
-def encode_follow_up(message: str, *, command_id: str) -> str:
-    return _encode({"id": command_id, "type": CMD_FOLLOW_UP, "message": message})
+def encode_prompt(
+    message: str, *, command_id: str, images: Sequence[PromptImage] = ()
+) -> str:
+    command: dict[str, Any] = {"id": command_id, "type": CMD_PROMPT, "message": message}
+    if images:
+        command["images"] = _images_field(images)
+    return _encode(command)
+
+
+def encode_follow_up(
+    message: str, *, command_id: str, images: Sequence[PromptImage] = ()
+) -> str:
+    command: dict[str, Any] = {
+        "id": command_id,
+        "type": CMD_FOLLOW_UP,
+        "message": message,
+    }
+    if images:
+        command["images"] = _images_field(images)
+    return _encode(command)
 
 
 def encode_abort(*, command_id: str) -> str:

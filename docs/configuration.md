@@ -113,6 +113,18 @@ An agent is present only if its token is set; a tokenless profile is skipped.
 | `DB_PATH` | `""` | SQLite path; default `{DATA_DIR}/impi.db` |
 | `DOTENV_PATH` | `.env` | where the `.env` file itself lives — containers mount the config directory and point this at `/app/conf/.env` |
 
+## Files and photos
+
+See [files.md](files.md) for what an agent gets and what each platform needs.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ATTACHMENTS_ENABLED` | `true` | master switch: off = attachments are ignored |
+| `ATTACHMENTS_DIR` | `""` | where attachments land; default `{DATA_DIR}/attachments` |
+| `ATTACHMENT_MAX_MB` | `20` | per-file cap; a bigger file is skipped, the message still arrives |
+| `ATTACHMENT_RETENTION_DAYS` | `14` | delete attachments older than this; `0` = keep forever |
+| `INLINE_IMAGE_MAX_MB` | `4` | above this a picture is not shown to the model, only named by path |
+
 ## pi runtime
 
 | Variable | Default | Purpose |

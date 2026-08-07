@@ -12,11 +12,15 @@ an explicit mention is required and replies go to threads.
 import json
 import logging
 import time
+from dataclasses import replace
 
 from mattermostautodriver import AsyncTypedDriver
 
+from crucible.attachments import AttachmentStore, IncomingFile
 from crucible.gateways.mattermost.events import (
+    FileHandle,
     is_top_level,
+    parse_files,
     parse_posted,
     should_respond,
     to_channel_session,
@@ -40,16 +44,20 @@ class MattermostGateway:
         sink: MessageSink,
         chat: ChatClient,
         *,
+        agent: str = "",
         directory: AgentDirectory | None = None,
         loop_guard: LoopGuard | None = None,
         reply_to_agents: bool = True,
+        attachments: AttachmentStore | None = None,
     ) -> None:
         self._driver = driver
         self._sink = sink  # coalescer, wired in the composition root
         self._chat = chat
+        self._agent = agent  # whose attachment directory incoming files land in
         self._directory = directory
         self._loop_guard = loop_guard
         self._reply_to_agents = reply_to_agents
+        self._attachments = attachments
         self._own_user_id = ""
         # channel_id -> (expires_monotonic, member user ids)
         self._members_cache: dict[str, tuple[float, frozenset[str]]] = {}
@@ -89,11 +97,55 @@ class MattermostGateway:
             decided = await self._decide(msg)
             if decided is None:
                 return
+            decided = await self._with_attachments(decided)
             # Hand to the sink (fire-and-forget): a long turn must not block the
             # WS loop, and a burst on one conversation folds into one turn.
             self._sink.submit(decided, self._chat)
         except Exception:
             logger.exception("failed to handle WS frame")
+
+    async def _with_attachments(self, msg: IncomingMessage) -> IncomingMessage:
+        """Download whatever the sender attached, so the message carries local
+        paths. Only for messages we are actually going to answer — a download is
+        wasted work on a post that was filtered out."""
+        if self._attachments is None:
+            return msg
+        handles = parse_files(msg.raw)
+        if not handles:
+            return msg
+        fetched: list[IncomingFile] = []
+        for handle in handles:
+            file = await self._fetch(handle)
+            if file is not None:
+                fetched.append(file)
+        stored = await self._attachments.save_many(
+            self._agent, msg.conversation_id, fetched
+        )
+        return replace(msg, attachments=stored) if stored else msg
+
+    async def _fetch(self, handle: FileHandle) -> IncomingFile | None:
+        """One attached file's bytes + description, or None (logged) if either
+        call fails — a broken attachment must not cost the user their message."""
+        name, mime = handle.name, handle.mime
+        try:
+            if not name:
+                info = await self._driver.files.get_file_info(handle.file_id)
+                if isinstance(info, dict):
+                    name = str(info.get("name") or handle.file_id)
+                    mime = mime or str(info.get("mime_type") or "")
+            response = await self._driver.files.get_file(handle.file_id)
+        except Exception:
+            logger.warning("could not download file %s", handle.file_id, exc_info=True)
+            return None
+        # A file endpoint answers with raw bytes; a dict here means Mattermost
+        # returned JSON instead — an error, not the file.
+        data = getattr(response, "content", None)
+        if not isinstance(data, bytes):
+            logger.warning("unexpected response for file %s", handle.file_id)
+            return None
+        return IncomingFile(
+            name=name or handle.file_id, data=data, mime=mime, key=handle.file_id
+        )
 
     async def _decide(self, msg: IncomingMessage) -> IncomingMessage | None:
         """Respond-or-not (+ channel-session rewrite for resident channels).

@@ -1,9 +1,12 @@
 """WsHub over real websockets on a local port (offline, aiohttp client)."""
 
 import asyncio
+import base64
+from pathlib import Path
 
 import aiohttp
 
+from crucible.attachments import AttachmentStore
 from crucible.gateways.ws.client import WsChatClient
 from crucible.gateways.ws.hub import WsHub
 from crucible.ports.chat.directory import AgentInfo
@@ -211,6 +214,58 @@ async def test_garbage_and_unknown_frames_answer_error_but_keep_the_socket() -> 
                 "conversation_id": "c", "text": "ok",
             })
             await _wait_until(lambda: sink.submitted)
+            await ws.close()
+    finally:
+        await hub.stop()
+
+
+async def test_inline_files_are_stored_and_travel_with_the_message(tmp_path) -> None:
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    hub = WsHub(
+        "127.0.0.1", 8478, {"probe": ("tok", None)},
+        directory=FakeDirectory(), attachments=store,
+    )
+    sink = FakeSink()
+    hub.register_agent("helper", sink, WsChatClient(hub, "helper"))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            ws = await _connect(session, 8478, "tok")
+            await ws.send_json({
+                "type": "message", "agent": "helper", "conversation_id": "user-1",
+                "text": "",
+                "files": [{"name": "photo.jpg", "mime": "image/jpeg",
+                           "data": base64.b64encode(b"JPEGDATA").decode()}],
+            })
+            await _wait_until(lambda: sink.submitted)
+            msg, _ = sink.submitted[0]
+            (attachment,) = msg.attachments
+            assert attachment.mime == "image/jpeg"
+            assert Path(attachment.path).read_bytes() == b"JPEGDATA"
+            await ws.close()
+    finally:
+        await hub.stop()
+
+
+async def test_undecodable_file_answers_error_and_never_reaches_the_agent(tmp_path) -> None:
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    hub = WsHub(
+        "127.0.0.1", 8479, {"probe": ("tok", None)},
+        directory=FakeDirectory(), attachments=store,
+    )
+    sink = FakeSink()
+    hub.register_agent("helper", sink, WsChatClient(hub, "helper"))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            ws = await _connect(session, 8479, "tok")
+            await ws.send_json({
+                "type": "message", "agent": "helper", "conversation_id": "user-1",
+                "text": "look", "files": [{"name": "a.png", "data": "not base64!"}],
+            })
+            frame = await ws.receive_json(timeout=2)
+            assert frame["type"] == "error" and "base64" in frame["detail"]
+            assert sink.submitted == []
             await ws.close()
     finally:
         await hub.stop()

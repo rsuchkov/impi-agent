@@ -12,6 +12,7 @@ from crucible.ports.agent.runtime import (
     AgentResult,
     AgentRuntime,
     EventCallback,
+    PromptImage,
 )
 from crucible.ports.agent.spec import AgentSpec
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
@@ -27,6 +28,7 @@ __all__ = [
     "EventCallback",
     "LLM_FALLBACK_MESSAGE",
     "INTERNAL_ERROR_MESSAGE",
+    "PromptImage",
     "UiBridge",
     "UiRequest",
     "UiOutcome",

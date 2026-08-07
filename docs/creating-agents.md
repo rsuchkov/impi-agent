@@ -74,6 +74,9 @@ no tools at all**. Two rules to remember:
   lives elsewhere (a mounted repo, a docs folder), give the agent the **absolute
   path** in its SYSTEM.md, or wrap access in your own typed tool with a pinned
   root. See [runtime-notes.md](runtime-notes.md).
+- **An agent that receives files needs `read` (and usually `bash`)**: a picture
+  is shown to the model on its own, but a PDF or an archive arrives as an
+  absolute path it has to open itself. See [files.md](files.md).
 
 ## Asking with controls (widgets and forms)
 

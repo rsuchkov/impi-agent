@@ -18,11 +18,11 @@ import asyncio
 import logging
 import os
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from crucible.ports.agent.runtime import AgentProfile
+from crucible.ports.agent.runtime import AgentProfile, PromptImage
 from crucible.ports.agent.ui import UiBridge
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
@@ -104,6 +104,7 @@ class PiRuntime:
         *,
         on_event: EventCallback | None = None,
         cwd: str | None = None,
+        images: Sequence[PromptImage] = (),
     ) -> PiResult:
         pi_profile = _require_pi_profile(profile)
         lock = self._locks.setdefault(session_id, asyncio.Lock())
@@ -123,7 +124,9 @@ class PiRuntime:
                 # conversation. (pi's `follow_up` only queues a message while
                 # the agent is running; sent to an idle agent it never starts a
                 # turn and hangs until timeout.)
-                result = await managed.session.prompt(message, timeout=pi_profile.timeout)
+                result = await managed.session.prompt(
+                    message, timeout=pi_profile.timeout, images=images
+                )
             except (PiTimeout, PiProcessError):
                 # A dead/stuck/poisoned session can't be reused; drop it so the
                 # next message spawns a fresh one (pi-side memory for this
@@ -149,13 +152,16 @@ class PiRuntime:
         message: str,
         *,
         on_event: EventCallback | None = None,
+        images: Sequence[PromptImage] = (),
     ) -> PiResult:
         pi_profile = _require_pi_profile(profile)
         session = await self._create_session(
             pi_profile, session_id=None, on_event=on_event, cwd=None
         )
         try:
-            return await session.prompt(message, timeout=pi_profile.timeout)
+            return await session.prompt(
+                message, timeout=pi_profile.timeout, images=images
+            )
         finally:
             await self._close_session(session)
 

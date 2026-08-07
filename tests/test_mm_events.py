@@ -1,6 +1,11 @@
 import json
 
-from crucible.gateways.mattermost.events import PROPS_KEY, parse_posted, should_respond
+from crucible.gateways.mattermost.events import (
+    PROPS_KEY,
+    parse_files,
+    parse_posted,
+    should_respond,
+)
 from crucible.ports.chat.types import KIND_DM, KIND_THREAD
 
 ME = "botuserid0000000000000000"
@@ -162,3 +167,41 @@ def test_hop_depth_defaults_to_zero() -> None:
     msg = parse_posted(_frame(), ME)
     assert msg is not None
     assert msg.hop_depth == 0
+
+
+def _files_frame(*, metadata: list[dict] | None, file_ids: list[str], message: str = "") -> dict:
+    """A posted frame whose post carries files (metadata=None: ids only)."""
+    frame = _frame(message=message)
+    post = json.loads(frame["data"]["post"])
+    post["file_ids"] = file_ids
+    if metadata is not None:
+        post["metadata"] = {"files": metadata}
+    frame["data"]["post"] = json.dumps(post)
+    return frame
+
+
+def test_files_are_described_by_the_post_metadata() -> None:
+    frame = _files_frame(
+        metadata=[
+            {"id": "f1", "name": "screen.png", "mime_type": "image/png", "size": 2048},
+            {"id": "f2", "name": "отчёт.pdf", "mime_type": "application/pdf", "size": 9},
+        ],
+        file_ids=["f1", "f2"],
+    )
+
+    handles = parse_files(frame)
+
+    assert [(h.file_id, h.name, h.mime, h.size) for h in handles] == [
+        ("f1", "screen.png", "image/png", 2048),
+        ("f2", "отчёт.pdf", "application/pdf", 9),  # Non-ASCII on purpose
+    ]
+
+
+def test_files_without_metadata_come_back_bare_for_the_caller_to_describe() -> None:
+    handles = parse_files(_files_frame(metadata=None, file_ids=["f1"]))
+
+    assert [(h.file_id, h.name, h.mime) for h in handles] == [("f1", "", "")]
+
+
+def test_a_post_without_files_has_none() -> None:
+    assert parse_files(_frame()) == ()

@@ -8,13 +8,16 @@ same brain the Mattermost HTTP receiver uses, here over the WebSocket instead.
 
 import logging
 import re
+from dataclasses import replace
 
+from aiohttp import ClientSession
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
+from crucible.attachments import AttachmentStore, IncomingFile
 from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.slack.client import MESSAGE_ID_SEP
-from crucible.gateways.slack.events import event_to_incoming
+from crucible.gateways.slack.events import FileHandle, event_to_incoming, parse_files
 from crucible.gateways.slack.rendering import (
     FORM_CALLBACK,
     WIDGET_ACTION_PREFIX,
@@ -63,6 +66,7 @@ class SlackGateway:
         loop_guard: LoopGuard | None = None,
         reply_to_agents: bool = True,
         command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX,
+        attachments: AttachmentStore | None = None,
     ) -> None:
         self._app = app
         self._handler = AsyncSocketModeHandler(app, app_token)
@@ -77,6 +81,7 @@ class SlackGateway:
         self._directory = directory
         self._loop_guard = loop_guard
         self._reply_to_agents = reply_to_agents
+        self._attachments = attachments
         self._own_user_id = ""
         self._own_bot_id = ""
         self._register()
@@ -143,7 +148,58 @@ class SlackGateway:
         decided = self._decide(msg)
         if decided is None:
             return
+        decided = await self._with_attachments(decided)
         self._sink.submit(decided, self._chat)
+
+    async def _with_attachments(self, msg: IncomingMessage) -> IncomingMessage:
+        """Download whatever the sender attached, so the message carries local
+        paths. Only for messages we are actually going to answer."""
+        if self._attachments is None:
+            return msg
+        handles = parse_files(msg.raw)
+        if not handles:
+            return msg
+        fetched: list[IncomingFile] = []
+        for handle in handles:
+            data = await self._download(handle)
+            if data is not None:
+                fetched.append(
+                    IncomingFile(
+                        name=handle.name,
+                        data=data,
+                        mime=handle.mime,
+                        key=handle.file_id,
+                    )
+                )
+        stored = await self._attachments.save_many(
+            self._agent, msg.conversation_id, fetched
+        )
+        return replace(msg, attachments=stored) if stored else msg
+
+    async def _download(self, handle: FileHandle) -> bytes | None:
+        """Fetch a private Slack file with the bot token. Slack answers an
+        unauthorized request with its HTML sign-in page rather than an error, so
+        an HTML body is reported as the missing scope it almost always is."""
+        headers = {"Authorization": f"Bearer {self._app.client.token}"}
+        try:
+            async with ClientSession() as session:
+                async with session.get(handle.url, headers=headers) as response:
+                    if response.status != 200:
+                        logger.warning(
+                            "downloading %s failed: HTTP %s", handle.name, response.status
+                        )
+                        return None
+                    if "text/html" in response.headers.get("Content-Type", ""):
+                        logger.warning(
+                            "downloading %s returned a login page — the app is most "
+                            "likely missing the files:read scope",
+                            handle.name,
+                        )
+                        return None
+                    return await response.read()
+        except Exception:
+            logger.warning("could not download %s", handle.name, exc_info=True)
+            return None
 
     def _decide(self, msg: IncomingMessage) -> IncomingMessage | None:
         if msg.is_from_bot:

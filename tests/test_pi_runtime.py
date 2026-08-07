@@ -1,10 +1,12 @@
 import asyncio
+from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
 
+from crucible.ports.agent.runtime import PromptImage
 from crucible.runtimes.pi.errors import PiProcessError
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.runtime import PiRuntime, SessionFactory, _safe_session_id
@@ -14,6 +16,7 @@ from crucible.runtimes.pi.session import PiResult, PiRpcSession
 class FakeSession:
     def __init__(self, *, result: PiResult | None = None, prompt_error: Exception | None = None) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.images: list[PromptImage] = []
         self.started = False
         self.closed = False
         self.busy = False
@@ -23,13 +26,18 @@ class FakeSession:
     def start(self) -> None:
         self.started = True
 
-    async def prompt(self, message: str, *, timeout: float) -> PiResult:
+    async def prompt(
+        self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+    ) -> PiResult:
         self.calls.append(("prompt", message))
+        self.images = list(images)
         if self._prompt_error is not None:
             raise self._prompt_error
         return self._result
 
-    async def follow_up(self, message: str, *, timeout: float) -> PiResult:
+    async def follow_up(
+        self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+    ) -> PiResult:
         self.calls.append(("follow_up", message))
         return self._result
 
@@ -117,7 +125,9 @@ async def test_per_session_lock_serializes_turns() -> None:
     order: list[str] = []
 
     class SlowSession(FakeSession):
-        async def prompt(self, message: str, *, timeout: float) -> PiResult:
+        async def prompt(
+            self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+        ) -> PiResult:
             order.append(f"start:{message}")
             await asyncio.sleep(0.02)
             order.append(f"end:{message}")

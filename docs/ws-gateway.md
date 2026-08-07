@@ -47,7 +47,10 @@ All frames are JSON text messages.
  "user_id": "u42",        // optional
  "username": "vasya",     // optional
  "message_id": "m-1",     // optional; supply stable ids to dedupe redeliveries
- "kind": "dm"}            // optional: dm (default) | thread | channel
+ "kind": "dm",            // optional: dm (default) | thread | channel
+ // optional attachments, bytes inline (your service may share no filesystem
+ // with the engine). With files, "text" may be empty — a photo is a message.
+ "files": [{"name": "photo.jpg", "mime": "image/jpeg", "data": "<base64>"}]}
 
 // discovery: which agents can this service address?
 {"type": "agents"}
@@ -79,6 +82,10 @@ Markdown as-is; rendering is the service's business.
   once (per agent). Without `message_id` every frame is a fresh message.
 - **No widgets.** Don't give ws agents `ask_user_*`/`open_form` tools; the
   widget verbs degrade to a plain-text notice.
+- **Files.** Inline bytes are saved like any other attachment and named in the
+  agent's prompt (pictures also go to the model directly) — see
+  [files.md](files.md). A file past `ATTACHMENT_MAX_MB` is skipped; undecodable
+  base64 answers with an `error` frame and the message is not delivered.
 
 ## A minimal client (Python + aiohttp)
 

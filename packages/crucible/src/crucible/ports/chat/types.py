@@ -153,6 +153,29 @@ class Form:
     open_label: str = ""
 
 
+# A file's kind is decided by its media type; images are the one class the
+# runtime may be able to look at directly.
+IMAGE_MIME_PREFIX = "image/"
+
+
+@dataclass(frozen=True)
+class Attachment:
+    """A file that arrived with a message, already saved to local disk.
+
+    The adapter downloads it while normalizing the event, so everything above the
+    gateway sees a plain local file: ``path`` is absolute and readable by the
+    runtime, ``name`` is what the sender called it."""
+
+    name: str
+    path: str
+    mime: str = ""
+    size: int = 0
+
+    @property
+    def is_image(self) -> bool:
+        return self.mime.startswith(IMAGE_MIME_PREFIX)
+
+
 @dataclass(frozen=True)
 class ConversationRef:
     """Platform-neutral address of a conversation/message."""
@@ -175,6 +198,8 @@ class IncomingMessage:
     mentioned: bool = False  # explicitly mentions the agent
     is_from_bot: bool = False
     hop_depth: int = 0  # agent-to-agent hops since the last human (human = 0)
+    # Files the sender attached, already downloaded to local disk by the adapter.
+    attachments: tuple[Attachment, ...] = ()
     # True for messages the engine synthesizes from a widget click (not typed by a
     # human). Lets the coalescer skip the "typed instead of clicking" auto-cancel.
     synthetic: bool = False

@@ -32,6 +32,16 @@ logger = logging.getLogger(__name__)
 MESSAGE_ID_SEP = "\x1f"
 
 
+def _shared_files(message: dict) -> str:
+    """How a file-only message reads in replayed history ("" if it has none)."""
+    names = [
+        str(f.get("name") or "")
+        for f in message.get("files") or []
+        if isinstance(f, dict) and f.get("name")
+    ]
+    return f"[files: {', '.join(names)}]" if names else ""
+
+
 def chunk_text(text: str, limit: int) -> list[str]:
     """Split into <=limit chunks, preferring paragraph then line boundaries."""
     if len(text) <= limit:
@@ -257,16 +267,21 @@ class SlackChatClient:
     # -- internals ----------------------------------------------------------
 
     async def _to_snippets(self, messages: list[dict]) -> list[PostSnippet]:
+        """Replayed history. A message with files but no text is still something
+        someone sent, so it is described by its files rather than dropped."""
         snippets = []
         for m in messages:
-            if m.get("subtype") in ("channel_join", "channel_leave") or not m.get("text"):
+            if m.get("subtype") in ("channel_join", "channel_leave"):
+                continue
+            text = m.get("text") or _shared_files(m)
+            if not text:
                 continue
             user_id = m.get("user") or m.get("bot_id") or ""
             snippets.append(
                 PostSnippet(
                     message_id=m.get("ts", ""),
                     username=await self._username(user_id),
-                    text=m["text"],
+                    text=text,
                     timestamp=ts_time(m.get("ts", "")),
                     user_id=user_id,
                 )

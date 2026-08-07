@@ -1,7 +1,9 @@
+import base64
 import json
 
 import pytest
 
+from crucible.ports.agent.runtime import PromptImage
 from crucible.runtimes.pi import protocol
 from crucible.runtimes.pi.errors import PiProtocolError
 
@@ -111,3 +113,29 @@ def test_parse_empty_line_raises() -> None:
 def test_parse_rejects_unicode_line_separator() -> None:
     with pytest.raises(PiProtocolError):
         protocol.parse_line('{"type": "agent_start"}' + "\u2028")
+
+
+def test_prompt_carries_images_as_base64_content_blocks() -> None:
+    line = protocol.encode_prompt(
+        "what is this?",
+        command_id="req-1",
+        images=[PromptImage(data=b"PNGDATA", mime="image/png")],
+    )
+
+    assert json.loads(line) == {
+        "id": "req-1",
+        "type": "prompt",
+        "message": "what is this?",
+        "images": [
+            {
+                "type": "image",
+                "data": base64.b64encode(b"PNGDATA").decode(),
+                "mimeType": "image/png",
+            }
+        ],
+    }
+
+
+def test_a_turn_without_images_carries_no_images_field() -> None:
+    assert "images" not in json.loads(protocol.encode_prompt("hi", command_id="r"))
+    assert "images" not in json.loads(protocol.encode_follow_up("hi", command_id="r"))

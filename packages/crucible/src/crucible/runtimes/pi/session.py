@@ -2,9 +2,10 @@
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 
+from crucible.ports.agent.runtime import PromptImage
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 from crucible.runtimes.pi import protocol
 from crucible.runtimes.pi.errors import PiProcessError, PiProtocolError, PiTimeout
@@ -91,11 +92,19 @@ class PiRpcSession:
         if self._reader_task is None:
             self._reader_task = asyncio.ensure_future(self._read_loop())
 
-    async def prompt(self, message: str, *, timeout: float) -> PiResult:
-        return await self._run_turn(protocol.encode_prompt, message, timeout=timeout)
+    async def prompt(
+        self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+    ) -> PiResult:
+        return await self._run_turn(
+            protocol.encode_prompt, message, timeout=timeout, images=images
+        )
 
-    async def follow_up(self, message: str, *, timeout: float) -> PiResult:
-        return await self._run_turn(protocol.encode_follow_up, message, timeout=timeout)
+    async def follow_up(
+        self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+    ) -> PiResult:
+        return await self._run_turn(
+            protocol.encode_follow_up, message, timeout=timeout, images=images
+        )
 
     async def abort(self) -> None:
         await self._transport.send(
@@ -124,6 +133,7 @@ class PiRpcSession:
         message: str,
         *,
         timeout: float,
+        images: Sequence[PromptImage] = (),
     ) -> PiResult:
         if self._closed:
             raise PiProcessError("Session is closed")
@@ -144,7 +154,9 @@ class PiRpcSession:
         started = asyncio.get_running_loop().time()
 
         try:
-            await self._transport.send(encoder(message, command_id=command_id))
+            await self._transport.send(
+                encoder(message, command_id=command_id, images=images)
+            )
             result = await self._await_turn(turn, timeout=timeout)
             result.duration_s = asyncio.get_running_loop().time() - started
             return result

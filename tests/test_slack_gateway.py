@@ -5,11 +5,13 @@ test loop, then drives the gateway's internal handlers directly.
 """
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from slack_bolt.async_app import AsyncApp
 
+from crucible.attachments import AttachmentStore
 from crucible.gateways.slack.gateway import SlackGateway
 from crucible.gateways.slack.rendering import FORM_CALLBACK
 from crucible.ports.chat.types import Form, FormField
@@ -328,3 +330,95 @@ async def test_empty_prefix_makes_the_callback_id_the_command() -> None:
     gw._handle_shortcut(body)
 
     assert dispatcher.calls[0][5] == "/summarize"
+
+
+# -- incoming attachments ----------------------------------------------------
+
+
+class FakeHttpResponse:
+    def __init__(self, *, status: int = 200, body: bytes = b"", content_type: str = "image/png"):
+        self.status = status
+        self.headers = {"Content-Type": content_type}
+        self._body = body
+
+    async def read(self) -> bytes:
+        return self._body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        return None
+
+
+class FakeHttpSession:
+    """Stands in for aiohttp.ClientSession: records the request, canned response."""
+
+    def __init__(self, response: FakeHttpResponse) -> None:
+        self.response = response
+        self.requests: list[tuple[str, dict]] = []
+
+    def __call__(self) -> "FakeHttpSession":
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        return None
+
+    def get(self, url: str, headers: dict | None = None) -> FakeHttpResponse:
+        self.requests.append((url, headers or {}))
+        return self.response
+
+
+def _file_event(**over) -> dict:
+    event = {
+        "channel": "D1", "channel_type": "im", "ts": "1.0", "user": "U2",
+        "subtype": "file_share", "text": "",
+        "files": [
+            {
+                "id": "F1", "name": "screen.png", "mimetype": "image/png", "size": 7,
+                "url_private_download": "https://files.slack.com/f/F1",
+            }
+        ],
+    }
+    event.update(over)
+    return event
+
+
+async def test_slack_attachment_is_downloaded_with_the_bot_token(
+    tmp_path, monkeypatch
+) -> None:
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    http = FakeHttpSession(FakeHttpResponse(body=b"PNGDATA"))
+    monkeypatch.setattr("crucible.gateways.slack.gateway.ClientSession", http)
+    sink = FakeSink()
+    gw = _gateway(sink, agent="assistant", attachments=store)
+
+    await gw._handle_message(_file_event())
+
+    (msg,) = sink.submitted
+    (attachment,) = msg.attachments
+    assert attachment.name == "screen.png"
+    assert Path(attachment.path).read_bytes() == b"PNGDATA"
+    url, headers = http.requests[0]
+    assert url == "https://files.slack.com/f/F1"
+    assert headers["Authorization"] == "Bearer xoxb-fake"
+
+
+async def test_a_login_page_instead_of_a_file_leaves_the_message_intact(
+    tmp_path, monkeypatch
+) -> None:
+    # Slack answers an unauthorized download with its sign-in HTML, not an error.
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    http = FakeHttpSession(FakeHttpResponse(body=b"<html>", content_type="text/html"))
+    monkeypatch.setattr("crucible.gateways.slack.gateway.ClientSession", http)
+    sink = FakeSink()
+    gw = _gateway(sink, agent="assistant", attachments=store)
+
+    await gw._handle_message(_file_event(text="look"))
+
+    (msg,) = sink.submitted
+    assert msg.attachments == ()
+    assert msg.text == "look"

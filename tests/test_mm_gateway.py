@@ -1,9 +1,13 @@
 """Gateway dispatch decisions: channel residency + base rules."""
 
-from typing import cast
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 from mattermostautodriver import AsyncTypedDriver
 
+from crucible.attachments import AttachmentStore
 from crucible.gateways.mattermost.gateway import MattermostGateway
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
@@ -31,7 +35,7 @@ class FakeDirectory:
 
 
 class FakeDriver:
-    """Only the surface the gateway touches: channel members."""
+    """Only the surface the gateway touches: channel members and file endpoints."""
 
     def __init__(self, members: dict[str, list[str]]) -> None:
         driver = self
@@ -42,6 +46,7 @@ class FakeDriver:
 
         self._members = members
         self.channels = Channels()
+        self.files: Any = None  # tests that exercise attachments set a FakeFiles
 
 
 class SinkSpy:
@@ -202,3 +207,138 @@ async def test_members_lookup_failure_falls_back_to_mention_rule() -> None:
 
     assert await gw._decide(_channel_msg()) is None  # not sole -> mention required
     assert await gw._decide(_channel_msg(mentioned=True)) is not None
+
+
+# -- incoming attachments ----------------------------------------------------
+
+
+class FakeFiles:
+    """The driver's file endpoints: bytes by id, plus metadata for bare ids."""
+
+    def __init__(self, blobs: dict[str, bytes], infos: dict[str, dict] | None = None) -> None:
+        self.blobs = blobs
+        self.infos = infos or {}
+        self.fetched: list[str] = []
+
+    async def get_file(self, file_id: str):
+        self.fetched.append(file_id)
+        if file_id not in self.blobs:
+            raise RuntimeError("no such file")
+        return SimpleNamespace(content=self.blobs[file_id])
+
+    async def get_file_info(self, file_id: str) -> dict:
+        return self.infos[file_id]
+
+
+def _posted_frame(files: list[dict] | None = None, *, message: str = "look") -> str:
+    post: dict = {
+        "id": "p1",
+        "create_at": 1783371725003,
+        "user_id": HUMAN,
+        "channel_id": "dm1",
+        "root_id": "",
+        "message": message,
+        "type": "",
+        "props": {},
+    }
+    if files is not None:
+        post["file_ids"] = [f["id"] for f in files]
+        post["metadata"] = {"files": files}
+    return json.dumps(
+        {
+            "event": "posted",
+            "data": {"channel_type": "D", "post": json.dumps(post), "sender_name": "@roman"},
+            "broadcast": {},
+            "seq": 2,
+        }
+    )
+
+
+def _files_gateway(driver_files: FakeFiles, store: AttachmentStore) -> tuple[MattermostGateway, SinkSpy]:
+    driver = FakeDriver({})
+    driver.files = driver_files
+    sink = SinkSpy()
+    gw = MattermostGateway(
+        cast(AsyncTypedDriver, driver),
+        sink,
+        FakeChat(),
+        agent="assistant",
+        directory=FakeDirectory({ME}),
+        attachments=store,
+    )
+    gw._own_user_id = ME
+    return gw, sink
+
+
+async def test_attached_files_are_downloaded_and_travel_with_the_message(
+    tmp_path: Path,
+) -> None:
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    files = FakeFiles({"f1": b"PNGDATA"})
+    gw, sink = _files_gateway(files, store)
+
+    await gw._on_ws_message(
+        _posted_frame([{"id": "f1", "name": "screen.png", "mime_type": "image/png"}])
+    )
+
+    (msg,) = sink.submitted
+    (attachment,) = msg.attachments
+    assert attachment.name == "screen.png"
+    assert attachment.mime == "image/png"
+    assert Path(attachment.path).read_bytes() == b"PNGDATA"
+
+
+async def test_bare_file_ids_are_described_by_a_metadata_lookup(tmp_path: Path) -> None:
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    files = FakeFiles(
+        {"f1": b"PDF"}, infos={"f1": {"name": "отчёт.pdf", "mime_type": "application/pdf"}}
+    )  # Non-ASCII on purpose
+    driver = FakeDriver({})
+    driver.files = files
+    sink = SinkSpy()
+    gw = MattermostGateway(
+        cast(AsyncTypedDriver, driver), sink, FakeChat(),
+        agent="assistant", directory=FakeDirectory({ME}), attachments=store,
+    )
+    gw._own_user_id = ME
+    frame = json.loads(_posted_frame([{"id": "f1", "name": "x", "mime_type": "x"}]))
+    post = json.loads(frame["data"]["post"])
+    post.pop("metadata")  # older servers send ids only
+    frame["data"]["post"] = json.dumps(post)
+
+    await gw._on_ws_message(json.dumps(frame))
+
+    (msg,) = sink.submitted
+    (attachment,) = msg.attachments
+    assert (attachment.name, attachment.mime) == ("отчёт.pdf", "application/pdf")
+
+
+async def test_a_failed_download_never_costs_the_user_their_message(tmp_path: Path) -> None:
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    gw, sink = _files_gateway(FakeFiles({}), store)
+
+    await gw._on_ws_message(
+        _posted_frame([{"id": "gone", "name": "a.png", "mime_type": "image/png"}])
+    )
+
+    (msg,) = sink.submitted
+    assert msg.attachments == ()
+    assert msg.text == "look"
+
+
+async def test_without_a_store_files_are_ignored() -> None:
+    driver = FakeDriver({})
+    driver.files = FakeFiles({"f1": b"x"})
+    sink = SinkSpy()
+    gw = MattermostGateway(
+        cast(AsyncTypedDriver, driver), sink, FakeChat(), directory=FakeDirectory({ME})
+    )
+    gw._own_user_id = ME
+
+    await gw._on_ws_message(
+        _posted_frame([{"id": "f1", "name": "a.png", "mime_type": "image/png"}])
+    )
+
+    (msg,) = sink.submitted
+    assert msg.attachments == ()
+    assert driver.files.fetched == []

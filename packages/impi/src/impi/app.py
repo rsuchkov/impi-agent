@@ -27,6 +27,7 @@ import crucible.builtin_tools  # noqa: E402,F401
 import impi.agent_tools  # noqa: E402,F401
 import impi.chat_tools  # noqa: E402,F401
 import impi.skill_tools  # noqa: E402,F401
+from crucible.attachments import AttachmentStore
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import (
@@ -166,9 +167,14 @@ def _build_unit(
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
+    inline_image_max_bytes: int,
 ) -> AgentUnit:
     profile = profiles.build(spec)
-    flow = AgentFlow(runtime, profile, sessions, agent_name=spec.name)
+    flow = AgentFlow(
+        runtime, profile, sessions,
+        agent_name=spec.name,
+        inline_image_max_bytes=inline_image_max_bytes,
+    )
     coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
     # Record the agent's live presence in the app-owned registry; interactions read
     # it lazily through MappingPresence.
@@ -215,6 +221,7 @@ def _build_units(
                 spec, handle,
                 runtime=runtime, sessions=sessions, profiles=profiles,
                 interactions=interactions, sinks_by_agent=sinks_by_agent,
+                inline_image_max_bytes=int(settings.inline_image_max_mb * 1024 * 1024),
             )
         )
     return units
@@ -305,6 +312,16 @@ def build_app(settings: ImpiSettings) -> App:
         interactivity_on=settings.integrations.enabled,
     )
     profile_builder = ProfileBuilder(tools)
+    # Where files people attach land. Swept once at startup so a long-running
+    # deployment doesn't accumulate them forever.
+    attachments: AttachmentStore | None = None
+    if settings.attachments_enabled:
+        attachments = AttachmentStore(
+            settings.resolved_attachments_dir,
+            max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
+            retention_days=settings.attachment_retention_days,
+        )
+        attachments.sweep()
     # The ws hub exists only when some agent lives on the "ws" gateway; client
     # services authenticate against it with their own tokens (WS_SERVICE_TOKEN__*).
     ws_hub: WsHub | None = None
@@ -316,11 +333,12 @@ def build_app(settings: ImpiSettings) -> App:
                 "(set WS_SERVICE_TOKEN__<NAME>) — nothing can connect to the hub"
             )
         ws_hub = WsHub(
-            settings.ws_host, settings.ws_port, ws_services, directory=registry
+            settings.ws_host, settings.ws_port, ws_services,
+            directory=registry, attachments=attachments,
         )
     gateway_factory = GatewayFactory(
         directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher,
-        ws_hub=ws_hub,
+        ws_hub=ws_hub, attachments=attachments,
     )
 
     units = _build_units(

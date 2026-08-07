@@ -203,3 +203,20 @@ async def test_snippets_carry_the_author_user_id() -> None:
     ]})
     snippets = await _sc(web).get_thread_posts(_ref())
     assert [(s.message_id, s.user_id) for s in snippets] == [("100.1", "U-author")]
+
+
+async def test_a_message_with_only_files_is_replayed_as_its_files() -> None:
+    # A shared photo has no text; dropping it would erase it from history.
+    web = FakeWeb(
+        conversations_replies={
+            "messages": [
+                {"ts": "1.0", "user": "U1", "text": "",
+                 "files": [{"id": "F1", "name": "screen.png"}]},
+            ]
+        },
+        users_info={"user": {"name": "roman"}},
+    )
+
+    snippets = await _sc(web).get_thread_posts(_ref())
+
+    assert [s.text for s in snippets] == ["[files: screen.png]"]

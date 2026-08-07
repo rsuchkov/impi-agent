@@ -142,6 +142,16 @@ class Settings(BaseSettings):
     data_dir: str = "data"
     db_path: str = ""  # default: {data_dir}/<DB_FILENAME>
 
+    # Files people attach in chat, and files agents send back. Off = attachments
+    # are ignored on the way in and no agent gets the send-a-file tool.
+    attachments_enabled: bool = True
+    attachments_dir: str = ""  # default: {data_dir}/attachments
+    attachment_max_mb: float = 20.0  # per file, both directions
+    attachment_retention_days: int = 14  # 0 = keep forever
+    # Per-image cap for showing a picture to the runtime directly: model backends
+    # reject large inline images, and an oversized one is still readable by path.
+    inline_image_max_mb: float = 4.0
+
     # pi CLI (@earendil-works/pi-coding-agent), assumed on PATH.
     pi_bin: str = "pi"
     pi_session_dir: str = ""  # default: {data_dir}/pi-sessions (per-agent subdirs)
@@ -303,6 +313,14 @@ class Settings(BaseSettings):
         if self.pi_session_dir:
             return Path(self.pi_session_dir)
         return Path(self.data_dir) / "pi-sessions"
+
+    @property
+    def resolved_attachments_dir(self) -> Path:
+        """Where incoming files land. Under data_dir by default, so a deployment
+        keeps them in the same volume as the rest of the engine's state."""
+        if self.attachments_dir:
+            return Path(self.attachments_dir)
+        return Path(self.data_dir) / "attachments"
 
     @property
     def resolved_skills_path(self) -> Path:

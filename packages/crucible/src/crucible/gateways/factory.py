@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from mattermostautodriver import AsyncTypedDriver
 from slack_bolt.async_app import AsyncApp
 
+from crucible.attachments import AttachmentStore
 from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.mattermost import (
     MattermostChatClient,
@@ -93,11 +94,14 @@ class GatewayFactory:
         loop_guard: LoopGuard,
         dispatcher: GatewayDispatcher | None,
         ws_hub: WsHub | None = None,
+        attachments: AttachmentStore | None = None,
     ) -> None:
         self._directory = directory
         self._loop_guard = loop_guard
         self._dispatcher = dispatcher
         self._ws_hub = ws_hub
+        # Where a gateway saves what a sender attached (None = files are ignored).
+        self._attachments = attachments
         self._builders: dict[str, Callable[[str, GatewayConfig], GatewayHandle | None]] = {
             "mattermost": self._mattermost,
             "slack": self._slack,
@@ -124,8 +128,10 @@ class GatewayFactory:
         def create_gateway(sink: MessageSink) -> Gateway:
             return MattermostGateway(
                 driver, sink, chat,
+                agent=agent,
                 directory=self._directory, loop_guard=self._loop_guard,
                 reply_to_agents=config.reply_to_agents,
+                attachments=self._attachments,
             )
 
         return GatewayHandle(
@@ -145,6 +151,7 @@ class GatewayFactory:
                 directory=self._directory, loop_guard=self._loop_guard,
                 reply_to_agents=config.reply_to_agents,
                 command_prefix=config.slack_command_prefix,
+                attachments=self._attachments,
             )
 
         return GatewayHandle(
