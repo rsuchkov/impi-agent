@@ -13,6 +13,7 @@ from pydantic_settings import BaseSettings
 
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 
 # Capabilities a tool may require (Tool.requires). The composition root advertises
@@ -22,6 +23,7 @@ CAP_CHAT_ADMIN = "chat_admin"  # channel administration (Mattermost + Slack)
 CAP_WIDGETS = "widgets"  # interactive widgets (buttons / selects)
 CAP_FORMS = "forms"  # modal forms
 CAP_EPHEMERAL = "ephemeral"  # messages visible only to one user (Mattermost + Slack)
+CAP_FILES = "files"  # sending a file into the conversation
 
 
 class ToolError(Exception):
@@ -49,6 +51,9 @@ class ToolContext:
     # form round-trip.
     runtime_session_id: str = ""
     interaction_svc: InteractionService | None = None
+    # Sending a file into the conversation this call runs in (None = the
+    # deployment has attachments turned off).
+    file_svc: FileService | None = None
     # The conversation this call runs inside, resolved from runtime_session_id by
     # the server (plain strings — the tool layer stays free of store types).
     # channel_id: where the turn happened; user_id: who last triggered it. Empty
@@ -62,6 +67,14 @@ class ToolContext:
         if self.chat_admin is None:
             raise ToolError("channel administration is not available on this gateway")
         return self.chat_admin
+
+    def require_files(self) -> FileService:
+        """The file-sending service, or a ToolError if this deployment has files
+        turned off (declare CAP_FILES so this can't happen for an advertised
+        tool)."""
+        if self.file_svc is None:
+            raise ToolError("sending files is turned off in this deployment")
+        return self.file_svc
 
     def require_interactions(self) -> InteractionService:
         """The widget/form service, or a ToolError if interactivity is off (declare

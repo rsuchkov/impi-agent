@@ -44,12 +44,13 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
 - **Agent** (`ports/agent`): `AgentRuntime` (drives a conversation), `AgentSpec`
   (an agent's neutral config), `AgentProfile` (opaque per-agent runtime config),
   `UiBridge` (surface a mid-turn confirm/select to a human).
-- **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill + the widget verbs),
-  `Gateway` (a platform connection), `ChatAdmin` (channel administration),
-  `InteractionService` (the tool-facing widget/form round-trip), `MessageSink` /
-  `Flow` (inbound entry point), `AgentDirectory` (who our agents are), and `types`
-  (the neutral vocabulary: `ConversationRef`, `IncomingMessage`, `Attachment`,
-  `Action`, `Form`, …).
+- **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill + files + the widget
+  verbs), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
+  `InteractionService` (the tool-facing widget/form round-trip), `FileService`
+  (the tool-facing "send this file"), `MessageSink` / `Flow` (inbound entry
+  point), `AgentDirectory` (who our agents are), and `types` (the neutral
+  vocabulary: `ConversationRef`, `IncomingMessage`, `Attachment`, `Action`,
+  `Form`, …).
 
 ## The `pi` runtime driver
 
@@ -180,7 +181,10 @@ a plain file store, like the skill library — and hands the flow an
 `IncomingMessage` carrying local paths. `AgentFlow` names every file in the
 prompt and passes pictures to `run_stateful(..., images=…)`, the runtime port's
 one non-text input. Everything else is a path the agent reads with its own
-tools. See [files.md](files.md).
+tools. Outbound, the `send_file` tool goes through a `FileService` that resolves
+the turn's conversation exactly like the widget service does, polices which
+directories the agent may read from, and posts via `ChatClient.post_files`. See
+[files.md](files.md).
 
 **Replayed history.** The conversation itself lives in the runtime session, so a
 prompt normally carries only the new messages plus sender identity. Two cases add

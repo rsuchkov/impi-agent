@@ -20,6 +20,17 @@ when a release is cut, and `impi update` shows the target version's section.
   not just the one it arrived in. Limits and retention are configurable
   (`ATTACHMENT_MAX_MB`, `ATTACHMENT_RETENTION_DAYS`, `INLINE_IMAGE_MAX_MB`,
   `ATTACHMENTS_ENABLED`); see [docs/files.md](docs/files.md).
+- **Agents can send files back.** The new `send_file` tool posts a file into the
+  conversation the turn is running in — the chart it just drew, the document it
+  assembled, a file it was sent earlier — with an optional caption. It reads
+  only from the agent's profile directory, its own attachment directory and
+  `/tmp`, so the engine's configuration stays out of reach. Slack needs the
+  `files:write` scope; ws services receive a `file` frame.
+- **Fixed: a tool added to a profile now works after `impi reload`.** The reload
+  rewrote the agent's manifest, so the runtime offered the new tool, but the tool
+  server kept gating on the allowlist computed at startup and answered every call
+  with `403 forbidden` until a restart.
+
 ## v0.6.2 — 2026-08-06
 
 - **Your own compose files now survive `impi update`.** Drop any `*.yaml` into

@@ -1,5 +1,6 @@
 """Composition smoke: build_app wires everything from Settings, no network."""
 
+import dataclasses
 from pathlib import Path
 
 from crucible.flows.coalescer import MessageCoalescer
@@ -185,3 +186,27 @@ def test_build_pi_extensions_is_just_the_bundle_without_agents_extensions(tmp_pa
     paths = build_pi_extensions(_settings(tmp_path))
     assert len(paths) == 1
     assert paths[0].endswith("runtimes/pi/extension/index.ts")
+
+
+def test_a_reloaded_profile_updates_the_servers_allowlist(tmp_path: Path) -> None:
+    # A tool added to a profile and hot-reloaded must be callable, not just
+    # advertised: the tool server 403s on anything outside this mapping.
+    from crucible.config import ToolSettings
+    from crucible.ports.agent import AgentSpec
+    from crucible.tools.wiring import ToolWiring
+
+    wiring = ToolWiring(
+        ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422),
+        data_dir=str(tmp_path), interactivity_on=True,
+    )
+    before = AgentSpec(
+        name="assistant", display_name="A", role="r", description="d",
+        profile_dir=tmp_path, tools=("list_agents",),
+    )
+    wiring.enroll(before, None)
+    assert wiring.allowlists["assistant"] == frozenset({"list_agents"})
+
+    after = dataclasses.replace(before, tools=("list_agents", "ask_user_buttons"))
+    wiring.profile_env(after)
+
+    assert wiring.allowlists["assistant"] == frozenset({"list_agents", "ask_user_buttons"})

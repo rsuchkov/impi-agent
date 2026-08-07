@@ -12,6 +12,7 @@ per-service buffer and are flushed on reconnect (in-memory only — a restart
 drops them).
 """
 
+import base64
 import json
 import logging
 from collections import deque
@@ -30,6 +31,7 @@ from crucible.gateways.ws.events import (
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
+from crucible.ports.chat.types import OutgoingFile
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +92,36 @@ class WsHub:
         """Deliver an agent's message to the service owning the conversation —
         over its live socket, else into its reconnect buffer."""
         service, client_conv = split_conversation(internal_conv)
-        frame = {
-            "type": event,
-            "agent": agent,
-            "conversation_id": client_conv,
-            "text": text,
-        }
+        await self._deliver(
+            service,
+            {
+                "type": event,
+                "agent": agent,
+                "conversation_id": client_conv,
+                "text": text,
+            },
+        )
+
+    async def send_file(
+        self, agent: str, internal_conv: str, file: OutgoingFile, *, text: str = ""
+    ) -> None:
+        """Deliver a file the agent sent. Bytes travel base64-encoded inside the
+        frame, the same way they arrive — the service may share no filesystem."""
+        service, client_conv = split_conversation(internal_conv)
+        await self._deliver(
+            service,
+            {
+                "type": "file",
+                "agent": agent,
+                "conversation_id": client_conv,
+                "name": file.name,
+                "mime": file.mime,
+                "data": base64.b64encode(file.data).decode("ascii"),
+                "text": text,
+            },
+        )
+
+    async def _deliver(self, service: str, frame: dict) -> None:
         ws = self._conns.get(service)
         if ws is not None and not ws.closed:
             try:

@@ -38,15 +38,19 @@ An application depends only on these; concretes are swappable behind them.
 
 **Chat ports** (`crucible.ports.chat`):
 - `ChatClient` — the agent's outbound platform surface: replies, reactions,
-  backfill, and the interactive-widget verbs (post buttons, open a modal).
+  backfill, files (`post_files`), and the interactive-widget verbs (post
+  buttons, open a modal).
 - `Gateway` — one agent's connection to one platform (`login`/`run`/`stop`).
 - `ChatAdmin` — platform-neutral channel administration used by tools.
 - `InteractionService` — what a tool calls to run a widget/form round-trip
   (`ask`, `open_form`): resolve the conversation, register the pending
   interaction, post, and match the callback later.
+- `FileService` — what a tool calls to send a file into the conversation the
+  turn runs in; it also owns which directories an agent may read from.
 - `MessageSink` / `Flow` — where a gateway hands an incoming message.
 - `AgentDirectory` — who our agents are (for dispatch decisions).
-- `types` — the neutral vocabulary (`ConversationRef`, `IncomingMessage`, `Action`, `Form`, …),
+- `types` — the neutral vocabulary (`ConversationRef`, `IncomingMessage`,
+  `Attachment`, `OutgoingFile`, `Action`, `Form`, …),
   including the control types a form may use (`FIELD_TYPES`) and the widget kinds
   (`ACTION_KINDS`); each adapter maps them onto its own platform's elements.
 

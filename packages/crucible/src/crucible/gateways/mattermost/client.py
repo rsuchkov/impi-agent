@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import Any
+from typing import Any, BinaryIO, cast
 
 from mattermostautodriver import AsyncTypedDriver
 
@@ -18,6 +18,7 @@ from crucible.ports.chat.types import (
     Card,
     ConversationRef,
     Form,
+    OutgoingFile,
     PostSnippet,
     UserProfile,
 )
@@ -97,6 +98,31 @@ class MattermostChatClient:
         # Same transport as post_reply; the verb split keeps the port's
         # "verbatim system text" semantics available to richer adapters.
         await self.post_reply(ref, text)
+
+    async def post_files(
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+    ) -> None:
+        # Upload first, then one post referencing them all — Mattermost allows up
+        # to 5 file ids per post, which is also the engine's per-call limit.
+        file_ids: list[str] = []
+        for file in files:
+            # The driver forwards this straight to httpx as the multipart body,
+            # where a (name, bytes, type) tuple is how a filename is set — its own
+            # annotation (a file object) is narrower than what it passes on.
+            part = cast(BinaryIO, (file.name, file.data, file.mime))
+            uploaded = await self._driver.files.upload_file(
+                files=part, channel_id=ref.channel_id
+            )
+            infos = (uploaded or {}).get("file_infos") or []
+            file_ids += [info["id"] for info in infos if info.get("id")]
+        if not file_ids:
+            raise RuntimeError("Mattermost accepted no file")
+        await self._driver.posts.create_post(
+            channel_id=ref.channel_id,
+            message=text,
+            root_id=ref.thread_root_id or None,
+            file_ids=file_ids,
+        )
 
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:
         try:

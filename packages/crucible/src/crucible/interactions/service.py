@@ -55,6 +55,18 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def conversation_ref(record) -> ConversationRef:
+    """Where to post for a session record: inside its thread when it has one.
+    Shared with the file service, which addresses the same conversation."""
+    thread_root = record.conversation_id if record.kind == KIND_THREAD else ""
+    return ConversationRef(
+        channel_id=record.channel_id,
+        conversation_id=record.conversation_id,
+        message_id=record.conversation_id,
+        thread_root_id=thread_root,
+    )
+
+
 class InteractionService:
     def __init__(
         self,
@@ -154,12 +166,4 @@ class InteractionService:
         )
         return True
 
-    @staticmethod
-    def _ref(record) -> ConversationRef:
-        thread_root = record.conversation_id if record.kind == KIND_THREAD else ""
-        return ConversationRef(
-            channel_id=record.channel_id,
-            conversation_id=record.conversation_id,
-            message_id=record.conversation_id,
-            thread_root_id=thread_root,
-        )
+    _ref = staticmethod(conversation_ref)

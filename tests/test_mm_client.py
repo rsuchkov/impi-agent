@@ -5,7 +5,7 @@ from mattermostautodriver import AsyncTypedDriver
 
 from crucible.gateways.mattermost.client import MattermostChatClient, chunk_text
 from crucible.gateways.mattermost.options import driver_options
-from crucible.ports.chat.types import ConversationRef
+from crucible.ports.chat.types import ConversationRef, OutgoingFile
 
 
 class _Recorder:
@@ -287,6 +287,40 @@ async def test_a_post_with_only_files_is_replayed_as_its_files() -> None:
 
     snippets = await _client(WithFiles()).get_thread_posts(REF)
     assert [s.text for s in snippets] == ["[files: screen.png]"]
+
+
+async def test_post_files_uploads_then_posts_one_message_with_the_ids() -> None:
+    class WithUpload(_Recorder):
+        def __init__(self):
+            super().__init__()
+            recorder = self
+
+            class Files:
+                async def upload_file(self, files, channel_id=None, client_ids=None):
+                    recorder.calls.append(("upload_file", {"files": files, "channel_id": channel_id}))
+                    name, _data, _mime = files
+                    return {"file_infos": [{"id": f"id-{name}"}]}
+
+            self.files = Files()
+
+    driver = WithUpload()
+    await _client(driver).post_files(
+        REF,
+        [OutgoingFile(name="chart.png", data=b"PNG", mime="image/png"),
+         OutgoingFile(name="notes.txt", data=b"hi", mime="text/plain")],
+        text="both of them",
+    )
+
+    uploads = [kw for name, kw in driver.calls if name == "upload_file"]
+    # (filename, bytes, content type) is how the multipart part carries the name.
+    assert [kw["files"] for kw in uploads] == [
+        ("chart.png", b"PNG", "image/png"),
+        ("notes.txt", b"hi", "text/plain"),
+    ]
+    post = next(kw for name, kw in driver.calls if name == "create_post")
+    assert post["file_ids"] == ["id-chart.png", "id-notes.txt"]
+    assert post["message"] == "both of them"
+    assert post["root_id"] == REF.thread_root_id
 
 
 # --- the full field vocabulary -------------------------------------------------

@@ -10,7 +10,7 @@ from crucible.attachments import AttachmentStore
 from crucible.gateways.ws.client import WsChatClient
 from crucible.gateways.ws.hub import WsHub
 from crucible.ports.chat.directory import AgentInfo
-from crucible.ports.chat.types import ConversationRef
+from crucible.ports.chat.types import ConversationRef, OutgoingFile
 
 
 class FakeSink:
@@ -266,6 +266,57 @@ async def test_undecodable_file_answers_error_and_never_reaches_the_agent(tmp_pa
             frame = await ws.receive_json(timeout=2)
             assert frame["type"] == "error" and "base64" in frame["detail"]
             assert sink.submitted == []
+            await ws.close()
+    finally:
+        await hub.stop()
+
+
+async def test_a_sent_file_reaches_the_service_as_a_file_frame() -> None:
+    hub = _hub(8480, {"probe": ("tok", None)})
+    chat = WsChatClient(hub, "helper")
+    hub.register_agent("helper", FakeSink(), chat)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            ws = await _connect(session, 8480, "tok")
+            ref = ConversationRef(
+                channel_id="probe:user-1", conversation_id="probe:user-1",
+                message_id="m1", thread_root_id="",
+            )
+
+            await chat.post_files(
+                ref,
+                [OutgoingFile(name="chart.png", data=b"PNG", mime="image/png")],
+                text="the trend",
+            )
+
+            frame = await ws.receive_json(timeout=2)
+            assert frame == {
+                "type": "file", "agent": "helper", "conversation_id": "user-1",
+                "name": "chart.png", "mime": "image/png",
+                "data": base64.b64encode(b"PNG").decode(), "text": "the trend",
+            }
+            await ws.close()
+    finally:
+        await hub.stop()
+
+
+async def test_a_file_sent_while_offline_is_buffered_like_a_reply() -> None:
+    hub = _hub(8481, {"probe": ("tok", None)})
+    chat = WsChatClient(hub, "helper")
+    hub.register_agent("helper", FakeSink(), chat)
+    await hub.start()
+    try:
+        ref = ConversationRef(
+            channel_id="probe:user-1", conversation_id="probe:user-1",
+            message_id="m1", thread_root_id="",
+        )
+        await chat.post_files(ref, [OutgoingFile(name="a.txt", data=b"x")])
+
+        async with aiohttp.ClientSession() as session:
+            ws = await _connect(session, 8481, "tok")
+            frame = await ws.receive_json(timeout=2)
+            assert frame["type"] == "file" and frame["name"] == "a.txt"
             await ws.close()
     finally:
         await hub.stop()

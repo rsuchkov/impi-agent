@@ -18,8 +18,9 @@ from crucible.config import ToolSettings
 from crucible.ports.agent import AgentSpec
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
-from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FORMS, CAP_WIDGETS
+from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FILES, CAP_FORMS, CAP_WIDGETS
 from crucible.tools.registry import ToolRegistry, build_registry
 from crucible.tools.server import SessionResolver, ToolServer
 
@@ -48,7 +49,10 @@ def _gate_tools(
 
 
 class ToolWiring:
-    def __init__(self, tools: ToolSettings, *, data_dir: str, interactivity_on: bool) -> None:
+    def __init__(
+        self, tools: ToolSettings, *, data_dir: str, interactivity_on: bool,
+        files_on: bool = False,
+    ) -> None:
         self._tools = tools
         self.registry = build_registry() if tools.enabled else None
         self.manifests_dir = Path(data_dir) / "tool-manifests"
@@ -59,8 +63,11 @@ class ToolWiring:
         self.caps: dict[str, frozenset[str]] = {}  # agent -> capability set
         # Widgets/forms exist iff the integrations receiver is on; chat_admin only on
         # gateways that provide it (Mattermost, not Slack) — added per agent in enroll.
+        # Files are a deployment-wide switch (a store + a directory), not a
+        # gateway trait — every transport can carry one.
         self.base_caps = (
-            frozenset({CAP_WIDGETS, CAP_FORMS}) if interactivity_on else frozenset()
+            (frozenset({CAP_WIDGETS, CAP_FORMS}) if interactivity_on else frozenset())
+            | (frozenset({CAP_FILES}) if files_on else frozenset())
         )
 
     @property
@@ -104,6 +111,11 @@ class ToolWiring:
             return None
         # Manifest re-derived here so a hot-reload re-filters the advertised tools.
         advertised, _ = _gate_tools(self.registry, spec.tools, self.caps.get(spec.name, frozenset()))
+        # The server's gate must move with the manifest: the tool server holds this
+        # mapping by reference, so a tool added to a profile and hot-reloaded is
+        # advertised AND callable, instead of being answered with 403 until the
+        # next restart.
+        self.allowlists[spec.name] = frozenset(advertised)
         manifest_path = self.registry.write_manifest(self.manifests_dir, spec.name, advertised)
         return {**self.envs[spec.name], "TOOL_MANIFEST": str(manifest_path)}
 
@@ -112,6 +124,7 @@ class ToolWiring:
         *,
         directory: AgentDirectory,
         interaction_svc: InteractionService | None,
+        file_svc: FileService | None = None,
         dotenv_path: str,
         session_resolver: SessionResolver | None = None,
     ) -> ToolServer | None:
@@ -127,5 +140,6 @@ class ToolWiring:
             port=self._tools.server_port,
             tool_configs=self.registry.load_configs(env_file=dotenv_path),
             interaction_svc=interaction_svc,
+            file_svc=file_svc,
             session_resolver=session_resolver,
         )

@@ -63,6 +63,10 @@ All frames are JSON text messages.
 {"type": "notice", "agent": "helper", "conversation_id": "user-42", "text": "…"}  // status/fallback
 {"type": "agents", "agents": [{"name": "helper", "role": "…", "description": "…"}]}
 {"type": "error",  "detail": "…"}   // bad frame / unknown agent; the socket stays open
+
+// a file the agent sent (one frame per file; the caption rides with the first)
+{"type": "file", "agent": "helper", "conversation_id": "user-42",
+ "name": "chart.png", "mime": "image/png", "data": "<base64>", "text": "caption"}
 ```
 
 Replies arrive whenever the agent's turn finishes (seconds to minutes) — the
@@ -85,7 +89,9 @@ Markdown as-is; rendering is the service's business.
 - **Files.** Inline bytes are saved like any other attachment and named in the
   agent's prompt (pictures also go to the model directly) — see
   [files.md](files.md). A file past `ATTACHMENT_MAX_MB` is skipped; undecodable
-  base64 answers with an `error` frame and the message is not delivered.
+  base64 answers with an `error` frame and the message is not delivered. In the
+  other direction, `send_file` produces a `file` frame; like replies, it is
+  buffered while the service is offline.
 
 ## A minimal client (Python + aiohttp)
 

@@ -44,6 +44,7 @@ from crucible.interactions import (
     InteractionWiring,
     MappingPresence,
 )
+from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.loopguard import LoopGuard
 from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
@@ -310,6 +311,7 @@ def build_app(settings: ImpiSettings) -> App:
     tools = ToolWiring(
         settings.tools, data_dir=settings.data_dir,
         interactivity_on=settings.integrations.enabled,
+        files_on=settings.attachments_enabled,
     )
     profile_builder = ProfileBuilder(tools)
     # Where files people attach land. Swept once at startup so a long-running
@@ -357,9 +359,23 @@ def build_app(settings: ImpiSettings) -> App:
         record = await sessions.get_by_runtime_session(runtime_session_id)
         return (record.channel_id, record.last_user_id) if record else None
 
+    # Which directories each agent may send files from: its own profile (the
+    # runtime's working directory), its own attachments, and the system temp dir.
+    file_svc = None
+    if attachments is not None:
+        file_svc = ChatFileService(
+            presence,
+            sessions,
+            {
+                spec.name: default_roots(spec.profile_dir, attachments.dir_for(spec.name))
+                for spec in specs
+            },
+            max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
+        )
     tool_server = tools.build_server(
         directory=registry,
         interaction_svc=interactions.interaction_svc,
+        file_svc=file_svc,
         dotenv_path=settings.dotenv_path,
         session_resolver=_resolve_conversation,
     )

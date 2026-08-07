@@ -13,6 +13,7 @@ from crucible.ports.chat.types import (
     Attachment,
     ConversationRef,
     IncomingMessage,
+    OutgoingFile,
     UserProfile,
 )
 
@@ -27,6 +28,7 @@ __all__ = [
     "InteractionService",
     "ConversationRef",
     "IncomingMessage",
+    "OutgoingFile",
     "UserProfile",
     "KIND_THREAD",
     "KIND_DM",

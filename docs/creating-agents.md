@@ -77,6 +77,9 @@ no tools at all**. Two rules to remember:
 - **An agent that receives files needs `read` (and usually `bash`)**: a picture
   is shown to the model on its own, but a PDF or an archive arrives as an
   absolute path it has to open itself. See [files.md](files.md).
+  - **`send_file`** posts a file back into the conversation. It reads only from
+    the agent's own profile directory, its attachment directory and `/tmp`, so
+    an agent that generates something must write it in one of those first.
 
 ## Asking with controls (widgets and forms)
 

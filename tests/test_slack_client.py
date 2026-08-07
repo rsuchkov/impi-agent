@@ -3,7 +3,13 @@
 from slack_sdk.errors import SlackApiError
 
 from crucible.gateways.slack.client import SlackChatClient
-from crucible.ports.chat.types import Action, ConversationRef, Form, FormField
+from crucible.ports.chat.types import (
+    Action,
+    ConversationRef,
+    Form,
+    FormField,
+    OutgoingFile,
+)
 
 
 class FakeWeb:
@@ -220,3 +226,29 @@ async def test_a_message_with_only_files_is_replayed_as_its_files() -> None:
     snippets = await _sc(web).get_thread_posts(_ref())
 
     assert [s.text for s in snippets] == ["[files: screen.png]"]
+
+
+async def test_post_files_uploads_into_the_thread_with_the_caption() -> None:
+    web = FakeWeb()
+
+    await _sc(web).post_files(
+        _ref(root="100.1"),
+        [OutgoingFile(name="chart.png", data=b"PNG", mime="image/png")],
+        text="**the trend**",
+    )
+
+    kw = web.last("files_upload_v2")
+    assert kw["channel"] == "C1" and kw["thread_ts"] == "100.1"
+    assert kw["file_uploads"] == [
+        {"filename": "chart.png", "content": b"PNG", "title": "chart.png"}
+    ]
+    assert kw["initial_comment"] == "*the trend*"  # Markdown -> mrkdwn, like a reply
+
+
+async def test_post_files_without_a_caption_sends_none() -> None:
+    web = FakeWeb()
+
+    await _sc(web).post_files(_ref(root=""), [OutgoingFile(name="a.txt", data=b"x")])
+
+    kw = web.last("files_upload_v2")
+    assert kw["initial_comment"] is None and kw["thread_ts"] is None

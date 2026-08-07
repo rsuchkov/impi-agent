@@ -21,6 +21,7 @@ from crucible.ports.chat.types import (
     Card,
     ConversationRef,
     Form,
+    OutgoingFile,
     PostSnippet,
     UserProfile,
 )
@@ -78,6 +79,21 @@ class SlackChatClient:
     async def post_notice(self, ref: ConversationRef, text: str) -> None:
         # Port contract: notices are fixed system strings, sent verbatim.
         await self._post_chunks(ref, text)
+
+    async def post_files(
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+    ) -> None:
+        # files_upload_v2 runs Slack's three-step external upload and posts one
+        # message carrying every file, with the caption as its comment.
+        await self._client.files_upload_v2(
+            file_uploads=[
+                {"filename": file.name, "content": file.data, "title": file.name}
+                for file in files
+            ],
+            channel=ref.channel_id,
+            thread_ts=ref.thread_root_id or None,
+            initial_comment=markdown_to_mrkdwn(text) if text else None,
+        )
 
     async def _post_chunks(self, ref: ConversationRef, text: str) -> None:
         for chunk in chunk_text(text, self._max_post_chars):

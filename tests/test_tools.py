@@ -1,4 +1,5 @@
 import aiohttp
+import pytest
 
 import crucible.builtin_tools  # noqa: F401  # registers the generic ask/form tools
 from crucible.ports.chat.admin import ChannelMember
@@ -357,6 +358,7 @@ def test_registry_knows_all_default_tools() -> None:
         "list_agents", "create_channel", "invite_to_channel", "get_channel_members",
         "send_message", "read_channel", "create_agent",
         "ask_user_buttons", "ask_user_select", "open_form", "send_ephemeral",
+        "send_file",
         "list_skills", "install_skill", "assign_skill", "remove_skill",
     }
 
@@ -888,3 +890,55 @@ async def test_server_resolves_conversation_into_context() -> None:
         assert body == {"channel_id": "C-resolved", "user_id": "U-resolved"}
     finally:
         await server.stop()
+
+
+# --- send_file ----------------------------------------------------------------
+
+
+from crucible.builtin_tools import SendFile  # noqa: E402
+from crucible.ports.chat.files import FileError  # noqa: E402
+from crucible.tools.base import CAP_FILES  # noqa: E402
+
+
+class FakeFileService:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.calls: list[tuple] = []
+        self._error = error
+
+    async def send(self, agent, runtime_session_id, paths, *, text=""):
+        self.calls.append((agent, runtime_session_id, paths, text))
+        if self._error is not None:
+            raise self._error
+        return [p.rsplit("/", 1)[-1] for p in paths]
+
+
+def _ctx_files(file_svc) -> ToolContext:
+    return ToolContext(
+        agent_name="assistant", directory=FakeDirectory(AGENTS),
+        runtime_session_id="assistant--conv", file_svc=file_svc,
+    )
+
+
+async def test_send_file_hands_the_path_and_caption_to_the_service() -> None:
+    svc = FakeFileService()
+
+    result = await SendFile().execute(
+        _ctx_files(svc), {"path": "/tmp/chart.png", "caption": "the trend"}
+    )
+
+    assert result == {"sent": ["chart.png"]}
+    assert svc.calls == [("assistant", "assistant--conv", ["/tmp/chart.png"], "the trend")]
+
+
+async def test_send_file_reports_the_refusal_so_the_agent_can_fix_it() -> None:
+    svc = FakeFileService(error=FileError("/etc/passwd: outside the directories you may send from"))
+
+    with pytest.raises(ToolError, match="outside the directories"):
+        await SendFile().execute(_ctx_files(svc), {"path": "/etc/passwd"})
+
+
+async def test_send_file_needs_the_files_capability() -> None:
+    # Nothing wired (attachments off) — the tool says so instead of crashing.
+    with pytest.raises(ToolError, match="turned off"):
+        await SendFile().execute(_ctx_files(None), {"path": "/tmp/a.png"})
+    assert SendFile.requires == frozenset({CAP_FILES})

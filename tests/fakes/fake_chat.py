@@ -5,6 +5,7 @@ from crucible.ports.chat.types import (
     Card,
     ConversationRef,
     Form,
+    OutgoingFile,
     PostSnippet,
     UserProfile,
 )
@@ -24,6 +25,7 @@ class FakeChat:
         self.updated: list[tuple] = []  # (post_id, cards) — screen redraws
         self.dialogs: list[tuple] = []  # (trigger_id, form, submit_url, state)
         self.channel_names: dict[str, str] = {}  # channel_id -> display name
+        self.posted_files: list[tuple] = []  # (ref, files, text)
 
     async def post_reply(self, ref: ConversationRef, text: str, *, hop_depth: int = 0) -> None:
         self.replies.append((ref, text))
@@ -52,6 +54,11 @@ class FakeChat:
 
     def format_mention(self, username: str) -> str:
         return f"@{username}"
+
+    async def post_files(
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+    ) -> None:
+        self.posted_files.append((ref, files, text))
 
     async def post_actions(
         self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str

@@ -6,6 +6,7 @@ its own tool modules. Tools depend only on ports (the interaction service)."""
 
 from typing import Any, ClassVar
 
+from crucible.ports.chat.files import FileError
 from crucible.ports.chat.interactions import ASK_CHANNELS, ASK_SELECT, ASK_USERS
 from crucible.ports.chat.types import (
     FIELD_TYPES,
@@ -15,6 +16,7 @@ from crucible.ports.chat.types import (
 )
 from crucible.tools.base import (
     CAP_EPHEMERAL,
+    CAP_FILES,
     CAP_FORMS,
     CAP_WIDGETS,
     Tool,
@@ -284,3 +286,42 @@ class SendEphemeral(Tool):
                 f"permission to post ephemeral messages?): {exc}"
             ) from exc
         return {"delivered": True, "ephemeral": True, "user_id": user_id}
+
+
+@tool
+class SendFile(Tool):
+    name: ClassVar[str] = "send_file"
+    requires: ClassVar[frozenset[str]] = frozenset({CAP_FILES})
+    description: ClassVar[str] = (
+        "Send a file from disk to the person you are talking to — a picture, a "
+        "document, a report you just produced. Give the ABSOLUTE path of a file "
+        "you wrote in your own working directory, in your attachments directory, "
+        "or under /tmp; anything else is refused. The optional caption is posted "
+        "as the message the file arrives with."
+    )
+    parameters: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Absolute path of the file to send"},
+            "caption": {
+                "type": "string",
+                "description": "Optional message posted with the file (Markdown)",
+            },
+        },
+        "required": ["path"],
+    }
+
+    async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+        path = _require_str(args, "path")
+        caption = str(args.get("caption") or "")
+        try:
+            sent = await ctx.require_files().send(
+                ctx.agent_name, ctx.runtime_session_id, [path], text=caption
+            )
+        except FileError as exc:
+            # The reason is the agent's to act on: a wrong path is fixable, a
+            # size limit means it should send something smaller.
+            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            raise ToolError(f"could not send the file: {exc}") from exc
+        return {"sent": sent}

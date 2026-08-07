@@ -8,6 +8,7 @@ from crucible.ports.chat.types import (
     Card,
     ConversationRef,
     Form,
+    OutgoingFile,
     PostSnippet,
     UserProfile,
 )
@@ -54,6 +55,12 @@ class ChatClient(Protocol):
         ...
 
     def format_mention(self, username: str) -> str: ...
+
+    async def post_files(
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+    ) -> None:
+        """Post files into the conversation as the agent, with ``text`` as their
+        message. One message carries them all where the platform allows it."""
 
     # -- Interactive widgets ------------------------------------------------
 

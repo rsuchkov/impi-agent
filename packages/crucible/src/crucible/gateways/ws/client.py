@@ -13,6 +13,7 @@ from crucible.ports.chat.types import (
     Card,
     ConversationRef,
     Form,
+    OutgoingFile,
     PostSnippet,
     UserProfile,
 )
@@ -32,6 +33,16 @@ class WsChatClient:
 
     async def post_notice(self, ref: ConversationRef, text: str) -> None:
         await self._hub.send(self._agent, ref.conversation_id, "notice", text)
+
+    async def post_files(
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+    ) -> None:
+        # One frame per file: a service renders each on its own, and a caption
+        # rides with the first so it isn't repeated.
+        for index, file in enumerate(files):
+            await self._hub.send_file(
+                self._agent, ref.conversation_id, file, text=text if index == 0 else ""
+            )
 
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:
         pass  # no reaction concept on this transport

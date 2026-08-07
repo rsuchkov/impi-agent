@@ -177,6 +177,15 @@ class Attachment:
 
 
 @dataclass(frozen=True)
+class OutgoingFile:
+    """A file the agent sends into a conversation, already read into memory."""
+
+    name: str
+    data: bytes
+    mime: str = ""
+
+
+@dataclass(frozen=True)
 class ConversationRef:
     """Platform-neutral address of a conversation/message."""
 

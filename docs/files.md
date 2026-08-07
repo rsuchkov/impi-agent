@@ -48,7 +48,28 @@ id names the file.
 
 ## Sending a file to the user
 
-Not yet — the outbound half (an agent posting a file back) is the next step.
+The **`send_file`** tool posts a file into the conversation the turn is running
+in — the same thread, not a new message somewhere else:
+
+```
+send_file(path="/tmp/revenue.png", caption="Q3, by region")
+```
+
+Add it to the agent's `runtime.tools` like any other tool. It takes an absolute
+path and an optional caption, and the agent typically writes the file first
+(`bash`, `write`, a skill's script) and then sends it.
+
+**Where it may read from.** Three roots, checked after resolving the path so a
+symlink can't lead out of them:
+
+- the agent's **profile directory** — its own working directory;
+- its **attachment directory** — so it can hand back something it was sent;
+- the **system temp directory** — where a turn's scratch output naturally lands.
+
+Anything else is refused with a message the agent can act on ("outside the
+directories you may send from"), as are a missing file and one over
+`ATTACHMENT_MAX_MB`. The engine's own configuration and checkout are outside
+those roots, so "send me your .env" doesn't work.
 
 ## Per platform
 
@@ -56,11 +77,13 @@ Not yet — the outbound half (an agent posting a file back) is the next step.
 |---|---|---|---|
 | Incoming files | native | needs the `files:read` scope | inline in the frame |
 | Message with no text | delivered (a photo alone is a message) | same | same |
+| `send_file` | uploads, then one post | `files.upload` (needs `files:write`) | a `file` frame |
 
 **Slack** attaches files to a `file_share` message; the bot downloads them with
 its own token, which requires the **`files:read`** scope on the app (add it in
 *OAuth & Permissions* and reinstall the app — without it Slack answers the
-download with its sign-in page, and the engine logs exactly that).
+download with its sign-in page, and the engine logs exactly that). Sending needs
+**`files:write`**.
 
 **ws** services send bytes inline, base64-encoded, since a service may share no
 filesystem with the engine:
@@ -71,6 +94,13 @@ filesystem with the engine:
  "files": [{"name": "photo.jpg", "mime": "image/jpeg", "data": "<base64>"}]}
 ```
 
+and receive them the same way, one frame per file:
+
+```jsonc
+{"type": "file", "agent": "helper", "conversation_id": "user-42",
+ "name": "chart.png", "mime": "image/png", "data": "<base64>", "text": "caption"}
+```
+
 See [ws-gateway.md](ws-gateway.md) for the rest of the protocol.
 
 ## Limits
@@ -78,7 +108,7 @@ See [ws-gateway.md](ws-gateway.md) for the rest of the protocol.
 | Knob | Default | What it does |
 |---|---|---|
 | `ATTACHMENTS_ENABLED` | `true` | off = attachments are ignored entirely |
-| `ATTACHMENT_MAX_MB` | `20` | per file; a bigger one is skipped (logged), the message still arrives |
+| `ATTACHMENT_MAX_MB` | `20` | per file, both directions; a bigger incoming one is skipped (logged), the message still arrives |
 | `ATTACHMENT_RETENTION_DAYS` | `14` | `0` = keep forever |
 | `INLINE_IMAGE_MAX_MB` | `4` | above this a picture is not shown to the model, only named by path |
 | `ATTACHMENTS_DIR` | `{DATA_DIR}/attachments` | where they land |
@@ -96,6 +126,9 @@ backend refuses would keep failing the conversation, not just the turn it
 arrived in. If a backend ever refuses one anyway, the engine logs the failure
 along with the command that resets that conversation — see
 [troubleshooting.md](troubleshooting.md).
+
+`send_file` sends one file per call, at most 5 in one message if a caller ever
+batches them (Mattermost's own per-post limit).
 
 A failure with one file never costs the user their message — the download error
 is logged and the turn runs with whatever else arrived.
