@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.7.0 — 2026-08-07
+
 - **Agents receive files and photos.** Attach a screenshot in Mattermost or
   Slack (or send bytes inline over the ws gateway) and the engine downloads it,
   keeps it under `DATA_DIR/attachments/<agent>/<conversation>/`, and names it in
