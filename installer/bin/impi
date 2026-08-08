@@ -121,6 +121,8 @@ impi — manage your impi deployment
   impi restart             restart the engine (picks up .env + new agents)
   impi reload              re-read agent profiles in place (skills, tools, prompts)
   impi skill list|install|assign ...   the shared skill library
+  impi task list|show|runs|add|rm|pause|resume|run-now|status
+                           scheduled and recurring work
   impi agent add|list ...  manage agents (runs the CLI inside the container)
   impi login               interactive pi model login inside the container
   impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
@@ -274,6 +276,9 @@ cmd_doctor() {
     else
         bad "engine never logged 'app built:' — see \`impi logs\`"
     fi
+    # The scheduler's own verdict: an idle ticker and a dead one look the same
+    # from outside, so it is asked rather than guessed at.
+    compose run --rm -T impi impi task status || true
     compose run --rm -T impi impi health || true
 }
 
@@ -297,6 +302,7 @@ case "${1:-}" in
     restart)   shift; cmd_restart ;;
     reload)    shift; cmd_reload ;;
     skill)     shift; compose run --rm impi impi skill "$@" ;;
+    task)      shift; compose run --rm impi impi task "$@" ;;
     agent)     shift; cmd_agent "$@" ;;
     login)     shift; cmd_login "$@" ;;
     update)    shift; cmd_update "$@" ;;

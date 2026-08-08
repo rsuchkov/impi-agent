@@ -162,3 +162,109 @@ def test_ws_add_service_registers_token_and_allowlist(capsys, _isolated_env):
 
 def test_ws_add_service_rejects_bad_names(_isolated_env):
     assert cli.main(["ws", "add-service", "Bad Name"]) == 2
+
+
+# --- impi task ----------------------------------------------------------------
+
+
+def _task_db(tmp_path, monkeypatch):
+    """A throwaway engine database with one conversation the CLI can schedule in."""
+    from crucible.ports.chat.types import KIND_DM
+    from crucible.store.sessions import SqliteSessionStore
+
+    monkeypatch.setenv("DOTENV_PATH", "/dev/null")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCHEDULER_TIMEZONE", "Europe/Belgrade")
+    store = SqliteSessionStore(tmp_path / "impi.db")
+    store.get_or_create_sync("assistant", "ch1", "dm1", KIND_DM, "u1")
+    store.close_sync()
+
+
+def test_task_add_echoes_the_next_fire_times(tmp_path, monkeypatch, capsys) -> None:
+    _task_db(tmp_path, monkeypatch)
+
+    code = cli.main([
+        "task", "add", "--agent", "assistant", "--conversation", "dm1",
+        "--name", "digest", "--prompt", "summarize", "--schedule", "0 9 * * 1-5",
+    ])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "digest" in out and "(Europe/Belgrade)" in out
+    assert out.count("Europe/Belgrade") == 3  # the next three, read back
+
+
+def test_task_add_names_the_conversations_it_knows(tmp_path, monkeypatch, capsys) -> None:
+    _task_db(tmp_path, monkeypatch)
+
+    code = cli.main([
+        "task", "add", "--agent", "assistant", "--conversation", "nowhere",
+        "--name", "x", "--prompt", "y", "--schedule", "every 1h",
+    ])
+
+    assert code == 1
+    assert "known: dm1" in capsys.readouterr().err
+
+
+def test_a_schedule_that_does_not_parse_is_a_message_not_a_traceback(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _task_db(tmp_path, monkeypatch)
+
+    code = cli.main([
+        "task", "add", "--agent", "assistant", "--conversation", "dm1",
+        "--name", "x", "--prompt", "y", "--schedule", "every 5s",
+    ])
+
+    assert code == 1
+    assert "at least 60s" in capsys.readouterr().err
+
+
+def test_task_run_now_only_asks_the_engine(tmp_path, monkeypatch, capsys) -> None:
+    # The CLI container has no gateways: it moves the schedule, the engine runs it.
+    from crucible.store.sessions import SqliteSessionStore
+
+    _task_db(tmp_path, monkeypatch)
+    cli.main([
+        "task", "add", "--agent", "assistant", "--conversation", "dm1",
+        "--name", "digest", "--prompt", "p", "--schedule", "every 1h",
+    ])
+    capsys.readouterr()
+
+    assert cli.main(["task", "run-now", "digest"]) == 0
+
+    store = SqliteSessionStore(tmp_path / "impi.db")
+    try:
+        task = store.find_task_sync("assistant", "digest")
+        assert task is not None and task.due_at is not None
+        assert store.list_runs_sync(task.id) == []  # nothing ran here
+    finally:
+        store.close_sync()
+
+
+def test_task_status_tells_an_untouched_database_apart(tmp_path, monkeypatch, capsys) -> None:
+    _task_db(tmp_path, monkeypatch)
+
+    code = cli.main(["task", "status"])
+
+    assert code == 1
+    assert "has ever ticked" in capsys.readouterr().out
+
+
+def test_task_status_says_off_when_the_scheduler_is_disabled(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _task_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+
+    code = cli.main(["task", "status"])
+
+    assert code == 0  # off on purpose is not a failure
+    assert "turned off" in capsys.readouterr().out
+
+
+def test_an_unknown_task_is_reported_once_not_raised(tmp_path, monkeypatch, capsys) -> None:
+    _task_db(tmp_path, monkeypatch)
+
+    assert cli.main(["task", "show", "ghost"]) == 1
+    assert "no task 'ghost'" in capsys.readouterr().err

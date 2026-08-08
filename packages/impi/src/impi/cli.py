@@ -19,6 +19,7 @@ from pathlib import Path
 
 import httpx
 
+from crucible.ports.tasks import TaskError
 from impi import provisioning as prov
 from impi.config import ImpiSettings, load_settings
 
@@ -559,6 +560,233 @@ def _cmd_health(args: argparse.Namespace) -> int:
 # --- parser ----------------------------------------------------------------------
 
 
+
+# --- tasks -------------------------------------------------------------------
+
+
+def _store():
+    from crucible.store.sessions import SqliteSessionStore
+
+    return SqliteSessionStore(_settings().resolved_db_path)
+
+
+def _admin(store):
+    from crucible.scheduler.admin import TaskAdmin
+
+    settings = _settings()
+    return TaskAdmin(
+        store, store,
+        default_timezone=settings.scheduler.timezone,
+        max_per_agent=settings.scheduler.max_tasks_per_agent,
+    )
+
+
+def _with_store(work) -> int:
+    """Open the engine's database, do one thing, close it. The CLI runs in its
+    own container: it may read and edit rows, but it never fires a run — it has
+    no gateways to answer through."""
+    store = _store()
+    try:
+        return asyncio.run(work(store))
+    finally:
+        store.close_sync()
+
+
+def _find_task(store, wanted: str):
+    found = store.get_task_sync(wanted)
+    if found is not None:
+        return found
+    matches = [t for t in store.list_tasks_sync() if t.name == wanted]
+    if len(matches) > 1:
+        raise TaskError(
+            f"{wanted!r} is the name of {len(matches)} tasks — use the id: "
+            + ", ".join(t.id for t in matches)
+        )
+    if not matches:
+        raise TaskError(f"no task {wanted!r}")
+    return matches[0]
+
+
+def _task_rows(tasks) -> list[tuple[str, ...]]:
+    from crucible.scheduler.admin import local_time
+    from crucible.scheduler.triggers import from_iso
+
+    return [
+        (
+            task.name, task.id, task.agent, task.trigger_spec,
+            local_time(from_iso(task.next_run_at), task.timezone) or "—",
+            task.state, task.last_status or "never run",
+        )
+        for task in tasks
+    ]
+
+
+def _print_table(header: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
+    """Columns sized to their content: a zone name like Europe/Belgrade is
+    longer than any fixed width worth guessing at."""
+    widths = [max(len(cell) for cell in column) for column in zip(header, *rows, strict=True)]
+    print(_dim("  ".join(cell.ljust(width) for cell, width in zip(header, widths, strict=True))))
+    for row in rows:
+        line = "  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True))
+        print(line.replace(row[0], _bold(row[0]), 1))
+
+
+def _cmd_task_list(args: argparse.Namespace) -> int:
+    store = _store()
+    try:
+        tasks = store.list_tasks_sync(getattr(args, "agent", None))
+        if not tasks:
+            print("no scheduled tasks")
+            return 0
+        _print_table(
+            ("NAME", "ID", "AGENT", "SCHEDULE", "NEXT RUN", "STATE", "LAST"),
+            _task_rows(tasks),
+        )
+        return 0
+    finally:
+        store.close_sync()
+
+
+def _cmd_task_show(args: argparse.Namespace) -> int:
+    from crucible.scheduler.admin import local_time
+    from crucible.scheduler.triggers import from_iso
+
+    store = _store()
+    try:
+        task = _find_task(store, args.task)
+        print(f"{_bold(task.name)}  {_dim(task.id)}")
+        print(f"  agent        {task.agent}")
+        print(f"  schedule     {task.trigger_spec}  ({task.timezone or 'UTC'})")
+        print(f"  mode         {task.mode}")
+        print(f"  state        {task.state}")
+        print(f"  next run     {local_time(from_iso(task.next_run_at), task.timezone) or '—'}")
+        last = local_time(from_iso(task.last_run_at), task.timezone) or "—"
+        print(f"  last run     {last}{'  ' + task.last_status if task.last_status else ''}")
+        print(f"  runs/missed  {task.run_count}/{task.miss_count}"
+              f"  failures in a row: {task.consecutive_failures}")
+        print(f"  on missed    {task.on_missed}    notify: {task.notify}")
+        print(f"  conversation {task.conversation_id} ({task.kind})")
+        print(f"  prompt       {task.prompt}")
+        return 0
+    finally:
+        store.close_sync()
+
+
+def _cmd_task_runs(args: argparse.Namespace) -> int:
+    store = _store()
+    try:
+        task = _find_task(store, args.task)
+        runs = store.list_runs_sync(task.id, limit=args.limit)
+        if not runs:
+            print(f"{task.name} has not run yet")
+            return 0
+        _print_table(
+            ("SCHEDULED FOR", "STATUS", "TOOK", "WHY"),
+            [
+                (
+                    run.scheduled_at, run.status,
+                    f"{run.duration_ms / 1000:.1f}s" if run.duration_ms else "—",
+                    run.detail or "",
+                )
+                for run in runs
+            ],
+        )
+        return 0
+    finally:
+        store.close_sync()
+
+
+def _cmd_task_add(args: argparse.Namespace) -> int:
+    async def work(store) -> int:
+        sessions = store.list_sync(args.agent)
+        chosen = next(
+            (s for s in sessions if s.conversation_id == args.conversation), None
+        )
+        if chosen is None:
+            known = ", ".join(s.conversation_id for s in sessions) or "none yet"
+            print(
+                f"✘ {args.agent} has no conversation {args.conversation!r} "
+                f"(known: {known})\n"
+                "  A task belongs to a conversation — talk to the agent there first, "
+                "or ask it to schedule the task itself.",
+                file=sys.stderr,
+            )
+            return 1
+        view = await _admin(store).schedule_in(
+            args.agent, channel_id=chosen.channel_id,
+            conversation_id=chosen.conversation_id, kind=chosen.kind,
+            name=args.name, prompt=args.prompt, schedule=args.schedule,
+            mode=args.mode, timezone=args.tz or "", notify=args.notify,
+            on_missed=args.on_missed,
+        )
+        print(f"✔ {view.name} ({view.id}) — next: {view.next_run}")
+        for moment in view.upcoming[1:]:
+            print(f"    then {moment}")
+        return 0
+
+    return _with_store(work)
+
+
+def _cmd_task_rm(args: argparse.Namespace) -> int:
+    async def work(store) -> int:
+        task = _find_task(store, args.task)
+        if not args.yes and not _confirm(f"Delete task {task.name} ({task.id})?"):
+            return 1
+        await _admin(store).cancel(task.agent, task.id)
+        print(f"✔ {task.name} deleted (its history is kept)")
+        return 0
+
+    return _with_store(work)
+
+
+def _cmd_task_pause(args: argparse.Namespace) -> int:
+    paused = args.task_command == "pause"
+
+    async def work(store) -> int:
+        task = _find_task(store, args.task)
+        view = await _admin(store).set_paused(task.agent, task.id, paused)
+        print(f"✔ {view.name} {'paused' if paused else 'resumed'}"
+              + (f" — next: {view.next_run}" if not paused else ""))
+        return 0
+
+    return _with_store(work)
+
+
+def _cmd_task_run_now(args: argparse.Namespace) -> int:
+    from crucible.scheduler.triggers import to_iso, utc_now
+
+    store = _store()
+    try:
+        task = _find_task(store, args.task)
+        # Only ever a request: the engine owns the gateways, so it does the
+        # running. This just brings the next occurrence forward.
+        if not store.request_run_now_sync(task.id, now=to_iso(utc_now()) or ""):
+            print(f"✘ {task.name} is paused or already running", file=sys.stderr)
+            return 1
+        print(f"✔ {task.name} is due now — the engine picks it up within a tick")
+        return 0
+    finally:
+        store.close_sync()
+
+
+def _cmd_task_status(args: argparse.Namespace) -> int:
+    from crucible.scheduler.health import ALIVE, liveness
+    from crucible.scheduler.triggers import utc_now
+
+    settings = _settings()
+    store = _store()
+    try:
+        verdict, detail = liveness(
+            store.read_heartbeat_sync(), now=utc_now(),
+            enabled=settings.scheduler.enabled,
+        )
+        mark = "✔" if verdict == ALIVE else "✘"
+        print(f"{mark} scheduler {verdict}: {detail}")
+        return 0 if verdict in (ALIVE, "absent") else 1
+    finally:
+        store.close_sync()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="impi", description="impi engine companion CLI"
@@ -621,6 +849,48 @@ def _build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--force", action="store_true", help="remove even if assigned")
         cmd.set_defaults(func=handler)
 
+    task = sub.add_parser("task", help="scheduled and recurring work")
+    task_sub = task.add_subparsers(dest="task_command", required=True)
+    for name, help_text, handler in (
+        ("list", "every scheduled task and when it next runs", _cmd_task_list),
+        ("show", "one task in detail", _cmd_task_show),
+        ("runs", "what happened on the last runs, and why", _cmd_task_runs),
+        ("add", "schedule a task in a conversation the agent already has", _cmd_task_add),
+        ("rm", "delete a task (its history is kept)", _cmd_task_rm),
+        ("pause", "stop a task from running", _cmd_task_pause),
+        ("resume", "let a paused task run again, on its original rhythm", _cmd_task_pause),
+        ("run-now", "ask the engine to run a task at once", _cmd_task_run_now),
+        ("status", "is the scheduler alive, and what does it wake for next", _cmd_task_status),
+    ):
+        cmd = task_sub.add_parser(name, help=help_text)
+        if name == "list":
+            cmd.add_argument("--agent", help="only this agent's tasks")
+        elif name == "add":
+            cmd.add_argument("--agent", required=True)
+            cmd.add_argument(
+                "--conversation", required=True,
+                help="conversation id the task belongs to (see `impi task list`)",
+            )
+            cmd.add_argument("--name", required=True, help="short name, unique per agent")
+            cmd.add_argument("--prompt", required=True, help="what the agent should do")
+            cmd.add_argument(
+                "--schedule", required=True,
+                help="'in 2h', '2026-08-09T09:00', 'every 15m' or '0 9 * * 1-5'",
+            )
+            cmd.add_argument("--mode", default="turn", choices=["turn", "prompt"])
+            cmd.add_argument("--tz", help="IANA zone (default: SCHEDULER_TIMEZONE)")
+            cmd.add_argument(
+                "--notify", default="failures", choices=["failures", "always", "never"]
+            )
+            cmd.add_argument("--on-missed", default="run", choices=["run", "skip"])
+        elif name != "status":
+            cmd.add_argument("task", help="task name or id")
+        if name == "runs":
+            cmd.add_argument("--limit", type=int, default=20)
+        if name == "rm":
+            cmd.add_argument("--yes", action="store_true", help="don't ask")
+        cmd.set_defaults(func=handler)
+
     mm = sub.add_parser("mm", help="Mattermost helpers")
     mm_sub = mm.add_subparsers(dest="mm_command", required=True)
     boot = mm_sub.add_parser(
@@ -667,6 +937,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         return args.func(args)
+    except TaskError as exc:
+        # An expected refusal — no such task, a schedule that doesn't parse — is
+        # a message, not a stack trace.
+        print(f"✘ {exc}", file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         print("\naborted", file=sys.stderr)
         return 130

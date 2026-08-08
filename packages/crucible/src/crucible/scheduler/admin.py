@@ -69,10 +69,25 @@ class TaskAdmin:
         schedule: str, mode: str = MODE_TURN, timezone: str = "",
         notify: str = "failures", on_missed: str = ON_MISSED_RUN,
     ) -> TaskView:
+        """From inside a turn: the conversation is the one the turn runs in."""
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
         if record is None:
             raise TaskError("this conversation could not be resolved — nothing was scheduled")
+        return await self.schedule_in(
+            agent, channel_id=record.channel_id, conversation_id=record.conversation_id,
+            kind=record.kind, name=name, prompt=prompt, schedule=schedule, mode=mode,
+            timezone=timezone, notify=notify, on_missed=on_missed,
+            created_by=record.last_user_id,
+        )
 
+    async def schedule_in(
+        self, agent: str, *, channel_id: str, conversation_id: str, kind: str,
+        name: str, prompt: str, schedule: str, mode: str = MODE_TURN,
+        timezone: str = "", notify: str = "failures", on_missed: str = ON_MISSED_RUN,
+        created_by: str = "",
+    ) -> TaskView:
+        """With the conversation named outright — how the CLI schedules, since
+        it runs in its own process with no turn to belong to."""
         name = _clean_name(name)
         prompt = prompt.strip()
         if not prompt:
@@ -111,8 +126,8 @@ class TaskAdmin:
         )
         stamp = to_iso(now) or ""
         task = TaskRecord(
-            id=task_id, agent=agent, name=name, channel_id=record.channel_id,
-            conversation_id=record.conversation_id, kind=record.kind, mode=mode,
+            id=task_id, agent=agent, name=name, channel_id=channel_id,
+            conversation_id=conversation_id, kind=kind, mode=mode,
             prompt=prompt, trigger_kind=trigger.kind, trigger_spec=trigger.spec,
             interval_s=trigger.interval_s, cron_expr=trigger.cron_expr,
             timezone=trigger.timezone, anchor_at=to_iso(trigger.anchor_at) or stamp,
@@ -123,13 +138,13 @@ class TaskAdmin:
             jitter_s=jitter,
             state=STATE_IDLE, claim_owner="", claim_at="", lease_until="",
             on_missed=on_missed, notify=notify, deadline_s=0,
-            created_by=record.last_user_id, created_by_username="",
+            created_by=created_by, created_by_username="",
             created_at=stamp, updated_at=stamp, last_run_at="", last_status="",
             run_count=0, miss_count=0, consecutive_failures=0,
         )
         await self._store.create_task(task)
         logger.info(
-            "task %s scheduled for %s in %s: %s", task_id, agent, record.conversation_id,
+            "task %s scheduled for %s in %s: %s", task_id, agent, conversation_id,
             trigger.spec,
         )
         return _view(task, upcoming=next_occurrences(trigger, now=now, count=3))
