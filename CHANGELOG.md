@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.7.1 — 2026-08-08
+
 - **Fixed: `impi update` ended with a syntax error and could offer to roll back
   a successful update.** Two faults in the wrapper, both reported against 0.7.0:
   it replaced itself with a `cp` over the file bash was still reading, so the
