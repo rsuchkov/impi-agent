@@ -311,7 +311,7 @@ class Scheduler:
             text = (result.text or "").strip()
             if not text:
                 return RUN_EMPTY, "the run produced no text", result
-            await self._notifier.post(
+            await self._notifier.deliver(
                 task.agent, channel_id=task.channel_id,
                 conversation_id=task.conversation_id, kind=task.kind, text=text,
             )
@@ -369,7 +369,7 @@ class Scheduler:
             text = _notice_for(task, run, paused_at=self._max_failures)
             if task is not None and text:
                 try:
-                    await self._notifier.post(
+                    await self._notifier.announce(
                         run.agent, channel_id=task.channel_id,
                         conversation_id=task.conversation_id, kind=task.kind, text=text,
                     )

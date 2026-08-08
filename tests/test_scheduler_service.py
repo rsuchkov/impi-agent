@@ -97,9 +97,12 @@ class FakePrompts:
 
 class FakeNotifier:
     def __init__(self) -> None:
-        self.posts: list[tuple[str, str]] = []  # (agent, text)
+        self.posts: list[tuple[str, str]] = []  # (agent, text), either verb
 
-    async def post(self, agent, *, channel_id, conversation_id, kind, text) -> None:
+    async def deliver(self, agent, *, channel_id, conversation_id, kind, text) -> None:
+        self.posts.append((agent, text))
+
+    async def announce(self, agent, *, channel_id, conversation_id, kind, text) -> None:
         self.posts.append((agent, text))
 
 

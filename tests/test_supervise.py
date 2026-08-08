@@ -37,7 +37,7 @@ class FlakyGateway:
 async def test_supervise_retries_until_clean_return() -> None:
     gw = FlakyGateway(fail_times=3)
 
-    await asyncio.wait_for(_supervise("assistant", gw, sleep=_fast_sleep), timeout=1.0)  # type: ignore[arg-type]
+    await asyncio.wait_for(_supervise("assistant", gw.run, sleep=_fast_sleep), timeout=1.0)
 
     assert gw.runs == 4  # 3 failures retried, 4th returns cleanly
 
@@ -47,8 +47,8 @@ async def test_one_gateway_failure_does_not_kill_others() -> None:
     flaky = FlakyGateway(fail_times=2)
     healthy = FlakyGateway(fail_times=0, then_hang=True)
 
-    healthy_task = asyncio.ensure_future(_supervise("healthy", healthy, sleep=_fast_sleep))  # type: ignore[arg-type]
-    await asyncio.wait_for(_supervise("flaky", flaky, sleep=_fast_sleep), timeout=1.0)  # type: ignore[arg-type]
+    healthy_task = asyncio.ensure_future(_supervise("healthy", healthy.run, sleep=_fast_sleep))
+    await asyncio.wait_for(_supervise("flaky", flaky.run, sleep=_fast_sleep), timeout=1.0)
 
     # flaky recovered; healthy kept running the whole time.
     assert flaky.runs == 3

@@ -17,7 +17,9 @@ import logging
 import os
 import random
 import signal
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from importlib import metadata
 from pathlib import Path
 
 # Importing these runs their @tool decorators so build_registry() sees them:
@@ -48,11 +50,11 @@ from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.loopguard import LoopGuard
 from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
-from crucible.ports.chat.gateway import Gateway
 from crucible.profiles import CompositeProfileStore, FsProfileStore, ProfileStore
 from crucible.reloader import ProfileReloader
 from crucible.runtimes.pi import EXTENSION_PATH, build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
+from crucible.scheduler.service import Scheduler
 from crucible.skills import SkillLibrary
 from crucible.store.base import SessionStore
 from crucible.store.sessions import SqliteSessionStore
@@ -61,6 +63,7 @@ from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
 from impi.gateways import resolve_gateway
 from impi.registry import RegistryService
+from impi.scheduling import PresenceNotifier, RuntimePromptRunner, SinkTurnDispatcher
 from impi.skill_screen import SkillScreen
 
 logger = logging.getLogger(__name__)
@@ -112,6 +115,16 @@ class App:
     integrations: InteractionsServer | None
     reloader: ProfileReloader
     ws_hub: WsHub | None = None
+    scheduler: Scheduler | None = None
+
+
+def _engine_version() -> str:
+    """The running build, recorded in the scheduler's heartbeat so a stale row
+    names the version that wrote it."""
+    try:
+        return metadata.version("impi")
+    except metadata.PackageNotFoundError:  # a source checkout without an install
+        return ""
 
 
 def _signal_reload() -> None:
@@ -379,6 +392,31 @@ def build_app(settings: ImpiSettings) -> App:
         dotenv_path=settings.dotenv_path,
         session_resolver=_resolve_conversation,
     )
+    # Scheduled work. Built after the units, because its dispatcher reads the
+    # live {agent: AgentSink} map and its prompt runner the units' profiles.
+    scheduler: Scheduler | None = None
+    if settings.scheduler.enabled:
+        units_by_name = {unit.spec.name: unit for unit in units}
+
+        def _profile_of(agent: str) -> AgentProfile | None:
+            unit = units_by_name.get(agent)
+            # The flow's own profile, so a hot-reload applies to the next
+            # memoryless run too.
+            return unit.flow.profile if unit else None
+
+        scheduler = Scheduler(
+            sessions,
+            dispatcher=SinkTurnDispatcher(sinks_by_agent),
+            prompts=RuntimePromptRunner(runtime, _profile_of),
+            notifier=PresenceNotifier(presence),
+            tick_s=settings.scheduler.tick_s,
+            startup_grace_s=settings.scheduler.startup_grace_s,
+            run_deadline_s=settings.scheduler.run_deadline_s,
+            max_concurrent=settings.scheduler.max_concurrent,
+            max_failures=settings.scheduler.max_failures,
+            version=_engine_version(),
+        )
+
     reloader = ProfileReloader(
         profiles=profiles,
         runtime=runtime,
@@ -388,13 +426,15 @@ def build_app(settings: ImpiSettings) -> App:
     )
 
     logger.info(
-        "app built: agents=[%s], mm=%s, data=%s, tools=%s, widgets=%s, ws=%s",
+        "app built: agents=[%s], mm=%s, data=%s, tools=%s, widgets=%s, ws=%s, "
+        "scheduler=%s",
         ", ".join(u.spec.name for u in units),
         settings.mattermost_url,
         settings.data_dir,
         "on" if tool_server else "off",
         "on" if interactions.receiver else "off",
         f"on:{settings.ws_port}" if ws_hub else "off",
+        f"on:{settings.scheduler.tick_s:.0f}s" if scheduler else "off",
     )
     return App(
         settings=settings,
@@ -406,24 +446,28 @@ def build_app(settings: ImpiSettings) -> App:
         integrations=interactions.receiver,
         reloader=reloader,
         ws_hub=ws_hub,
+        scheduler=scheduler,
     )
 
 
-async def _supervise(name: str, gateway: Gateway, *, sleep=asyncio.sleep) -> None:
-    """Keep one agent's WS loop alive without letting its failures reach the
-    others. A clean return (disconnect) ends it; any crash is logged and retried
-    with capped exponential backoff + jitter, so one flaky agent never takes the
-    whole engine down. ``sleep`` is injectable for tests."""
+async def _supervise(
+    name: str, run_loop: Callable[[], Awaitable[None]], *, sleep=asyncio.sleep
+) -> None:
+    """Keep one long-running loop alive without letting its failures reach the
+    others — an agent's WS connection, or the scheduler's tick. A clean return
+    (a disconnect) ends it; any crash is logged and retried with capped
+    exponential backoff + jitter, so one flaky loop never takes the whole engine
+    down. ``sleep`` is injectable for tests."""
     backoff = 1.0
     while True:
         try:
-            await gateway.run()
+            await run_loop()
             return
         except asyncio.CancelledError:
             raise
         except Exception:
             delay = backoff + random.uniform(0, backoff)
-            logger.exception("gateway %s crashed; reconnecting in %.0fs", name, delay)
+            logger.exception("%s crashed; restarting in %.0fs", name, delay)
             await sleep(delay)
             backoff = min(backoff * 2, 60.0)
 
@@ -454,9 +498,21 @@ async def run(settings: ImpiSettings) -> None:
             signal.SIGHUP,
             lambda: asyncio.create_task(app.reloader.reload(identities)),
         )
-        # N supervised WS loops in one process; each isolated from the others.
-        await asyncio.gather(*(_supervise(u.spec.name, u.gateway) for u in app.units))
+        # N supervised WS loops in one process, plus the scheduler's tick — each
+        # isolated from the others. The scheduler goes here rather than into a
+        # detached task on purpose: a background task whose exception nobody
+        # observes is exactly how a timer dies unnoticed.
+        loops = [
+            _supervise(f"gateway {unit.spec.name}", unit.gateway.run) for unit in app.units
+        ]
+        if app.scheduler is not None:
+            loops.append(_supervise("scheduler", app.scheduler.run))
+        await asyncio.gather(*loops)
     finally:
+        if app.scheduler is not None:
+            # Before the gateways: a run still in flight needs somewhere to post
+            # its outcome, and wants its row closed rather than reclaimed later.
+            await app.scheduler.stop()
         if app.ws_hub is not None:
             await app.ws_hub.stop()
         if app.integrations is not None:

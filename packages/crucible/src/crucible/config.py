@@ -75,6 +75,20 @@ class IntegrationsSettings(BaseModel):
         return f"{self.public_url.rstrip('/')}/{path}"
 
 
+class SchedulerSettings(BaseModel):
+    """The ticker over the task store. Flat env names on Settings, like the
+    other groups here (SCHEDULER_TICK_S, not SCHEDULER__TICK_S)."""
+
+    enabled: bool
+    tick_s: float
+    timezone: str  # IANA default for tasks that name none
+    max_concurrent: int
+    run_deadline_s: float
+    startup_grace_s: float
+    max_failures: int  # consecutive failures before a task is paused
+    max_tasks_per_agent: int
+
+
 class Settings(BaseSettings):
     """Base engine + gateway configuration. An application subclasses this to add
     its own fields (see ImpiSettings). Extend as the system grows."""
@@ -180,6 +194,23 @@ class Settings(BaseSettings):
     integrations_port: int = 8423
     integrations_public_url: str = ""  # default: http://host.containers.internal:{port}
     integrations_ui_timeout: float = 90.0  # blocking confirm/select: human-answer window
+
+    # Scheduled and recurring work (env: SCHEDULER_*) — read grouped via
+    # `.scheduler`. Off means the ticker never starts and no agent is offered
+    # the scheduling tools; `impi doctor` then says "off", not "broken".
+    scheduler_enabled: bool = True
+    scheduler_tick_s: float = 20.0
+    # Where "09:00" is, for tasks that do not name a zone of their own. The
+    # container has no local time to inherit: it runs in UTC.
+    scheduler_timezone: str = "UTC"
+    scheduler_max_concurrent: int = 2  # scheduled runs at once (the runtime allows 4 sessions)
+    scheduler_run_deadline_s: float = 900.0  # stop WAITING on a run after this
+    scheduler_startup_grace_s: float = 60.0  # let the gateways log in before catching up
+    scheduler_max_failures: int = 5  # then pause the task and say so
+    scheduler_max_tasks_per_agent: int = 50
+    # The slash command that browses tasks, configurable for the same reason
+    # SKILLS_COMMAND is: a workspace may already use the word.
+    tasks_command: str = "tasks"
 
     log_level: str = "INFO"
 
@@ -313,6 +344,19 @@ class Settings(BaseSettings):
         if self.pi_session_dir:
             return Path(self.pi_session_dir)
         return Path(self.data_dir) / "pi-sessions"
+
+    @property
+    def scheduler(self) -> SchedulerSettings:
+        return SchedulerSettings(
+            enabled=self.scheduler_enabled,
+            tick_s=self.scheduler_tick_s,
+            timezone=self.scheduler_timezone,
+            max_concurrent=self.scheduler_max_concurrent,
+            run_deadline_s=self.scheduler_run_deadline_s,
+            startup_grace_s=self.scheduler_startup_grace_s,
+            max_failures=self.scheduler_max_failures,
+            max_tasks_per_agent=self.scheduler_max_tasks_per_agent,
+        )
 
     @property
     def resolved_attachments_dir(self) -> Path:

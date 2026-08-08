@@ -51,9 +51,17 @@ class PromptRunner(Protocol):
 
 
 class Notifier(Protocol):
-    """Where the scheduler speaks in its own voice: the output of a memoryless
-    run, and the failures a turn could not report because it never happened."""
+    """Putting words in a conversation on the scheduler's behalf.
 
-    async def post(
+    Two verbs, for the same reason ChatClient has both: ``deliver`` carries the
+    agent's own prose from a memoryless run and is rendered as a reply, while
+    ``announce`` is engine chrome — why a run did not happen — and goes out
+    verbatim."""
+
+    async def deliver(
+        self, agent: str, *, channel_id: str, conversation_id: str, kind: str, text: str
+    ) -> None: ...
+
+    async def announce(
         self, agent: str, *, channel_id: str, conversation_id: str, kind: str, text: str
     ) -> None: ...

@@ -3,6 +3,8 @@
 import dataclasses
 from pathlib import Path
 
+import pytest
+
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways.mattermost import MattermostChatClient, MattermostGateway
 from crucible.runtimes.pi.profiles import PiProfile
@@ -210,3 +212,62 @@ def test_a_reloaded_profile_updates_the_servers_allowlist(tmp_path: Path) -> Non
     wiring.profile_env(after)
 
     assert wiring.allowlists["assistant"] == frozenset({"list_agents", "ask_user_buttons"})
+
+
+def test_build_app_wires_the_scheduler(tmp_path: Path) -> None:
+    app = build_app(_settings(tmp_path))
+
+    assert app.scheduler is not None
+    # The store is the same file the sessions live in — one database, one writer.
+    assert app.scheduler._store is app.sessions
+
+
+def test_the_scheduler_can_be_turned_off(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+
+    app = build_app(_settings(tmp_path))
+
+    assert app.scheduler is None
+
+
+async def test_the_scheduler_dispatches_through_the_agents_own_sink(tmp_path: Path) -> None:
+    # The seam that matters: a scheduled turn takes the same path a command
+    # does, and comes back with the outcome.
+    from crucible.flows.coalescer import MessageCoalescer
+    from crucible.interactions import AgentSink
+    from crucible.ports.chat.flow import TurnOutcome
+    from crucible.scheduler.ports import DispatchError, TurnRequest
+    from impi.scheduling import SinkTurnDispatcher
+    from tests.fakes.fake_chat import FakeChat
+
+    class Answering:
+        def __init__(self) -> None:
+            self.batches: list = []
+
+        async def handle_batch(self, msgs, chat) -> TurnOutcome:
+            self.batches.append(msgs)
+            return TurnOutcome.REPLIED
+
+    flow = Answering()
+    chat = FakeChat()
+    sinks = {"assistant": AgentSink(sink=MessageCoalescer(flow), chat=chat)}
+    dispatcher = SinkTurnDispatcher(sinks)
+
+    outcome = await dispatcher.run_turn(
+        TurnRequest(
+            agent="assistant", channel_id="ch1", conversation_id="root1", kind="thread",
+            text="the digest, please", message_id="sched-abc", username="roman",
+        )
+    )
+
+    assert outcome is TurnOutcome.REPLIED
+    (message,) = flow.batches[0]
+    assert message.synthetic and message.mentioned  # addressed, not typed
+    assert message.ref.thread_root_id == "root1"  # a thread task answers in its thread
+    assert message.username == "roman"
+
+    with pytest.raises(DispatchError, match="not running"):
+        await dispatcher.run_turn(
+            TurnRequest(agent="nobody", channel_id="c", conversation_id="c", kind="dm",
+                        text="hi", message_id="sched-x")
+        )

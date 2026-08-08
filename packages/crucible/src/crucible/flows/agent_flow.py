@@ -111,6 +111,13 @@ class AgentFlow:
         its runtime session). Unset = no filtering."""
         self._own_user_id = user_id
 
+    @property
+    def profile(self) -> AgentProfile:
+        """The profile the next turn will use — kept current by set_profile, so
+        a caller that runs something outside the flow (a memoryless scheduled
+        run) uses the same configuration a reload just applied."""
+        return self._profile
+
     def set_profile(self, profile: AgentProfile) -> None:
         """Swap the profile the next turn runs with (hot-reload). Only affects
         conversations whose session has not started yet; a live conversation
