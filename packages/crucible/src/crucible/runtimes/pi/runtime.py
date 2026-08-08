@@ -66,6 +66,7 @@ class PiRuntime:
         session_dir: str = "",
         max_concurrent_sessions: int = 4,
         idle_ttl: float = 1800.0,
+        acquire_timeout: float = 120.0,
         extra_env: dict[str, str] | None = None,
         extra_extensions: list[str] | None = None,
         session_factory: SessionFactory | None = None,
@@ -85,6 +86,11 @@ class PiRuntime:
         # (before project trust), so they go here rather than in profile settings.
         self._extra_extensions = extra_extensions or []
         self._semaphore = asyncio.Semaphore(max_concurrent_sessions)
+        # How long a turn may wait for a free slot. A permit is held for as long
+        # as its session lives — including while it idles out its TTL — so
+        # without a bound a turn can wait forever, and the per-turn timeout
+        # never even starts (it applies after the session exists).
+        self._acquire_timeout = acquire_timeout
         self._factory = session_factory or self._spawn_session
 
         self._sessions: dict[str, _ManagedSession] = {}
@@ -213,7 +219,16 @@ class PiRuntime:
         on_event: EventCallback | None,
         cwd: str | None = None,
     ) -> PiRpcSession:
-        await self._semaphore.acquire()
+        try:
+            await asyncio.wait_for(self._semaphore.acquire(), self._acquire_timeout)
+        except TimeoutError as exc:
+            # Every slot is taken, most likely by sessions idling out their TTL.
+            # A timeout here IS an agent timeout: the caller gets the same
+            # fallback it would get from a slow turn, instead of waiting forever.
+            raise PiTimeout(
+                f"no runtime slot within {self._acquire_timeout:.0f}s "
+                f"({len(self._sessions)} session(s) alive)"
+            ) from exc
         try:
             session = await self._factory(profile, session_id, on_event, cwd)
             session.start()

@@ -7,7 +7,7 @@ from typing import cast
 import pytest
 
 from crucible.ports.agent.runtime import PromptImage
-from crucible.runtimes.pi.errors import PiProcessError
+from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.runtime import PiRuntime, SessionFactory, _safe_session_id
 from crucible.runtimes.pi.session import PiResult, PiRpcSession
@@ -368,3 +368,27 @@ async def test_session_id_is_injected_into_env(monkeypatch) -> None:
     rt = PiRuntime()
     await rt._spawn_session(_profile(), "assistant--conv1", None)
     assert captured["env"]["RUNTIME_SESSION_ID"] == "assistant--conv1"
+
+
+async def test_a_turn_does_not_wait_forever_for_a_free_slot() -> None:
+    # Permits are held for as long as a session lives, idle included, so an
+    # unbounded wait would hang the turn with no timeout to end it: the per-turn
+    # deadline only starts once the session exists.
+    rt = _runtime_with([FakeSession(), FakeSession()], max_concurrent_sessions=1)
+    rt._acquire_timeout = 0.05
+    profile = _profile()
+    await rt.run_stateful(profile, "assistant--T1", "one")  # holds the only permit
+
+    with pytest.raises(PiTimeout, match="no runtime slot"):
+        await rt.run_stateful(profile, "assistant--T2", "two")
+
+
+async def test_a_freed_slot_is_taken_by_the_waiting_turn() -> None:
+    rt = _runtime_with([FakeSession(), FakeSession()], max_concurrent_sessions=1)
+    rt._acquire_timeout = 5.0
+    profile = _profile()
+    await rt.run_stateful(profile, "assistant--T1", "one")
+    await rt.drop_agent_sessions("assistant")  # releases the permit
+
+    result = await rt.run_stateful(profile, "assistant--T2", "two")
+    assert result.text == "ok"

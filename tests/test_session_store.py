@@ -259,3 +259,14 @@ async def test_an_older_engine_still_reads_a_migrated_db(tmp_path: Path) -> None
         conn.commit()
     finally:
         conn.close()
+
+
+async def test_a_busy_timeout_is_set_so_the_second_process_waits(tmp_path) -> None:
+    # The CLI runs in its own container against the same file; without a timeout
+    # a write that lands during the engine's write fails instead of waiting.
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        timeout = store._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        assert timeout == 5000
+    finally:
+        await store.close()

@@ -93,6 +93,11 @@ class SqliteSessionStore:
         self._lock = threading.Lock()
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")
+            # The engine is not the only writer: the CLI runs in a second
+            # container against the same file. Without a busy timeout, a write
+            # that lands while the other process holds the lock fails outright
+            # instead of waiting the millisecond it takes.
+            self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.executescript(_SCHEMA)
             self._migrate()
             self._conn.commit()

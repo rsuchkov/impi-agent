@@ -11,6 +11,12 @@ dependencies = [
     "pydantic-settings>=2.6",
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
+    # Scheduling. croniter owns cron-field semantics (lists, steps, the dom/dow
+    # OR rule) — the class of detail a hand-rolled parser gets quietly wrong by
+    # an hour or a day. tzdata ships the IANA database with the package, so a
+    # named zone resolves the same in the slim container, in CI and in a venv.
+    "croniter>=3.0",
+    "tzdata>=2024.1",
     # Round-trip YAML: assigning a skill edits a profile a human wrote and keeps
     # its comments and layout, which a pyyaml dump would erase.
     "ruamel.yaml>=0.18",
