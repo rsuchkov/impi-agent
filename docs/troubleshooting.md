@@ -125,6 +125,30 @@ uv run python -m crucible.sessions_cli delete <agent>--<conversation>
 That forgets the conversation (inventory row + the runtime's memory for it) and
 the next message starts fresh. See [files.md](files.md).
 
+## A scheduled task didn't run
+
+Ask the scheduler before guessing — an idle ticker and a dead one look the same
+from outside:
+
+```bash
+impi task status          # alive / stale / never / absent, and the next wake-up
+impi task runs <task>     # every occurrence, with the reason it ended that way
+```
+
+- **`absent`** — `SCHEDULER_ENABLED=false`. Off on purpose, not broken.
+- **`stale` or `never`** — the loop is not ticking; `impi logs` will have the
+  reason, and the heartbeat carries the last error it hit.
+- **the run says `missed`** — it was later than its grace window (half the
+  period, 2 min…2 h) or the task has `on_missed: skip`. A catch-up happens once,
+  not once per missed interval.
+- **`no_agent`** — the agent isn't running: no profile, or no token.
+- **the task is `paused`** — five failures in a row pause a task; it said so in
+  the conversation. `impi task resume <task>`.
+
+Times are read in the task's own zone (`impi task show` prints it). The container
+runs in UTC, so a schedule written without a zone means UTC — set
+`SCHEDULER_TIMEZONE`. See [tasks.md](tasks.md).
+
 ## Changes to a profile don't take effect
 
 - **Editing** an agent (`agent.yaml`, `SYSTEM.md`, skills) applies with a **reload**:

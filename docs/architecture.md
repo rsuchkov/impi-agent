@@ -48,9 +48,11 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   verbs), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `FileService`
   (the tool-facing "send this file"), `MessageSink` / `Flow` (inbound entry
-  point), `AgentDirectory` (who our agents are), and `types` (the neutral
-  vocabulary: `ConversationRef`, `IncomingMessage`, `Attachment`, `Action`,
-  `Form`, …).
+  point, returning a `TurnOutcome`), `AgentDirectory` (who our agents are), and
+  `types` (the neutral vocabulary: `ConversationRef`, `IncomingMessage`,
+  `Attachment`, `Action`, `Form`, …).
+- **Tasks** (`ports/tasks`): `TaskService` — the tool-facing "schedule this for
+  later", kept apart from the chat ports because scheduling is not a chat idea.
 
 ## The `pi` runtime driver
 
@@ -211,6 +213,20 @@ a `View` (text + actions), and each click carries its own state back and
 message. Listing what exists and editing a profile are facts and edits, so a
 model in the loop would only add latency and a chance to name a skill that isn't
 there. See [skills.md](skills.md).
+
+**Scheduled task.** `crucible.scheduler` is one ticker over the task tables in
+the same SQLite file. Each pass reads what is due and decides one of four things
+— the previous run is still going (`overlap`), the process only just started
+(defer), it is later than its grace window (`missed`), or it runs — and every
+decision writes a row, so "why didn't it run" always has an answer. An occurrence
+is claimed with a compare-and-swap that advances the schedule in the same
+transaction, which is what makes a double fire impossible; the next occurrence is
+always computed from the previous SCHEDULED instant, never from the clock, which
+is what keeps a restart from skipping a day. The tick runs inside `run()`'s
+`gather` under the same supervision as the gateways, and writes a heartbeat at the
+end of every pass so an idle scheduler can be told from a dead one. Firing goes
+through the agent's own sink (`submit_tracked`), so a scheduled turn is an
+ordinary turn that happens to report its outcome. See [tasks.md](tasks.md).
 
 **Command.** a user runs a slash command (Mattermost `POST`s to
 `/command/{agent}` on the receiver, verified by the command's token) or picks a

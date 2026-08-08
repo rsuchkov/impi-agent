@@ -47,7 +47,11 @@ An application depends only on these; concretes are swappable behind them.
   interaction, post, and match the callback later.
 - `FileService` — what a tool calls to send a file into the conversation the
   turn runs in; it also owns which directories an agent may read from.
-- `MessageSink` / `Flow` — where a gateway hands an incoming message.
+- `MessageSink` / `Flow` — where a gateway hands an incoming message; a flow
+  answers with a `TurnOutcome`, which is how the scheduler learns whether the
+  turn it started actually worked.
+- `TaskService` (`crucible.ports.tasks`) — what a tool calls to schedule work
+  for later.
 - `AgentDirectory` — who our agents are (for dispatch decisions).
 - `types` — the neutral vocabulary (`ConversationRef`, `IncomingMessage`,
   `Attachment`, `OutgoingFile`, `Action`, `Form`, …),

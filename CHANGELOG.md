@@ -6,7 +6,35 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Agents can work on a schedule.** "Remind me in two hours", "every weekday at
+  nine, go through my inbox": a task is a prompt plus a schedule, kept in the
+  engine's database and run in the conversation it was created in. Write it as a
+  delay (`in 2h`), a moment, an interval (`every 15m`) or a cron expression, in
+  the zone you mean (`SCHEDULER_TIMEZONE`, or per task) — a cron keeps its
+  wall-clock time across a daylight-saving change, an interval stays an absolute
+  duration. A run is either an ordinary turn in that conversation, with its
+  memory, or a fresh memoryless one whose answer the engine posts. Manage them in
+  chat (the agent has `schedule_task` and friends, and answers with the next few
+  fire times so a misunderstanding surfaces immediately), from `/tasks`, or with
+  `impi task list|show|runs|add|rm|pause|resume|run-now|status`. See
+  [docs/tasks.md](docs/tasks.md).
+- **A run that doesn't happen says why.** Every occurrence leaves a row —
+  `ok`, `missed`, `overlap`, `timeout`, `deadline`, `interrupted`, `no_agent` and
+  the rest — with the reason in plain words, readable with `impi task runs`. If
+  the engine was down at the due time the task catches up **once**, and only
+  inside its grace window; later than that it is reported as missed and moves on.
+  A failure is never silent and never announced twice: in the conversation the
+  turn already posted about, the scheduler stays quiet. Five failures in a row
+  pause a task and say so.
+- **The scheduler can be asked whether it is alive.** It records a heartbeat at
+  the end of every pass, so `impi task status`, `impi doctor` and the `/tasks`
+  header can tell an idle ticker from a stopped one, and name what it wakes for
+  next — the failure mode where a timer quietly dies and every task simply stops.
+- **Fixed: a turn could wait forever for a runtime slot.** A semaphore permit is
+  held for as long as its session lives, idle time included, and the wait had no
+  bound — while the per-turn timeout only starts once the session exists. A turn
+  with no free slot hung silently, never raising a timeout and never reaching the
+  user's fallback message. It now gives up after two minutes and reports it.
 
 ## v0.7.1 — 2026-08-08
 

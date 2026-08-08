@@ -72,6 +72,7 @@ The installer drops a small CLI into `~/.local/bin/impi`:
 | `impi restart` | restart the engine — picks up `.env` edits and new agents |
 | `impi reload` | re-read agent profiles in place (skills, tools, prompts) — no restart |
 | `impi skill …` | the shared skill library (see [skills.md](skills.md)) |
+| `impi task …` | scheduled and recurring work (see [tasks.md](tasks.md)) |
 | `impi agent add` | interactive agent creation (bot + profile + `.env`) |
 | `impi agent list` | profiles with token status |
 | `impi login` | pi subscription login inside the container |

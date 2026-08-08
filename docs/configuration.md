@@ -125,6 +125,22 @@ See [files.md](files.md) for what an agent gets and what each platform needs.
 | `ATTACHMENT_RETENTION_DAYS` | `14` | delete attachments older than this; `0` = keep forever |
 | `INLINE_IMAGE_MAX_MB` | `4` | above this a picture is not shown to the model, only named by path |
 
+## Scheduled work
+
+See [tasks.md](tasks.md) for what a task is and how a missed run is handled.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SCHEDULER_ENABLED` | `true` | master switch: off = no ticker, and no agent is offered the scheduling tools |
+| `SCHEDULER_TICK_S` | `20` | how often the engine looks for due work |
+| `SCHEDULER_TIMEZONE` | `UTC` | the zone a task's schedule is read in when it names none (the container runs in UTC) |
+| `SCHEDULER_MAX_CONCURRENT` | `2` | scheduled runs at once; the runtime allows `PI_MAX_CONCURRENT_SESSIONS` in total |
+| `SCHEDULER_RUN_DEADLINE_S` | `900` | stop waiting on a run (the turn is not cancelled) |
+| `SCHEDULER_STARTUP_GRACE_S` | `60` | wait this long after a start before catching anything up |
+| `SCHEDULER_MAX_FAILURES` | `5` | failures in a row before a task is paused |
+| `SCHEDULER_MAX_TASKS_PER_AGENT` | `50` | cap on tasks one agent may create |
+| `TASKS_COMMAND` | `tasks` | the slash command the task browser binds to |
+
 ## pi runtime
 
 | Variable | Default | Purpose |
