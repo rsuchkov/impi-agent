@@ -20,7 +20,14 @@ from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
-from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FILES, CAP_FORMS, CAP_WIDGETS
+from crucible.ports.tasks import TaskService
+from crucible.tools.base import (
+    CAP_CHAT_ADMIN,
+    CAP_FILES,
+    CAP_FORMS,
+    CAP_SCHEDULER,
+    CAP_WIDGETS,
+)
 from crucible.tools.registry import ToolRegistry, build_registry
 from crucible.tools.server import SessionResolver, ToolServer
 
@@ -51,7 +58,7 @@ def _gate_tools(
 class ToolWiring:
     def __init__(
         self, tools: ToolSettings, *, data_dir: str, interactivity_on: bool,
-        files_on: bool = False,
+        files_on: bool = False, scheduler_on: bool = False,
     ) -> None:
         self._tools = tools
         self.registry = build_registry() if tools.enabled else None
@@ -68,6 +75,7 @@ class ToolWiring:
         self.base_caps = (
             (frozenset({CAP_WIDGETS, CAP_FORMS}) if interactivity_on else frozenset())
             | (frozenset({CAP_FILES}) if files_on else frozenset())
+            | (frozenset({CAP_SCHEDULER}) if scheduler_on else frozenset())
         )
 
     @property
@@ -125,6 +133,7 @@ class ToolWiring:
         directory: AgentDirectory,
         interaction_svc: InteractionService | None,
         file_svc: FileService | None = None,
+        task_svc: TaskService | None = None,
         dotenv_path: str,
         session_resolver: SessionResolver | None = None,
     ) -> ToolServer | None:
@@ -141,5 +150,6 @@ class ToolWiring:
             tool_configs=self.registry.load_configs(env_file=dotenv_path),
             interaction_svc=interaction_svc,
             file_svc=file_svc,
+            task_svc=task_svc,
             session_resolver=session_resolver,
         )

@@ -360,6 +360,7 @@ def test_registry_knows_all_default_tools() -> None:
         "ask_user_buttons", "ask_user_select", "open_form", "send_ephemeral",
         "send_file",
         "list_skills", "install_skill", "assign_skill", "remove_skill",
+        "schedule_task", "list_tasks", "cancel_task", "pause_task",
     }
 
 

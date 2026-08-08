@@ -15,6 +15,7 @@ from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
+from crucible.ports.tasks import TaskService
 
 # Capabilities a tool may require (Tool.requires). The composition root advertises
 # a tool to an agent only when its gateway/config provides every required
@@ -24,6 +25,7 @@ CAP_WIDGETS = "widgets"  # interactive widgets (buttons / selects)
 CAP_FORMS = "forms"  # modal forms
 CAP_EPHEMERAL = "ephemeral"  # messages visible only to one user (Mattermost + Slack)
 CAP_FILES = "files"  # sending a file into the conversation
+CAP_SCHEDULER = "scheduler"  # scheduling work for later
 
 
 class ToolError(Exception):
@@ -54,6 +56,8 @@ class ToolContext:
     # Sending a file into the conversation this call runs in (None = the
     # deployment has attachments turned off).
     file_svc: FileService | None = None
+    # Scheduling work for later (None = the deployment has the scheduler off).
+    task_svc: TaskService | None = None
     # The conversation this call runs inside, resolved from runtime_session_id by
     # the server (plain strings — the tool layer stays free of store types).
     # channel_id: where the turn happened; user_id: who last triggered it. Empty
@@ -75,6 +79,14 @@ class ToolContext:
         if self.file_svc is None:
             raise ToolError("sending files is turned off in this deployment")
         return self.file_svc
+
+    def require_tasks(self) -> TaskService:
+        """The scheduling service, or a ToolError if this deployment has the
+        scheduler off (declare CAP_SCHEDULER so this can't happen for an
+        advertised tool)."""
+        if self.task_svc is None:
+            raise ToolError("scheduling is turned off in this deployment")
+        return self.task_svc
 
     def require_interactions(self) -> InteractionService:
         """The widget/form service, or a ToolError if interactivity is off (declare

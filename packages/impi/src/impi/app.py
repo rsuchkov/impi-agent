@@ -29,6 +29,7 @@ import crucible.builtin_tools  # noqa: E402,F401
 import impi.agent_tools  # noqa: E402,F401
 import impi.chat_tools  # noqa: E402,F401
 import impi.skill_tools  # noqa: E402,F401
+import impi.task_tools  # noqa: E402,F401
 from crucible.attachments import AttachmentStore
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
@@ -54,6 +55,7 @@ from crucible.profiles import CompositeProfileStore, FsProfileStore, ProfileStor
 from crucible.reloader import ProfileReloader
 from crucible.runtimes.pi import EXTENSION_PATH, build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
+from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
 from crucible.skills import SkillLibrary
 from crucible.store.base import SessionStore
@@ -325,6 +327,7 @@ def build_app(settings: ImpiSettings) -> App:
         settings.tools, data_dir=settings.data_dir,
         interactivity_on=settings.integrations.enabled,
         files_on=settings.attachments_enabled,
+        scheduler_on=settings.scheduler.enabled,
     )
     profile_builder = ProfileBuilder(tools)
     # Where files people attach land. Swept once at startup so a long-running
@@ -385,10 +388,20 @@ def build_app(settings: ImpiSettings) -> App:
             },
             max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
         )
+    # Creating tasks needs only the store, so it is ready before the tool
+    # server; the ticker that fires them needs the units and comes after.
+    task_admin: TaskAdmin | None = None
+    if settings.scheduler.enabled:
+        task_admin = TaskAdmin(
+            sessions, sessions,
+            default_timezone=settings.scheduler.timezone,
+            max_per_agent=settings.scheduler.max_tasks_per_agent,
+        )
     tool_server = tools.build_server(
         directory=registry,
         interaction_svc=interactions.interaction_svc,
         file_svc=file_svc,
+        task_svc=task_admin,
         dotenv_path=settings.dotenv_path,
         session_resolver=_resolve_conversation,
     )

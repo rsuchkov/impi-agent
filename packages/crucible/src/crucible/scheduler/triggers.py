@@ -37,6 +37,8 @@ MIN_INTERVAL_S = 60
 MIN_GRACE_S = 120
 MAX_GRACE_S = 7200
 ONESHOT_GRACE_S = 900
+# Default ceiling on the per-task smear (see jitter_for).
+JITTER_CAP_S = 30
 # A cron so far behind that enumerating what was missed is pointless.
 MAX_CRON_STEPS = 10_000
 

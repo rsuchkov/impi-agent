@@ -17,6 +17,7 @@ from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
+from crucible.ports.tasks import TaskService
 from crucible.tools.base import ToolContext, ToolError
 from crucible.tools.registry import ToolRegistry
 
@@ -49,6 +50,7 @@ class ToolServer:
         tool_configs: Mapping[str, Any] | None = None,  # tool name -> its config
         interaction_svc: InteractionService | None = None,
         file_svc: FileService | None = None,
+        task_svc: TaskService | None = None,
         session_resolver: SessionResolver | None = None,
     ) -> None:
         self._registry = registry
@@ -61,6 +63,7 @@ class ToolServer:
         self._tool_configs = tool_configs or {}
         self._interaction_svc = interaction_svc
         self._file_svc = file_svc
+        self._task_svc = task_svc
         self._session_resolver = session_resolver
         self._runner: web.AppRunner | None = None
 
@@ -126,6 +129,7 @@ class ToolServer:
             runtime_session_id=runtime_session_id,
             interaction_svc=self._interaction_svc,
             file_svc=self._file_svc,
+            task_svc=self._task_svc,
             channel_id=channel_id,
             user_id=user_id,
         )
