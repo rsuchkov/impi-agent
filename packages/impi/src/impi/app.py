@@ -67,6 +67,7 @@ from impi.gateways import resolve_gateway
 from impi.registry import RegistryService
 from impi.scheduling import PresenceNotifier, RuntimePromptRunner, SinkTurnDispatcher
 from impi.skill_screen import SkillScreen
+from impi.task_screen import TaskScreen
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +297,19 @@ def build_app(settings: ImpiSettings) -> App:
             command=settings.skills_command, reload=_signal_reload,
         )
     )
+    if settings.scheduler.enabled:
+        screens.register(
+            TaskScreen(
+                sessions,
+                TaskAdmin(
+                    sessions, sessions,
+                    default_timezone=settings.scheduler.timezone,
+                    max_per_agent=settings.scheduler.max_tasks_per_agent,
+                ),
+                heartbeat=sessions,
+                command=settings.tasks_command,
+            )
+        )
     interactions = InteractionWiring(
         settings.integrations, sessions, presence,
         codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
