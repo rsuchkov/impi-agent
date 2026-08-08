@@ -6,7 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: `impi update` ended with a syntax error and could offer to roll back
+  a successful update.** Two faults in the wrapper, both reported against 0.7.0:
+  it replaced itself with a `cp` over the file bash was still reading, so the
+  shell resumed at its old byte offset inside new content (`syntax error near
+  unexpected token`, printed after the update had already succeeded, hiding the
+  real exit code) — the new wrapper is now installed by rename, which leaves the
+  running shell on its own inode. And every readiness check
+  (`compose logs | grep -q "app built:"`) was unable to return success: `grep -q`
+  stops at the first match, the compose process writing into the pipe dies of
+  SIGPIPE, and `set -o pipefail` reports *that* as the pipeline's status. So
+  `impi doctor` claimed the engine never started while it was running fine, and
+  the update's wait loop ran its full 30 iterations before offering a rollback of
+  a healthy engine.
 
 ## v0.7.0 — 2026-08-07
 

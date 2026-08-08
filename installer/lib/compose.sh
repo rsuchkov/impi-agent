@@ -93,6 +93,17 @@ compose_files() {
     return 0  # an empty compose.d leaves the glob unmatched; that is fine
 }
 
+# engine_logged MARKER -> 0 if the engine's log contains MARKER.
+#
+# NOT `grep -q`: it stops at the first match and closes the pipe, the compose
+# process writing into it dies of SIGPIPE (255), and `set -o pipefail` makes THAT
+# the pipeline's status — so the check would answer "no" exactly when the answer
+# is yes, and "no" when it is no. `grep -c` drains the stream, so compose exits
+# normally and the status is grep's own (0 found / 1 not found).
+engine_logged() {
+    compose logs impi 2>/dev/null | grep -c -- "$1" >/dev/null
+}
+
 # compose ARGS... — run the configured compose against $IMPI_HOME's deployment.
 # Reads IMPI_COMPOSE_CMD / IMPI_MM_MODE / IMPI_HOME from the environment (main.sh
 # exports them; the wrapper sources compose.env).

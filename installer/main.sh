@@ -16,6 +16,8 @@ REPO_DIR=$(cd "$INSTALLER_DIR/.." && pwd)
 . "$INSTALLER_DIR/lib/tui.sh"
 # shellcheck source=lib/envfile.sh
 . "$INSTALLER_DIR/lib/envfile.sh"
+# shellcheck source=lib/files.sh
+. "$INSTALLER_DIR/lib/files.sh"
 # shellcheck source=lib/compose.sh
 . "$INSTALLER_DIR/lib/compose.sh"
 # shellcheck source=lib/checks.sh
@@ -410,7 +412,7 @@ run_step "Starting the engine" compose up -d || die "engine start failed"
 engine_ready() {
     local i=0
     while [ "$i" -lt 30 ]; do
-        if compose logs impi 2>/dev/null | grep -q "app built:"; then return 0; fi
+        if engine_logged "app built:"; then return 0; fi
         sleep 2
         i=$((i + 1))
     done
@@ -421,8 +423,7 @@ run_step "Waiting for the engine" engine_ready || {
 }
 
 mkdir -p "$HOME/.local/bin"
-cp "$INSTALLER_DIR/bin/impi" "$HOME/.local/bin/impi"
-chmod +x "$HOME/.local/bin/impi"
+install_executable "$INSTALLER_DIR/bin/impi" "$HOME/.local/bin/impi"
 ok "wrapper installed: ~/.local/bin/impi"
 case ":$PATH:" in
     *:"$HOME/.local/bin":*) : ;;

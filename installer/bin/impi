@@ -30,6 +30,8 @@ die() { bad "$*"; exit 1; }
 # library calls it.)
 # shellcheck source=../lib/compose.sh
 . "$REPO/installer/lib/compose.sh"
+# shellcheck source=../lib/files.sh
+. "$REPO/installer/lib/files.sh"
 
 env_set() { # KEY VALUE FILE — truncate-in-place (inode survives mounts)
     local key=$1 value=$2 file=$3 tmp="${3}.tmp.$$"
@@ -227,7 +229,7 @@ cmd_update() {
     fi
     i=0
     while [ "$i" -lt 30 ]; do
-        if compose logs impi 2>/dev/null | grep -q "app built:"; then break; fi
+        if engine_logged "app built:"; then break; fi
         sleep 2
         i=$((i + 1))
     done
@@ -240,8 +242,9 @@ cmd_update() {
         fi
     fi
     ensure_dropin_dir
-    cp "$REPO/installer/bin/impi" "$HOME/.local/bin/impi"
-    chmod +x "$HOME/.local/bin/impi"
+    # By rename, not in place: this script is the file being replaced, and bash
+    # is still reading it (see install_executable).
+    install_executable "$REPO/installer/bin/impi" "$HOME/.local/bin/impi"
     env_set IMPI_VERSION_INSTALLED "$latest" "$IMPI_HOME/compose.env"
     ok "updated to $latest"
 }
@@ -266,7 +269,7 @@ cmd_doctor() {
     else
         bad "missing $IMPI_HOME/conf/.env"
     fi
-    if compose logs impi 2>/dev/null | grep -q "app built:"; then
+    if engine_logged "app built:"; then
         ok "engine reported readiness (app built)"
     else
         bad "engine never logged 'app built:' — see \`impi logs\`"

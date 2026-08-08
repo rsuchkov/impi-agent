@@ -86,7 +86,7 @@ check "conf/.env is 0600" env_mode
 check "agent profile scaffolded" test -f "$E2E_HOME/agents/agents/assistant/agent.yaml"
 check "agents dir is a git repo" test -d "$E2E_HOME/agents/.git"
 
-engine_ready() { compose logs impi 2>/dev/null | grep -q "app built:"; }
+engine_ready() { engine_logged "app built:"; }
 ready=1
 for _ in $(seq 1 30); do
     if engine_ready; then ready=0; break; fi
@@ -94,7 +94,9 @@ for _ in $(seq 1 30); do
 done
 check "engine logs 'app built:'" test "$ready" -eq 0
 both_agents_in_log() {
-    compose logs impi 2>/dev/null | grep "app built:" | grep assistant | grep -q support
+    # -c, not -q: a short-circuiting grep SIGPIPEs its producer and pipefail
+    # would report that instead of the match (see engine_logged).
+    compose logs impi 2>/dev/null | grep "app built:" | grep assistant | grep -c support >/dev/null
 }
 check "engine sees both agents" both_agents_in_log
 
@@ -105,7 +107,7 @@ compose restart impi >/dev/null 2>&1
 sleep 3
 tester_up() {
     for _ in $(seq 1 30); do
-        if compose logs impi 2>/dev/null | grep "app built:" | tail -n 1 | grep -q tester; then
+        if compose logs impi 2>/dev/null | grep "app built:" | tail -n 1 | grep -c tester >/dev/null; then
             return 0
         fi
         sleep 2
