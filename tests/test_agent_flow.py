@@ -6,6 +6,7 @@ from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
     LLM_FALLBACK_MESSAGE,
 )
+from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_DM,
@@ -611,4 +612,53 @@ async def test_an_ordinary_failure_is_not_dressed_up_as_a_picture_problem(
         await flow.handle(_dm(), FakeChat())
 
     assert "sessions_cli" not in caplog.text
+    await store.close()
+
+
+# -- what a turn reports back --------------------------------------------------
+
+
+async def test_a_turn_that_answers_reports_replied(tmp_path: Path) -> None:
+    flow, store = _flow(tmp_path, FakeRuntime())
+
+    assert await flow.handle(_dm(), FakeChat()) is TurnOutcome.REPLIED
+    await store.close()
+
+
+async def test_a_turn_that_only_used_tools_reports_acted(tmp_path: Path) -> None:
+    # A posted widget IS the reply; the flow stays silent and so must the caller.
+    runtime = FakeRuntime(result=PiResult(text="", tool_calls=["ask_user_buttons"]))
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+
+    assert await flow.handle(_dm(), chat) is TurnOutcome.ACTED
+    assert chat.notices == []
+    await store.close()
+
+
+async def test_an_empty_turn_reports_empty_after_nudging_the_user(tmp_path: Path) -> None:
+    flow, store = _flow(tmp_path, FakeRuntime(result=PiResult(text="")))
+    chat = FakeChat()
+
+    assert await flow.handle(_dm(), chat) is TurnOutcome.EMPTY
+    assert chat.notices == [(_dm().ref, EMPTY_ANSWER_MESSAGE)]
+    await store.close()
+
+
+async def test_a_timeout_and_a_failure_are_reported_apart(tmp_path: Path) -> None:
+    slow, store_a = _flow(tmp_path / "a", FakeRuntime(error=PiTimeout("slow")))
+    broken, store_b = _flow(tmp_path / "b", FakeRuntime(error=PiProcessError("boom")))
+
+    assert await slow.handle(_dm(), FakeChat()) is TurnOutcome.TIMEOUT
+    assert await broken.handle(_dm(), FakeChat()) is TurnOutcome.ERROR
+    await store_a.close()
+    await store_b.close()
+
+
+async def test_a_replayed_message_reports_duplicate(tmp_path: Path) -> None:
+    flow, store = _flow(tmp_path, FakeRuntime())
+    chat = FakeChat()
+
+    assert await flow.handle(_dm(), chat) is TurnOutcome.REPLIED
+    assert await flow.handle(_dm(), chat) is TurnOutcome.DUPLICATE  # same message id
     await store.close()

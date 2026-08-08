@@ -21,6 +21,7 @@ from crucible.ports.agent import (
     PromptImage,
 )
 from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_THREAD,
@@ -116,22 +117,28 @@ class AgentFlow:
         keeps its current profile until the runtime resets its session."""
         self._profile = profile
 
-    async def handle(self, msg: IncomingMessage, chat: ChatClient) -> None:
-        await self.handle_batch([msg], chat)
+    async def handle(self, msg: IncomingMessage, chat: ChatClient) -> TurnOutcome:
+        return await self.handle_batch([msg], chat)
 
-    async def handle_batch(self, msgs: list[IncomingMessage], chat: ChatClient) -> None:
+    async def handle_batch(
+        self, msgs: list[IncomingMessage], chat: ChatClient
+    ) -> TurnOutcome:
         """Handle one or more messages of the SAME conversation as a single turn.
 
         Dedup drops replays; the newest surviving message anchors the reply (its
         thread position, hop accounting). All messages share the runtime session,
-        so their texts are merged into one prompt with per-message attribution."""
+        so their texts are merged into one prompt with per-message attribution.
+
+        The outcome is for a caller that started this turn and has to report on
+        it; a gateway ignores it. Every failing outcome has already been told to
+        the user by the time it is returned."""
         fresh = [
             m
             for m in msgs
             if await self._sessions.mark_processed(self._agent_name, m.ref.message_id)
         ]
         if not fresh:
-            return
+            return TurnOutcome.DUPLICATE
         anchor = fresh[-1]
 
         record, created = await self._sessions.get_or_create(
@@ -153,12 +160,12 @@ class AgentFlow:
         except AgentTimeout:
             logger.warning("agent turn timed out for %s", record.runtime_session_id)
             await chat.post_notice(anchor.ref, LLM_FALLBACK_MESSAGE)
-            return
+            return TurnOutcome.TIMEOUT
         except AgentError as exc:
             logger.exception("agent run failed for %s", record.runtime_session_id)
             self._warn_if_picture_rejected(exc, record.runtime_session_id)
             await chat.post_notice(anchor.ref, INTERNAL_ERROR_MESSAGE)
-            return
+            return TurnOutcome.ERROR
         finally:
             await chat.remove_reaction(anchor.ref, LOADING_REACTION)
 
@@ -168,13 +175,16 @@ class AgentFlow:
             # mention accounts for the cascade (see LoopGuard).
             hop = max(m.hop_depth for m in fresh) + 1
             await chat.post_reply(anchor.ref, result.text, hop_depth=hop)
-        elif not result.tool_calls:
-            # No text AND no tool call: the turn produced nothing at all — nudge
-            # the user to rephrase. When the agent DID call a tool (e.g. a
-            # fire-and-forget widget like ask_user_buttons, whose posted buttons
-            # ARE the reply), the silence is deliberate and a fallback here would
-            # just double up on the already-visible action.
-            await chat.post_notice(anchor.ref, EMPTY_ANSWER_MESSAGE)
+            return TurnOutcome.REPLIED
+        if result.tool_calls:
+            return TurnOutcome.ACTED
+        # No text AND no tool call: the turn produced nothing at all — nudge the
+        # user to rephrase. When the agent DID call a tool (e.g. a fire-and-forget
+        # widget like ask_user_buttons, whose posted buttons ARE the reply), the
+        # silence is deliberate and a fallback here would just double up on the
+        # already-visible action.
+        await chat.post_notice(anchor.ref, EMPTY_ANSWER_MESSAGE)
+        return TurnOutcome.EMPTY
 
     # -- internals ----------------------------------------------------------
 
