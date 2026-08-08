@@ -20,6 +20,7 @@ from crucible.store.base import (
     SessionRecord,
     derive_runtime_session_id,
 )
+from crucible.store.tasks import TaskStoreMixin
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -82,7 +83,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-class SqliteSessionStore:
+class SqliteSessionStore(TaskStoreMixin):
     def __init__(self, db_path: str | Path) -> None:
         path = Path(db_path)
         if path.parent and str(path.parent) != ".":
@@ -99,6 +100,7 @@ class SqliteSessionStore:
             # instead of waiting the millisecond it takes.
             self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.executescript(_SCHEMA)
+            self._create_task_tables()  # the scheduler facet owns its own schema
             self._migrate()
             self._conn.commit()
 

@@ -100,6 +100,239 @@ class FormStore(Protocol):
     async def delete_form(self, token: str) -> None: ...
 
 
+# -- scheduled work -----------------------------------------------------------
+
+# How a due task runs: as an ordinary turn in its own conversation (memory, the
+# reply lands there), or as a fresh memoryless run whose text is posted for it.
+MODE_TURN = "turn"
+MODE_PROMPT = "prompt"
+MODES = (MODE_TURN, MODE_PROMPT)
+
+# A task's own state. `running` doubles as the lease: a task is claimed for one
+# occurrence at a time, so a second ticker cannot fire the same one.
+STATE_IDLE = "idle"
+STATE_RUNNING = "running"
+STATE_PAUSED = "paused"
+STATE_DONE = "done"
+
+# What a scheduled occurrence came to. A closed set: sub-reasons go in
+# ``TaskRunRecord.detail``, so "why didn't it run" is always greppable.
+RUN_RUNNING = "running"  # claimed and in flight
+RUN_OK = "ok"  # the agent answered
+RUN_EMPTY = "empty"  # the turn produced neither text nor a tool call
+RUN_TIMEOUT = "timeout"  # the runtime timed out (the user got the fallback)
+RUN_ERROR = "error"  # the runtime or the dispatch path failed
+RUN_DEADLINE = "deadline"  # we stopped waiting; the turn may still be running
+RUN_INTERRUPTED = "interrupted"  # the engine died mid-run
+RUN_NO_AGENT = "no_agent"  # the agent isn't live (profile gone, no token)
+RUN_NO_CONVERSATION = "no_conversation"  # nowhere to post the result
+RUN_MISSED = "missed"  # past its grace window, or on_missed=skip
+RUN_OVERLAP = "overlap"  # the previous run outlasted the task's own period
+RUN_CANCELLED = "cancelled"  # shutdown, or the task was removed mid-run
+RUN_DUPLICATE = "duplicate"  # the turn was deduped — a run id was replayed
+RUN_STATUSES = (
+    RUN_RUNNING, RUN_OK, RUN_EMPTY, RUN_TIMEOUT, RUN_ERROR, RUN_DEADLINE,
+    RUN_INTERRUPTED, RUN_NO_AGENT, RUN_NO_CONVERSATION, RUN_MISSED,
+    RUN_OVERLAP, RUN_CANCELLED, RUN_DUPLICATE,
+)
+# Why an occurrence fired: on time, late but inside its grace window, or by hand.
+TRIGGERED_SCHEDULE = "schedule"
+TRIGGERED_CATCHUP = "catchup"
+TRIGGERED_MANUAL = "manual"
+
+ON_MISSED_RUN = "run"
+ON_MISSED_SKIP = "skip"
+NOTIFY_FAILURES = "failures"
+NOTIFY_ALWAYS = "always"
+NOTIFY_NEVER = "never"
+NOTIFY_MODES = (NOTIFY_FAILURES, NOTIFY_ALWAYS, NOTIFY_NEVER)
+
+
+@dataclass(frozen=True)
+class TaskRecord:
+    """One scheduled task.
+
+    Timestamps are UTC ISO8601 with seconds precision (string order == time
+    order). ``next_run_at``/``due_at`` are None — not "" — when there is no
+    further occurrence: an empty string sorts before every timestamp and would
+    make a finished task permanently due.
+
+    ``next_run_at`` is the honest scheduled instant; ``due_at`` is the same plus
+    this task's stable jitter, and is what the ticker compares against. Keeping
+    them apart is why jitter never accumulates."""
+
+    id: str
+    agent: str
+    name: str
+    channel_id: str
+    conversation_id: str
+    kind: str  # KIND_THREAD | KIND_DM | KIND_CHANNEL
+    mode: str  # MODE_TURN | MODE_PROMPT
+    prompt: str
+    trigger_kind: str  # 'at' | 'every' | 'cron'
+    trigger_spec: str  # what the human wrote, kept for display
+    interval_s: int
+    cron_expr: str
+    timezone: str  # IANA name; "" = UTC
+    anchor_at: str  # the phase an interval counts from
+    next_run_at: str | None
+    due_at: str | None
+    jitter_s: int
+    state: str
+    claim_owner: str  # the scheduler holding the lease
+    claim_at: str
+    lease_until: str  # a lease past this is reclaimable
+    on_missed: str  # 'run' | 'skip'
+    notify: str  # 'failures' | 'always' | 'never'
+    deadline_s: int  # 0 = the engine default
+    created_by: str
+    created_by_username: str
+    created_at: str
+    updated_at: str
+    last_run_at: str
+    last_status: str
+    run_count: int
+    miss_count: int
+    consecutive_failures: int
+
+
+@dataclass(frozen=True)
+class TaskRunRecord:
+    """One occurrence, ever — including the ones that never started.
+
+    ``scheduled_at`` is the occurrence itself, not when we got to it; the store
+    keeps (task_id, scheduled_at) unique, which is the hard guarantee that an
+    occurrence cannot fire twice. ``coalesced`` says how many occurrences this
+    row stands for after an outage."""
+
+    run_id: str
+    task_id: str
+    agent: str  # denormalized: runs outlive the task they belong to
+    scheduled_at: str
+    started_at: str  # "" when nothing started (missed, overlap)
+    finished_at: str
+    status: str
+    trigger: str  # 'schedule' | 'catchup' | 'manual'
+    owner: str  # the scheduler that ran it
+    duration_ms: int
+    detail: str  # one line: why this status
+    reply_chars: int
+    tool_calls: int
+    coalesced: int
+    notified: int  # 0/1 — the user notice was delivered
+
+
+@dataclass(frozen=True)
+class SchedulerHeartbeat:
+    """Proof of life, written at the END of every tick — a fresh timestamp means
+    a tick COMPLETED, so an idle scheduler is distinguishable from a dead one."""
+
+    scheduler_id: str
+    pid: int
+    version: str
+    started_at: str
+    last_tick_at: str
+    tick_seq: int
+    interval_s: float
+    next_wake_at: str | None
+    next_task_id: str
+    next_task_name: str
+    running_count: int
+    tasks_total: int
+    last_error: str
+    last_error_at: str
+
+
+class TaskStore(Protocol):
+    """Scheduled work and its run history. Two methods are atomic state machines
+    (``claim_due``, ``complete_run``); the rest are reads or plain admin."""
+
+    async def create_task(self, task: TaskRecord) -> None: ...
+
+    async def get_task(self, task_id: str) -> TaskRecord | None: ...
+
+    async def find_task(self, agent: str, name: str) -> TaskRecord | None: ...
+
+    async def list_tasks(
+        self, agent: str | None = None, *, conversation_id: str | None = None
+    ) -> list[TaskRecord]: ...
+
+    async def due_tasks(self, now: str, *, limit: int = 50) -> list[TaskRecord]:
+        """Tasks whose ``due_at`` has arrived, soonest first. Includes RUNNING
+        ones deliberately: a running task past its own due_at IS the overlap."""
+        ...
+
+    async def peek_next(self) -> TaskRecord | None:
+        """The soonest idle task — the heartbeat's "when do I next wake, and for
+        which task"."""
+        ...
+
+    async def delete_task(self, task_id: str) -> TaskRecord | None: ...
+
+    async def set_paused(
+        self, task_id: str, paused: bool, *, now: str,
+        next_run_at: str | None = None, due_at: str | None = None,
+    ) -> bool:
+        """Pausing clears the schedule; resuming is given a freshly computed one,
+        so a resumed task returns to its original phase."""
+        ...
+
+    async def request_run_now(self, task_id: str, *, now: str) -> bool:
+        """Bring the next occurrence forward to ``now``. The CLI runs in another
+        container with no gateways, so it asks — the engine executes."""
+        ...
+
+    async def claim_due(
+        self, *, task_id: str, seen_due_at: str, next_run_at: str | None,
+        due_at: str | None, run: TaskRunRecord, owner: str, lease_until: str, now: str,
+    ) -> TaskRunRecord | None:
+        """Take the lease on one occurrence and open its run row, atomically —
+        advancing the schedule in the same transaction, so a crash an instant
+        later cannot re-fire it. None means the race was lost."""
+        ...
+
+    async def record_skip(
+        self, *, task_id: str, seen_due_at: str, run: TaskRunRecord,
+        next_run_at: str | None, due_at: str | None, now: str,
+    ) -> bool:
+        """An occurrence that will not run (missed, overlap): write its row and
+        advance the schedule under the same compare-and-swap, without a lease."""
+        ...
+
+    async def complete_run(
+        self, *, run_id: str, task_id: str, status: str, finished_at: str,
+        duration_ms: int, detail: str = "", reply_chars: int = 0,
+        tool_calls: int = 0, failed: bool = False, release_state: str = STATE_IDLE,
+    ) -> None:
+        """Close the run and release the lease atomically — a run can never end
+        finished-but-still-claimed."""
+        ...
+
+    async def reclaim_orphans(
+        self, *, scheduler_id: str, now: str
+    ) -> list[TaskRunRecord]:
+        """Runs left ``running`` by a dead engine (or an expired lease) become
+        ``interrupted``, and their tasks idle again."""
+        ...
+
+    async def list_runs(self, task_id: str, *, limit: int = 20) -> list[TaskRunRecord]: ...
+
+    async def unnotified_runs(self, *, limit: int = 20) -> list[TaskRunRecord]:
+        """Finished runs whose user notice has not been delivered — how "a
+        failure always reaches the user" survives the crash that caused it."""
+        ...
+
+    async def mark_notified(self, run_id: str) -> None: ...
+
+    async def prune_runs(self, *, keep_per_task: int, before: str) -> int: ...
+
+
+class SchedulerStateStore(Protocol):
+    async def write_heartbeat(self, beat: SchedulerHeartbeat) -> None: ...
+
+    async def read_heartbeat(self) -> SchedulerHeartbeat | None: ...
+
+
 class AgentStore(Protocol):
     """Persistence for the agent registry (synced from profiles at boot)."""
 

@@ -5,8 +5,13 @@ truth — conversation memory lives in the runtime's own session files."""
 from crucible.store.base import (
     InteractionRecord,
     InteractionStore,
+    SchedulerHeartbeat,
+    SchedulerStateStore,
     SessionRecord,
     SessionStore,
+    TaskRecord,
+    TaskRunRecord,
+    TaskStore,
     derive_runtime_session_id,
 )
 from crucible.store.sessions import SqliteSessionStore
@@ -16,6 +21,11 @@ __all__ = [
     "SessionStore",
     "InteractionRecord",
     "InteractionStore",
+    "SchedulerHeartbeat",
+    "SchedulerStateStore",
+    "TaskRecord",
+    "TaskRunRecord",
+    "TaskStore",
     "SqliteSessionStore",
     "derive_runtime_session_id",
 ]
