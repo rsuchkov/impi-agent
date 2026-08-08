@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.8.0 — 2026-08-08
+
 - **Agents can work on a schedule.** "Remind me in two hours", "every weekday at
   nine, go through my inbox": a task is a prompt plus a schedule, kept in the
   engine's database and run in the conversation it was created in. Write it as a
