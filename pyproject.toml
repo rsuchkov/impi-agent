@@ -151,6 +151,20 @@ source_modules = ["crucible.profiles"]
 forbidden_modules = ["crucible.runtimes.pi"]
 
 [[tool.importlinter.contracts]]
+name = "The scheduler works through ports and the store, never through concretes"
+type = "forbidden"
+source_modules = ["crucible.scheduler"]
+forbidden_modules = [
+    "crucible.gateways",
+    "crucible.runtimes.pi",
+    "crucible.flows",
+    "crucible.profiles",
+    "crucible.interactions",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
 name = "Attachment storage is a plain file store — no runtime, gateway or engine machinery"
 type = "forbidden"
 source_modules = ["crucible.attachments"]
