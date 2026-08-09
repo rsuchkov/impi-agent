@@ -116,7 +116,11 @@ class ToolWiring:
 
     def profile_env(self, spec: AgentSpec) -> dict[str, str] | None:
         if self.registry is None:
-            return None
+            # No typed tools, but add_env's contract is that its keys survive
+            # that: an engine agent is told where the engine lives whether or
+            # not it can call a tool.
+            extra = self.envs.get(spec.name)
+            return dict(extra) if extra else None
         # Manifest re-derived here so a hot-reload re-filters the advertised tools.
         advertised, _ = _gate_tools(self.registry, spec.tools, self.caps.get(spec.name, frozenset()))
         # The server's gate must move with the manifest: the tool server holds this

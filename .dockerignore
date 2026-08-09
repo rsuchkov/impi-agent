@@ -1,5 +1,7 @@
-# Allowlist build context: the engine image needs only the workspace sources.
-# Everything else (secrets, data, git history, docs, installer) stays out.
+# Allowlist build context: the engine image needs the workspace sources, and
+# docs/ — the support agent reads it at runtime as its knowledge base, so it is
+# a dependency, not documentation. Everything else (secrets, data, git history,
+# installer) stays out.
 *
 !pyproject.toml
 !uv.lock
@@ -8,3 +10,4 @@
 packages/**/__pycache__
 packages/**/*.egg-info
 !deploy
+!docs

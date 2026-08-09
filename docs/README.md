@@ -29,6 +29,8 @@ people. Keep them accurate to the code.
   services: the frame protocol, conversation isolation, a minimal client.
 - **[configuration.md](configuration.md)** — every configuration knob: the `.env`
   variables, their defaults, and what reads them.
+- **[installation.md](installation.md)** — deploying the engine in containers:
+  the one-line installer, what it puts where, and the `impi` wrapper.
 - **[runtime-notes.md](runtime-notes.md)** — the `pi` flags the engine passes and
   the `pi` behaviors it relies on (provider/model resolution, tools, skills).
 - **[troubleshooting.md](troubleshooting.md)** — common issues and how to diagnose

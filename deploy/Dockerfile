@@ -53,6 +53,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY packages/ packages/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
+# The engine's own support agent reads these at runtime ($IMPI_ROOT/docs) — they
+# are part of what it knows, so they ship with it.
+COPY docs/ docs/
 
 # Container-fixed paths; the actual content arrives via volumes/bind mounts.
 # HOME is pinned rather than inherited from the account: the pi auth volume is
@@ -63,6 +66,7 @@ ENV PATH=/app/.venv/bin:$PATH \
     AGENTS_PATH=/app/agents \
     SKILLS_PATH=/app/skills \
     DATA_DIR=/app/data \
+    IMPI_ROOT=/app \
     PI_BIN=pi
 RUN mkdir -p /app/data /app/conf /app/agents /app/skills /home/impi/.pi \
  && chown -R "${IMPI_UID}:${IMPI_GID}" /app /home/impi

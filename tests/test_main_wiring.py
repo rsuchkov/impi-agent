@@ -274,3 +274,32 @@ async def test_the_scheduler_dispatches_through_the_agents_own_sink(tmp_path: Pa
             TurnRequest(agent="nobody", channel_id="c", conversation_id="c", kind="dm",
                         text="hi", message_id="sched-x")
         )
+
+
+def test_an_engine_agent_is_told_where_the_engine_is_even_with_tools_off(
+    tmp_path: Path,
+) -> None:
+    # add_env carries IMPI_ROOT/AGENTS_PATH for the engine's own agents. Losing
+    # it when the typed-tool server is off would leave support with no idea
+    # where the docs and the source are — the one thing it always needs.
+    from crucible.config import ToolSettings
+    from crucible.ports.agent import AgentSpec
+    from crucible.tools.wiring import ToolWiring
+
+    wiring = ToolWiring(
+        ToolSettings(enabled=False, server_host="127.0.0.1", server_port=8422),
+        data_dir=str(tmp_path), interactivity_on=True,
+    )
+    spec = AgentSpec(
+        name="support", display_name="S", role="r", description="d",
+        profile_dir=tmp_path, tools=("read",),
+    )
+    wiring.enroll(spec, None)  # early-returns: no registry
+    wiring.add_env("support", {"IMPI_ROOT": "/app", "AGENTS_PATH": "/app/agents"})
+
+    env = wiring.profile_env(spec)
+
+    assert env == {"IMPI_ROOT": "/app", "AGENTS_PATH": "/app/agents"}
+    assert wiring.profile_env(
+        dataclasses.replace(spec, name="assistant")
+    ) is None  # an ordinary agent still gets nothing

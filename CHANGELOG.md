@@ -6,7 +6,13 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: the support agent's documentation didn't ship.** Its knowledge base
+  is `$IMPI_ROOT/docs`, and the image build excluded `docs/` — so in a real
+  deployment every reference it followed was a dead end. The docs are now part
+  of the image, and `IMPI_ROOT` is set there explicitly rather than inferred.
+- **Fixed: an engine agent lost `IMPI_ROOT` when `TOOL_ENABLED=false`.** The env
+  an engine-owned agent is given is supposed to survive the typed tools being
+  off; it didn't.
 
 ## v0.9.0 — 2026-08-09
 
