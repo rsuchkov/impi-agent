@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.9.0 — 2026-08-09
+
 - **A slash command no longer has to name an agent.** Register it with
   `…/command/default` and the engine picks: the only agent running, or the one
   `AGENT_NAME` names when there are several — and the startup log says which. Its
