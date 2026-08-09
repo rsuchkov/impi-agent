@@ -77,6 +77,15 @@ duplicate architecture here.
 - **Sort imports.** ruff's isort (rule `I`) enforces grouped, sorted imports;
   `make lint` fails on drift. Run `uv run ruff check --fix` to sort.
 
+- **Import at the top of the file, never inside a function** (rule `PLC0415`).
+  A module's dependencies belong in one readable place: an import buried in a
+  branch hides a layer crossing from review and from import-linter, which reads
+  the module graph, and it turns an `ImportError` into a surprise on a path
+  nobody exercised. If a top-level import would be circular, that is the design
+  telling you the dependency points the wrong way — move the shared piece rather
+  than hide the edge. Tests are exempt: there the import is often part of what
+  the test asserts.
+
 - **Boundaries are enforced.** `make lint` runs ruff (incl. import sorting),
   import-linter (the layer contracts), and pyright (basic). Keep it green.
 

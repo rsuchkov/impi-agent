@@ -15,8 +15,11 @@ from typing import Any
 
 import httpx
 from dotenv import set_key
+from mattermostautodriver import AsyncTypedDriver
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from crucible.gateways.mattermost.options import driver_options
 
 AGENT_NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 
@@ -70,10 +73,6 @@ class BotCredentials:
 
 
 def _default_driver(url: str, token: str, *, verify: bool) -> Any:
-    from mattermostautodriver import AsyncTypedDriver
-
-    from crucible.gateways.mattermost.options import driver_options
-
     return AsyncTypedDriver(driver_options(url, token, verify=verify))
 
 

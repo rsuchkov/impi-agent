@@ -9,6 +9,7 @@ The directory may be a git repository (that is the point — skills you installe
 are reviewable in a diff), but nothing here requires it.
 """
 
+import json
 import logging
 from pathlib import Path
 
@@ -129,8 +130,6 @@ def _front_matter(skill_file: Path) -> dict:
 def _read_source(source_file: Path) -> SkillSource | None:
     if not source_file.is_file():
         return None  # hand-written skill: no provenance to show
-    import json
-
     try:
         data = json.loads(source_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

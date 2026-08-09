@@ -24,16 +24,24 @@ preview = true
 [tool.ruff.lint]
 # ruff's stable default (E4/E7/E9/F) plus:
 #   I       isort — sorted, grouped imports; make lint fails on drift
+#   PLC0415 imports at the top of the file, never inside a function. A module's
+#           dependencies should be readable in one place: an import buried in a
+#           branch hides a layer crossing from review AND from import-linter,
+#           which reads the module graph. It also turns an ImportError into a
+#           runtime surprise on a path nobody exercised.
 #   PLC2701 no importing another module's private names. A leading underscore
 #           is the author saying "this can change without warning"; reaching for
 #           it across a module boundary is how a refactor breaks a caller that
 #           was never part of the contract.
-select = ["E4", "E7", "E9", "F", "I", "PLC2701"]
+select = ["E4", "E7", "E9", "F", "I", "PLC0415", "PLC2701"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests reach into internals deliberately — a gating helper, the supervisor
-# loop, a rendering table. That is white-box testing, not a leaked API.
-"tests/*" = ["PLC2701"]
+# loop, a rendering table. That is white-box testing, not a leaked API. They also
+# import inside a test body on purpose: the import is part of what is being
+# asserted (that a module loads, that a fake stands in for it) and belongs next
+# to the assertion, not in a header shared by fifty other tests.
+"tests/*" = ["PLC0415", "PLC2701"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["crucible", "impi"]

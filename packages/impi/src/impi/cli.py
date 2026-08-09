@@ -14,12 +14,30 @@ import asyncio
 import getpass
 import os
 import secrets
+import shutil
 import sys
 from pathlib import Path
 
 import httpx
 
+from crucible import sessions_cli
 from crucible.ports.tasks import TaskError
+from crucible.profiles.errors import ProfileError
+from crucible.profiles.loader import FsProfileStore
+from crucible.scheduler.admin import TaskAdmin, local_time
+from crucible.scheduler.health import ALIVE, liveness
+from crucible.scheduler.triggers import from_iso, to_iso, utc_now
+from crucible.skills import (
+    SkillError,
+    SkillLibrary,
+    assign_skill,
+    assigned_skills,
+    declared_tools,
+    install,
+    stage,
+    unassign_skill,
+)
+from crucible.store.sessions import SqliteSessionStore
 from impi import provisioning as prov
 from impi.config import ImpiSettings, load_settings
 
@@ -241,9 +259,6 @@ def _cmd_agent_add(args: argparse.Namespace) -> int:
 
 
 def _cmd_agent_list(args: argparse.Namespace) -> int:
-    from crucible.profiles.errors import ProfileError
-    from crucible.profiles.loader import FsProfileStore
-
     settings = _settings()
     agents_dir = args.agents_dir or settings.agents_path
     if not agents_dir:
@@ -269,8 +284,6 @@ def _cmd_agent_list(args: argparse.Namespace) -> int:
 
 
 def _library(args: argparse.Namespace):
-    from crucible.skills import SkillLibrary
-
     settings = _settings()
     root = getattr(args, "skills_dir", None) or settings.resolved_skills_path
     return SkillLibrary(root)
@@ -305,7 +318,6 @@ def _cmd_skill_list(args: argparse.Namespace) -> int:
 
 def _skill_users(args: argparse.Namespace) -> dict[str, list[str]]:
     """skill name -> agents that reference it, read from the profiles themselves."""
-    from crucible.skills import assigned_skills
 
     settings = _settings()
     agents_dir = getattr(args, "agents_dir", None) or settings.agents_path
@@ -319,8 +331,6 @@ def _skill_users(args: argparse.Namespace) -> dict[str, list[str]]:
 
 
 def _cmd_skill_show(args: argparse.Namespace) -> int:
-    from crucible.skills import SkillError
-
     try:
         skill = _library(args).get(args.name)
     except SkillError as exc:
@@ -341,8 +351,6 @@ def _cmd_skill_show(args: argparse.Namespace) -> int:
 
 
 def _cmd_skill_install(args: argparse.Namespace) -> int:
-    from crucible.skills import SkillError, install, stage
-
     library = _library(args)
     try:
         staged = stage(args.source)
@@ -372,8 +380,6 @@ def _cmd_skill_install(args: argparse.Namespace) -> int:
 
 
 def _cmd_skill_update(args: argparse.Namespace) -> int:
-    from crucible.skills import SkillError, install, stage
-
     library = _library(args)
     try:
         current = library.get(args.name)
@@ -402,8 +408,6 @@ def _cmd_skill_update(args: argparse.Namespace) -> int:
 
 
 def _cmd_skill_remove(args: argparse.Namespace) -> int:
-    import shutil
-
     library = _library(args)
     if not library.has(args.name):
         _fail(f"no skill {args.name!r} in {library.root}")
@@ -421,8 +425,6 @@ def _cmd_skill_remove(args: argparse.Namespace) -> int:
 
 
 def _cmd_skill_assign(args: argparse.Namespace) -> int:
-    from crucible.skills import SkillError, assign_skill, declared_tools, unassign_skill
-
     library = _library(args)
     try:
         manifest = _manifest_of(args, args.agent)
@@ -571,14 +573,10 @@ def _cmd_health(args: argparse.Namespace) -> int:
 
 
 def _store():
-    from crucible.store.sessions import SqliteSessionStore
-
     return SqliteSessionStore(_settings().resolved_db_path)
 
 
 def _admin(store):
-    from crucible.scheduler.admin import TaskAdmin
-
     settings = _settings()
     return TaskAdmin(
         store, store,
@@ -614,9 +612,6 @@ def _find_task(store, wanted: str):
 
 
 def _task_rows(tasks) -> list[tuple[str, ...]]:
-    from crucible.scheduler.admin import local_time
-    from crucible.scheduler.triggers import from_iso
-
     return [
         (
             task.name, task.id, task.agent, task.trigger_spec,
@@ -654,9 +649,6 @@ def _cmd_task_list(args: argparse.Namespace) -> int:
 
 
 def _cmd_task_show(args: argparse.Namespace) -> int:
-    from crucible.scheduler.admin import local_time
-    from crucible.scheduler.triggers import from_iso
-
     store = _store()
     try:
         task = _find_task(store, args.task)
@@ -679,9 +671,6 @@ def _cmd_task_show(args: argparse.Namespace) -> int:
 
 
 def _cmd_task_runs(args: argparse.Namespace) -> int:
-    from crucible.scheduler.admin import local_time
-    from crucible.scheduler.triggers import from_iso
-
     store = _store()
     try:
         task = _find_task(store, args.task)
@@ -765,8 +754,6 @@ def _cmd_task_pause(args: argparse.Namespace) -> int:
 
 
 def _cmd_task_run_now(args: argparse.Namespace) -> int:
-    from crucible.scheduler.triggers import to_iso, utc_now
-
     store = _store()
     try:
         task = _find_task(store, args.task)
@@ -782,9 +769,6 @@ def _cmd_task_run_now(args: argparse.Namespace) -> int:
 
 
 def _cmd_task_status(args: argparse.Namespace) -> int:
-    from crucible.scheduler.health import ALIVE, liveness
-    from crucible.scheduler.triggers import utc_now
-
     settings = _settings()
     store = _store()
     try:
@@ -922,7 +906,6 @@ def _build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--yes", action="store_true", help="don't ask")
         cmd.set_defaults(func=handler)
 
-    from crucible import sessions_cli
 
     sessions = sub.add_parser("sessions", help="conversation memory (pi sessions)")
     sessions_sub = sessions.add_subparsers(dest="sessions_command", required=True)

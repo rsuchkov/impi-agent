@@ -9,6 +9,7 @@ engine with the agent's tools, so nothing lands unseen, and a git install is
 pinned to the exact commit it was taken from.
 """
 
+import json
 import re
 import shutil
 import subprocess
@@ -18,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from crucible.skills.library import SkillError, SkillLibrary
-from crucible.skills.models import SKILL_FILE, Skill, SkillSource
+from crucible.skills.models import SKILL_FILE, SOURCE_FILE, Skill, SkillSource
 
 _GIT_TIMEOUT = 120.0
 # owner/repo[/sub/dir][@ref] — the shorthand Hermes and Claude both use.
@@ -180,10 +181,6 @@ def _git(cmd: list[str], *, what: str) -> str:
 
 
 def _write_source(target: Path, source: SkillSource) -> None:
-    import json
-
-    from crucible.skills.models import SOURCE_FILE
-
     stamped = {
         "kind": source.kind,
         "location": source.location,
