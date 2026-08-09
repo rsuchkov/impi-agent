@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.8.1 — 2026-08-09
+
 - **Fixed: `/tasks` reached an agent when scheduling was off.** The screen was
   only bound to its word while `SCHEDULER_ENABLED` was true, so with the
   scheduler off the command became an ordinary turn — and a model asked about a
