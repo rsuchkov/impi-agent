@@ -404,3 +404,40 @@ async def test_a_second_process_sees_and_writes_the_same_tasks(tmp_path: Path) -
     finally:
         await cli.close()
         await engine.close()
+
+
+async def test_tasks_made_in_the_same_second_still_have_one_stable_order(
+    tmp_path: Path,
+) -> None:
+    # created_at is second-resolution, so ties are common; a paged view built on
+    # an unstable order shows a row twice or loses it.
+    store = _store(tmp_path)
+    try:
+        for name in ("gamma", "alpha", "beta"):
+            await store.create_task(_task(id=f"tsk_{name}", name=name, created_at=T0))
+
+        first = [t.id for t in await store.list_tasks()]
+        assert first == sorted(first)
+        assert first == [t.id for t in await store.list_tasks()]
+    finally:
+        await store.close()
+
+
+async def test_deleting_a_task_takes_its_run_history_with_it(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    try:
+        await store.create_task(_task())
+        await store.claim_due(
+            task_id="tsk_1", seen_due_at=T0, next_run_at=T1, due_at=T1,
+            owner="sched-a", lease_until=T2, now=T0, run=_run(),
+        )
+        assert await store.list_runs("tsk_1")
+
+        assert await store.delete_task("tsk_1") is not None
+
+        # Nothing can reach a run whose task is gone — every reader looks the
+        # task up first — so leaving the rows would only grow the file.
+        assert await store.list_runs("tsk_1") == []
+        assert await store.unnotified_runs() == []
+    finally:
+        await store.close()

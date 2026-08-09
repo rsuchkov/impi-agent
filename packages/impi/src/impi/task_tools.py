@@ -112,7 +112,7 @@ class CancelTask(Tool):
     name: ClassVar[str] = "cancel_task"
     requires: ClassVar[frozenset[str]] = frozenset({CAP_SCHEDULER})
     description: ClassVar[str] = (
-        "Delete one of your scheduled tasks, by name or id. Its history is kept."
+        "Delete one of your scheduled tasks, by name or id, with its run history."
     )
     parameters: ClassVar[dict[str, Any]] = {
         "type": "object",

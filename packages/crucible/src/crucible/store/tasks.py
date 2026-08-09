@@ -186,7 +186,12 @@ class TaskStoreMixin:
         clause = f" WHERE {' AND '.join(where)}" if where else ""
         with self._lock:
             rows = self._conn.execute(
-                f"SELECT {_TASK_COLUMNS} FROM tasks{clause} ORDER BY created_at", args
+                # id breaks ties: created_at has second resolution, and two tasks
+                # made in the same second would otherwise come back in whatever
+                # order the sorter felt like — which a paged view turns into a row
+                # shown twice or not at all.
+                f"SELECT {_TASK_COLUMNS} FROM tasks{clause} ORDER BY created_at, id",
+                args,
             ).fetchall()
         return [_task(row) for row in rows]
 
@@ -245,8 +250,10 @@ class TaskStoreMixin:
             ).fetchone()
             if row is None:
                 return None
-            # Runs are kept: the history of what a task did outlives the task,
-            # which is why task_runs carries its own copy of the agent name.
+            # The ledger goes with the task. Keeping it would only accumulate
+            # rows nothing can reach: every reader of a run looks the task up
+            # first, so an orphaned history is invisible as well as unbounded.
+            self._conn.execute("DELETE FROM task_runs WHERE task_id = ?", (task_id,))
             self._conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             self._conn.commit()
         return _task(row)

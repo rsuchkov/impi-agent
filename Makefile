@@ -9,10 +9,12 @@ test:
 run:
 	uv run python -m impi.main
 
-# Background run with a persistent log (survives reboots, unlike /tmp).
+# Background run with a persistent log (survives reboots, unlike /tmp). Appends:
+# a restart is usually how you react to something odd, and truncating here would
+# destroy the evidence for it.
 run-bg:
 	@mkdir -p data/logs
-	@nohup uv run python -m impi.main > data/logs/engine.log 2>&1 & \
+	@nohup uv run python -m impi.main >> data/logs/engine.log 2>&1 & \
 		echo "engine started in background; logs: data/logs/engine.log"
 
 # Graceful stop + stray cleanup. SIGTERM lets the engine close its pi children;

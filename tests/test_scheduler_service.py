@@ -494,6 +494,9 @@ async def test_the_heartbeat_names_the_next_wake_and_reads_alive(store) -> None:
     assert beat.next_wake_at == iso(START + timedelta(minutes=15))
     verdict, detail = liveness(beat, now=clock.now)
     assert verdict == ALIVE and "digest" in detail
+    # Read as a moment, not as the ISO string the row stores.
+    assert iso(START + timedelta(minutes=15)) not in detail
+    assert f"{(START + timedelta(minutes=15)):%Y-%m-%d %H:%M} (UTC)" in detail
 
 
 async def test_a_scheduler_that_stopped_ticking_reads_stale(store) -> None:

@@ -8,6 +8,11 @@ Usage:
     python -m crucible.sessions_cli list [--agent X]
     python -m crucible.sessions_cli delete <agent> <conversation_id>
     python -m crucible.sessions_cli purge-idle --days N [--agent X]
+
+The inventory path comes from this library's settings. An app that names its
+database differently must say so with --db (or expose its own entry point, the
+way impi does with `impi sessions`) — otherwise this opens a file the engine
+never writes and reports an empty stand.
 """
 
 import argparse
@@ -76,6 +81,9 @@ def cmd_purge_idle(settings: Settings, store: SqliteSessionStore, args: argparse
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="crucible.sessions_cli", description=__doc__)
+    parser.add_argument(
+        "--db", default="", help="inventory path (default: this library's DB_PATH)"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_list = sub.add_parser("list", help="list known sessions")
@@ -94,7 +102,7 @@ def main() -> None:
 
     args = parser.parse_args()
     settings = load_settings()
-    store = SqliteSessionStore(settings.resolved_db_path)
+    store = SqliteSessionStore(Path(args.db) if args.db else settings.resolved_db_path)
     try:
         args.func(settings, store, args)
     finally:

@@ -197,3 +197,31 @@ async def test_action_ids_are_alphanumeric_and_unique_in_one_message(screen) -> 
     ids = [a.id for card in view.cards for a in card.actions]
     assert len(ids) == len(set(ids))
     assert all(part.isalnum() for part in ids)
+
+
+async def test_with_scheduling_off_the_screen_says_so_instead_of_the_agent(
+    tmp_path: Path,
+) -> None:
+    # Unregistered, /tasks would reach an agent, which cannot read the schedule
+    # and answers about it anyway. Registered-but-off, the command answers.
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    admin = TaskAdmin(store, store, default_timezone="UTC", clock=Clock())
+    off = TaskScreen(store, admin, heartbeat=store, scheduler_enabled=False, clock=Clock())
+
+    view = await off.render(ScreenState(screen="tasks"), user_id="u1")
+
+    assert "SCHEDULER_ENABLED=true" in _text(view)
+    assert all(not card.actions for card in view.cards)
+    await store.close()
+
+
+async def test_the_detail_view_does_not_offer_to_open_itself(screen) -> None:
+    task_screen, _store, admin, session = screen
+    await _add(admin, session, "digest")
+    index = await task_screen.render(ScreenState(screen="tasks"), user_id="u1")
+
+    detail = await task_screen.render(_click(index, "Details"), user_id="u1")
+
+    labels = [a.label for card in detail.cards for a in card.actions]
+    assert "Details" not in labels
+    assert {"◀ All tasks", "⏸ Pause", "Run now", "🗑 Delete"} <= set(labels)

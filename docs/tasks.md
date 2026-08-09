@@ -28,14 +28,15 @@ impi task show inbox                # the prompt, the settings, the counters
 impi task runs inbox                # what happened, and why
 impi task pause inbox               # …and `resume`
 impi task run-now inbox             # ask the engine to run it at once
-impi task rm inbox                  # the task goes; its history stays
+impi task rm inbox                  # the task and its run history go
 impi task status                    # is the scheduler alive, what is next
 ```
 
 **In chat, with buttons.** `/tasks` lists everything with pause/resume, run-now
 and details beside each one. Register the slash command the same way as
 `/skills` (see [commands.md](commands.md)); rename it with `TASKS_COMMAND` if the
-word is taken.
+word is taken. With `SCHEDULER_ENABLED=false` the command still answers — it says
+scheduling is off rather than handing the word to an agent.
 
 ## Writing a schedule
 
@@ -121,7 +122,7 @@ records a heartbeat at the end of every pass:
 
 ```bash
 impi task status
-# ✔ scheduler alive: tick #421 6s ago, 0 run(s) in flight; next inbox at 2026-08-10 09:00
+# ✔ scheduler alive: tick #421 6s ago, 0 run(s) in flight; next inbox at 2026-08-10 07:00 (UTC)
 ```
 
 `impi doctor` asks the same question, and `/tasks` puts the answer above the

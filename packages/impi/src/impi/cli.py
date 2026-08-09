@@ -64,7 +64,13 @@ def _prompt(label: str, default: str = "", *, secret: bool = False) -> str:
 
 def _confirm(question: str, default: bool = True) -> bool:
     hint = "[Y/n]" if default else "[y/N]"
-    answer = input(f"{_bold(question)} {_dim(hint)} ").strip().lower()
+    try:
+        answer = input(f"{_bold(question)} {_dim(hint)} ").strip().lower()
+    except EOFError:
+        # Nobody is there to answer (a pipe, a container with no TTY). Refusing
+        # is the safe reading of silence; --yes is how a script says yes.
+        print(_dim("  (nothing to read the answer from — pass --yes)"))
+        return False
     if not answer:
         return default
     return answer in ("y", "yes", "д", "да")
@@ -673,6 +679,9 @@ def _cmd_task_show(args: argparse.Namespace) -> int:
 
 
 def _cmd_task_runs(args: argparse.Namespace) -> int:
+    from crucible.scheduler.admin import local_time
+    from crucible.scheduler.triggers import from_iso
+
     store = _store()
     try:
         task = _find_task(store, args.task)
@@ -684,7 +693,10 @@ def _cmd_task_runs(args: argparse.Namespace) -> int:
             ("SCHEDULED FOR", "STATUS", "TOOK", "WHY"),
             [
                 (
-                    run.scheduled_at, run.status,
+                    # In the task's own zone, the way every other surface prints
+                    # a moment — this is a person reading their own schedule.
+                    local_time(from_iso(run.scheduled_at), task.timezone),
+                    run.status,
                     f"{run.duration_ms / 1000:.1f}s" if run.duration_ms else "—",
                     run.detail or "",
                 )
@@ -733,7 +745,7 @@ def _cmd_task_rm(args: argparse.Namespace) -> int:
         if not args.yes and not _confirm(f"Delete task {task.name} ({task.id})?"):
             return 1
         await _admin(store).cancel(task.agent, task.id)
-        print(f"✔ {task.name} deleted (its history is kept)")
+        print(f"✔ {task.name} deleted, with its run history")
         return 0
 
     return _with_store(work)
@@ -783,6 +795,25 @@ def _cmd_task_status(args: argparse.Namespace) -> int:
         mark = "✔" if verdict == ALIVE else "✘"
         print(f"{mark} scheduler {verdict}: {detail}")
         return 0 if verdict in (ALIVE, "absent") else 1
+    finally:
+        store.close_sync()
+
+
+# --- impi sessions ------------------------------------------------------------
+
+
+def _cmd_sessions(args: argparse.Namespace) -> int:
+    """Conversation memory, on the database this engine actually writes.
+
+    The library ships the same three commands as `python -m crucible.sessions_cli`,
+    but that entry point resolves the inventory with crucible's own default
+    filename — pointed at an impi deployment it opens a file nobody writes and
+    reports an empty stand. Here the path comes from impi's settings, the same
+    ones the engine boots with."""
+    store = _store()
+    try:
+        args.run(_settings(), store, args)
+        return 0
     finally:
         store.close_sync()
 
@@ -856,7 +887,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ("show", "one task in detail", _cmd_task_show),
         ("runs", "what happened on the last runs, and why", _cmd_task_runs),
         ("add", "schedule a task in a conversation the agent already has", _cmd_task_add),
-        ("rm", "delete a task (its history is kept)", _cmd_task_rm),
+        ("rm", "delete a task and its run history", _cmd_task_rm),
         ("pause", "stop a task from running", _cmd_task_pause),
         ("resume", "let a paused task run again, on its original rhythm", _cmd_task_pause),
         ("run-now", "ask the engine to run a task at once", _cmd_task_run_now),
@@ -890,6 +921,24 @@ def _build_parser() -> argparse.ArgumentParser:
         if name == "rm":
             cmd.add_argument("--yes", action="store_true", help="don't ask")
         cmd.set_defaults(func=handler)
+
+    from crucible import sessions_cli
+
+    sessions = sub.add_parser("sessions", help="conversation memory (pi sessions)")
+    sessions_sub = sessions.add_subparsers(dest="sessions_command", required=True)
+    s_list = sessions_sub.add_parser("list", help="every conversation the engine remembers")
+    s_list.add_argument("--agent", default=None)
+    s_list.set_defaults(func=_cmd_sessions, run=sessions_cli.cmd_list)
+    s_del = sessions_sub.add_parser(
+        "delete", help="forget one conversation (inventory row + the runtime's memory)"
+    )
+    s_del.add_argument("agent")
+    s_del.add_argument("conversation_id")
+    s_del.set_defaults(func=_cmd_sessions, run=sessions_cli.cmd_delete)
+    s_purge = sessions_sub.add_parser("purge-idle", help="forget conversations idle for N+ days")
+    s_purge.add_argument("--days", type=int, required=True)
+    s_purge.add_argument("--agent", default=None)
+    s_purge.set_defaults(func=_cmd_sessions, run=sessions_cli.cmd_purge_idle)
 
     mm = sub.add_parser("mm", help="Mattermost helpers")
     mm_sub = mm.add_subparsers(dest="mm_command", required=True)

@@ -6,7 +6,32 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: `/tasks` reached an agent when scheduling was off.** The screen was
+  only bound to its word while `SCHEDULER_ENABLED` was true, so with the
+  scheduler off the command became an ordinary turn — and a model asked about a
+  task list it cannot read describes one anyway. It now answers for itself and
+  says how to turn scheduling on.
+- **Fixed: session cleanup pointed at the wrong database.** `python -m
+  crucible.sessions_cli` resolves the inventory with the library's own default
+  filename, so against an impi deployment it opened a file nobody writes and
+  reported an empty stand — including in the documented recovery from a picture
+  the model backend refuses. There is now `impi sessions list|delete|purge-idle`
+  on the engine's own database (and `--db` on the library's entry point), and the
+  log line that names the recovery prints a command that runs as written.
+- **Fixed: a paged task list could show a task twice or not at all.** Tasks were
+  ordered by creation time alone, which has second resolution; tasks made in the
+  same second came back in no fixed order.
+- **Deleting a task now deletes its run history.** It was kept, but every reader
+  reaches a run through its task, so the rows were unreachable as well as
+  unbounded.
+- **Fixed: a slash command, click or scheduled run made the gateway log a
+  rejected reaction.** The engine marked the triggering "message" as being worked
+  on, but a synthetic turn has no post behind it to react to.
+- Smaller things: no redundant **Details** button inside a task's own detail
+  view; `impi task status` prints times the way every other surface does;
+  `impi task rm` with no terminal to ask on refuses instead of raising; `make
+  run-bg` appends to the engine log instead of truncating the evidence for
+  whatever prompted the restart.
 
 ## v0.8.0 — 2026-08-08
 

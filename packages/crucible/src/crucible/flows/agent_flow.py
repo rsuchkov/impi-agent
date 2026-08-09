@@ -29,7 +29,7 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     PostSnippet,
 )
-from crucible.store.base import SessionStore
+from crucible.store.base import SessionRecord, SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +159,13 @@ class AgentFlow:
         prompt = await self._render_prompt(fresh, chat, first_turn=created, since=since)
         images = await self._inline_images(fresh)
 
-        await chat.add_reaction(anchor.ref, LOADING_REACTION)
+        # Only a real message can wear the "working on it" mark. A synthetic
+        # anchor — a slash command, a widget click, a scheduled run — carries an
+        # id the platform never issued, so reacting to it just makes the gateway
+        # log a rejection nobody can act on.
+        acknowledge = not anchor.synthetic
+        if acknowledge:
+            await chat.add_reaction(anchor.ref, LOADING_REACTION)
         try:
             result = await self._runtime.run_stateful(
                 self._profile, record.runtime_session_id, prompt, images=images
@@ -170,11 +176,12 @@ class AgentFlow:
             return TurnOutcome.TIMEOUT
         except AgentError as exc:
             logger.exception("agent run failed for %s", record.runtime_session_id)
-            self._warn_if_picture_rejected(exc, record.runtime_session_id)
+            self._warn_if_picture_rejected(exc, record)
             await chat.post_notice(anchor.ref, INTERNAL_ERROR_MESSAGE)
             return TurnOutcome.ERROR
         finally:
-            await chat.remove_reaction(anchor.ref, LOADING_REACTION)
+            if acknowledge:
+                await chat.remove_reaction(anchor.ref, LOADING_REACTION)
 
         await self._sessions.touch(self._agent_name, anchor.conversation_id)
         if result.text:
@@ -228,7 +235,7 @@ class AgentFlow:
         return "\n\n".join(parts)
 
     @staticmethod
-    def _warn_if_picture_rejected(error: Exception, runtime_session_id: str) -> None:
+    def _warn_if_picture_rejected(error: Exception, record: SessionRecord) -> None:
         """A picture the model backend refuses is not a one-turn problem: the
         session replays its history, so the same request fails from then on. The
         engine only shows pictures it has verified, so reaching this means the
@@ -239,8 +246,8 @@ class AgentFlow:
         logger.error(
             "the model backend refused a picture in session %s. Its history "
             "replays on every turn, so this conversation will keep failing until "
-            "it is reset: `python -m crucible.sessions_cli delete %s`",
-            runtime_session_id, runtime_session_id,
+            "it is reset: `python -m crucible.sessions_cli delete %s %s`",
+            record.runtime_session_id, record.agent, record.conversation_id,
         )
 
     async def _inline_images(self, msgs: list[IncomingMessage]) -> list[PromptImage]:

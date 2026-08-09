@@ -123,6 +123,7 @@ impi — manage your impi deployment
   impi skill list|install|assign ...   the shared skill library
   impi task list|show|runs|add|rm|pause|resume|run-now|status
                            scheduled and recurring work
+  impi sessions list|delete|purge-idle   conversation memory
   impi agent add|list ...  manage agents (runs the CLI inside the container)
   impi login               interactive pi model login inside the container
   impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
@@ -303,6 +304,7 @@ case "${1:-}" in
     reload)    shift; cmd_reload ;;
     skill)     shift; compose run --rm impi impi skill "$@" ;;
     task)      shift; compose run --rm impi impi task "$@" ;;
+    sessions)  shift; compose run --rm impi impi sessions "$@" ;;
     agent)     shift; cmd_agent "$@" ;;
     login)     shift; cmd_login "$@" ;;
     update)    shift; cmd_update "$@" ;;

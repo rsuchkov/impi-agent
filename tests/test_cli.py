@@ -268,3 +268,37 @@ def test_an_unknown_task_is_reported_once_not_raised(tmp_path, monkeypatch, caps
 
     assert cli.main(["task", "show", "ghost"]) == 1
     assert "no task 'ghost'" in capsys.readouterr().err
+
+
+def test_sessions_read_the_database_the_engine_writes(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    # The library's own entry point resolves crucible's default filename; run
+    # against an impi deployment it opens a file nobody writes.
+    _task_db(tmp_path, monkeypatch)
+
+    assert cli.main(["sessions", "list"]) == 0
+
+    assert "dm1" in capsys.readouterr().out
+    assert not (tmp_path / "agent.db").exists()
+
+
+def test_deleting_a_task_with_no_terminal_to_ask_refuses_instead_of_raising(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _task_db(tmp_path, monkeypatch)
+    cli.main([
+        "task", "add", "--agent", "assistant", "--conversation", "dm1",
+        "--name", "digest", "--prompt", "summarize", "--schedule", "every 1h",
+    ])
+    monkeypatch.setattr("builtins.input", _no_terminal)
+
+    code = cli.main(["task", "rm", "digest"])
+
+    assert code == 1
+    assert "--yes" in capsys.readouterr().out
+    assert cli.main(["task", "show", "digest"]) == 0  # still there
+
+
+def _no_terminal(_prompt: str = "") -> str:
+    raise EOFError

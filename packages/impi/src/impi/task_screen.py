@@ -70,6 +70,18 @@ class TaskScreen:
         self._now = clock
 
     async def render(self, state: ScreenState, *, user_id: str) -> View:
+        if not self._enabled:
+            # The screen stays registered even with scheduling off, so the
+            # command answers for itself. Left unregistered it would fall
+            # through to the agent, and a model asked about a task list it
+            # cannot see will describe one anyway.
+            return View.of(
+                "### ⏰ Scheduled tasks\n\n"
+                "Scheduled work is turned off. Set `SCHEDULER_ENABLED=true` in the "
+                "engine's configuration and restart it to schedule tasks.",
+                accent=_ACCENT_HEADER,
+            )
+
         value = str(state.data.get("value") or "")
         page = int(state.data.get("page") or 0)
         selected = str(state.data.get("task") or "")
@@ -105,7 +117,7 @@ class TaskScreen:
         try:
             if verb == _DELETE:
                 await self._admin.cancel(task.agent, task.id)
-                return f"🗑 **{task.name}** deleted — its history is kept"
+                return f"🗑 **{task.name}** deleted, with its run history"
             if verb == _RUN_NOW:
                 # Asked, not run: the ticker owns firing, and it will pick this
                 # up on its next pass.
@@ -194,17 +206,23 @@ class TaskScreen:
 
         controls = [
             screen_action(base, id="back", label="◀ All tasks", value=_BACK),
-            *self._task_controls(base, task),
+            # No "Details" here — this is it.
+            *self._task_controls(base, task, with_open=False),
             screen_action(base, id="del", label="🗑 Delete", value=f"{_DELETE}:{task.id}",
                           style="danger"),
         ]
         return View.of("\n".join(lines), tuple(controls), accent=_ACCENT_DETAIL)
 
-    def _task_controls(self, base: ScreenState, task: TaskRecord) -> list:
+    def _task_controls(
+        self, base: ScreenState, task: TaskRecord, *, with_open: bool = True
+    ) -> list:
         paused = task.state == STATE_PAUSED
-        return [
+        opener = [
             screen_action(base, id=f"o{_key(task)}", label="Details",
                           value=f"{_OPEN}:{task.id}"),
+        ] if with_open else []
+        return [
+            *opener,
             screen_action(
                 base, id=f"p{_key(task)}",
                 label="▶️ Resume" if paused else "⏸ Pause",

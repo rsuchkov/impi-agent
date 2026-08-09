@@ -38,17 +38,28 @@ def liveness(
     if age > max(beat.interval_s, 1.0) * _STALE_TICKS:
         return STALE, (
             f"no tick for {age:.0f}s (expected every {beat.interval_s:.0f}s) — "
-            f"pid {beat.pid}, up since {beat.started_at}, last tick {beat.last_tick_at}"
+            f"pid {beat.pid}, up since {_stamp(beat.started_at)}, "
+            f"last tick {_stamp(beat.last_tick_at)}"
         )
 
     detail = f"tick #{beat.tick_seq} {age:.0f}s ago, {beat.running_count} run(s) in flight"
     if beat.next_wake_at:
-        detail += f"; next {beat.next_task_name or beat.next_task_id} at {beat.next_wake_at}"
+        detail += (
+            f"; next {beat.next_task_name or beat.next_task_id}"
+            f" at {_stamp(beat.next_wake_at)}"
+        )
     else:
         detail += "; nothing scheduled"
     if beat.last_error:
-        detail += f"; last error {beat.last_error_at}: {beat.last_error}"
+        detail += f"; last error {_stamp(beat.last_error_at)}: {beat.last_error}"
     return ALIVE, detail
+
+
+def _stamp(iso: str) -> str:
+    """Heartbeat times are engine state, always UTC — read them the way the rest
+    of the surfaces print a moment, not as raw ISO."""
+    moment = from_iso(iso)
+    return f"{moment:%Y-%m-%d %H:%M} (UTC)" if moment else iso
 
 
 def another_scheduler(

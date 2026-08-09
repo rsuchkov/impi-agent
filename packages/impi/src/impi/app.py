@@ -117,6 +117,10 @@ class App:
     tool_server: ToolServer | None
     integrations: InteractionsServer | None
     reloader: ProfileReloader
+    # The commands the engine answers itself. Which words are bound is a wiring
+    # decision worth being able to assert on: an unbound one silently becomes an
+    # ordinary agent turn.
+    screens: ScreenRegistry
     ws_hub: WsHub | None = None
     scheduler: Scheduler | None = None
 
@@ -297,19 +301,22 @@ def build_app(settings: ImpiSettings) -> App:
             command=settings.skills_command, reload=_signal_reload,
         )
     )
-    if settings.scheduler.enabled:
-        screens.register(
-            TaskScreen(
-                sessions,
-                TaskAdmin(
-                    sessions, sessions,
-                    default_timezone=settings.scheduler.timezone,
-                    max_per_agent=settings.scheduler.max_tasks_per_agent,
-                ),
-                heartbeat=sessions,
-                command=settings.tasks_command,
-            )
+    # Registered even when scheduling is off: the screen then says so itself.
+    # Leaving it unregistered would hand /tasks to an agent, which answers about
+    # a list it has no way to read.
+    screens.register(
+        TaskScreen(
+            sessions,
+            TaskAdmin(
+                sessions, sessions,
+                default_timezone=settings.scheduler.timezone,
+                max_per_agent=settings.scheduler.max_tasks_per_agent,
+            ),
+            heartbeat=sessions,
+            command=settings.tasks_command,
+            scheduler_enabled=settings.scheduler.enabled,
         )
+    )
     interactions = InteractionWiring(
         settings.integrations, sessions, presence,
         codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
@@ -472,6 +479,7 @@ def build_app(settings: ImpiSettings) -> App:
         tool_server=tool_server,
         integrations=interactions.receiver,
         reloader=reloader,
+        screens=screens,
         ws_hub=ws_hub,
         scheduler=scheduler,
     )

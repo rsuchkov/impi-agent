@@ -228,6 +228,9 @@ def test_the_scheduler_can_be_turned_off(tmp_path: Path, monkeypatch) -> None:
     app = build_app(_settings(tmp_path))
 
     assert app.scheduler is None
+    # The screen stays bound to /tasks so the command still answers for itself
+    # rather than falling through to an agent that cannot read the schedule.
+    assert app.screens.handles("tasks")
 
 
 async def test_the_scheduler_dispatches_through_the_agents_own_sink(tmp_path: Path) -> None:

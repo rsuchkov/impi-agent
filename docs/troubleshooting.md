@@ -119,7 +119,7 @@ corrupt or renamed file travels as a path instead), so this should not happen �
 if it does, the log says so and names the way out:
 
 ```bash
-uv run python -m crucible.sessions_cli delete <agent>--<conversation>
+impi sessions delete <agent> <conversation>
 ```
 
 That forgets the conversation (inventory row + the runtime's memory for it) and
@@ -167,5 +167,12 @@ The SQLite inventory maps conversations to `pi` session ids (it is inventory, no
 the source of truth — `pi`'s on-disk memory is). To list or clean up sessions:
 
 ```bash
-uv run python -m crucible.sessions_cli --help
+impi sessions list                       # every conversation, with its file count
+impi sessions delete <agent> <conv>      # forget one
+impi sessions purge-idle --days 30       # forget everything idle that long
 ```
+
+The library ships the same three commands as `python -m crucible.sessions_cli`,
+but that entry point resolves the database with `crucible`'s own default filename
+— against an impi deployment it opens a file nobody writes and reports an empty
+stand. Use `impi sessions`, or pass `--db`.

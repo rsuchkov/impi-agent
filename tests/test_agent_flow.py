@@ -104,6 +104,24 @@ async def test_happy_path_replies_in_conversation(tmp_path: Path) -> None:
     await store.close()
 
 
+async def test_a_synthetic_turn_is_not_acknowledged_with_a_reaction(
+    tmp_path: Path,
+) -> None:
+    # A command, a click or a scheduled run carries an id the platform never
+    # issued; reacting to it can only produce a rejection in the log.
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+
+    msg = _dm("run the digest")
+    msg.synthetic = True
+    await flow.handle(msg, chat)
+
+    assert chat.reactions == []
+    assert chat.replies == [(msg.ref, "agent answer")]  # the turn still happens
+    await store.close()
+
+
 async def test_prompt_envelope_includes_the_timestamp(tmp_path: Path) -> None:
     # When the message carries a time, the envelope shows it so the agent knows
     # WHEN it was sent.
@@ -599,7 +617,9 @@ async def test_a_backend_refusing_a_picture_says_how_to_recover(
     with caplog.at_level("ERROR"):
         await flow.handle(_dm(), FakeChat())
 
-    assert "sessions_cli delete assistant--dm1" in caplog.text
+    # Runnable as printed: the command takes the agent and the conversation as
+    # two arguments, not the session id they are joined into.
+    assert "sessions_cli delete assistant dm1" in caplog.text
     await store.close()
 
 
