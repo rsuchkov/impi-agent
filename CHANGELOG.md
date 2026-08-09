@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.10.0 — 2026-08-09
+
 - **The support agent caught up with the engine.** Its profile had not changed
   since before the library split, so it described an engine that no longer
   exists and could not do several things it was documented to do. It now has the
