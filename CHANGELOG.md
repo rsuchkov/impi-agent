@@ -6,6 +6,17 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The support agent caught up with the engine.** Its profile had not changed
+  since before the library split, so it described an engine that no longer
+  exists and could not do several things it was documented to do. It now has the
+  shared-skill tools `docs/skills.md` always promised (`list_skills`,
+  `install_skill`, `assign_skill`, `remove_skill` — until now the tool server
+  answered every one of them with 403), plus `list_agents`, a blocking
+  confirmation, and its own scheduling. Four new skills cover what it had no
+  idea about: installing and assigning library skills, registering a slash
+  command, scheduled work and why a run didn't happen, and diagnosing the engine
+  layer by layer. Its map of the source and of where things live in a container
+  is correct again.
 - **Fixed: the support agent's documentation didn't ship.** Its knowledge base
   is `$IMPI_ROOT/docs`, and the image build excluded `docs/` — so in a real
   deployment every reference it followed was a dead end. The docs are now part

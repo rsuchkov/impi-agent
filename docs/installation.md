@@ -31,7 +31,8 @@ inside the clone, which walks you through:
    browser needed), or connect to an existing server (optionally with a
    system-admin token so impi can create bot accounts itself).
 3. **Support bot** — impi's bundled agent-builder; ask it in chat to create and
-   maintain your other agents.
+   maintain your other agents, install skills from the shared library, wire up a
+   slash command, or work out why something isn't running.
 4. **Agents directory** — where your agent profiles live (git-initialized when
    possible); the first neutral agent is scaffolded for you.
 5. **Interactivity** — button/form widgets (recommended on).

@@ -11,10 +11,10 @@ runtime:
   # SUPPORT_PROVIDER/SUPPORT_MODEL (or DEFAULT_PROVIDER/DEFAULT_MODEL, or pi's
   # own default), so a public checkout runs on whatever backend is configured.
   timeout: 240
-  # Builder: pi's built-in file tools, used on the agents dir by absolute path,
-  # plus the engine's create_agent (bot + profile + .env in one confirmed step).
-  # (This is the ONE allowlist — built-ins are enabled only by naming them here.)
+  # This is the ONE allowlist — built-ins are enabled only by naming them here,
+  # and a typed tool is dropped if the gateway lacks the capability it needs.
   tools:
+    # pi's file tools, used on the agents dir by absolute path.
     - read
     - write
     - edit
@@ -22,9 +22,31 @@ runtime:
     - grep
     - find
     - ls
+    # Provision a bot + profile + .env key in one confirmed step.
     - create_agent
+    # The shared skill library. These four are support-only by design (the tool
+    # refuses any other caller), so this list is the only thing standing between
+    # them and the operator.
+    - list_skills
+    - install_skill
+    - assign_skill
+    - remove_skill
+    # Who else is running, so it can answer about the fleet without guessing.
+    - list_agents
+    # A blocking yes/no, for the steps that deserve one.
+    - ask_user_confirm
+    # Its own scheduled work. Note the scope: these act on THIS agent's tasks —
+    # another agent's schedule is reached with `impi task` (see scheduled-tasks).
+    - schedule_task
+    - list_tasks
+    - cancel_task
+    - pause_task
   # Bundled skills, referenced by name (resolved to .pi/skills/<name>). Toggle per
   # deployment with AGENTS_SKILLS__SUPPORT (CSV); unset = these defaults.
   skills:
     - agent-builder
     - skill-authoring
+    - skill-library
+    - chat-commands
+    - scheduled-tasks
+    - engine-diagnostics

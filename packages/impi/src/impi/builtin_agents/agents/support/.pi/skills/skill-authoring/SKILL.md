@@ -8,9 +8,13 @@ description: Write a pi skill (a SKILL.md capability package) for another agent 
 A skill is a directory with a `SKILL.md` (required) plus optional `scripts/`,
 `references/`, and `assets/`. The runtime shows only the skill's `name` +
 `description` to the model up front; the full `SKILL.md` is read on demand
-(progressive disclosure), so keep the front matter tight and put the detail in the
-body. Skills are driven by the model through the `bash` tool — so the target agent
-needs `read` + `bash` in its `runtime.tools`.
+(progressive disclosure), so keep the front matter tight and put the detail in
+the body. Skills are driven by the model through the `bash` tool — so the target
+agent needs `read` + `bash` in its `runtime.tools`.
+
+This skill is about **writing** one. Installing an existing skill from a
+directory or a repository, and handing it to agents, is the **skill-library**
+skill.
 
 ## 1. Shape on disk
 
@@ -28,8 +32,8 @@ needs `read` + `bash` in its `runtime.tools`.
 ---
 name: <lowercase-a-z0-9-hyphens>   # required, <= 64 chars; matches the dir name
 description: <what it does + WHEN to use it>   # required, <= 1024 chars
-# allowed-tools: [read, bash]      # optional; narrows what the skill may call
-# metadata: { ... }                # optional free-form
+# requires_tools: [read, bash]     # optional; checked when the skill is assigned
+# version: 1.2.0                   # optional
 ---
 ```
 
@@ -38,32 +42,49 @@ trigger), not just what it is — that one line is all it sees before deciding t
 open the skill. Then the body: concrete, numbered steps; name any script in
 `scripts/` and how to invoke it; keep it operational, not narrative.
 
-## 2. Where to put it, and wire it up
+`requires_tools` is worth filling in: assigning the skill then warns when the
+target agent's allowlist is missing something, instead of the skill installing
+cleanly and quietly doing nothing.
 
-- **For another agent:** `$AGENTS_PATH/agents/<agent>/.pi/skills/<skill>/`.
-- **For yourself (support):** `$IMPI_ROOT` is read-only, so you cannot add your own
-  bundled skills at runtime — propose the `SKILL.md` to the operator to add under
-  the engine package. You CAN freely author skills for the user's agents under
-  `$AGENTS_PATH`.
+## 2. Where it goes
 
-Then enable it in that agent's `agent.yaml`:
+Two homes, and the choice is about reuse, not about content:
+
+- **Private to one agent** — `$AGENTS_PATH/agents/<agent>/.pi/skills/<skill>/`,
+  referenced by its bare name. Right for anything specific to that agent.
+- **The shared library** — `$SKILLS_PATH/<skill>/`, referenced as
+  `registry:<skill>` by any number of agents. Right for something reusable; use
+  `install_skill` to put it there rather than writing into the library by hand,
+  so its provenance is recorded. See the **skill-library** skill.
+
+**For yourself (support):** `$IMPI_ROOT` is read-only, so you cannot add your own
+bundled skills at runtime — propose the `SKILL.md` to the operator to add under
+the engine package. You can freely author skills for the user's agents.
+
+## 3. Wire it up
 
 ```yaml
 runtime:
-  tools: [read, bash, ...]     # read + bash are required for skills to run
-  skills: [<skill>, ...]       # a bare name resolves to .pi/skills/<skill>
+  tools: [read, bash, ...]        # read + bash are required for skills to run
+  skills:
+    - <skill>                     # private: .pi/skills/<skill>
+    - registry:<skill>            # from the shared library
 ```
 
-Apply with a **reload** (`pkill -HUP -n -f '[i]mpi\.main'` or `make reload`).
-The operator can also toggle skills without editing `agent.yaml` via
-`AGENTS_SKILLS__<AGENT>` (CSV; empty = none, unset = the agent.yaml list).
+Editing the profile is one way; `assign_skill` does the same edit for library
+skills and reloads for you. Apply a hand edit with a reload
+(`pkill -HUP -n -f '[i]mpi\.main'`, or ask for `impi reload`).
 
-## 3. Good skills
+The profile is the single source of truth — removing the line is how a skill is
+turned off. `AGENTS_SKILLS__<AGENT>` in `.env` **replaces** the whole list and
+overrides both.
+
+## 4. Good skills
 
 - One capability per skill; a sharp `description` with its trigger.
 - Prefer a small script in `scripts/` over prose when the steps are mechanical —
   the model runs it via `bash` and reads its output.
-- Reference material the model needs only sometimes goes in `references/`, not the
-  body, so the up-front cost stays low.
-- Test it: give the target agent a task that should trigger the skill and confirm
-  it opens `SKILL.md` and follows it.
+- Reference material needed only sometimes goes in `references/`, not the body,
+  so the up-front cost stays low.
+- Test it: give the target agent a task that should trigger the skill and
+  confirm it opens `SKILL.md` and follows it.
