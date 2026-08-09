@@ -101,10 +101,23 @@ keep the suite green (`uv run pytest`), and keep `make lint` green before finish
 - **User-visible changes get a bullet in `CHANGELOG.md`** under `Unreleased`
   (features, fixes, behavior changes — not internal refactors). The release
   script refuses to cut a release while that section is empty.
+- **Before a MINOR or MAJOR release, review the bundled `support` agent**
+  (`packages/impi/src/impi/builtin_agents/agents/support/`) against what is
+  shipping: its `agent.yaml` allowlist, `.pi/SYSTEM.md`, and every `.pi/skills/*/SKILL.md`.
+  Ask three questions and act on the answers:
+  1. Does a new capability need a tool in its allowlist, or a new/updated skill?
+  2. Did anything it describes change — a path, a setting, a command, a default?
+  3. Does a doc it points at still say what the skill claims it says?
+
+  This agent ships inside the package, so nobody hits its staleness the way they
+  hit a bug: it went five releases describing an engine that no longer existed
+  and answering 403 on tools the docs promised. A patch release does not need
+  this; a minor or major one is exactly when the gap opens.
 - **Write commit messages inline** with `git commit -m` (not `-F <file>`).
 - **State only what the change does** — concrete facts, not plans, discussion, or
-  what was deferred. Verification results (test/lint counts) are fine.
-- **No `Co-Authored-By` trailer.**
+  what was deferred. No verification either: test and lint counts describe the
+  moment the commit was made, not the change, and they age badly in a log.
+- **No `Co-Authored-By` trailer**, and no other generated attribution.
 
 ## Local development
 
