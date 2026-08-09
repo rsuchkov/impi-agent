@@ -6,7 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A slash command no longer has to name an agent.** Register it with
+  `…/command/default` and the engine picks: the only agent running, or the one
+  `AGENT_NAME` names when there are several — and the startup log says which. Its
+  token goes in the unsuffixed `COMMAND_TOKENS`, the same fallback
+  `MATTERMOST_TOKEN` already gets, so a single-agent deployment spells its agent's
+  name nowhere at all. Existing `…/command/<agent>` URLs and per-agent token keys
+  are untouched, an agent really called `default` keeps its own endpoint, and the
+  token check is unchanged: resolving an agent is not authorising a command. With
+  several agents and no `AGENT_NAME` among them the command is refused rather than
+  handed to a guess.
 
 ## v0.8.1 — 2026-08-09
 

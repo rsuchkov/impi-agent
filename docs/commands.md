@@ -33,7 +33,7 @@ says what to do with it. One mechanism, any number of commands.
 | Entry point | slash command (works inside threads) | **message shortcut** (`crux_*`) |
 | Slash command in a thread | ✅ | ❌ [not allowed for custom commands](https://docs.slack.dev/interactivity/implementing-slash-commands/) — only built-ins and Giphy |
 | Thread root comes from | `root_id` in the payload | `message.thread_ts` (else `message.ts`) |
-| Transport | HTTP `POST /command/{agent}` on the interactions receiver | Socket Mode (no HTTP, no public URL) |
+| Transport | HTTP `POST /command/{agent}` (or `/command/default`) on the interactions receiver | Socket Mode (no HTTP, no public URL) |
 | Verification | per-command token, checked against config | the socket is already authenticated |
 
 ## Setting up Mattermost
@@ -45,14 +45,27 @@ says what to do with it. One mechanism, any number of commands.
    `http://192.168.1.10:8423/command/assistant`. The **path names the
    agent**: a Mattermost payload doesn't say which bot it is meant for.
    Request method must be **POST**.
+
+   Or point it at **`/command/default`** and let the engine choose: with one
+   agent running that is the one, otherwise it is `AGENT_NAME`. The startup log
+   prints what `default` resolved to. If several agents run and `AGENT_NAME` is
+   not one of them, the command is refused rather than given to a guess — set
+   `AGENT_NAME`, or name the agent in the URL. An agent really called `default`
+   keeps its own endpoint.
 2. **Copy the token** Mattermost generates and put it in the engine `.env`,
    keyed by the agent's name (upper-cased, `-`→`_`):
    ```
    AGENTS_COMMAND_TOKENS__ASSISTANT=<token>
    ```
+   For the default agent the unsuffixed `COMMAND_TOKENS=<token>` works too — the
+   same fallback `MATTERMOST_TOKEN` gets — so a single-agent deployment never
+   spells its agent's name at all. The per-agent key wins where both are set.
+
    Several commands for one agent = several tokens, comma-separated. An agent
    with no tokens configured refuses every command (HTTP 403) — that is the only
    thing standing between the receiver's port and running a turn as your agent.
+   `/command/default` is no exception: resolving the agent is not authorising
+   the command.
 3. **Networking**: the receiver is the same one that serves widget callbacks, so
    `INTEGRATIONS_PUBLIC_URL` must be reachable from Mattermost and its subnet
    must be in `AllowedUntrustedInternalConnections` (see
@@ -167,7 +180,7 @@ the agent's tools — "`/deploy` staging", "`/whois` @user".
 
 | Symptom | Where to look |
 |---|---|
-| Mattermost says the command failed / nothing happens | Engine log: `command … rejected (token mismatch)` → wrong or missing `AGENTS_COMMAND_TOKENS__<AGENT>`; no log line at all → the request never arrived (URL, port, `AllowedUntrustedInternalConnections`) |
+| Mattermost says the command failed / nothing happens | Engine log: `command … rejected (token mismatch)` → wrong or missing `AGENTS_COMMAND_TOKENS__<AGENT>` (or `COMMAND_TOKENS` for the default agent); `resolves to no agent` → `/command/default` with several agents and no `AGENT_NAME` among them; no log line at all → the request never arrived (URL, port, `AllowedUntrustedInternalConnections`) |
 | Answer says the agent is unavailable | The named agent isn't running (check `app built: agents=[…]`) or the URL names a different agent |
 | Ephemeral message never appears (Mattermost) | The bot lacks `create_post_ephemeral` — `post_ephemeral` fails with a permission error (the `send_ephemeral` tool reports it as one) |
 | Slack shortcut does nothing | Callback ID must start with `SLACK_COMMAND_PREFIX` (default `crux_`); Interactivity must be on; the engine must be running (Socket Mode delivers to one connection) |

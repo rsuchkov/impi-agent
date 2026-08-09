@@ -86,7 +86,8 @@ Client services are dynamic keys (register with `impi ws add-service`):
 | `AGENTS_ENABLED` | `""` | CSV of agent names to run; empty = all found in `AGENTS_PATH` |
 | `SKILLS_COMMAND` | `skills` | trigger word of the library browser: the platform's slash command must use this exact word, or it goes to an agent instead |
 | `SKILLS_PATH` | `""` | the shared skill library (its own directory, ideally its own git repo); empty = `_skills` beside the agents. See [skills.md](skills.md) |
-| `AGENT_NAME` | `assistant` | the agent that `MATTERMOST_TOKEN`/`SLACK_*` fall back to |
+| `AGENT_NAME` | `assistant` | the default agent: the one `MATTERMOST_TOKEN`/`SLACK_*`/`COMMAND_TOKENS` fall back to, and the one `/command/default` resolves to when several agents run |
+| `COMMAND_TOKENS` | `""` | slash-command tokens of the default agent (CSV); the per-agent key wins where both are set |
 | `DOTENV_PATH` | `.env` | file the per-agent keys below are read from |
 
 ### Per-agent keys (dynamic)
@@ -187,8 +188,11 @@ Commands (slash commands) reach the same receiver at
 `POST {INTEGRATIONS_PUBLIC_URL}/command/<agent>` — register that URL with the
 platform's command and put the token it issues in the dynamic key
 `AGENTS_COMMAND_TOKENS__<AGENT>` (CSV, one per command). An agent with no tokens
-refuses every command. Slack needs no URL — it uses `crux_*` message shortcuts
-over its socket. See [commands.md](commands.md).
+refuses every command. `/command/default` in place of the agent's name lets the
+engine pick: the only agent running, else `AGENT_NAME`; paired with the
+unsuffixed `COMMAND_TOKENS`, a single-agent deployment names no agent anywhere.
+Slack needs no URL — it uses `crux_*` message shortcuts over its socket. See
+[commands.md](commands.md).
 
 See [troubleshooting.md](troubleshooting.md) if callbacks don't arrive.
 

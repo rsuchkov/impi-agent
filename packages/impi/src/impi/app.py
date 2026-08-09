@@ -317,10 +317,16 @@ def build_app(settings: ImpiSettings) -> App:
             scheduler_enabled=settings.scheduler.enabled,
         )
     )
+    # Which agents this engine actually runs — a profile with no token is not one
+    # of them. It answers /command/default, so a deployment can register a slash
+    # command without naming an agent in its URL.
+    runnable = tuple(name for name, cfg in configs.items() if cfg is not None)
     interactions = InteractionWiring(
         settings.integrations, sessions, presence,
         codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
         command_tokens=settings.command_tokens_for,
+        agents=lambda: runnable,
+        default_agent=settings.agent_name,
         screens=screens,
     )
 

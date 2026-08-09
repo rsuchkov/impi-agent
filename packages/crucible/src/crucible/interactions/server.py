@@ -30,6 +30,34 @@ _COMMAND_ACK_MESSAGE = "Working on it — the answer will appear in this convers
 
 # Which command tokens an agent accepts; empty tuple = commands are off for it.
 CommandTokens = Callable[[str], tuple[str, ...]]
+# The agents this engine runs. Read when a command arrives, not captured, so the
+# app stays the single owner of that list.
+LiveAgents = Callable[[], tuple[str, ...]]
+
+# The path segment that means "whichever agent is the default one". Reserved by
+# convention only: an agent really called `default` still wins, so no existing
+# registration can change meaning.
+DEFAULT_AGENT_PATH = "default"
+
+
+def resolve_command_agent(
+    requested: str, *, agents: tuple[str, ...], default: str
+) -> str:
+    """Which agent a command sent to ``/command/<requested>`` runs as; ``""`` when
+    the engine cannot name one.
+
+    A single-agent deployment should not have to spell its agent's name in a URL,
+    and neither should one that has a default. Anything other than the reserved
+    word is taken at face value — including a real agent named ``default``, which
+    keeps this from changing what an existing registration means."""
+    if requested != DEFAULT_AGENT_PATH or requested in agents:
+        return requested
+    if len(agents) == 1:
+        return agents[0]
+    # With several agents the choice must be configured, and it must be one that
+    # actually runs — pointing commands at an agent with no token would only
+    # produce "unavailable" on every invocation.
+    return default if default in agents else ""
 
 
 class InteractionsServer:
@@ -43,6 +71,8 @@ class InteractionsServer:
         port: int = 8423,
         dialog_submit_url: str = "",
         command_tokens: CommandTokens | None = None,
+        agents: LiveAgents | None = None,
+        default_agent: str = "",
     ) -> None:
         self._dispatcher = dispatcher
         self._codec = codec
@@ -51,7 +81,16 @@ class InteractionsServer:
         self._port = port
         self._dialog_submit_url = dialog_submit_url
         self._command_tokens = command_tokens
+        self._agents = agents
+        self._default_agent = default_agent
         self._runner: web.AppRunner | None = None
+
+    def _agent_for(self, requested: str) -> str:
+        if self._agents is None:
+            return requested  # no roster to resolve against: the path is all we have
+        return resolve_command_agent(
+            requested, agents=self._agents(), default=self._default_agent
+        )
 
     async def start(self) -> None:
         app = web.Application()
@@ -64,8 +103,10 @@ class InteractionsServer:
         await self._runner.setup()
         await web.TCPSite(self._runner, self._host, self._port).start()
         logger.info(
-            "integrations receiver on http://%s:%d (/interact, /dialog, /command/{agent})",
-            self._host, self._port,
+            "integrations receiver on http://%s:%d (/interact, /dialog, /command/{agent}); "
+            "/command/%s -> %s",
+            self._host, self._port, DEFAULT_AGENT_PATH,
+            self._agent_for(DEFAULT_AGENT_PATH) or "nothing (name one with AGENT_NAME)",
         )
 
     async def stop(self) -> None:
@@ -144,13 +185,24 @@ class InteractionsServer:
         once. The turn takes as long as it takes and posts its own reply into the
         conversation — this response is only the receipt (ephemeral, so the
         receipt itself doesn't clutter the thread)."""
-        agent = request.match_info["agent"]
+        requested = request.match_info["agent"]
         # Commands arrive form-encoded (Mattermost), unlike the JSON callbacks.
         try:
             body = dict(await request.post())
         except Exception:
             return web.json_response({"error": "bad request"}, status=400)
         cb = self._codec.parse_command(body)
+
+        agent = self._agent_for(requested)
+        if not agent:
+            # Only reachable through the reserved word, and only as a
+            # misconfiguration: several agents run and none of them is the named
+            # default. Say which knob fixes it rather than guessing an owner.
+            logger.warning(
+                "command %s: /command/%s resolves to no agent — set AGENT_NAME to "
+                "one of the running agents", cb.command, requested,
+            )
+            return web.json_response({"error": "no default agent"}, status=404)
 
         allowed = self._command_tokens(agent) if self._command_tokens else ()
         if not allowed or cb.token not in allowed:

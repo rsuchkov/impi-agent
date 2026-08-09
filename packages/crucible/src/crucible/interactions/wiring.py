@@ -18,7 +18,11 @@ from crucible.interactions.dispatcher import InteractionDispatcher
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.screens import ScreenRegistry
-from crucible.interactions.server import CommandTokens, InteractionsServer
+from crucible.interactions.server import (
+    CommandTokens,
+    InteractionsServer,
+    LiveAgents,
+)
 from crucible.interactions.service import InteractionService
 from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.chat.types import IncomingMessage
@@ -39,6 +43,8 @@ class InteractionWiring:
         codec: CallbackCodec,
         needs_receiver: bool,
         command_tokens: CommandTokens | None = None,
+        agents: LiveAgents | None = None,
+        default_agent: str = "",
         screens: ScreenRegistry | None = None,
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
@@ -83,6 +89,10 @@ class InteractionWiring:
                 host=integrations.host, port=integrations.port,
                 dialog_submit_url=integrations.dialog_url,
                 command_tokens=command_tokens,
+                # Enough to answer /command/default without the app restating
+                # the rule: who is running, and which of them is the default.
+                agents=agents,
+                default_agent=default_agent,
             )
 
     def on_arrival_for(self, name: str) -> Callable[[IncomingMessage], object] | None:

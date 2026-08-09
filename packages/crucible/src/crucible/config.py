@@ -147,7 +147,12 @@ class Settings(BaseSettings):
     # workspace may already use /skills for something else; the platform's
     # command must be registered under this exact word.
     skills_command: str = "skills"
-    agent_name: str = "assistant"  # the agent MATTERMOST_TOKEN falls back to
+    # The default agent: the one the unsuffixed keys below belong to, and the one
+    # /command/default resolves to when more than one agent is running.
+    agent_name: str = "assistant"
+    # Slash-command tokens for that default agent, so a single-agent deployment
+    # never has to spell its name (CSV, same shape as the per-agent key).
+    command_tokens: str = ""
     # Where mm_token_for() looks up dynamic AGENTS_MM_TOKEN__* keys. Explicit
     # (not the class env_file) so tests can point it away from the real .env.
     dotenv_path: str = ".env"
@@ -265,9 +270,13 @@ class Settings(BaseSettings):
 
     def command_tokens_for(self, agent: str) -> tuple[str, ...]:
         """Verification tokens of the slash commands this agent accepts:
-        AGENTS_COMMAND_TOKENS__<AGENT> (CSV — one command, one token). Empty =
-        commands are disabled for the agent and its endpoint refuses everything."""
+        AGENTS_COMMAND_TOKENS__<AGENT> (CSV — one command, one token), with
+        COMMAND_TOKENS as the fallback for the default agent only, the same rule
+        the bot tokens follow. Empty = commands are disabled for the agent and
+        its endpoint refuses everything."""
         raw = self._token(f"AGENTS_COMMAND_TOKENS__{agent.upper().replace('-', '_')}")
+        if not raw and agent == self.agent_name:
+            raw = self.command_tokens
         return tuple(t.strip() for t in raw.split(",") if t.strip())
 
     def ws_services(self) -> dict[str, tuple[str, tuple[str, ...] | None]]:

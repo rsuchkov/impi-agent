@@ -61,3 +61,23 @@ def test_skills_for_empty_disables_all(monkeypatch) -> None:
 def test_skills_for_uppercases_name_and_maps_hyphen(monkeypatch) -> None:
     monkeypatch.setenv("AGENTS_SKILLS__MY_AGENT", "a")
     assert _no_dotenv().skills_for("my-agent") == ("a",)
+
+
+def test_command_tokens_fall_back_to_the_unsuffixed_key_for_the_default_agent(
+    monkeypatch,
+) -> None:
+    # Same rule the bot tokens follow: a single-agent deployment configures the
+    # default agent without spelling its name anywhere.
+    monkeypatch.setenv("COMMAND_TOKENS", "tok-a, tok-b")
+    settings = _settings(agent_name="assistant", dotenv_path="/dev/null")
+
+    assert settings.command_tokens_for("assistant") == ("tok-a", "tok-b")
+    assert settings.command_tokens_for("support") == ()  # nobody else inherits it
+
+
+def test_a_per_agent_command_token_wins_over_the_unsuffixed_one(monkeypatch) -> None:
+    monkeypatch.setenv("COMMAND_TOKENS", "shared")
+    monkeypatch.setenv("AGENTS_COMMAND_TOKENS__ASSISTANT", "own")
+    settings = _settings(agent_name="assistant", dotenv_path="/dev/null")
+
+    assert settings.command_tokens_for("assistant") == ("own",)

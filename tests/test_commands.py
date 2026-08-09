@@ -41,15 +41,22 @@ class SinkSpy:
         self.submitted.append(msg)
 
 
-async def _server(port: int, store, *, tokens=("good-token",)) -> tuple[InteractionsServer, SinkSpy]:
+async def _server(
+    port: int, store, *, tokens=("good-token",), token_owners=("assistant",),
+    agents=None, default_agent="", present="assistant",
+) -> tuple[InteractionsServer, SinkSpy]:
     spy = SinkSpy()
     dispatcher = InteractionDispatcher(
-        store, presence_of(object(), sink=spy), PendingUiRequests(), store  # type: ignore[arg-type]
+        store,
+        presence_of(object(), sink=spy, agent=present),  # type: ignore[arg-type]
+        PendingUiRequests(), store,
     )
     server = InteractionsServer(
         dispatcher, MattermostCallbackCodec(), MappingPresence({}),
         host="127.0.0.1", port=port,
-        command_tokens=lambda agent: tuple(tokens) if agent == "assistant" else (),
+        command_tokens=lambda agent: tuple(tokens) if agent in token_owners else (),
+        agents=(lambda: tuple(agents)) if agents is not None else None,
+        default_agent=default_agent,
     )
     await server.start()
     return server, spy
@@ -153,6 +160,83 @@ async def test_repeat_invocations_are_distinct_turns(tmp_path: Path) -> None:
         ids = [m.ref.message_id for m in spy.submitted]
         assert len(ids) == 2 and ids[0] != ids[1]
         assert all(i.startswith("cmd-") for i in ids)
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_default_reaches_the_only_agent_there_is(tmp_path: Path) -> None:
+    # A single-agent deployment should not have to spell its agent's name in the
+    # URL it registers with the platform.
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, spy = await _server(8496, store, agents=("assistant",))
+    try:
+        status, _ = await _post(8496, "default", THREAD_PAYLOAD)
+
+        assert status == 200
+        assert spy.submitted[0].text == "/summarize коротко"
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_default_follows_agent_name_when_several_agents_run(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, spy = await _server(
+        8497, store, agents=("support", "assistant"), default_agent="assistant",
+    )
+    try:
+        status, _ = await _post(8497, "default", THREAD_PAYLOAD)
+
+        assert status == 200  # resolved to assistant, whose token this is
+        assert spy.submitted
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_default_with_no_agent_to_resolve_to_is_refused(tmp_path: Path) -> None:
+    # Several agents and none of them named as the default: guessing an owner
+    # would run someone's command as the wrong bot.
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, spy = await _server(
+        8498, store, agents=("support", "assistant"), default_agent="ghost",
+    )
+    try:
+        status, _ = await _post(8498, "default", THREAD_PAYLOAD)
+
+        assert status == 404
+        assert spy.submitted == []
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_an_agent_really_called_default_keeps_its_own_endpoint(tmp_path: Path) -> None:
+    # The reserved word must not change what an existing registration means.
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, spy = await _server(
+        8499, store, token_owners=("default",), present="default",
+        agents=("default", "assistant"), default_agent="assistant",
+    )
+    try:
+        status, _ = await _post(8499, "default", THREAD_PAYLOAD)
+
+        assert status == 200  # the token checked was the real agent's, not assistant's
+        assert spy.submitted
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_default_still_has_to_prove_the_token(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, spy = await _server(8500, store, agents=("assistant",))
+    try:
+        status, _ = await _post(8500, "default", {**THREAD_PAYLOAD, "token": "stolen"})
+
+        assert status == 403
+        assert spy.submitted == []
     finally:
         await server.stop()
         await store.close()
