@@ -1,9 +1,25 @@
-# impi
+<div align="center">
 
-A personal multi-agent system for chat. Each agent is a bot account on a chat
-platform (Mattermost or Slack) with its own personality and tools; the engine
-hosts many of them in one process and routes conversations between people and
-agents — and between agents.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.png">
+  <img src="docs/assets/logo-light.png" alt="impi" width="420">
+</picture>
+
+**A personal multi-agent system for chat.**
+
+[![release](https://img.shields.io/github/v/tag/rsuchkov/impi-agent?label=release&sort=semver&color=2e2d36)](https://github.com/rsuchkov/impi-agent/releases)
+[![python](https://img.shields.io/badge/python-3.13-2e2d36)](.python-version)
+[![runs on](https://img.shields.io/badge/agent-pi-2e2d36)](https://github.com/earendil-works/pi)
+
+[Install](#install) · [Docs](docs/README.md) · [Architecture](docs/architecture.md) · [Changelog](CHANGELOG.md)
+
+</div>
+
+---
+
+Each agent is a bot account on a chat platform (Mattermost or Slack) with its
+own personality and tools; the engine hosts many of them in one process and
+routes conversations between people and agents — and between agents.
 
 The engine does **not** call an LLM directly. Every agent turn is delegated to
 the external [`pi`](https://github.com/earendil-works/pi) coding agent, spawned
@@ -109,6 +125,8 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/architecture.md](docs/architecture.md) — how the engine works, the layers, and the request flows.
 - [docs/creating-agents.md](docs/creating-agents.md) — write and register an agent.
 - [docs/skills.md](docs/skills.md) — the shared skill library and `/skills`.
+- [docs/tasks.md](docs/tasks.md) — scheduled and recurring work, and why a run didn't happen.
+- [docs/files.md](docs/files.md) — files and photos, in both directions.
 - [docs/commands.md](docs/commands.md) — slash commands and shortcuts, and how to answer one privately.
 - [docs/ws-gateway.md](docs/ws-gateway.md) — plug your own service in over WebSocket.
 - [docs/configuration.md](docs/configuration.md) — every `.env` / config knob.
