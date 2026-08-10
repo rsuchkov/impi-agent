@@ -62,7 +62,7 @@ and logs why. Common cases:
 | Tool | Needs |
 |---|---|
 | `create_channel`, `invite_to_channel`, `read_channel`, `send_message`, `get_channel_members` | a gateway with an admin client (Mattermost) |
-| `ask_user_buttons`, `ask_user_select`, `open_form` | `INTEGRATIONS_ENABLED=true` |
+| `ask_user_buttons`, `ask_user_select`, `open_form`, `open_screen` | `INTEGRATIONS_ENABLED=true` |
 | `send_file` | `ATTACHMENTS_ENABLED=true` |
 | `send_ephemeral` | a gateway that has ephemeral messages |
 | `schedule_task`, `list_tasks`, `cancel_task`, `pause_task` | `SCHEDULER_ENABLED=true` |

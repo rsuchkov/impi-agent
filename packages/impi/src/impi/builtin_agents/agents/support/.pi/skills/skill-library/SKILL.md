@@ -77,8 +77,10 @@ never left pointing at a skill that no longer exists.
 
 ## 5. The operator's own paths
 
-They may prefer doing this themselves; both surfaces do the same thing:
+They may prefer doing this themselves; these surfaces do the same thing:
 
 - `impi skill list|show|install|update|remove|assign` from a terminal;
 - `/skills` in chat — a browser with the same install/assign actions, answered
-  by the engine with no agent turn involved.
+  by the engine with no agent turn involved;
+- asking an agent that has the `open_screen` tool to show the skills, which
+  opens that same browser where the conversation is.

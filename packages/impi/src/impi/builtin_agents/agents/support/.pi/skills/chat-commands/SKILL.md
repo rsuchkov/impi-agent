@@ -19,6 +19,12 @@ screen; registering any other word gives the agent. If the operator wants a
 screen under a different word, they change that setting — the trigger word must
 match it exactly.
 
+A command is not the only way in: an agent holding the `open_screen` tool opens
+the same panel from an ordinary turn, so "show me the skills" works without any
+registration at all. The model only decides to open it — the panel and its
+buttons are still the engine's. That is also the only route on Slack, where a
+custom slash command cannot run inside a thread.
+
 ## 2. Mattermost
 
 **Create the command** in System Console → Integrations → Slash Commands, or:
