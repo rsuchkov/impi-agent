@@ -6,6 +6,15 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **An agent can open an engine panel (experimental).** With the new
+  `open_screen` tool, "show me the skills" opens the same panel `/skills` does,
+  in the conversation the turn is running in. The model only decides to open it:
+  the view is rendered by the engine and every click on it is answered by the
+  engine, rewriting the same message with no turn behind it — so the panel can
+  never describe a task that isn't there. It also reaches Slack, where a custom
+  slash command cannot run inside a thread. Note that the panel is clickable by
+  anyone who can see it.
+
 _Nothing yet._
 
 ## v0.10.0 — 2026-08-09

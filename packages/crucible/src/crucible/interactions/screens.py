@@ -18,7 +18,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from crucible.ports.chat.types import Action, Card, Choice
+from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.types import Action, Card, Choice, ConversationRef
 
 # Marks a click as belonging to a screen, and names which one. The value rides in
 # the action context (Mattermost echoes it; Slack packs it into the button value),
@@ -109,6 +110,11 @@ class ScreenRegistry:
     def handles(self, name: str) -> bool:
         return self.get(name) is not None
 
+    def names(self) -> tuple[str, ...]:
+        """The words this engine answers itself — what a caller may ask for, and
+        what to name back when it asks for something else."""
+        return tuple(sorted(self._screens))
+
     def __bool__(self) -> bool:
         return bool(self._screens)
 
@@ -134,3 +140,21 @@ def state_from_context(context: dict[str, Any]) -> ScreenState | None:
     if not context.get(SCREEN_KEY):
         return None
     return ScreenState.decode(str(context.get(STATE_KEY) or ""))
+
+
+async def post_first_view(
+    screen: Screen,
+    poster: ChatClient,
+    ref: ConversationRef,
+    *,
+    agent: str,
+    user_id: str,
+    callback_url: str,
+) -> None:
+    """Render a screen's opening view and post it as ``agent``.
+
+    Shared by the two ways a screen is opened — a slash command, and an agent
+    reaching for it mid-turn — so both produce the same message, and every click
+    on it afterwards takes the same engine-only path."""
+    view = await screen.render(ScreenState(screen=screen.command, agent=agent), user_id=user_id)
+    await poster.post_cards(ref, list(view.cards), callback_url=callback_url)

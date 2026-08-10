@@ -3,6 +3,8 @@ the same message instead of starting a turn."""
 
 from pathlib import Path
 
+import pytest
+
 from crucible.interactions import InteractionDispatcher
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.screens import (
@@ -276,3 +278,71 @@ async def test_a_skill_carries_its_own_controls(tmp_path: Path) -> None:
     assert "skill-00" in card.text
     assert [a.id for a in card.actions] == ["open", "give"]
     assert card.actions[0].label == "Details"
+
+
+# --- a turn can open one too -----------------------------------------------------
+
+
+def _service(store, chat, screens):
+    from crucible.interactions.service import InteractionService
+
+    return InteractionService(
+        presence_of(chat), store, store, store,
+        callback_url="http://x/interact", screens=screens,
+    )
+
+
+async def _open_via_tool(store, chat, screens, name: str):
+    from crucible.builtin_tools import OpenScreen
+    from crucible.tools.base import ToolContext
+
+    record, _ = await store.get_or_create("assistant", "ch1", "ch1", "channel", user_id="u1")
+    ctx = ToolContext(
+        agent_name="assistant", directory=None,  # type: ignore[arg-type]  # unused here
+        runtime_session_id=record.runtime_session_id,
+        interaction_svc=_service(store, chat, screens), user_id="u1",
+    )
+    return await OpenScreen().execute(ctx, {"screen": name})
+
+
+async def test_an_agent_can_open_a_screen_and_its_clicks_still_skip_the_model(
+    tmp_path: Path,
+) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat, spy = FakeChat(), SinkSpy()
+    screens = ScreenRegistry()
+    screens.register(CountingScreen())
+    try:
+        result = await _open_via_tool(store, chat, screens, "demo")
+
+        assert result["opened"] == "demo"
+        assert chat.posted_cards[0][1][0].text == "page 0"
+
+        # The screen a turn opened is the same screen: a click on it redraws in
+        # place, with no turn behind it. That is the whole point of the panel.
+        state = chat.posted_cards[0][1][0].actions[0].context["state"]
+        dispatcher = _dispatcher(store, chat, spy, screens)
+        assert await dispatcher.redraw_screen(state, "", post_id="p1", user_id="u2") is True
+
+        assert spy.submitted == []
+        assert len(chat.posted_cards) == 1
+        assert chat.updated[0][1][0].text == "page 1"
+    finally:
+        await store.close()
+
+
+async def test_asking_for_a_panel_that_does_not_exist_names_the_ones_that_do(
+    tmp_path: Path,
+) -> None:
+    from crucible.tools.base import ToolError
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    screens = ScreenRegistry()
+    screens.register(CountingScreen())
+    try:
+        with pytest.raises(ToolError) as exc:
+            await _open_via_tool(store, FakeChat(), screens, "nope")
+
+        assert "demo" in str(exc.value)
+    finally:
+        await store.close()

@@ -325,3 +325,48 @@ class SendFile(Tool):
         except Exception as exc:
             raise ToolError(f"could not send the file: {exc}") from exc
         return {"sent": sent}
+
+
+@tool
+class OpenScreen(Tool):
+    name: ClassVar[str] = "open_screen"
+    requires: ClassVar[frozenset[str]] = frozenset({CAP_WIDGETS})
+    description: ClassVar[str] = (
+        "Post one of the engine's own interactive panels into THIS conversation "
+        "— the same one its slash command opens. Use it when the user asks to "
+        "see or manage what the panel is for, instead of describing it yourself: "
+        "the engine renders the panel and answers every click on it, so what the "
+        "user sees is always the live state. Post it and say nothing more than "
+        "one short sentence; do not summarise or repeat its contents, and do not "
+        "claim to have done anything the user has not clicked yet."
+    )
+    parameters: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "screen": {
+                "type": "string",
+                "description": (
+                    "Which panel. The names are this engine's own command words "
+                    "(commonly 'skills' and 'tasks'); asking for an unknown one "
+                    "answers with the list."
+                ),
+            },
+        },
+        "required": ["screen"],
+    }
+
+    async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+        name = _require_str(args, "screen")
+        interactions = ctx.require_interactions()
+        available = interactions.screen_names()
+        opened = await interactions.open_screen(
+            ctx.agent_name, ctx.runtime_session_id, name, user_id=ctx.user_id
+        )
+        if not opened:
+            if name.lstrip("/").strip().lower() not in available:
+                raise ToolError(
+                    f"no panel called {name!r}. This engine has: "
+                    + (", ".join(available) or "none")
+                )
+            raise ToolError("could not post the panel (conversation not resolved)")
+        return {"opened": name, "note": "the engine owns this panel and its buttons"}

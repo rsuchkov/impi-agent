@@ -15,7 +15,7 @@ from uuid import uuid4
 from crucible.interactions.labels import humanize
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.presence import AgentPresence
-from crucible.interactions.screens import ScreenRegistry, ScreenState
+from crucible.interactions.screens import ScreenRegistry, ScreenState, post_first_view
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.interactions import form_from_json
@@ -185,8 +185,6 @@ class InteractionDispatcher:
         target = self._presence.poster(agent)
         if screen is None or target is None:
             return False
-        state = ScreenState(screen=screen.command, agent=agent)
-        view = await screen.render(state, user_id=user_id)
         thread_root = conversation_id if kind == KIND_THREAD else ""
         ref = ConversationRef(
             channel_id=channel_id,
@@ -194,7 +192,10 @@ class InteractionDispatcher:
             message_id=conversation_id,
             thread_root_id=thread_root,
         )
-        await target.post_cards(ref, list(view.cards), callback_url=self._callback_url)
+        await post_first_view(
+            screen, target, ref,
+            agent=agent, user_id=user_id, callback_url=self._callback_url,
+        )
         logger.info("screen %s opened for %s by %s", screen.command, agent, user_id)
         return True
 

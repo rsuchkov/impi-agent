@@ -78,7 +78,10 @@ class InteractionWiring:
         # One service for widgets (ask) and forms (open_form). The one concrete store
         # backs all three store facets.
         self.interaction_svc = InteractionService(
-            presence, sessions, sessions, sessions, callback_url=integrations.interact_url,
+            presence, sessions, sessions, sessions,
+            callback_url=integrations.interact_url,
+            # So a turn can open a screen too, not only a slash command.
+            screens=screens,
         )
         # The HTTP receiver is only for gateways that deliver callbacks over HTTP
         # (Mattermost); socket gateways (Slack) drive the same dispatcher over their

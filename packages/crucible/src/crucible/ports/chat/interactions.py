@@ -50,6 +50,18 @@ class InteractionService(Protocol):
         message. False if the conversation couldn't be resolved."""
         ...
 
+    async def open_screen(
+        self, agent: str, runtime_session_id: str, name: str, *, user_id: str = ""
+    ) -> bool:
+        """Post one of the engine's own screens here. Unlike the two above, the
+        clicks never come back as a turn — the engine answers them and rewrites
+        the message. False if no screen answers to ``name``."""
+        ...
+
+    def screen_names(self) -> tuple[str, ...]:
+        """Which names ``open_screen`` accepts in this deployment."""
+        ...
+
 
 def form_to_json(form: Form) -> str:
     return json.dumps(

@@ -13,6 +13,7 @@ import secrets
 from datetime import datetime, timezone
 
 from crucible.interactions.presence import AgentPresence
+from crucible.interactions.screens import ScreenRegistry, post_first_view
 from crucible.ports.chat.interactions import (
     ASK_CHANNELS,
     ASK_SELECT,
@@ -76,12 +77,15 @@ class InteractionService:
         forms: FormStore,
         *,
         callback_url: str,
+        screens: ScreenRegistry | None = None,
     ) -> None:
         self._presence = presence
         self._sessions = sessions
         self._interactions = interactions
         self._forms = forms
         self._callback_url = callback_url
+        # The engine's own screens, so a turn can open one (None = none exposed).
+        self._screens = screens
 
     async def ask(
         self,
@@ -165,5 +169,31 @@ class InteractionService:
             )
         )
         return True
+
+    async def open_screen(
+        self, agent: str, runtime_session_id: str, name: str, *, user_id: str = ""
+    ) -> bool:
+        """Post an engine screen into the conversation this turn is running in.
+
+        The model chooses to open it and nothing more: the view is rendered by
+        the engine, and every click on it afterwards is answered by the engine
+        too — no turn, no model, no chance to describe a task that isn't there.
+        False when no screen answers to ``name`` or the conversation can't be
+        resolved."""
+        screen = self._screens.get(name) if self._screens else None
+        record = await self._sessions.get_by_runtime_session(runtime_session_id)
+        poster = self._presence.poster(agent)
+        if screen is None or record is None or poster is None:
+            return False
+        await post_first_view(
+            screen, poster, self._ref(record),
+            agent=agent, user_id=user_id, callback_url=self._callback_url,
+        )
+        logger.info("screen %s opened by %s (agent turn)", screen.command, agent)
+        return True
+
+    def screen_names(self) -> tuple[str, ...]:
+        """What ``open_screen`` will accept here — the words this engine answers."""
+        return self._screens.names() if self._screens else ()
 
     _ref = staticmethod(conversation_ref)

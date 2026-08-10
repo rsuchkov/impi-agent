@@ -26,6 +26,29 @@ thread runs in that thread's session.
 (`/summarize the last hour`) arrives as the message, and the agent's `.pi/SYSTEM.md`
 says what to do with it. One mechanism, any number of commands.
 
+## Panels, and asking for one in plain language
+
+A few words are answered by the engine itself rather than by an agent — the skill
+browser and the task browser. Those are **panels**: the engine renders the view
+and answers every click on it by rewriting the same message, with no turn behind
+it (see [skills.md](skills.md) and [tasks.md](tasks.md)).
+
+A slash command is one way to open one. The other is the **`open_screen` tool**:
+give it to an agent and "покажи какие скиллы есть" opens the same panel that
+`/skills` would. The model's only part is deciding to open it — what the panel
+says, and everything that happens when a button is pressed, stays engine-only.
+So the cost of the natural-language route is one turn at the door, not a model
+between the user and the data.
+
+Two consequences worth knowing. The panel appears wherever the agent is,
+including a shared channel, and **anyone who can see it can press its buttons** —
+the engine does not check who clicks. And because a tool works over any gateway,
+this is the only way to reach a panel from Slack, where a custom slash command
+cannot run inside a thread at all.
+
+Grant it like any other tool (`open_screen` in `runtime.tools`); it needs
+`INTEGRATIONS_ENABLED=true`.
+
 ## Platform differences
 
 |  | Mattermost | Slack |
