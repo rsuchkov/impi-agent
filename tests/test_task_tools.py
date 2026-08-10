@@ -8,6 +8,7 @@ import pytest
 from crucible.ports.chat.types import KIND_DM, KIND_THREAD
 from crucible.ports.tasks import TaskError
 from crucible.scheduler.admin import TaskAdmin
+from crucible.scheduler.triggers import JITTER_CAP_S, from_iso
 from crucible.store.base import MODE_PROMPT, STATE_IDLE, STATE_PAUSED
 from crucible.store.sessions import SqliteSessionStore
 from crucible.tools.base import CAP_SCHEDULER, ToolContext, ToolError
@@ -105,8 +106,13 @@ async def test_a_recurring_task_gets_a_stable_smear_a_one_shot_does_not(store) -
     assert recurring is not None and one_shot is not None
     # The smear rides on due_at from the FIRST occurrence, never on next_run_at:
     # a fleet of daily tasks created in one sitting must not all fire together.
-    assert recurring.jitter_s > 0
-    assert recurring.due_at != recurring.next_run_at
+    # How wide it is for a given task is triggers' business — and a legitimate
+    # draw is zero, so asserting it is non-zero here only tests the dice. What
+    # belongs here is that it is bounded and lands on due_at alone.
+    assert 0 <= recurring.jitter_s <= JITTER_CAP_S
+    scheduled = from_iso(recurring.next_run_at)
+    assert scheduled is not None
+    assert from_iso(recurring.due_at) == scheduled + timedelta(seconds=recurring.jitter_s)
     assert one_shot.jitter_s == 0 and one_shot.due_at == one_shot.next_run_at
 
 
