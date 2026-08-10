@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.11.0 — 2026-08-10
+
 - **An agent can open an engine panel (experimental).** With the new
   `open_screen` tool, "show me the skills" opens the same panel `/skills` does,
   in the conversation the turn is running in. The model only decides to open it:
