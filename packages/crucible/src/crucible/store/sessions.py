@@ -14,12 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from crucible.ports.chat.directory import AgentInfo
+from crucible.store.approvals import ApprovalStoreMixin
 from crucible.store.base import (
     FormRecord,
     InteractionRecord,
     SessionRecord,
     derive_runtime_session_id,
 )
+from crucible.store.secrets import SecretPolicyStoreMixin
 from crucible.store.tasks import TaskStoreMixin
 
 _SCHEMA = """
@@ -83,7 +85,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-class SqliteSessionStore(TaskStoreMixin):
+class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, SecretPolicyStoreMixin):
     def __init__(self, db_path: str | Path) -> None:
         path = Path(db_path)
         if path.parent and str(path.parent) != ".":
@@ -101,6 +103,8 @@ class SqliteSessionStore(TaskStoreMixin):
             self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.executescript(_SCHEMA)
             self._create_task_tables()  # the scheduler facet owns its own schema
+            self._create_approval_tables()  # windows and the ledger
+            self._create_secret_tables()  # secret policies
             self._migrate()
             self._conn.commit()
 

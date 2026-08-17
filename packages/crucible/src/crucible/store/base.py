@@ -333,6 +333,160 @@ class SchedulerStateStore(Protocol):
     async def read_heartbeat(self) -> SchedulerHeartbeat | None: ...
 
 
+# -- secrets ------------------------------------------------------------------
+
+# Whether reaching a secret needs a human. `never` is for the fully automatic
+# ones (a model endpoint key a nightly task needs); `always` means every use is
+# asked about unless a live grant already covers it.
+# What a window or a ledger row is about. The two consumers of the approval
+# primitive: a credential an agent asked for, and a tool call it wants to make.
+KIND_SECRET = "secret"
+KIND_TOOL = "tool"
+
+APPROVAL_ALWAYS = "always"
+APPROVAL_NEVER = "never"
+APPROVALS = (APPROVAL_ALWAYS, APPROVAL_NEVER)
+
+# What a request for a secret came to. A closed set, like the run statuses: the
+# audit is the only place the real reason is ever written, because the caller is
+# told the same thing whatever happened (see the broker), so "why was it refused"
+# has to be greppable here or it is nowhere.
+DECISION_APPROVED_ONCE = "approved_once"  # a human allowed this one call
+DECISION_APPROVED_GRANT = "approved_grant"  # a human opened a window; this call used it
+DECISION_REUSED_GRANT = "reused_grant"  # served by a window opened earlier
+DECISION_AUTO = "auto"  # policy says approval: never
+DECISION_DENIED = "denied"  # a human refused
+DECISION_TIMEOUT = "timeout"  # nobody answered in time
+DECISION_NO_POLICY = "no_policy"  # nothing is configured under that name
+DECISION_NOT_PERMITTED = "not_permitted"  # the policy does not list this agent
+DECISION_NO_APPROVER = "no_approver"  # approval needed, nobody configured to give it
+DECISION_LOCKED = "locked"  # the engine has no backend credential yet
+DECISION_SEALED = "sealed"  # the backend itself is sealed
+DECISION_BACKEND_ERROR = "backend_error"  # approved, but the read failed
+DECISIONS = (
+    DECISION_APPROVED_ONCE, DECISION_APPROVED_GRANT, DECISION_REUSED_GRANT,
+    DECISION_AUTO, DECISION_DENIED, DECISION_TIMEOUT, DECISION_NO_POLICY,
+    DECISION_NOT_PERMITTED, DECISION_NO_APPROVER, DECISION_LOCKED,
+    DECISION_SEALED, DECISION_BACKEND_ERROR,
+)
+# The decisions under which a value actually reached the caller.
+GRANTED_DECISIONS = (
+    DECISION_APPROVED_ONCE, DECISION_APPROVED_GRANT, DECISION_REUSED_GRANT, DECISION_AUTO,
+)
+
+
+@dataclass(frozen=True)
+class SecretPolicyRecord:
+    """Who may ask for a secret, and on what terms.
+
+    This is the whole authorization model: a secret with no policy is reachable
+    by nobody, and ``subjects`` is an explicit allowlist rather than a deny-list,
+    so a new agent starts with access to nothing. ``max_grant_s`` is the ceiling
+    on a "leave it open for a while" answer — 0 means no window may be opened at
+    all and every single use is asked about."""
+
+    name: str
+    approval: str  # APPROVAL_ALWAYS | APPROVAL_NEVER
+    max_grant_s: int
+    subjects: str  # CSV of agent names; "" = nobody
+    description: str
+    created_at: str
+    updated_at: str
+
+    def allows(self, agent: str) -> bool:
+        return agent in {s.strip() for s in self.subjects.split(",") if s.strip()}
+
+
+@dataclass(frozen=True)
+class ApprovalGrant:
+    """A window during which one principal may do one thing without asking again.
+
+    Keyed by ``(kind, principal, scope)`` rather than by anything secret-shaped,
+    because the same window means "this agent may use github-token" and "this
+    agent may run bash" — the two consumers differ in what they put in ``scope``,
+    not in what a window is.
+
+    It holds no value and no capability, only the permission. Whatever the
+    window covers is still fetched or checked afresh on every use, so revoking a
+    window — or changing what it points at — takes effect on the very next call.
+    """
+
+    id: str
+    kind: str  # KIND_SECRET | KIND_TOOL
+    principal: str  # who was trusted — an agent name
+    scope: str  # with what — a secret name, a tool name
+    granted_by: str  # the user id that clicked
+    granted_at: str
+    expires_at: str
+    revoked_at: str = ""
+
+
+@dataclass(frozen=True)
+class ApprovalAudit:
+    """One request for authorization, ever — granted or not.
+
+    Append-only, and it never holds a secret value. ``detail`` is what the human
+    was shown before deciding (the argv, the tool's arguments): keeping it is
+    what makes an approval reviewable after the fact. ``request_id`` ties the
+    rows of one multi-part request together.
+    """
+
+    id: str
+    at: str
+    kind: str
+    principal: str
+    scope: str
+    reason: str
+    detail: str
+    decision: str
+    approver: str  # the user id that decided; "" when nobody was asked
+    grant_id: str  # the window this was served under, if any
+    request_id: str  # shared by every row of one request
+    duration_ms: int  # how long the caller waited, mostly on the human
+
+
+class ApprovalStore(Protocol):
+    """Windows a human left open, and the ledger of what was asked.
+
+    Neither is secret-shaped: the same two tables answer "may this agent use
+    that credential" and "may this agent run that tool", because a window and a
+    ledger row are the same idea either way.
+    """
+
+    async def create_grant(self, grant: ApprovalGrant) -> None: ...
+
+    async def live_grant(
+        self, kind: str, principal: str, scope: str, *, now: str
+    ) -> ApprovalGrant | None:
+        """The unexpired, unrevoked window covering this triple, if one is open."""
+        ...
+
+    async def list_grants(
+        self, *, now: str, kind: str = "", include_dead: bool = False
+    ) -> list[ApprovalGrant]: ...
+
+    async def revoke_grant(self, grant_id: str, *, now: str) -> bool: ...
+
+    async def record_decision(self, record: ApprovalAudit) -> None: ...
+
+    async def list_audit(
+        self, *, limit: int = 50, kind: str = "", principal: str = "", scope: str = ""
+    ) -> list[ApprovalAudit]: ...
+
+
+class SecretPolicyStore(Protocol):
+    """Who may ask for which secret, and on what terms. Secret-specific, unlike
+    the windows and the ledger — a tool gate has no notion of a subject list."""
+
+    async def get_policy(self, name: str) -> SecretPolicyRecord | None: ...
+
+    async def list_policies(self) -> list[SecretPolicyRecord]: ...
+
+    async def put_policy(self, policy: SecretPolicyRecord) -> None: ...
+
+    async def delete_policy(self, name: str) -> bool: ...
+
+
 class AgentStore(Protocol):
     """Persistence for the agent registry (synced from profiles at boot)."""
 
