@@ -26,6 +26,7 @@ from crucible.interactions.server import (
 from crucible.interactions.service import InteractionService
 from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.chat.types import IncomingMessage
+from crucible.secrets.approvals import SecretApprovals
 from crucible.store.sessions import SqliteSessionStore
 
 
@@ -46,6 +47,7 @@ class InteractionWiring:
         agents: LiveAgents | None = None,
         default_agent: str = "",
         screens: ScreenRegistry | None = None,
+        approvals: SecretApprovals | None = None,
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
         # service need its InteractionStore + FormStore facets too.
@@ -73,7 +75,10 @@ class InteractionWiring:
         self.dispatcher = InteractionDispatcher(
             sessions, presence, self.pending_ui, sessions,
             # Commands the engine answers itself, and the clicks that redraw them.
-            screens=screens, callback_url=integrations.interact_url,
+            screens=screens,
+            # Requests for a credential, which only a named person may answer.
+            approvals=approvals,
+            callback_url=integrations.interact_url,
         )
         # One service for widgets (ask) and forms (open_form). The one concrete store
         # backs all three store facets.

@@ -99,7 +99,7 @@ def stage(source: SkillSource | str) -> StagedSkill:
     """Fetch ``source`` into a temporary directory and read the skill it holds.
     The caller must ``close()`` the result (or use it as a context manager)."""
     src = parse_source(source) if isinstance(source, str) else source
-    workdir = Path(tempfile.mkdtemp(prefix="impi-skill-"))
+    workdir = Path(tempfile.mkdtemp(prefix="skill-install-"))
     try:
         if src.kind == "local":
             root = Path(src.location)

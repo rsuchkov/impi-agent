@@ -27,6 +27,11 @@ class ActionCallback:
     screen: str = ""
     state: str = ""
     post_id: str = ""
+    # Set when the click answers a request for a CREDENTIAL. Deliberately not
+    # called just "approval": the blocking mid-turn confirm that approves a tool
+    # call arrives on the same callback, in ``token``, and the two are answered
+    # by different registries with different rules about who may click.
+    secret_approval: str = ""
 
 
 @dataclass(frozen=True)

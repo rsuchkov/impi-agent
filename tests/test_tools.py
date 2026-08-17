@@ -52,6 +52,9 @@ class FakeAdmin:
     async def resolve_username(self, username):
         return "uid-" + username.lstrip("@")
 
+    async def open_direct(self, user_id):
+        return f"dm-{user_id}"
+
     async def post_message(self, channel_id, message, *, hop_depth=0):
         self.posted.append((channel_id, message, hop_depth))
         return "post-1"

@@ -18,6 +18,7 @@ from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import ActionResult, InteractionDispatcher
 from crucible.interactions.presence import AgentPresence
 from crucible.ports.chat.types import KIND_CHANNEL, KIND_THREAD
+from crucible.secrets.approvals import SecretApprovalOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 _BUTTONS_RETIRED_MESSAGE = "These buttons are no longer active."
 _AGENT_UNAVAILABLE_MESSAGE = "The agent is currently unavailable."
 _CHOSE_PREFIX = "Selected: "
+# Shown to whoever clicked a credential request they are not an approver for.
+# Ephemeral: the card stays live for the person it was actually addressed to.
+_NOT_AN_APPROVER_MESSAGE = "Only an approver can answer that request."
 _COMMAND_ACK_MESSAGE = "Working on it — the answer will appear in this conversation."
 
 # Which command tokens an agent accepts; empty tuple = commands are off for it.
@@ -124,6 +128,22 @@ class InteractionsServer:
         # platform->host hop is the usual failure point for widget callbacks).
         logger.info("interact callback: token=%s form=%s", cb.token, bool(cb.form_token))
 
+        # A request for a CREDENTIAL, answered by a named person. First, because
+        # it is the only click whose answer depends on WHO sent it: the blocking
+        # confirm below (ask_user_confirm, and the gate in front of a tool call)
+        # is addressed to the conversation and takes any click that carries its
+        # token. The broker rewrites its own card once it has the answer, so
+        # nothing is replaced from here.
+        if cb.secret_approval:
+            outcome = self._dispatcher.resolve_secret_approval(
+                cb.secret_approval, cb.value, cb.user_id
+            )
+            if outcome is SecretApprovalOutcome.NOT_ALLOWED:
+                return web.json_response(self._codec.reply_notice(_NOT_AN_APPROVER_MESSAGE))
+            if outcome is SecretApprovalOutcome.RESOLVED:
+                return web.json_response(self._codec.reply_none())
+            return web.json_response(self._codec.reply_replace(_BUTTONS_RETIRED_MESSAGE))
+
         # A screen redraws itself in place: no turn, and the message it came from
         # is rewritten rather than replaced by a response body.
         if cb.screen:
@@ -137,9 +157,10 @@ class InteractionsServer:
         if cb.form_token:
             return await self._open_form_dialog(cb)
 
-        # Blocking UI request (a mid-turn confirm/select): resolve the Future the
-        # paused turn is waiting on. Must come before the fire-and-forget path,
-        # which uses a different token store.
+        # Blocking UI request (a mid-turn confirm/select — ask_user_confirm, or
+        # the confirmation a tool declares): resolve the Future the paused turn
+        # is waiting on. Must come before the fire-and-forget path, which uses a
+        # different token store.
         if self._dispatcher.resolve_pending(cb.token, cb.value):
             return web.json_response(self._codec.reply_replace(f"{_CHOSE_PREFIX}{cb.value}"))
 

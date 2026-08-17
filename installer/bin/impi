@@ -124,6 +124,8 @@ impi — manage your impi deployment
   impi task list|show|runs|add|rm|pause|resume|run-now|status
                            scheduled and recurring work
   impi sessions list|delete|purge-idle   conversation memory
+  impi secret init|unlock|status|set|ls|rm|policy|grants|revoke|audit
+                           the secret store and who may reach it
   impi agent add|list ...  manage agents (runs the CLI inside the container)
   impi login               interactive pi model login inside the container
   impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
@@ -167,6 +169,16 @@ cmd_agent() {
             cmd_restart
         fi
     fi
+}
+
+# `unlock` and `status` have to reach the RUNNING engine: what they change is the
+# credential it holds in memory, which a one-shot container does not share. The
+# rest read the database or the store directly and are happy in a fresh one.
+cmd_secret() {
+    case "${1:-}" in
+        unlock|status) compose exec impi impi secret "$@" ;;
+        *)             compose run --rm impi impi secret "$@" ;;
+    esac
 }
 
 cmd_login() {
@@ -305,6 +317,7 @@ case "${1:-}" in
     skill)     shift; compose run --rm impi impi skill "$@" ;;
     task)      shift; compose run --rm impi impi task "$@" ;;
     sessions)  shift; compose run --rm impi impi sessions "$@" ;;
+    secret)    shift; cmd_secret "$@" ;;
     agent)     shift; cmd_agent "$@" ;;
     login)     shift; cmd_login "$@" ;;
     update)    shift; cmd_update "$@" ;;

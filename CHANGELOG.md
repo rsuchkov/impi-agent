@@ -6,7 +6,28 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Secrets an agent can use but never read.** An agent runs `secret-exec --env
+  GITHUB_TOKEN=vault://github-token -- gh release create …`; you get a card in
+  chat showing the agent, the secret, the reason and the exact command, and
+  answer **Allow once**, **Allow for…** (1 min to 1 hour) or **Deny**. On an
+  approval the value is injected straight into that child process — it never
+  enters the model's context, the session history or the logs. Values live in an
+  optional Vault container; impi owns the policies, the time-boxed windows and
+  the ledger. Only a configured approver can answer, there is no way for an
+  agent to list what exists, and every authorization refusal reads identically
+  so the store cannot be mapped by guessing names. Off by default; the installer
+  asks. See [docs/secrets.md](docs/secrets.md), which is explicit about what the
+  broker protects against and what it doesn't.
+- **`impi secret …`** — `init`, `unlock`, `status`, `set`, `ls`, `rm`, `policy`,
+  `grants`, `revoke`, `audit`.
+- **A skill's provenance marker is now `.skill-source.json`** (it was
+  `.impi-source.json` — the library that writes it must not name the
+  application). Skills installed before this update keep working, but list as
+  `local` and refuse `impi skill update` until reinstalled from their source.
+- **A scheduler test no longer races its own background run.** It counted
+  event-loop turns to decide the work had finished; under load a run that ends
+  in a worker thread needs more than any fixed number, and the assertions then
+  read a half-written store.
 
 ## v0.11.0 — 2026-08-10
 

@@ -59,7 +59,10 @@ The engine runs as the `impi` compose service built from `deploy/Dockerfile`
 `impi-data` volume, pi's model credentials in `pi-auth`. With a co-deployed
 Mattermost, the `mattermost` + `db` services join the same compose project and
 widget callbacks flow container-to-container (`http://impi:8423`) — nothing is
-exposed except Mattermost itself.
+exposed except Mattermost itself. Answering yes to the secret store adds a
+`vault` service on the same network, also unexposed, with its data in the
+`vault-data` volume; it starts sealed and stays that way until you unlock it
+(see [secrets.md](secrets.md)).
 
 ## The `impi` wrapper
 
@@ -74,6 +77,7 @@ The installer drops a small CLI into `~/.local/bin/impi`:
 | `impi reload` | re-read agent profiles in place (skills, tools, prompts) — no restart |
 | `impi skill …` | the shared skill library (see [skills.md](skills.md)) |
 | `impi task …` | scheduled and recurring work (see [tasks.md](tasks.md)) |
+| `impi secret …` | the secret store and who may reach it (see [secrets.md](secrets.md)) |
 | `impi agent add` | interactive agent creation (bot + profile + `.env`) |
 | `impi agent list` | profiles with token status |
 | `impi login` | pi subscription login inside the container |

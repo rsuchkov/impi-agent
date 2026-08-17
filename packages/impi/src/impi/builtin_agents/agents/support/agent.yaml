@@ -50,3 +50,7 @@ runtime:
     - chat-commands
     - scheduled-tasks
     - engine-diagnostics
+    # How to give an agent a credential. Note that support gets no access to the
+    # broker itself — no secret-exec, no tool that reads a value: it advises on
+    # policies and diagnoses refusals, and the operator runs `impi secret`.
+    - secrets

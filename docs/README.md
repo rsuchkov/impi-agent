@@ -19,6 +19,9 @@ people. Keep them accurate to the code.
 - **[tasks.md](tasks.md)** — scheduled and recurring work: writing a schedule,
   the two run modes, what happens to a missed or failed run, and how to tell
   whether the scheduler is alive.
+- **[secrets.md](secrets.md)** — credentials an agent can use but never read:
+  the approval card, policies and time-boxed windows, the ledger, and an honest
+  account of what the broker protects against and what it doesn't.
 - **[files.md](files.md)** — files and photos: what happens to an attachment on
   its way to the agent, where files are kept, the per-platform requirements, and
   the size/retention limits.

@@ -14,7 +14,7 @@ SKILL_FILE = "SKILL.md"
 # Written next to SKILL.md when the engine installs a skill: where it came from
 # and at which commit, so `update` knows what to re-fetch and a reviewer can see
 # what is running.
-SOURCE_FILE = ".impi-source.json"
+SOURCE_FILE = ".skill-source.json"
 
 
 @dataclass(frozen=True)

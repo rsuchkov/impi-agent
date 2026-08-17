@@ -330,6 +330,19 @@ class MattermostChatClient:
             return None
         return user.get("id")
 
+    async def open_direct(self, user_id: str) -> str:
+        # Mattermost's direct channel is created by naming both members; calling
+        # it again on an existing one returns the same channel, so this is safe
+        # to do on every approval rather than caching an id that may be stale.
+        try:
+            channel = await self._driver.channels.create_direct_channel(
+                [self._own_user_id, user_id]
+            )
+        except Exception:
+            logger.warning("could not open a direct channel with %s", user_id, exc_info=True)
+            return ""
+        return channel.get("id", "")
+
     async def post_message(self, channel_id: str, message: str, *, hop_depth: int = 0) -> str:
         # Top-level post (no root_id), same hop-stamp + chunking as post_reply.
         # Returns the first chunk's id.

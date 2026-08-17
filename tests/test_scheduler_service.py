@@ -5,6 +5,7 @@ that follows them, because that is where a scheduler is trusted or isn't.
 """
 
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -140,9 +141,29 @@ def _scheduler(store, clock, **over) -> tuple[Scheduler, dict[str, Any]]:
 
 
 async def _settle() -> None:
-    """Let the spawned run task finish before asserting on the store."""
-    for _ in range(6):
-        await asyncio.sleep(0)
+    """Wait for the spawned run tasks to finish before asserting on the store.
+
+    Counting event-loop turns is not enough. A run ends in ``complete_run``,
+    which hops to a worker thread, and how many turns that hop takes is a
+    property of the machine rather than of the code — under load it takes more
+    than any fixed number, and the assertions then read a half-written store.
+    So this waits for the tasks themselves.
+    """
+    deadline = time.monotonic() + 5.0
+    while True:
+        current = asyncio.current_task()
+        pending = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not current and task.get_name().startswith("sched")
+        ]
+        if not pending:
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AssertionError(f"{len(pending)} scheduler task(s) never finished")
+        await asyncio.wait(pending, timeout=remaining)
+    await asyncio.sleep(0)  # let the done-callbacks clear the in-flight map
 
 
 @pytest.fixture
@@ -355,8 +376,11 @@ async def test_a_task_that_keeps_failing_is_paused_and_says_so(store) -> None:
 
     task = await store.get_task("tsk_1")
     assert task is not None and task.state == STATE_PAUSED
-    assert "Paused after 3 failures" in kw["notifier"].posts[0][1]
-    assert "impi task resume tsk_1" in kw["notifier"].posts[0][1]
+    notice = kw["notifier"].posts[0][1]
+    assert "Paused after 3 failures" in notice
+    # The id, so the operator can act on it — but no command: naming one would
+    # be this library claiming to know which application is running it.
+    assert "tsk_1" in notice and "impi" not in notice
 
 
 async def test_notify_never_stays_quiet_even_about_failures(store) -> None:

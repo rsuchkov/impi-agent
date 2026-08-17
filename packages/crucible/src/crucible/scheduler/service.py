@@ -498,7 +498,10 @@ def _notice_for(
     text = reasons.get(run.status, f"⏰ Scheduled task {label} failed: {run.detail or run.status}.")
     if task.state == STATE_PAUSED and task.consecutive_failures >= paused_at:
         text += (
-            f"\nPaused after {paused_at} failures in a row — "
-            f"resume it with `impi task resume {task.id}`."
+            # No command named here: which one resumes a task belongs to the
+            # application's CLI, not to the library. The id is what the operator
+            # needs whichever surface they use to do it.
+            f"\nPaused after {paused_at} failures in a row — it will not run "
+            f"again until you resume it (task {task.id})."
         )
     return text

@@ -184,6 +184,17 @@ if [ "$IMPI_MM_MODE" = external ] && [ "$IMPI_WIDGETS" = yes ]; then
         "http://${DETECTED_IP:-<host-ip>}:$IMPI_INTEGRATIONS_PORT"
 fi
 
+title "Secrets"
+dim "A secret store your agents can use but never read: they ask, you approve in"
+dim "chat, and the value goes straight into the process — never into the model's"
+dim "context. Adds a Vault container (~150 MB) that you unlock after each restart."
+IMPI_VAULT=${IMPI_VAULT:-}
+confirm IMPI_VAULT "Run a secret store?" n || true
+if [ "$IMPI_VAULT" = yes ]; then
+    dim "Who may approve a request? Your chat username, or several, comma-separated."
+    ask IMPI_SECRET_APPROVERS "Approvers" "${IMPI_MM_ADMIN_USER:-}"
+fi
+
 title "Model backend"
 if [ -z "${IMPI_LLM_MODE:-}" ]; then
     CHOICE_LLM=""
@@ -226,6 +237,11 @@ say "  Skill library     : $IMPI_SKILLS_DIR"
 say "  First agent       : $IMPI_FIRST_AGENT ($IMPI_FIRST_AGENT_ROLE)"
 say "  Support bot       : ${IMPI_SUPPORT}"
 say "  Widgets           : ${IMPI_WIDGETS:-no}"
+if [ "${IMPI_VAULT:-no}" = yes ]; then
+    say "  Secret store      : Vault (approvers: ${IMPI_SECRET_APPROVERS:-nobody yet})"
+else
+    say "  Secret store      : no"
+fi
 if [ "$IMPI_LLM_MODE" = subscription ]; then
     say "  Model backend     : subscription login (provider: ${IMPI_DEFAULT_PROVIDER:-whatever you log in with}, model: ${IMPI_DEFAULT_MODEL:-its default})"
 else
@@ -265,6 +281,9 @@ esac
 env_set IMPI_COMPOSE_CMD "$COMPOSE_CMD" "$COMPOSE_ENV"
 env_set IMPI_MM_MODE "$IMPI_MM_MODE" "$COMPOSE_ENV"
 env_set IMPI_COMPOSE_ROOTLESS "$COMPOSE_ROOTLESS" "$COMPOSE_ENV"
+# Its own axis, like rootless: the wrapper sources this file, so `impi …`
+# derives the same file list the install used.
+env_set IMPI_VAULT "$([ "${IMPI_VAULT:-no}" = yes ] && echo 1 || echo 0)" "$COMPOSE_ENV"
 env_set IMPI_MM_PORT "${IMPI_MM_PORT:-8065}" "$COMPOSE_ENV"
 env_set IMPI_INTEGRATIONS_PORT "$IMPI_INTEGRATIONS_PORT" "$COMPOSE_ENV"
 env_set IMPI_VERSION_INSTALLED "v$VERSION" "$COMPOSE_ENV"
@@ -312,6 +331,11 @@ if [ "${IMPI_WIDGETS:-no}" = yes ] && [ "$IMPI_GATEWAY" = mattermost ]; then
     fi
 else
     env_set INTEGRATIONS_ENABLED false "$ENV_FILE"
+fi
+if [ "${IMPI_VAULT:-no}" = yes ]; then
+    env_set SECRETS_ENABLED true "$ENV_FILE"
+    env_set SECRETS_VAULT_ADDR "http://vault:8200" "$ENV_FILE"
+    env_set SECRETS_APPROVERS "$IMPI_SECRET_APPROVERS" "$ENV_FILE"
 fi
 [ -n "${IMPI_MM_ADMIN_TOKEN:-}" ] && env_set TOOL_CREATE_AGENT_ADMIN_TOKEN "$IMPI_MM_ADMIN_TOKEN" "$ENV_FILE"
 ok "conf/.env written (chmod 600)"

@@ -58,13 +58,25 @@ duplicate architecture here.
   constructor injection. Layer boundaries are enforced by import-linter (`make
   lint`), so a boundary breach fails the lint rather than surfacing at review.
 
-- **Runtime-neutral core.** The neutral layers — `ports/{agent,chat}`, `flows`,
-  `tools`, `interactions`, `store`, `profiles` — name no concrete runtime, and not
-  only in imports: comments, docstrings, names, and strings there use neutral terms
-  ("the runtime", "the runtime's tool extension / session / UI request"), never
-  "pi's …". `pi` specifics live only in `runtimes/pi/` and the composition root; the
-  one exception is the backend knobs in `config.py` (`pi_*`), an explicit settings
-  boundary.
+- **Runtime-neutral core.** The neutral layers — `ports`, `flows`, `tools`,
+  `interactions`, `store`, `profiles`, `gateways`, `scheduler`, `secrets`,
+  `skills`, `attachments` — name no concrete runtime, and not only in imports:
+  comments, docstrings, names, and strings there use neutral terms ("the
+  runtime", "the runtime's tool extension / session / UI request"), never
+  "pi's …". `pi` specifics live only in `runtimes/pi/` and the composition root;
+  the exceptions are the backend knobs in `config.py` (`pi_*`), an explicit
+  settings boundary, and `sessions_cli.py`, which deletes the runtime's own
+  session files.
+
+- **The library names no application.** `crucible` is reusable, so nothing under
+  it says "impi" — not in a message it emits, a file it writes, or a path it
+  creates. An application's name belongs in `packages/impi` and in the operator
+  CLI that prints the advice.
+
+  Both rules are checked by `scripts/check_names.py` (part of `make lint`) —
+  they live in text rather than in imports, so import-linter cannot see them. A
+  violation that is genuinely too costly to fix goes in that script's `ALLOWED`
+  with its reason, and the check fails again if the line stops offending.
 
 - **English only in code** — strings, logs, comments, docstrings. Exceptions:
   intentional non-ASCII test data (mark it `# Non-ASCII on purpose`); an agent's own

@@ -9,6 +9,7 @@ while still routing interactive callbacks to the neutral dispatch brain.
 from typing import Protocol
 
 from crucible.ports.chat.types import Form
+from crucible.secrets.approvals import SecretApprovalOutcome
 
 
 class FormOpen(Protocol):
@@ -19,6 +20,12 @@ class FormOpen(Protocol):
 
 
 class GatewayDispatcher(Protocol):
+    def resolve_secret_approval(self, token: str, value: str, user_id: str) -> SecretApprovalOutcome:
+        """Answer a request for a credential. Unlike every other click, this one
+        is addressed to a named person, so the result says whether the click was
+        allowed to decide as well as whether it was recognized."""
+        ...
+
     def resolve_pending(self, token: str, value: str) -> bool: ...
     async def consume_action(
         self, token: str, value: str, user_id: str, *, pick: str = ""

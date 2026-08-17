@@ -22,7 +22,7 @@ the code of everything you installed from elsewhere is reviewable in a diff:
 $SKILLS_PATH/
   greek-tutor/SKILL.md          # the skill
   greek-tutor/scripts/drill.sh  # what it runs
-  greek-tutor/.impi-source.json # where it came from, at which commit
+  greek-tutor/.skill-source.json # where it came from, at which commit
 ```
 
 **The directory name is the skill's identity** — that is what an agent
@@ -46,7 +46,7 @@ executable**, and you confirm. That is the trust model, and it is not
 ceremonial: a skill's scripts run inside the engine with the agent's tools, so
 installing one from the internet is running someone else's code on your machine.
 A git install is pinned to the exact commit it came from, recorded in
-`.impi-source.json`; `update` shows the old and new commit before replacing
+`.skill-source.json`; `update` shows the old and new commit before replacing
 anything.
 
 Only public repositories are supported — no credentials are passed to git.

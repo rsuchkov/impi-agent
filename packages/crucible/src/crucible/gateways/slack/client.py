@@ -262,6 +262,16 @@ class SlackChatClient:
                 return user.get("id")
         return None
 
+    async def open_direct(self, user_id: str) -> str:
+        # conversations.open is idempotent: an existing IM comes back rather than
+        # a second one being created.
+        try:
+            resp = await self._client.conversations_open(users=user_id)
+        except SlackApiError:
+            logger.warning("could not open a direct conversation with %s", user_id)
+            return ""
+        return str((resp.get("channel") or {}).get("id") or "")
+
     async def post_message(self, channel_id: str, message: str, *, hop_depth: int = 0) -> str:
         # hop_depth is not carried on Slack (no message metadata); loop protection
         # falls back to the rate window. The message is model-authored Markdown

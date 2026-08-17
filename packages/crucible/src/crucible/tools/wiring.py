@@ -21,6 +21,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.tasks import TaskService
+from crucible.secrets.ports import SecretLeasing
 from crucible.tools.base import (
     CAP_CHAT_ADMIN,
     CAP_FILES,
@@ -40,7 +41,8 @@ def _gate_tools(
     """Split an agent's declared tools into (advertised, {dropped: missing caps}).
     A typed tool is dropped when the agent's gateway/config doesn't provide a
     capability it requires (e.g. a channel-admin tool on a Slack agent). Names that
-    aren't typed tools (pi builtins like ``read``) are ignored here."""
+    aren't typed tools (the runtime's own builtins, e.g. ``read``) are
+    ignored here."""
     kept: list[str] = []
     dropped: dict[str, frozenset[str]] = {}
     for name in tools:
@@ -140,6 +142,7 @@ class ToolWiring:
         task_svc: TaskService | None = None,
         dotenv_path: str,
         session_resolver: SessionResolver | None = None,
+        secret_svc: SecretLeasing | None = None,
     ) -> ToolServer | None:
         if self.registry is None:
             return None
@@ -156,4 +159,5 @@ class ToolWiring:
             file_svc=file_svc,
             task_svc=task_svc,
             session_resolver=session_resolver,
+            secret_svc=secret_svc,
         )

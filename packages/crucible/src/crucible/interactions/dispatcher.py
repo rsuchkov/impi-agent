@@ -26,6 +26,7 @@ from crucible.ports.chat.types import (
     Form,
     IncomingMessage,
 )
+from crucible.secrets.approvals import SecretApprovalOutcome, SecretApprovals
 from crucible.store.base import FormRecord, FormStore, InteractionStore
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ class InteractionDispatcher:
         forms: FormStore,
         *,
         screens: ScreenRegistry | None = None,
+        approvals: SecretApprovals | None = None,
         callback_url: str = "",
     ) -> None:
         self._interactions = interactions
@@ -74,7 +76,22 @@ class InteractionDispatcher:
         self._forms = forms
         # Screens the engine answers itself (empty = every command is an agent's).
         self._screens = screens
+        # Requests for a credential waiting on a named person (None = no broker).
+        self._approvals = approvals
         self._callback_url = callback_url
+
+    def resolve_secret_approval(self, token: str, value: str, user_id: str) -> SecretApprovalOutcome:
+        """A click answering a request for a credential.
+
+        Tried before every other click path, because it is the one whose answer
+        depends on WHO clicked: the other kinds are addressed to the
+        conversation, this one to a named person. A click from anyone else is
+        reported back rather than falling through to a handler that doesn't
+        check.
+        """
+        if not token or self._approvals is None:
+            return SecretApprovalOutcome.NOT_MINE
+        return self._approvals.resolve(token, value, user_id)
 
     def resolve_pending(self, token: str, value: str) -> bool:
         """A blocking mid-turn confirm/select: resolve the Future the paused turn

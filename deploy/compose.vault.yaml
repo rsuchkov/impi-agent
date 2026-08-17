@@ -1,0 +1,46 @@
+# Overlay: a HashiCorp Vault next to impi, holding the values of the secrets the
+# broker hands out. Optional and independent of the Mattermost axis — a
+# deployment on Slack, on an external Mattermost or on neither can still want it.
+#
+# Nothing is published to the host. The engine reaches Vault by service name on
+# the project's own network, and nothing outside the stack has any business
+# talking to it: the whole point of the broker is that even the agents inside the
+# stack cannot read values directly.
+#
+# Vault starts SEALED and stays that way until somebody supplies the key —
+# `impi secret init` once, then `impi secret unlock` after every restart (or
+# mounted key files, if the deployment chose that trade — see docs/secrets.md).
+
+services:
+  vault:
+    image: docker.io/hashicorp/vault:1.20
+    restart: unless-stopped
+    command: ["server"]
+    cap_add:
+      # Lets Vault lock its memory so decrypted material cannot be swapped to
+      # disk. Without it Vault still runs, and warns on every start.
+      - IPC_LOCK
+    environment:
+      # The image writes this to its config dir at startup, so the deployment
+      # needs no config file of its own — one less thing for an update to have
+      # to migrate. File storage rather than Raft: a personal deployment has one
+      # node, and a cluster's ceremony would buy it nothing.
+      VAULT_LOCAL_CONFIG: >-
+        {"storage": {"file": {"path": "/vault/file"}},
+         "listener": [{"tcp": {"address": "0.0.0.0:8200", "tls_disable": true}}],
+         "api_addr": "http://vault:8200", "ui": false}
+      VAULT_ADDR: "http://127.0.0.1:8200"
+    volumes:
+      - vault-data:/vault/file
+    healthcheck:
+      # `vault status` exits 0 unsealed, 2 sealed, 1 on a real failure. Sealed is
+      # the correct resting state after a restart, so only exit 1 is unhealthy —
+      # a plain `vault status` would paint a working deployment red forever.
+      test:
+        - CMD-SHELL
+        - "vault status >/dev/null 2>&1; [ $$? -ne 1 ]"
+      interval: 30s
+      start_period: 15s
+
+volumes:
+  vault-data:

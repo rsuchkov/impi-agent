@@ -204,6 +204,21 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "The secret broker authorizes and asks; it never reaches a runtime or a platform"
+type = "forbidden"
+source_modules = ["crucible.secrets"]
+forbidden_modules = [
+    "crucible.runtimes.pi",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.tools",
+    "crucible.interactions",
+    "crucible.profiles",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
 name = "The skill library is a plain file store — no runtime, chat or engine machinery"
 type = "forbidden"
 source_modules = ["crucible.skills"]

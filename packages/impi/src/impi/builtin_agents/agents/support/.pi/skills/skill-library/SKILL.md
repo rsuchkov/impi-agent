@@ -37,7 +37,7 @@ about to install and from where — a skill's scripts run inside the engine with
 the agent's tools, so this is running someone else's code on the operator's
 machine. Only public repositories work; no credentials are passed to git.
 
-A git install is pinned to the exact commit, recorded in `.impi-source.json`
+A git install is pinned to the exact commit, recorded in `.skill-source.json`
 beside the skill.
 
 `name` installs under a different name; `force` overwrites an existing one —

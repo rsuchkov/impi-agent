@@ -38,8 +38,9 @@ reload:
 	@pkill -HUP -n -f '[i]mpi\.main' && echo "reload signalled" || echo "no engine process found"
 
 lint:
-	uv run ruff check packages tests
+	uv run ruff check packages tests scripts
 	uv run lint-imports
+	uv run python scripts/check_names.py
 	uv run pyright
 
 # Installer shell sources: shellcheck locally if present, else via a container.

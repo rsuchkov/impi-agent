@@ -34,6 +34,16 @@ class ChatAdmin(Protocol):
         """Platform username -> user id, or None if unknown."""
         ...
 
+    async def open_direct(self, user_id: str) -> str:
+        """The id of this agent's one-to-one conversation with ``user_id``,
+        opening it if it doesn't exist yet. "" when the platform has no such
+        notion or the user is unreachable.
+
+        Distinct from replying into a DM the engine already knows about: this is
+        how a message reaches one person when nobody spoke first — which is what
+        a request for approval has to do."""
+        ...
+
     async def post_message(self, channel_id: str, message: str, *, hop_depth: int = 0) -> str:
         """Post a message to a channel as this agent (proactive, top-level — not a
         reply to a specific post) and return the new post id. ``hop_depth`` stamps

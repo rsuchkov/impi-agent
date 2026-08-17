@@ -126,6 +126,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/creating-agents.md](docs/creating-agents.md) — write and register an agent.
 - [docs/skills.md](docs/skills.md) — the shared skill library and `/skills`.
 - [docs/tasks.md](docs/tasks.md) — scheduled and recurring work, and why a run didn't happen.
+- [docs/secrets.md](docs/secrets.md) — credentials an agent can use but never read.
 - [docs/files.md](docs/files.md) — files and photos, in both directions.
 - [docs/commands.md](docs/commands.md) — slash commands and shortcuts, and how to answer one privately.
 - [docs/ws-gateway.md](docs/ws-gateway.md) — plug your own service in over WebSocket.

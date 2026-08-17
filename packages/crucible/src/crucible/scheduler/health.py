@@ -1,6 +1,6 @@
 """Is the scheduler alive, and when does it next wake?
 
-One verdict function, so `impi doctor` and a task listing can never disagree.
+One verdict function, so a health check and a task listing can never disagree.
 The failure it exists to expose: a timer that quietly stopped looks exactly like
 a timer with nothing to do. The heartbeat is written at the END of a tick, so a
 fresh timestamp proves a tick completed rather than merely started.

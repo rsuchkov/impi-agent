@@ -8,6 +8,9 @@
 COMPOSE_CMD=""
 COMPOSE_RUNTIME=""
 COMPOSE_ROOTLESS=0
+# Whether this deployment runs a Vault for the secret broker. An axis of its own,
+# independent of the chat platform.
+COMPOSE_VAULT=0
 
 has_docker_compose() { docker compose version >/dev/null 2>&1; }
 has_podman_compose() { podman compose version >/dev/null 2>&1; }
@@ -54,6 +57,11 @@ COMPOSE_DROPIN_DIR="compose.d"
 # ENGINE's own compose files. MODE: codeploy | external | slack. Derived on every
 # call, never stored: a stored list would have to be rewritten whenever a release
 # adds an overlay, taking anything a human added with it.
+#
+# MODE is the chat-platform axis and stays positional. Anything orthogonal to it
+# — rootless, the secret store — reads its own variable instead, the way
+# COMPOSE_ROOTLESS does: a second positional would have to be threaded through
+# every caller for a choice that has nothing to do with the first.
 derive_compose_files() {
     local files="deploy/compose.yaml"
     case "$1" in
@@ -62,6 +70,7 @@ derive_compose_files() {
         slack) : ;;
         *) die "derive_compose_files: unknown mode $1" ;;
     esac
+    [ "${COMPOSE_VAULT:-0}" = 1 ] && files="$files deploy/compose.vault.yaml"
     [ "$COMPOSE_ROOTLESS" = 1 ] && files="$files deploy/compose.podman.yaml"
     printf '%s\n' "$files"
 }
@@ -84,6 +93,9 @@ compose_files() {
     # Whether this deployment needs the rootless overlay: recorded in compose.env
     # for an installed deployment, detected by detect_compose during install.
     [ -n "${IMPI_COMPOSE_ROOTLESS:-}" ] && COMPOSE_ROOTLESS=$IMPI_COMPOSE_ROOTLESS
+    # Same shape: recorded in compose.env for an installed deployment, set by the
+    # installer's own question during an install.
+    [ -n "${IMPI_VAULT:-}" ] && COMPOSE_VAULT=$IMPI_VAULT
     for _f in $(derive_compose_files "$1"); do
         printf '%s\n' "$IMPI_HOME/repo/$_f"
     done

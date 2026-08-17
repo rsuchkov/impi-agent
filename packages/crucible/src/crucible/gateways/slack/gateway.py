@@ -23,6 +23,7 @@ from crucible.gateways.slack.rendering import (
     WIDGET_ACTION_PREFIX,
     decode_action,
     decode_screen,
+    decode_secret_approval,
     extract_submission,
     picked_kind,
 )
@@ -32,6 +33,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.gateway import AgentIdentity
 from crucible.ports.chat.types import KIND_DM, KIND_THREAD, IncomingMessage
+from crucible.secrets.approvals import SecretApprovalOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +237,22 @@ class SlackGateway:
             return
         token, form_token, value = decode_action(actions[0])
         user_id = (body.get("user") or {}).get("id", "")
+        secret_approval = decode_secret_approval(actions[0])
+        if secret_approval:
+            # A request for a CREDENTIAL. Not to be confused with the Allow/Block
+            # further down: that one approves a tool call mid-turn and is
+            # answered by whoever is in the conversation, while this one is
+            # addressed to a named person and refuses everybody else.
+            #
+            # The broker rewrites its own card once it has the answer, so the
+            # buttons are stripped from here only when the click landed on a
+            # request that no longer exists.
+            outcome = self._dispatcher.resolve_secret_approval(
+                secret_approval, value, user_id
+            )
+            if outcome is SecretApprovalOutcome.NOT_MINE:
+                await self._strip_buttons(body, _BUTTONS_RETIRED)
+            return
         screen, state = decode_screen(actions[0])
         if screen:
             # An engine screen: redraw the message it came from, no turn.
@@ -250,6 +268,9 @@ class SlackGateway:
             if not await self._open_modal(body, form_token):
                 await self._strip_buttons(body, _BUTTONS_RETIRED)
             return
+        # A blocking mid-turn request: ask_user_confirm, or the confirmation
+        # gate in front of a tool call. Addressed to the conversation, so any
+        # click that carries the token answers it.
         if not self._dispatcher.resolve_pending(token, value):
             # Slack names the element that fired, so a picker's id is resolvable.
             await self._dispatcher.consume_action(

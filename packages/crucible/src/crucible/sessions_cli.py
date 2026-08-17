@@ -11,7 +11,7 @@ Usage:
 
 The inventory path comes from this library's settings. An app that names its
 database differently must say so with --db (or expose its own entry point, the
-way impi does with `impi sessions`) — otherwise this opens a file the engine
+way the application's own CLI does) — otherwise this opens a file the engine
 never writes and reports an empty stand.
 """
 

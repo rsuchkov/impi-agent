@@ -36,6 +36,9 @@ _TOKEN_BLOCK_PREFIX = "tok:"
 # which is why screen state is deliberately small.
 _SCREEN_BLOCK_PREFIX = "scr:"
 _SCREEN_BLOCK_SEP = "|"
+# A menu answering a request for a credential — the "allow for a while" dropdown.
+# Same trick as a screen's: the routing rides in the block_id.
+_SECRET_APPROVAL_BLOCK_PREFIX = "sec:"
 # Slack hard limits.
 _TITLE_MAX = 24
 _LABEL_MAX = 75
@@ -158,6 +161,7 @@ def _element(action: Action, index: int) -> dict[str, Any]:
                 "value": action.value,
                 "screen": action.context.get("screen", ""),
                 "state": action.context.get("state", ""),
+                "secret_approval": action.context.get("secret_approval", ""),
             }
         ),
     }
@@ -179,15 +183,30 @@ def decode_action(action: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def _menu_block_id(action: Action) -> str:
-    """Where a menu parks what its click must carry: a screen's routing, or the
-    widget token it answers."""
+    """Where a menu parks what its click must carry: a screen's routing, the
+    approval it answers, or the widget token."""
     screen = action.context.get("screen", "")
     if screen:
         return (
             f"{_SCREEN_BLOCK_PREFIX}{screen}{_SCREEN_BLOCK_SEP}"
             f"{action.context.get('state', '')}"
         )
+    approval = action.context.get("secret_approval", "")
+    if approval:
+        return f"{_SECRET_APPROVAL_BLOCK_PREFIX}{approval}"
     return f"{_TOKEN_BLOCK_PREFIX}{action.context.get('token', '')}"
+
+
+def decode_secret_approval(action: dict[str, Any]) -> str:
+    """The approval token when this click answers a request for a credential,
+    "" otherwise. A menu keeps it in its block_id, a button in its value."""
+    meta = _load_json(action.get("value"))
+    if meta.get("secret_approval"):
+        return str(meta["secret_approval"])
+    block_id = str(action.get("block_id", ""))
+    if block_id.startswith(_SECRET_APPROVAL_BLOCK_PREFIX):
+        return block_id[len(_SECRET_APPROVAL_BLOCK_PREFIX) :]
+    return ""
 
 
 def _split_screen_block(block_id: str) -> tuple[str, str]:

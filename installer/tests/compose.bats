@@ -30,6 +30,29 @@ setup() {
     [ "$output" = "deploy/compose.yaml deploy/compose.mattermost.yaml deploy/compose.podman.yaml" ]
 }
 
+@test "the secret store is its own axis, independent of the chat platform" {
+    COMPOSE_ROOTLESS=0
+    COMPOSE_VAULT=1
+    run derive_compose_files slack
+    [ "$output" = "deploy/compose.yaml deploy/compose.vault.yaml" ]
+    run derive_compose_files codeploy
+    [ "$output" = "deploy/compose.yaml deploy/compose.mattermost.yaml deploy/compose.vault.yaml" ]
+}
+
+@test "both extra axes can apply at once, podman last" {
+    COMPOSE_ROOTLESS=1
+    COMPOSE_VAULT=1
+    run derive_compose_files external
+    [ "$output" = "deploy/compose.yaml deploy/compose.external-mm.yaml deploy/compose.vault.yaml deploy/compose.podman.yaml" ]
+}
+
+@test "no secret store means no vault overlay" {
+    COMPOSE_ROOTLESS=0
+    COMPOSE_VAULT=0
+    run derive_compose_files codeploy
+    [ "$output" = "deploy/compose.yaml deploy/compose.mattermost.yaml" ]
+}
+
 @test "unknown mode dies" {
     COMPOSE_ROOTLESS=0
     run derive_compose_files nonsense
@@ -76,6 +99,7 @@ EOF
 
 @test "every derived file exists in the repo" {
     COMPOSE_ROOTLESS=1
+    COMPOSE_VAULT=1
     for mode in codeploy external slack; do
         for f in $(derive_compose_files "$mode"); do
             [ -f "$BATS_TEST_DIRNAME/../../$f" ]
@@ -89,7 +113,16 @@ setup_home() {
     IMPI_HOME="$BATS_TEST_TMPDIR/home"
     mkdir -p "$IMPI_HOME/repo/deploy" "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
     COMPOSE_ROOTLESS=0
+    COMPOSE_VAULT=0
     unset IMPI_COMPOSE_ROOTLESS
+    unset IMPI_VAULT
+}
+
+@test "compose_files reads the secret store back out of compose.env" {
+    setup_home
+    IMPI_VAULT=1
+    run compose_files slack
+    [ "${lines[1]}" = "$IMPI_HOME/repo/deploy/compose.vault.yaml" ]
 }
 
 @test "compose_files returns the engine's files as absolute paths" {
