@@ -285,7 +285,7 @@ def _cmd_cert(args: argparse.Namespace) -> int:
     key.chmod(0o600)
     (root / "ca.crt").write_text(issued["ca"], encoding="utf-8")
     ok(f"identity for {args.agent} written to {root}")
-    print(dim("  the agent picks it up the next time it starts"))
+    print(dim("  used from that agent's next request — no restart"))
     return 0
 
 

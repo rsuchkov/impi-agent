@@ -90,6 +90,13 @@ Client services are dynamic keys (register with `impi ws add-service`):
 | `COMMAND_TOKENS` | `""` | slash-command tokens of the default agent (CSV); the per-agent key wins where both are set |
 | `DOTENV_PATH` | `.env` | file the per-agent keys below are read from |
 
+`AGENT_NAME` answers the same question at two scopes, so be clear which one you
+are reading. Set **here**, it names the deployment's default agent. Inside the
+environment of an agent's **own process** the engine overwrites it with that
+agent's name, so a program the agent runs can tell who it is running as — which
+is how `secret-exec` finds the right identity. A program run by hand in the
+engine's container sees the deployment value, not an agent's.
+
 ### Per-agent keys (dynamic)
 
 These are keyed by the upper-cased agent name (`-`→`_`) and read from the

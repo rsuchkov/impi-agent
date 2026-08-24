@@ -3,8 +3,8 @@
 #
 #   scripts/release.sh <major|minor|patch|X.Y.Z> [--no-verify] [--no-push]
 #
-# The VERSION file at the repo root is the source of truth; both package
-# pyprojects are kept in lockstep and the annotated tag vX.Y.Z is what the
+# The VERSION file at the repo root is the source of truth; every package's
+# pyproject is kept in lockstep and the annotated tag vX.Y.Z is what the
 # installer and `impi update` discover (sort -V over v* tags). SemVer 0.x:
 # MINOR = features/breaking, PATCH = fixes.
 
@@ -70,7 +70,10 @@ open(path, "w").write(text)
 EOF
 
 printf '%s\n' "$NEW" > VERSION
-for f in packages/crucible/pyproject.toml packages/impi/pyproject.toml; do
+# Every package in the workspace, found rather than listed: a new package must
+# not be able to stay behind on an old version because someone forgot this line.
+PACKAGES=$(ls -d packages/*/pyproject.toml)
+for f in $PACKAGES; do
     python3 - "$f" "$NEW" <<'EOF'
 import re, sys
 path, version = sys.argv[1], sys.argv[2]
@@ -82,7 +85,8 @@ EOF
 done
 uv lock --quiet
 
-git add VERSION CHANGELOG.md packages/crucible/pyproject.toml packages/impi/pyproject.toml uv.lock
+# shellcheck disable=SC2086  # the list is a list: splitting is intended
+git add VERSION CHANGELOG.md $PACKAGES uv.lock
 git commit -m "release v$NEW"
 git tag -a "v$NEW" -m "impi v$NEW"
 echo "tagged v$NEW"

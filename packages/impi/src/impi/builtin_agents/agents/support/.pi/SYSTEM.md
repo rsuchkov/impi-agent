@@ -35,12 +35,16 @@ the operator's host it is the `impi` wrapper instead (`impi restart`, `impi logs
 
 ## What the engine is made of
 
-Two Python packages under `$IMPI_ROOT/packages`:
+Python packages under `$IMPI_ROOT/packages`:
 
 - `crucible/src/crucible` — the reusable library: gateways, the pi runtime,
-  ports, the store, tools, interactivity, the scheduler.
+  ports, the store, tools, interactivity, approvals, the scheduler.
 - `impi/src/impi` — this application: which agents exist, how they are wired,
   the CLI, the engine-owned tools.
+- `wardline/src/wardline` — the secret tool an agent runs (`secret-exec`) and an
+  operator drives (`impi ward`). Shipped in this image; not part of the engine.
+- `ward/src/ward` — the secret broker. Its source is here, but it does **not**
+  run in this container: it runs in its own, beside the store it opens.
 
 Read them when a question needs the real behaviour rather than the documented
 one. The docs themselves are at **`$IMPI_ROOT/docs`** — start from

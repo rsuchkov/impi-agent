@@ -61,7 +61,7 @@ a checkout.
 
 ## Repository layout
 
-This is a [uv](https://docs.astral.sh/uv/) workspace of two packages:
+This is a [uv](https://docs.astral.sh/uv/) workspace of four packages:
 
 - **`packages/crucible`** — a reusable agent-runtime library: platform gateways,
   the `pi` runtime driver, typed tools, interactivity, session storage, and the
@@ -70,6 +70,11 @@ This is a [uv](https://docs.astral.sh/uv/) workspace of two packages:
 - **`packages/impi`** — the application: multi-agent wiring, the Mattermost/Slack
   gateway factory, inter-agent choreography tools, and the bundled `support`
   agent. It composes crucible into a running engine.
+- **`packages/ward`** — the optional secret broker: a second, much smaller
+  application on the same library, deployed in its own container beside the
+  store it opens. See [docs/secrets.md](docs/secrets.md).
+- **`packages/wardline`** — the tool that talks to it: `secret-exec` for an
+  agent, `ward-admin` for an operator, and the vocabulary they share.
 
 ## Prerequisites
 

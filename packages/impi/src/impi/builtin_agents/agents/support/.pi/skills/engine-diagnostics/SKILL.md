@@ -71,6 +71,16 @@ In order:
 A tool added to a profile applies on **reload**; a `403 forbidden` right after
 an edit means the change was not applied yet.
 
+Two other 403s come from the confirmation gate, and both say so in the body:
+
+- `declined by the user` — the tool declares `requires_confirmation`, the card
+  went out, and the answer was Deny or nobody answered in time. A human can
+  answer **Allow for…** instead, which stops the questions for that agent and
+  that tool until the window closes (`TOOL_MAX_GRANT_S` caps it).
+- `cannot be confirmed here` — the same tool, but this deployment has no way to
+  ask: interactivity is off, so there is nothing to post a card to. It fails
+  closed on purpose. Turn interactivity on, or drop the tool from that agent.
+
 ## 4. Widgets, forms or commands never arrive
 
 These come back over HTTP, so the Mattermost server must be able to reach the

@@ -47,7 +47,7 @@ identity is mounted in the same directory. What that buys today is that nothing
 real boundary the day they get containers of their own; the per-agent
 certificate is what makes that a move rather than a rewrite.
 
-Two consequences worth stating plainly:
+Three consequences worth stating plainly:
 
 - The approval card shows the **exact command**. It has to, because a caller may
   legitimately ask for a secret in order to run `sh -c 'echo $TOKEN'`, and
@@ -62,8 +62,9 @@ Two consequences worth stating plainly:
 ## Setting it up
 
 The installer asks whether you want a secret store. Answering yes adds two
-containers — the broker and the store it opens — writes the engine's side into
-`conf/.env`, and creates `conf/ward.env` for the broker's own settings.
+containers — the broker and the store it opens — creates `conf/ward.env` for the
+broker's own settings, and `certs/` for the identities. Nothing is written to the
+engine's `conf/.env`: the engine has no settings for any of this.
 
 The broker posts approval cards as its **own** chat account, so give it one:
 create a bot named `ward` and put its token in `conf/ward.env` as
@@ -87,8 +88,12 @@ Give each agent an identity, and yourself the operator one:
 
 ```bash
 impi ward cert assistant     # writes assistant.crt/.key and ca.crt
-impi restart                 # agents pick their identity up at startup
 ```
+
+No restart for that: the tool reads the certificate when it asks, so an identity
+minted now is used by the next request. A restart is only needed when the
+container's own environment changes — adding the store to a running deployment
+does, which is why the walkthrough below has one.
 
 ## Turning it on in a deployment that already runs
 
@@ -115,8 +120,7 @@ $EDITOR ~/.impi/conf/ward.env           # WARD_ROLE_ID=…
 impi start                              # recreates the broker with it
 
 # 4. an identity per agent, and the operator's
-impi ward cert assistant
-impi restart                            # so agents pick theirs up
+impi ward cert assistant                # used from the next request on
 impi ward unlock                        # the unseal key and the secret id
 impi ward status                        # should say: secrets: open
 ```
