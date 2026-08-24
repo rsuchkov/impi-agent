@@ -6,7 +6,29 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The material `ward init` produces is no longer printed.** The unseal key and
+  the broker's credential are written to `~/.impi/ward-recovery.txt` (mode 600,
+  in a directory no container mounts) and the command prints the path — a
+  credential on a terminal lives on in scrollback, in a screen share, and in the
+  transcript of whatever ran the command. `impi ward unlock --from <file>` reads
+  it back, so opening the store does not mean typing a key either. The role id,
+  which is not a credential, is written into `conf/ward.env` for you.
+- **The root token is destroyed at the end of the ceremony.** Nothing needed it
+  again: the broker runs on its own credential and can now replace that itself
+  (`impi ward rotate`, which destroys the one it replaces). If a root token is
+  ever needed, the unseal key regenerates one. Two things to keep instead of
+  four.
+- **Fixed: `impi ward init` could not be run at all on a first install.** It
+  was executed inside the running broker — which, without a certificate
+  authority, restarts in a loop, so there was nothing to exec into. It runs as
+  a one-shot container now, and the documented order puts it before the first
+  `impi start`.
+- **`impi start` and `impi update` say that the store is sealed**, with the
+  command that opens it; `impi doctor` reports whether it is open. Previously
+  the first sign of a sealed store was an agent being refused.
+- **An answered approval card keeps the command it approved.** "assistant was
+  allowed github-token for 15 minutes" does not say what for; `gh release create
+  v1.2.0` does, and the card is the history somebody reads months later.
 
 ## v0.12.0 — 2026-08-24
 

@@ -30,6 +30,7 @@ class StubBroker:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict]] = []
+        self.bodies: list[dict] = []
         self.answers: dict[str, dict] = {}
         self._runner: web.AppRunner | None = None
 
@@ -54,6 +55,7 @@ class StubBroker:
     async def _any(self, request: web.Request) -> web.Response:
         body = await request.json() if request.can_read_body else {}
         self.calls.append((request.method, request.path, dict(request.query)))
+        self.bodies.append(body if isinstance(body, dict) else {})
         key = f"{request.method} {request.path}"
         return web.json_response(self.answers.get(key, {"ok": True, "sent": body}))
 
@@ -273,3 +275,81 @@ def test_the_payload_is_plain_json() -> None:
     assert json.loads(json.dumps({"fields": dict([cli._split_field("a=b")])})) == {
         "fields": {"a": "b"}
     }
+
+
+# -- unlocking without typing a key ------------------------------------------------
+
+
+async def test_unlock_reads_the_material_from_a_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A key typed at a prompt is a key in somebody's scrollback, and in the
+    transcript of whatever ran the command. The file `ward init --machine`
+    wrote is the shape this reads."""
+    broker = StubBroker()
+    broker.answers["POST /unlock"] = {"usable": True}
+    await broker.start(8599, tmp_path)
+    _operator(monkeypatch, 8599, tmp_path)
+    material = tmp_path / "recovery.txt"
+    material.write_text(
+        "WARD_UNSEAL_KEY=key-1\nWARD_SECRET_ID=sid-1\nWARD_ROLE_ID=role-1\n"
+    )
+    try:
+        assert await _run(["unlock", "--from", str(material)]) == 0
+    finally:
+        await broker.stop()
+    assert broker.bodies[-1] == {"unseal_key": "key-1", "auth_secret": "sid-1"}
+
+
+async def test_half_the_material_is_an_error_not_a_surprise_prompt(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Falling back to a prompt mid-script is how an automated unlock hangs
+    forever with nobody watching."""
+    _operator(monkeypatch, 8600, tmp_path)
+    material = tmp_path / "half.txt"
+    material.write_text("WARD_UNSEAL_KEY=key-1\n")
+    assert await _run(["unlock", "--from", str(material)]) == 1
+    assert "WARD_SECRET_ID" in capsys.readouterr().err
+
+
+async def test_a_missing_material_file_says_so(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _operator(monkeypatch, 8601, tmp_path)
+    assert await _run(["unlock", "--from", str(tmp_path / "nope.txt")]) == 1
+    assert "cannot read" in capsys.readouterr().err
+
+
+# -- rotating the broker's credential -----------------------------------------------
+
+
+async def test_rotate_reports_the_new_credential(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    broker = StubBroker()
+    broker.answers["POST /rotate"] = {"secret_id": "fresh-secret-id"}
+    await broker.start(8602, tmp_path)
+    _operator(monkeypatch, 8602, tmp_path)
+    try:
+        assert await _run(["rotate"]) == 0
+    finally:
+        await broker.stop()
+    assert "fresh-secret-id" in capsys.readouterr().out
+
+
+async def test_rotate_machine_prints_only_the_credential(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Same rule as the ceremony's: stdout is for a file, not for a terminal."""
+    broker = StubBroker()
+    broker.answers["POST /rotate"] = {"secret_id": "fresh-secret-id"}
+    await broker.start(8603, tmp_path)
+    _operator(monkeypatch, 8603, tmp_path)
+    try:
+        assert await _run(["rotate", "--machine"]) == 0
+    finally:
+        await broker.stop()
+    captured = capsys.readouterr()
+    assert captured.out == "WARD_SECRET_ID=fresh-secret-id\n"
+    assert "replaced" in captured.err  # the human half went elsewhere

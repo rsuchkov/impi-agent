@@ -95,19 +95,62 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def _cmd_unlock(args: argparse.Namespace) -> int:
-    state = _ask(
-        "POST",
-        "/unlock",
-        json={
-            "unseal_key": prompt("Store unseal key", secret=True),
-            "auth_secret": prompt("Broker credential (secret id)", secret=True),
-        },
-    )
+    """Open the store on the running broker.
+
+    Three ways in, and the typed one is the worst of them: a key typed at a
+    prompt is a key in somebody's scrollback, and in the transcript of whatever
+    ran the command. So a file or a pipe is offered first, and the material the
+    ceremony produced is written in exactly that shape.
+    """
+    material = _material(args)
+    key = material.get(_ENV_UNSEAL) or prompt("Store unseal key", secret=True)
+    auth = material.get(_ENV_SECRET_ID) or prompt("Broker credential (secret id)", secret=True)
+    state = _ask("POST", "/unlock", json={"unseal_key": key, "auth_secret": auth})
     if not state.get("usable"):
         fail(state.get("detail") or "the store is still not usable")
         return 1
     ok("the secret store is open")
     return 0
+
+
+# What `ward init --machine` writes and this reads back. Two names, one shape,
+# so the file the ceremony produced is the file the unlock consumes.
+_ENV_UNSEAL = "WARD_UNSEAL_KEY"
+_ENV_SECRET_ID = "WARD_SECRET_ID"
+
+
+def _material(args: argparse.Namespace) -> dict[str, str]:
+    """The unlock material from a file or a pipe, if either was offered."""
+    if getattr(args, "source", ""):
+        try:
+            text = Path(args.source).read_text(encoding="utf-8")
+        except OSError as exc:
+            raise CommandError(f"cannot read {args.source}: {exc.strerror}") from exc
+    elif not sys.stdin.isatty():
+        text = sys.stdin.read()
+    else:
+        return {}
+    found = _parse_material(text)
+    missing = [name for name in (_ENV_UNSEAL, _ENV_SECRET_ID) if name not in found]
+    if missing:
+        # Half the material is not a shortcut, it is a surprise prompt in the
+        # middle of a script. Say which line is absent.
+        raise CommandError(
+            f"no {' or '.join(missing)} in that material — expected the KEY=VALUE "
+            "lines `ward init --machine` writes"
+        )
+    return found
+
+
+def _parse_material(text: str) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        found[name.strip()] = value.strip()
+    return found
 
 
 # --- values ----------------------------------------------------------------------
@@ -264,6 +307,27 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_rotate(args: argparse.Namespace) -> int:
+    """Replace the credential the broker logs in with.
+
+    The new one is a credential, so it follows the same rule as the ceremony's:
+    with --machine it goes to stdout as KEY=VALUE and nothing else, for a caller
+    that writes it to a file. Printed to a terminal it would live in scrollback,
+    and in the transcript of whatever ran the command.
+    """
+    secret_id = str(_ask("POST", "/rotate", json={}).get("secret_id") or "")
+    if not secret_id:
+        raise CommandError("the broker returned no credential")
+    if args.machine:
+        print(f"WARD_SECRET_ID={secret_id}")
+        print("the broker's credential was replaced", file=sys.stderr)
+        return 0
+    ok("the broker's credential was replaced")
+    print(f"  new secret id: {secret_id}")
+    print(dim("  keep it with the unseal key — the next unlock needs this one"))
+    return 0
+
+
 # --- identities ---------------------------------------------------------------------
 
 
@@ -307,7 +371,13 @@ def build_parser() -> argparse.ArgumentParser:
     cert.set_defaults(func=_cmd_cert)
 
     unlock = sub.add_parser(
-        "unlock", help="open the store on the running broker (asks for the key)"
+        "unlock",
+        help="open the store on the running broker (from a file, a pipe, or a prompt)",
+    )
+    unlock.add_argument(
+        "--from", dest="source", metavar="FILE",
+        help="read the material from a file of KEY=VALUE lines, as written by "
+             "`ward init --machine`; also read from stdin when it is not a terminal",
     )
     unlock.set_defaults(func=_cmd_unlock)
 
@@ -360,6 +430,15 @@ def build_parser() -> argparse.ArgumentParser:
     revoke = sub.add_parser("revoke", help="close a window now")
     revoke.add_argument("grant_id")
     revoke.set_defaults(func=_cmd_revoke)
+
+    rotate = sub.add_parser(
+        "rotate", help="replace the broker's own credential and destroy the old one"
+    )
+    rotate.add_argument(
+        "--machine", action="store_true",
+        help="print the new credential as KEY=VALUE on stdout, nothing else",
+    )
+    rotate.set_defaults(func=_cmd_rotate)
 
     audit = sub.add_parser("audit", help="every request, granted or not")
     audit.add_argument("--limit", type=int, default=20)

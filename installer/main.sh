@@ -351,9 +351,10 @@ if [ "${IMPI_VAULT:-no}" = yes ]; then
     dim "  Two things left before secrets work, in this order:"
     dim "    1. create a bot named 'ward' and put its token in conf/ward.env"
     dim "       (WARD_MATTERMOST_TOKEN) — the cards are posted as that account"
-    dim "    2. \`impi ward init\` once the stack is up, then put the role id it"
-    dim "       prints in conf/ward.env and \`impi start\`"
-    dim "  Then: impi ward cert <agent>, impi ward unlock. See docs/secrets.md."
+    dim "    2. \`impi ward init\` — BEFORE the first start. It writes the role id"
+    dim "       into conf/ward.env and the recovery material to ward-recovery.txt"
+    dim "  Then: impi start, impi ward unlock --from ~/.impi/ward-recovery.txt,"
+    dim "  and impi ward cert <agent>. See docs/secrets.md."
 fi
 [ -n "${IMPI_MM_ADMIN_TOKEN:-}" ] && env_set TOOL_CREATE_AGENT_ADMIN_TOKEN "$IMPI_MM_ADMIN_TOKEN" "$ENV_FILE"
 ok "conf/.env written (chmod 600)"

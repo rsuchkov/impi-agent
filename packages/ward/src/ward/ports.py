@@ -175,4 +175,14 @@ class SecretBackend(Protocol):
         try."""
         ...
 
+    async def rotate(self) -> str:
+        """Replace the credential this broker authenticates with, destroy the
+        one it replaces, and return the new one.
+
+        Operator-facing, and the reason the ceremony can end without keeping a
+        root token: replacing a credential is something the holder can do for
+        itself. What it cannot do is unseal — that still needs the key a human
+        kept."""
+        ...
+
     async def close(self) -> None: ...

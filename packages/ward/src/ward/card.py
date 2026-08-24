@@ -31,3 +31,25 @@ def approval_text(
         block_label="Command",
         block=command_line(command),
     )
+
+
+def verdict_text(
+    verdict: str, agent: str, *, references: tuple[str, ...], command: tuple[str, ...]
+) -> str:
+    """What the card is rewritten to once it has been answered.
+
+    It carries the command as well as the verdict, because this message is the
+    history: months later "assistant was allowed github-token for 15 minutes"
+    does not say what for, and `gh release create v1.2.0` does.
+
+    Same containment as the request it replaces — the argv is still the
+    caller's text, and a card that stopped escaping it once answered would just
+    move the forgery one click later.
+    """
+    label = "Secret" if len(references) == 1 else "Secrets"
+    return render_card(
+        f"🔐 {verdict} — asked by **{agent}**.",
+        [(label, ", ".join(references))],
+        block_label="Command",
+        block=command_line(command),
+    )

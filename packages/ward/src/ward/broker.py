@@ -39,7 +39,7 @@ from crucible.store.base import (
     ApprovalGrant,
     ApprovalStore,
 )
-from ward.card import approval_text
+from ward.card import approval_text, verdict_text
 from ward.decisions import (
     DECISION_AUTO,
     DECISION_BACKEND_ERROR,
@@ -66,8 +66,9 @@ logger = logging.getLogger(__name__)
 
 # The card is rewritten once it has been answered, so a second click finds no
 # buttons and the ledger cannot disagree with what the message says happened.
-_ANSWERED = "🔐 {verdict} — asked by **{agent}** for `{secret}`."
-_EXPIRED = "⌛ Nobody answered in time, so the request was refused."
+# What it is rewritten TO is built by `verdict_text` — it keeps the command,
+# which is what makes the message readable as history rather than as a receipt.
+_EXPIRED = "Nobody answered in time"
 
 # Kept short enough to stay readable in a chat card and in a ledger row; the
 # caller's own output is where the full story lives.
@@ -254,7 +255,7 @@ class SecretBroker:
             answer = await asyncio.wait_for(future, timeout=self._timeout)
         except TimeoutError:
             self._approvals.discard(token)
-            await self._rewrite(poster, post_id, _EXPIRED)
+            await self._rewrite(poster, post_id, _verdict_line(request, None))
             return Approval(allowed=False, timed_out=True)
         await self._rewrite(poster, post_id, _verdict_line(request, answer))
         return answer
@@ -422,13 +423,16 @@ def _summarize(decisions: dict[str, str]) -> str:
     return DECISION_AUTO
 
 
-def _verdict_line(request: LeaseRequest, answer: Approval) -> str:
-    if not answer.allowed:
+def _verdict_line(request: LeaseRequest, answer: Approval | None) -> str:
+    """The answered card. ``None`` means nobody answered in time."""
+    if answer is None:
+        verdict = f"⌛ {_EXPIRED}, so the request was refused"
+    elif not answer.allowed:
         verdict = "Denied"
     elif answer.grant_s > 0:
         verdict = f"Allowed for {humanize(answer.grant_s)}"
     else:
         verdict = "Allowed once"
-    return _ANSWERED.format(
-        verdict=verdict, agent=request.agent, secret=", ".join(request.names)
+    return verdict_text(
+        verdict, request.agent, references=request.references, command=request.command
     )

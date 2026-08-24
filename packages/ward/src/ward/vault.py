@@ -37,25 +37,40 @@ logger = logging.getLogger(__name__)
 _TOKEN_PERIOD = "24h"
 
 
-def _broker_policy(mount: str) -> str:
-    """What the broker may do in Vault: everything inside its own mount, and
-    nothing at all outside it. Storing a value runs through the broker too, so
-    write is included; the ceiling is the mount, not the verb."""
+def _broker_policy(mount: str, role: str) -> str:
+    """What the broker may do in Vault: everything inside its own mount, nothing
+    at all outside it, and the two paths that let it replace its own credential.
+
+    Storing a value runs through the broker too, so write is included; the
+    ceiling is the mount, not the verb.
+
+    Self-rotation is here so that the root token can be destroyed at the end of
+    the ceremony rather than kept for the day a credential has to be replaced. A
+    stolen secret id could mint a successor, but it can already log in whenever
+    it likes — the gain is persistence past a rotation, and the price of the
+    alternative is a permanent root token in somebody's password manager.
+    """
     return (
         f'path "{mount}/data/*" {{ capabilities = ["create", "read", "update", "delete"] }}\n'
         f'path "{mount}/metadata/*" {{ capabilities = ["list", "read", "delete"] }}\n'
         f'path "{mount}/metadata" {{ capabilities = ["list"] }}\n'
+        f'path "auth/approle/role/{role}/secret-id" {{ capabilities = ["create", "update"] }}\n'
+        f'path "auth/approle/role/{role}/secret-id-accessor/lookup" '
+        f'{{ capabilities = ["create", "update"] }}\n'
+        f'path "auth/approle/role/{role}/secret-id-accessor/destroy" '
+        f'{{ capabilities = ["create", "update"] }}\n'
+        f'path "auth/approle/role/{role}/secret-id" {{ capabilities = ["list"] }}\n'
     )
 
 
 @dataclass(frozen=True)
 class VaultBootstrap:
-    """What initialising a fresh Vault produced. Shown to the operator exactly
-    once and never persisted here: the unseal key and the root token belong in a
-    password manager, not in a config file next to the data."""
+    """What initialising a fresh Vault produced, and all of it that survives:
+    the root token is destroyed before this is returned. The unseal key and the
+    secret id belong in a password manager, not in a config file next to the
+    data; the role id is not a credential and lives in the broker's env."""
 
     unseal_key: str
-    root_token: str
     role_id: str
     secret_id: str
 
@@ -270,9 +285,48 @@ class VaultBackend:
         # rather than a setup that only works after the next unlock.
         self._role_id, self._secret_id = role_id, secret_id
         await self._login()
-        return VaultBootstrap(
-            unseal_key=unseal_key, root_token=root, role_id=role_id, secret_id=secret_id
+        # And destroy the root token. Nothing needs it again: the broker runs on
+        # its AppRole, and its policy lets it replace that itself. A credential
+        # that can do everything, kept for a day that may never come, is a
+        # credential somebody has to protect for ever — and if that day does
+        # come, the unseal key regenerates one (`vault operator generate-root`).
+        code, payload = await self._call("POST", "auth/token/revoke-self", token=root)
+        if code not in (200, 204):
+            logger.warning("could not revoke the root token: http %s", code)
+        return VaultBootstrap(unseal_key=unseal_key, role_id=role_id, secret_id=secret_id)
+
+    async def rotate(self) -> str:
+        """Replace the credential this broker logs in with, and destroy the old.
+
+        Runs as the broker itself — see the policy. The new secret id is
+        returned; the running process keeps its current token until that
+        expires, so whoever rotates has to unlock with the new one.
+        """
+        if not self._token:
+            await self._login()
+        code, payload = await self._kv("POST", f"auth/approle/role/{self._role}/secret-id")
+        if code != 200:
+            raise self._fail(code, payload, "minting a new secret id")
+        data = payload.get("data") or {}
+        fresh, keep = str(data.get("secret_id") or ""), str(data.get("secret_id_accessor") or "")
+        if not fresh:
+            raise SecretBackendError("vault returned an empty secret id")
+        # `?list=true` rather than the LIST verb, as `names` does: not every
+        # HTTP stack between here and Vault accepts a method it has never heard
+        # of, and this spelling is Vault's own documented alternative.
+        code, payload = await self._kv(
+            "GET", f"auth/approle/role/{self._role}/secret-id", params={"list": "true"}
         )
+        for accessor in (payload.get("data") or {}).get("keys") or []:
+            if str(accessor) == keep:
+                continue
+            await self._call(
+                "POST", f"auth/approle/role/{self._role}/secret-id-accessor/destroy",
+                body={"secret_id_accessor": str(accessor)},
+            )
+        self._secret_id = fresh
+        logger.info("the broker's credential was replaced")
+        return fresh
 
     async def _provision(self, root: str) -> tuple[str, str]:
         """Create the mount, the policy and the AppRole, as root."""
@@ -285,7 +339,7 @@ class VaultBackend:
             raise self._fail(code, payload, "enabling the kv engine")
         code, payload = await self._call(
             "PUT", f"sys/policies/acl/{self._role}", token=root,
-            body={"policy": _broker_policy(self._mount)},
+            body={"policy": _broker_policy(self._mount, self._role)},
         )
         if code not in (200, 204):
             raise self._fail(code, payload, "writing the broker policy")

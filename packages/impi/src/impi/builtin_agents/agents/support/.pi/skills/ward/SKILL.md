@@ -33,8 +33,10 @@ Ask the operator for `impi ward status`. Three answers matter:
   the stack will come up); send the operator to the "Turning it on in a
   deployment that already runs" section of `$IMPI_ROOT/docs/secrets.md` rather
   than improvising it.
-- **sealed, or the broker holds no credential** — normal after a restart.
-  `impi ward unlock`. Until then every request is refused.
+- **sealed, or the broker holds no credential** — normal after a restart, every
+  one of them. `impi ward unlock --from ~/.impi/ward-recovery.txt` (that file is
+  what the ceremony wrote; without `--from` it prompts, which means a key typed
+  into a terminal). Until then every request is refused.
 - **"secrets: open"** — working; move on to the policy.
 
 ## Giving an agent a credential
@@ -111,7 +113,7 @@ impi ward audit --secret <name>
 | `denied` | a human said no; ask them why before changing anything |
 | `timeout` | nobody clicked in time — see the turn-timeout trap below |
 | `no_approver` | `WARD_APPROVERS` is empty or names someone unresolvable |
-| `locked` / `sealed` | `impi ward unlock` |
+| `locked` / `sealed` | `impi ward unlock --from ~/.impi/ward-recovery.txt` |
 | `backend_error` | approved, but the read failed — the secret may not be stored |
 
 **The turn-timeout trap.** The wait for a human blocks a command inside the
@@ -140,6 +142,16 @@ fresh every time, so rotating a secret takes effect at once too.
 
 If an operator is being asked too often, the fix is a longer `--max-grant`, not
 `--approval never`.
+
+## Never handle the material yourself
+
+The unseal key and the broker's credential live in `~/.impi/ward-recovery.txt`
+on the operator's host, which no container mounts — you cannot read it, and you
+must not ask for its contents to be pasted to you. Everything you need is a
+command the operator runs: `impi ward unlock --from …` opens the store,
+`impi ward rotate` replaces the credential if one leaks. If an operator offers
+to paste a key, say plainly that it belongs in their password manager and that
+a key in a chat message is a key in the transcript.
 
 ## What this does not protect against
 

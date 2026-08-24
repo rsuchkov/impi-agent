@@ -124,8 +124,9 @@ impi — manage your impi deployment
   impi task list|show|runs|add|rm|pause|resume|run-now|status
                            scheduled and recurring work
   impi sessions list|delete|purge-idle   conversation memory
-  impi ward init|unlock|status|set|ls|rm|policy|grants|revoke|audit|cert
+  impi ward init|unlock|status|set|ls|rm|policy|grants|revoke|rotate|audit|cert
                            the secret broker (see docs/secrets.md)
+  impi ward unlock --from ~/.impi/ward-recovery.txt   open it without typing keys
   impi agent add|list ...  manage agents (runs the CLI inside the container)
   impi login               interactive pi model login inside the container
   impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
@@ -167,6 +168,95 @@ cmd_restart() {
 cmd_reload() {
     compose kill -s HUP impi
     ok "profiles reloaded (agents pick them up on their next turn)"
+}
+
+# Where the material `ward init` produces is kept: on the HOST, outside every
+# bind mount, so no container — and no agent — can read it.
+WARD_RECOVERY="$IMPI_HOME/ward-recovery.txt"
+
+# After a restart the store is sealed again, and nothing about a running stack
+# says so — the first sign is an agent refused with "not available right now".
+# Printed where it is actionable (right after bringing the stack up) rather than
+# by querying on every `impi status`, which would make the fast command slow for
+# a fact that only changes when the broker restarts.
+ward_reminder() {
+    [ "${IMPI_VAULT:-0}" = 1 ] || return 0
+    if [ -r "$WARD_RECOVERY" ]; then
+        printf 'the secret store is sealed after a restart:\n  impi ward unlock --from %s\n' \
+            "$WARD_RECOVERY"
+    else
+        printf 'the secret store is sealed after a restart: impi ward unlock\n'
+    fi
+}
+
+cmd_ward() {
+    case "${1:-}" in
+        init) shift; cmd_ward_init "$@" ;;
+        # `unlock --from` is served here rather than in the container: the file
+        # lives on the host precisely so nothing mounts it, so the wrapper reads
+        # it and pipes it in.
+        unlock)
+            shift
+            _src=""
+            case "${1:-}" in
+                --from) _src=${2:-}; shift 2 ;;
+                --from=*) _src=${1#--from=}; shift ;;
+            esac
+            if [ -n "$_src" ]; then
+                [ -r "$_src" ] || die "cannot read $_src"
+                compose run --rm -T -e WARD_ADMIN_PROG="impi ward" impi \
+                    ward-admin unlock "$@" <"$_src"
+            else
+                compose run --rm -e WARD_ADMIN_PROG="impi ward" impi ward-admin unlock "$@"
+            fi ;;
+        *) compose run --rm -e WARD_ADMIN_PROG="impi ward" impi ward-admin "$@" ;;
+    esac
+}
+
+# The one-time ceremony. `run`, not `exec`: on a first install the broker has no
+# certificate authority yet and restarts in a loop, so there is no running
+# container to exec into — the chicken-and-egg an operator hits exactly once,
+# when they are least able to tell a bug from their own mistake.
+#
+# The material never reaches a terminal. --machine puts it on stdout as
+# KEY=VALUE, the wrapper captures that into a 600 file on the host, and prints
+# the path. What a printed credential does is live in scrollback, in a screen
+# share, and in the transcript of whatever ran the command.
+cmd_ward_init() {
+    [ -e "$WARD_RECOVERY" ] && [ "${1:-}" != --force ] \
+        && die "$WARD_RECOVERY already exists — this deployment has been initialised"
+    _tmp="$WARD_RECOVERY.tmp.$$"
+    (umask 077; : >"$_tmp") || die "cannot write beside $WARD_RECOVERY"
+    if ! compose run --rm -T ward ward init --machine "$@" >"$_tmp.raw"; then
+        rm -f "$_tmp" "$_tmp.raw"
+        die "ward init failed — see the output above"
+    fi
+    # Only the material. Compose runtimes write their own progress to stdout,
+    # and the file this becomes is one an operator will paste into a password
+    # manager — a container id in the middle of it invites deleting the wrong
+    # line. Anything unexpected is dropped here rather than stored.
+    grep -E '^WARD_[A-Z_]+=' "$_tmp.raw" >"$_tmp" || true
+    rm -f "$_tmp.raw"
+    if ! grep -q '^WARD_UNSEAL_KEY=' "$_tmp" || ! grep -q '^WARD_SECRET_ID=' "$_tmp"; then
+        rm -f "$_tmp"
+        die "ward init produced no recovery material — see the output above"
+    fi
+    mv "$_tmp" "$WARD_RECOVERY"
+    chmod 600 "$WARD_RECOVERY"
+    ok "the store is initialised"
+    ok "recovery material: $WARD_RECOVERY (chmod 600, mounted into nothing)"
+    # The role id is not a credential and the broker needs it in its own env;
+    # copying it by hand was a step that existed only to be forgotten.
+    _role=$(grep '^WARD_ROLE_ID=' "$WARD_RECOVERY" | cut -d= -f2-)
+    if [ -n "$_role" ]; then
+        env_set WARD_ROLE_ID "$_role" "$IMPI_HOME/conf/ward.env"
+        ok "WARD_ROLE_ID written to conf/ward.env"
+    fi
+    printf '\n'
+    printf 'Put %s in your password manager, then:\n' "$(basename "$WARD_RECOVERY")"
+    printf '  impi start                       # the broker picks up its role id\n'
+    printf '  impi ward unlock --from %s\n' "$WARD_RECOVERY"
+    printf '  impi ward cert <agent>           # an identity per agent\n'
 }
 
 cmd_agent() {
@@ -253,6 +343,7 @@ cmd_update() {
             die "rolled back to $prev"
         fi
     fi
+    ward_reminder
     ensure_dropin_dir
     # By rename, not in place: this script is the file being replaced, and bash
     # is still reading it (see install_executable).
@@ -290,6 +381,10 @@ cmd_doctor() {
     # from outside, so it is asked rather than guessed at.
     compose run --rm -T impi impi task status || true
     compose run --rm -T impi impi health || true
+    # The store, when there is one: locked and open look identical from outside,
+    # and a locked store refuses every agent until somebody unlocks it.
+    [ "${IMPI_VAULT:-0}" = 1 ] && { compose run --rm -T impi ward-admin status || true; }
+    return 0
 }
 
 cmd_uninstall() {
@@ -307,7 +402,7 @@ migrate_compose_env
 case "${1:-}" in
     status)    shift; cmd_status "$@" ;;
     logs)      shift; cmd_logs "$@" ;;
-    start)     shift; compose up -d; ok "started" ;;
+    start)     shift; compose up -d; ok "started"; ward_reminder ;;
     stop)      shift; compose stop; ok "stopped" ;;
     restart)   shift; cmd_restart ;;
     reload)    shift; cmd_reload ;;
@@ -320,12 +415,7 @@ case "${1:-}" in
     # certificate is mounted, and reaches the broker over the network like any
     # other client. WARD_ADMIN_PROG only affects the hints it prints — they
     # should say what the operator actually typed.
-    ward)      shift
-               if [ "${1:-}" = init ]; then
-                   compose exec ward ward "$@"
-               else
-                   compose run --rm -e WARD_ADMIN_PROG="impi ward" impi ward-admin "$@"
-               fi ;;
+    ward)      shift; cmd_ward "$@" ;;
     agent)     shift; cmd_agent "$@" ;;
     login)     shift; cmd_login "$@" ;;
     update)    shift; cmd_update "$@" ;;

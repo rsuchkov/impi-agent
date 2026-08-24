@@ -36,6 +36,9 @@ class StubVault:
         self.deny_all = False  # every KV call answers 403 (the policy was pulled)
         self.reject_unseal = False  # answer 400, the way a malformed key is refused
         self.mounted = False
+        self.revoked: list[str] = []          # tokens handed back with revoke-self
+        self.secret_ids: dict[str, str] = {}  # accessor -> secret id
+        self.destroyed: list[str] = []
         self._runner: web.AppRunner | None = None
 
     # -- lifecycle ------------------------------------------------------------
@@ -52,6 +55,13 @@ class StubVault:
         app.router.add_post("/v1/auth/approle/role/{role}", self._ok)
         app.router.add_get("/v1/auth/approle/role/{role}/role-id", self._role_id)
         app.router.add_post("/v1/auth/approle/role/{role}/secret-id", self._secret_id)
+        app.router.add_get(
+            "/v1/auth/approle/role/{role}/secret-id", self._list_secret_ids
+        )
+        app.router.add_post(
+            "/v1/auth/approle/role/{role}/secret-id-accessor/destroy", self._destroy
+        )
+        app.router.add_post("/v1/auth/token/revoke-self", self._revoke_self)
         app.router.add_get(f"/v1/{MOUNT}/data/{{name}}", self._read)
         app.router.add_post(f"/v1/{MOUNT}/data/{{name}}", self._write)
         app.router.add_delete(f"/v1/{MOUNT}/metadata/{{name}}", self._delete)
@@ -113,7 +123,33 @@ class StubVault:
         return web.json_response({"data": {"role_id": ROLE_ID}})
 
     async def _secret_id(self, _: web.Request) -> web.Response:
-        return web.json_response({"data": {"secret_id": SECRET_ID}})
+        if not self.secret_ids:  # the first one is the bootstrap's
+            self.secret_ids["acc-0"] = SECRET_ID
+            return web.json_response(
+                {"data": {"secret_id": SECRET_ID, "secret_id_accessor": "acc-0"}}
+            )
+        nth = len(self.secret_ids)
+        # Not "secret-id-N": the bootstrap's is SECRET_ID, and a successor that
+        # collides with it would let a broken rotation pass this test.
+        accessor, fresh = f"acc-{nth}", f"rotated-secret-{nth}"
+        self.secret_ids[accessor] = fresh
+        return web.json_response(
+            {"data": {"secret_id": fresh, "secret_id_accessor": accessor}}
+        )
+
+    async def _list_secret_ids(self, _: web.Request) -> web.Response:
+        return web.json_response({"data": {"keys": sorted(self.secret_ids)}})
+
+    async def _destroy(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        accessor = str(body.get("secret_id_accessor") or "")
+        self.destroyed.append(accessor)
+        self.secret_ids.pop(accessor, None)
+        return web.Response(status=204)
+
+    async def _revoke_self(self, request: web.Request) -> web.Response:
+        self.revoked.append(request.headers.get("X-Vault-Token", ""))
+        return web.Response(status=204)
 
     async def _read(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
@@ -328,8 +364,12 @@ async def test_bootstrap_initialises_and_leaves_a_usable_backend() -> None:
     try:
         material = await backend.bootstrap()
         assert material.unseal_key == UNSEAL_KEY
-        assert material.root_token == ROOT_TOKEN
         assert (material.role_id, material.secret_id) == (ROLE_ID, SECRET_ID)
+        # The root token is destroyed on the way out, and is not among what the
+        # operator is asked to keep: nothing needs it again, and a credential
+        # that can do everything is one somebody has to protect for ever.
+        assert stub.revoked == [ROOT_TOKEN]
+        assert not hasattr(material, "root_token")
         assert (await backend.status()).usable
         # Usable means usable: storing a value right after init must work.
         await backend.write("github-token", {"value": "ghp_xxx"})
@@ -358,6 +398,25 @@ async def test_closing_forgets_the_credential() -> None:
         assert (await backend.status()).authenticated
         await backend.close()
         assert (await backend.status()).authenticated is False
+    finally:
+        await backend.close()
+        await stub.stop()
+
+
+async def test_the_broker_can_replace_its_own_credential() -> None:
+    """What lets the ceremony end without keeping a root token: replacing a
+    credential is something its holder may do for itself."""
+    stub = StubVault(initialized=False, sealed=True)
+    await stub.start(8494)
+    backend = VaultBackend("http://127.0.0.1:8494", mount=MOUNT)
+    try:
+        first = await backend.bootstrap()
+        fresh = await backend.rotate()
+        assert fresh and fresh != first.secret_id
+        # The one it replaces is destroyed, not merely forgotten — otherwise a
+        # copy taken before the rotation still opens the store.
+        assert stub.destroyed == ["acc-0"]
+        assert list(stub.secret_ids.values()) == [fresh]
     finally:
         await backend.close()
         await stub.stop()

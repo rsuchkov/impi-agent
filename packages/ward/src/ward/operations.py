@@ -68,6 +68,17 @@ class Operations:
         logger.info("removed %s (%d window(s) closed)", name, closed)
         return {"removed": name, "windows_closed": closed}
 
+    async def rotate_credential(self) -> dict[str, Any]:
+        """Replace the broker's own credential.
+
+        The running process keeps serving on the token it already has, so this
+        does not interrupt anything — but the next unlock needs the new secret
+        id, and the caller is the only one who will ever see it.
+        """
+        secret_id = await self._backend.rotate()
+        logger.info("the broker's credential was replaced by the operator")
+        return {"secret_id": secret_id}
+
     # -- policies -------------------------------------------------------------
 
     async def list_policies(self) -> dict[str, Any]:

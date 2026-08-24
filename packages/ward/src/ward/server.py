@@ -106,6 +106,7 @@ class WardServer:
         app.router.add_get("/grants", self._list_grants)
         app.router.add_delete("/grants/{id}", self._revoke_grant)
         app.router.add_get("/audit", self._list_audit)
+        app.router.add_post("/rotate", self._rotate)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         await web.TCPSite(
@@ -247,6 +248,12 @@ class WardServer:
         return await self._operate(
             request, lambda ops: ops.list_audit(limit=limit, agent=agent, secret=secret)
         )
+
+    async def _rotate(self, request: web.Request) -> web.Response:
+        """Replace the credential the broker logs in with. Operator only, and
+        the answer carries the new one — over the same mutual TLS that carries
+        a secret's value, and to a certificate no agent has."""
+        return await self._operate(request, lambda ops: ops.rotate_credential())
 
     async def _operate(self, request: web.Request, work) -> web.Response:
         """Every operator route, with the check and the failure handling in one

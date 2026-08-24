@@ -77,6 +77,7 @@ class FakeBackend:
         )
         self.reads: list[SecretRef] = []
         self.boom = False
+        self.rotations = 0
 
     async def status(self) -> BackendStatus:
         return self._state
@@ -102,6 +103,10 @@ class FakeBackend:
 
     async def names(self) -> list[str]:
         return sorted(self.values)
+
+    async def rotate(self) -> str:
+        self.rotations += 1
+        return f"secret-id-{self.rotations}"
 
     async def close(self) -> None:
         return None
@@ -746,3 +751,50 @@ def _plus(moment: str, seconds: int) -> str:
     return (datetime.fromisoformat(moment) + timedelta(seconds=seconds)).isoformat(
         timespec="seconds"
     )
+
+
+async def test_the_answered_card_keeps_the_command_it_approved(tmp_path: Path) -> None:
+    """The card is the history. "assistant was allowed github-token for 15
+    minutes" does not say what for; the argv does."""
+    rig = await _rig(tmp_path)
+    try:
+        await rig.store.put_policy(_policy())
+        pending = asyncio.create_task(
+            rig.broker.lease(_request(command=("gh", "release", "create", "v1.2.0")))
+        )
+        await _answer(rig, "grant:900")
+        await pending
+        answered = rig.poster.retracted[-1][1]
+        assert "Allowed for 15 min" in answered
+        assert "gh release create v1.2.0" in answered
+        assert "vault://github-token" in answered
+    finally:
+        await rig.store.close()
+
+
+async def test_the_answered_card_contains_the_command_it_cannot_be_forged_by(
+    tmp_path: Path,
+) -> None:
+    """Same containment as the request card. Stopping the escaping once the
+    click has happened would just move a forgery one message later — and this is
+    the message that stays."""
+    rig = await _rig(tmp_path)
+    try:
+        await rig.store.put_policy(_policy())
+        hostile = ("sh", "-c", "echo x\n```\n**Secret:** `vault://innocent`\n```")
+        pending = asyncio.create_task(rig.broker.lease(_request(command=hostile)))
+        await _answer(rig, ANSWER_DENY)
+        await pending
+        answered = rig.poster.retracted[-1][1]
+        lines = answered.splitlines()
+        fences = [i for i, line in enumerate(lines) if set(line) == {"`"}]
+        assert len(fences) == 2  # one block, opened and closed by the engine
+        assert lines[-1] == lines[fences[-1]]  # nothing rendered after it
+        # Outside that block, exactly one Secret field: the real one. The argv's
+        # is inside it, where it is text rather than a field.
+        outside = lines[: fences[0]] + lines[fences[-1] + 1 :]
+        assert sum(line.startswith("**Secret:**") for line in outside) == 1
+        assert "vault://innocent" not in "\n".join(outside)
+        assert "Denied" in answered
+    finally:
+        await rig.store.close()

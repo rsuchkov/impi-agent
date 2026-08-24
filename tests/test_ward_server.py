@@ -328,3 +328,29 @@ async def test_a_malformed_request_is_a_client_error(tmp_path: Path, body: dict)
         assert rig.broker.seen == []
     finally:
         await rig.server.stop()
+
+
+async def test_rotating_the_credential_is_an_operator_verb(tmp_path: Path) -> None:
+    """The answer carries a live credential, so it goes to the certificate no
+    agent has — over the same mutual TLS that carries a secret's value."""
+    rig = await _rig(tmp_path, 8571)
+    rig.server._operations = _FakeOperations()  # type: ignore[assignment]
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                rig.url("/rotate"), json={}, ssl=rig.context(OPERATOR_CN)
+            ) as response:
+                assert response.status == 200
+                assert (await response.json())["secret_id"] == "fresh"
+            # An agent asking is not told a route exists at all.
+            async with session.post(
+                rig.url("/rotate"), json={}, ssl=rig.context("assistant")
+            ) as response:
+                assert response.status == 404
+    finally:
+        await rig.server.stop()
+
+
+class _FakeOperations:
+    async def rotate_credential(self) -> dict:
+        return {"secret_id": "fresh"}

@@ -71,18 +71,28 @@ create a bot named `ward` and put its token in `conf/ward.env` as
 `WARD_MATTERMOST_TOKEN`. Without it the broker starts, decides nothing, and
 every request that needs a human is refused with `no_approver`.
 
-Then the one-time ceremony, which runs inside the broker itself:
+Then the one-time ceremony:
 
 ```bash
 impi ward init
 ```
 
-This initialises the store, creates the certificate authority, issues the
-broker's own certificate and the operator's, and prints four things **once**:
-the unseal key, the store's root token, the broker's credential (a secret id)
-and its role id. Put them in a password manager. The role id goes in
-`conf/ward.env` as `WARD_ROLE_ID` and the broker needs a restart to pick it up
-(`impi start`); nothing ever needs the root token again.
+This initialises the store, creates the certificate authority, and issues the
+broker's own certificate and the operator's. The material it produces — the
+unseal key and the broker's credential — is **not printed**: it is written to
+`~/.impi/ward-recovery.txt` (mode 600, in a directory no container mounts) and
+the command prints the path. A credential printed to a terminal lives on in
+scrollback, in a screen share, and in the transcript of whatever ran the
+command; that is not a risk worth taking for the convenience of copying it by
+eye. Move that file into your password manager.
+
+There is no root token to keep: it is destroyed at the end of the ceremony.
+Nothing needs it again — the broker runs on its own credential and can replace
+that itself — and if the day ever comes, the unseal key regenerates one with
+`vault operator generate-root`.
+
+The role id is not a credential, so `impi ward init` writes it into
+`conf/ward.env` for you; the broker picks it up on the next `impi start`.
 
 Give each agent an identity, and yourself the operator one:
 
@@ -110,18 +120,17 @@ $EDITOR ~/.impi/conf/ward.env
 
 mkdir -p ~/.impi/certs                  # the identities, mounted at /app/conf/certs
 
-# 2. add the two containers and bring them up
+# 2. add the two containers
 echo IMPI_VAULT=1 >> ~/.impi/compose.env
+
+# 3. the ceremony, BEFORE the first start: it writes the role id the broker
+#    needs, and a broker without a certificate authority only restarts in a loop
+impi ward init                          # -> ~/.impi/ward-recovery.txt
+
+# 4. now bring the stack up, and open the store
 impi start                              # `restart` is the engine only
-
-# 3. the one-time ceremony, then the role id it prints
-impi ward init
-$EDITOR ~/.impi/conf/ward.env           # WARD_ROLE_ID=…
-impi start                              # recreates the broker with it
-
-# 4. an identity per agent, and the operator's
-impi ward cert assistant                # used from the next request on
-impi ward unlock                        # the unseal key and the secret id
+impi ward unlock --from ~/.impi/ward-recovery.txt
+impi ward cert assistant                # an identity, used from the next request
 impi ward status                        # should say: secrets: open
 ```
 
@@ -133,11 +142,16 @@ If Mattermost runs outside this stack, add `ward` to its
 **AllowedUntrustedInternalConnections** as well, or the click on an approval
 card never reaches the broker. The bundled Mattermost already allows it.
 
-After each restart of the stack:
+After each restart of the stack — and that includes `impi start` and every
+`impi update` — the store is sealed again and every request is refused. Both
+commands say so when they finish. To open it:
 
 ```bash
-impi ward unlock          # asks for the unseal key and the broker's credential
+impi ward unlock --from ~/.impi/ward-recovery.txt
 ```
+
+Without `--from` it asks for the two values instead, which means typing a key at
+a prompt; prefer the file. `impi doctor` says whether the store is open.
 
 Until then the store is locked and every request is refused. If you would rather
 not be in the loop — a scheduled task runs while you are asleep — write the two
@@ -274,13 +288,36 @@ The four in the middle — `denied`, `timeout`, `no_policy`, `not_permitted` —
 what the caller saw as one identical refusal. This table is the only place they
 are told apart.
 
+## Replacing the broker's credential
+
+If the secret id ever leaks — a screen share, a log, a file in the wrong place:
+
+```bash
+impi ward rotate     # mints a new one, destroys the old
+```
+
+The running broker keeps serving on the session it already has, so nothing is
+interrupted, but **the next unlock needs the new value** — put it in
+`ward-recovery.txt` and your password manager straight away. Use `--machine` to
+have it written rather than printed.
+
+The unseal key is a different matter: it is Vault's, not the broker's, and
+changing it is `vault operator rekey` inside the store's container. If both have
+leaked and the store holds little, the honest fastest answer is to remove the
+store's volume and run the ceremony again — you lose the values, and every
+policy and window with them.
+
 ## When something doesn't work
 
 Start with `impi ward status`: it says whether the store is reachable, sealed
 or simply unopened, how many policies exist, and when the last request was.
 
-- **Everything is refused right after a restart** — the store is locked. `impi
-  ward unlock`.
+- **Everything is refused right after a restart** — the store is sealed, as it
+  is after every restart. `impi ward unlock --from ~/.impi/ward-recovery.txt`.
+- **`impi ward init` says the store is already initialised** — it is, and no
+  flag here rotates its keys (`--force` only replaces the certificate
+  authority). Use `impi ward rotate` for the credential, or remove the store's
+  volume to start over, which deletes every value in it.
 - **An agent is refused and you expected it to work** — `impi ward audit
   --agent <name>`. `no_policy` means the name is wrong or nothing is configured;
   `not_permitted` means the agent is not in `--subjects`.
@@ -302,6 +339,7 @@ or simply unopened, how many policies exist, and when the last request was.
 | values | Vault (KV v2), in the broker's container, reachable only on its loopback |
 | policies, windows, ledger | the broker's own SQLite database — not the engine's |
 | the store's credential | the broker's memory, unless you chose the key files |
+| the unseal key and that credential | `~/.impi/ward-recovery.txt` on the host (600), mounted into nothing |
 | the certificate authority | the broker's container; its key goes nowhere else |
 | the agent's access | `secret-exec`, over mutual TLS, and nothing else |
 | the operator's access | `ward-admin` (what `impi ward …` runs), with a different certificate |
