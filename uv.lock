@@ -268,7 +268,7 @@ wheels = [
 
 [[package]]
 name = "crucible"
-version = "0.12.0"
+version = "0.12.1"
 source = { editable = "packages/crucible" }
 dependencies = [
     { name = "aiohttp" },
@@ -518,7 +518,7 @@ wheels = [
 
 [[package]]
 name = "impi"
-version = "0.12.0"
+version = "0.12.1"
 source = { editable = "packages/impi" }
 dependencies = [
     { name = "crucible" },
@@ -1080,7 +1080,7 @@ wheels = [
 
 [[package]]
 name = "ward"
-version = "0.12.0"
+version = "0.12.1"
 source = { editable = "packages/ward" }
 dependencies = [
     { name = "crucible" },
@@ -1097,7 +1097,7 @@ requires-dist = [
 
 [[package]]
 name = "wardline"
-version = "0.12.0"
+version = "0.12.1"
 source = { editable = "packages/wardline" }
 dependencies = [
     { name = "httpx" },

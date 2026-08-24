@@ -1,6 +1,6 @@
 [project]
 name = "wardline"
-version = "0.12.0"
+version = "0.12.1"
 description = "The line to the secret broker: an agent's `secret-exec`, an operator's `ward-admin`, and the vocabulary both ends share."
 requires-python = ">=3.13"
 # Depends on no other package in this workspace, and on nothing at all for the

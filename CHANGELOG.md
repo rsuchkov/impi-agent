@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.12.1 — 2026-08-24
+
 - **The material `ward init` produces is no longer printed.** The unseal key and
   the broker's credential are written to `~/.impi/ward-recovery.txt` (mode 600,
   in a directory no container mounts) and the command prints the path — a
