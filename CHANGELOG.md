@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.12.0 — 2026-08-24
+
 - **Secrets an agent can use but never read.** An agent runs `secret-exec --env
   GITHUB_TOKEN=vault://github-token -- gh release create …`; you get a card in
   chat showing the agent, the secret, the reason and the exact command, and
