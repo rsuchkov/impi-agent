@@ -43,7 +43,7 @@ setup() {
     COMPOSE_ROOTLESS=1
     COMPOSE_VAULT=1
     run derive_compose_files external
-    [ "$output" = "deploy/compose.yaml deploy/compose.external-mm.yaml deploy/compose.ward.yaml deploy/compose.podman.yaml" ]
+    [ "$output" = "deploy/compose.yaml deploy/compose.external-mm.yaml deploy/compose.ward.yaml deploy/compose.podman.yaml deploy/compose.podman-ward.yaml" ]
 }
 
 @test "no secret store means no vault overlay" {
@@ -192,4 +192,19 @@ setup_home() {
     IMPI_VAULT=1
     run build_services
     [ "$output" = "impi ward" ]
+}
+
+@test "the broker's rootless mapping is merged only when both axes are on" {
+    COMPOSE_ROOTLESS=1
+    COMPOSE_VAULT=1
+    run derive_compose_files slack
+    [ "$output" = "deploy/compose.yaml deploy/compose.ward.yaml deploy/compose.podman.yaml deploy/compose.podman-ward.yaml" ]
+}
+
+@test "rootless without a secret store never names the broker" {
+    COMPOSE_ROOTLESS=1
+    COMPOSE_VAULT=0
+    run derive_compose_files slack
+    # A service with a userns_mode and no image is not a service.
+    [ "$output" = "deploy/compose.yaml deploy/compose.podman.yaml" ]
 }

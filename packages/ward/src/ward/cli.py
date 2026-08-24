@@ -16,7 +16,7 @@ import logging
 import sys
 
 from ward.app import run
-from ward.ca import OPERATOR_CN, CertificateAuthority
+from ward.ca import OPERATOR_CN, CertificateAuthority, Issued
 from ward.config import WardSettings, load_settings
 from ward.vault import VaultBackend
 
@@ -41,6 +41,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     ca.issue_server(settings.names).write(settings.server_cert, settings.server_key)
     operator = ca.issue_client(OPERATOR_CN)
     operator.write(settings.tls / "operator.crt", settings.tls / "operator.key")
+    _hand_out(settings, ca, operator)
 
     print(f"certificate authority and certificates written to {settings.tls}")
     print()
@@ -58,6 +59,34 @@ def _cmd_init(args: argparse.Namespace) -> int:
         "that trade costs."
     )
     return 0
+
+
+def _hand_out(settings: WardSettings, ca: CertificateAuthority, operator: Issued) -> None:
+    """Put the operator's identity where an operator can reach it.
+
+    Without this the ceremony ends with the only certificate that may drive the
+    broker locked inside the broker's own volume, and every administrative
+    command answers 404 — the operator would have to copy files out of a
+    container before the tool they were told to run could work at all.
+
+    The authority's key is NOT copied and never is: this directory is mounted by
+    whatever runs the clients, and a signing key there would let that side mint
+    an agent.
+    """
+    try:
+        settings.issued.mkdir(parents=True, exist_ok=True)
+        operator.write(settings.issued / "operator.crt", settings.issued / "operator.key")
+        (settings.issued / "ca.crt").write_text(ca.certificate, encoding="utf-8")
+    except OSError as exc:
+        print(
+            f"could not write the operator identity to {settings.issued} ({exc.strerror}).\n"
+            "Copy operator.crt, operator.key and ca.crt out of "
+            f"{settings.tls} by hand, or mount that directory — until then no "
+            "administrative command can authenticate.",
+            file=sys.stderr,
+        )
+        return
+    print(f"the operator identity is in {settings.issued}")
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:

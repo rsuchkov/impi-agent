@@ -64,6 +64,9 @@ class Ward:
     broker: SecretBroker
     door: WardServer
     callbacks: InteractionsServer
+    # The driver behind the chat client, kept because it has to be signed in
+    # before anything can be posted — see `_sign_in`.
+    driver: AsyncTypedDriver
 
 
 def build(settings: WardSettings) -> Ward:
@@ -75,9 +78,10 @@ def build(settings: WardSettings) -> Ward:
     store = WardStore(settings.db_path)
     approvals = PendingApprovals()
 
-    chat = MattermostChatClient(
-        AsyncTypedDriver(driver_options(settings.mattermost_url, settings.mattermost_token))
+    driver = AsyncTypedDriver(
+        driver_options(settings.mattermost_url, settings.mattermost_token)
     )
+    chat = MattermostChatClient(driver)
     presence = OneBot(chat)
 
     broker = SecretBroker(
@@ -121,7 +125,31 @@ def build(settings: WardSettings) -> Ward:
         "ward built: store=%s, vault=%s, approvers=%s",
         settings.db_path, settings.vault_addr, settings.approvers or "(nobody)",
     )
-    return Ward(settings, store, broker, door, callbacks)
+    return Ward(settings, store, broker, door, callbacks, driver)
+
+
+async def _sign_in(ward: Ward) -> None:
+    """Authenticate the account the cards are posted as.
+
+    A token in the driver's options is not a session: without this the first
+    thing a request for a credential does is fail to post its card, and the
+    ledger fills with `no_approver` for a broker that looks configured. The
+    engine's gateway does the same call before it serves.
+
+    Not fatal. A broker that cannot ask can still serve what needs no human, and
+    can still be driven by an operator — including to find out why, which is
+    what the log line is for.
+    """
+    try:
+        me = await ward.driver.login()
+    except Exception as exc:
+        logger.error(
+            "cannot sign in to chat (%s) — every request that needs a human will "
+            "be refused with no_approver. Check WARD_MATTERMOST_TOKEN and _URL.",
+            exc,
+        )
+        return
+    logger.info("posting approval cards as @%s", me.get("username", "?"))
 
 
 async def _unlock(ward: Ward) -> None:
@@ -160,6 +188,7 @@ async def run(settings: WardSettings) -> None:
     ward = build(settings)
     await ward.callbacks.start()
     await ward.door.start()
+    await _sign_in(ward)
     await _unlock(ward)
     try:
         # Nothing to drive: both listeners are servers. Sleep until told to stop.

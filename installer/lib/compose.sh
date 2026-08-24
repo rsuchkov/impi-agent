@@ -72,6 +72,10 @@ derive_compose_files() {
     esac
     [ "${COMPOSE_VAULT:-0}" = 1 ] && files="$files deploy/compose.ward.yaml"
     [ "$COMPOSE_ROOTLESS" = 1 ] && files="$files deploy/compose.podman.yaml"
+    # The one file that belongs to both axes: it maps the broker's user, and the
+    # broker exists only when the store does.
+    [ "$COMPOSE_ROOTLESS" = 1 ] && [ "${COMPOSE_VAULT:-0}" = 1 ] \
+        && files="$files deploy/compose.podman-ward.yaml"
     printf '%s\n' "$files"
 }
 

@@ -16,8 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from ward.app import OneBot, _unlock, build
+from ward.app import OneBot, _sign_in, _unlock, build
+from ward.ca import OPERATOR_CN as OPERATOR
 from ward.ca import CertificateAuthority
+from ward.cli import _hand_out
 from ward.config import WardSettings
 from ward.ports import BackendStatus, UnlockMaterial
 from ward.vault import VaultBackend
@@ -164,3 +166,91 @@ async def test_material_that_does_not_open_the_store_does_not_stop_the_process(
         await _unlock(ward)  # must not raise
     finally:
         await ward.store.close()
+
+
+# -- what the ceremony hands out --------------------------------------------------
+
+
+def test_the_operator_identity_lands_where_an_operator_can_reach_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`ward init` runs inside the broker's container, and the operator does not.
+    Without this the only certificate that may drive the broker would sit in the
+    broker's own volume and every administrative command would answer 404."""
+    settings = _settings(tmp_path, issued_dir=str(tmp_path / "issued"))
+    ca, _ = CertificateAuthority.create()
+    operator = ca.issue_client(OPERATOR)
+
+    _hand_out(settings, ca, operator)
+
+    issued = tmp_path / "issued"
+    assert (issued / "operator.crt").read_text() == operator.certificate
+    assert (issued / "ca.crt").read_text() == ca.certificate
+    # The signing key is the one thing that must not travel: this directory is
+    # mounted by whatever runs the clients, and a key here would let that side
+    # mint an agent.
+    assert not (issued / "ca.key").exists()
+    assert str(issued) in capsys.readouterr().out
+
+
+def test_an_unmounted_directory_says_what_to_copy(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The material has already been printed by then, so this cannot raise — it
+    tells the operator what to do instead."""
+    blocked = tmp_path / "blocked"
+    blocked.write_text("not a directory")
+    settings = _settings(tmp_path, issued_dir=str(blocked / "issued"))
+    ca, _ = CertificateAuthority.create()
+
+    _hand_out(settings, ca, ca.issue_client(OPERATOR))
+
+    assert "by hand" in capsys.readouterr().err
+
+
+# -- signing in -------------------------------------------------------------------
+
+
+class StubDriver:
+    def __init__(self, fails: bool = False) -> None:
+        self.calls = 0
+        self._fails = fails
+
+    async def login(self) -> dict:
+        self.calls += 1
+        if self._fails:
+            raise RuntimeError("Invalid or expired session, please login again")
+        return {"id": "bot-1", "username": "ward"}
+
+
+async def test_the_chat_account_is_signed_in_before_serving(tmp_path: Path) -> None:
+    """A token in the driver's options is not a session. Without this call the
+    first request for a credential fails to post its card, and the ledger fills
+    with `no_approver` for a broker that looks configured."""
+    settings = _settings(tmp_path)
+    _authority(settings)
+    ward = build(settings)
+    driver = StubDriver()
+    ward.driver = driver  # type: ignore[assignment]
+    try:
+        await _sign_in(ward)
+    finally:
+        await ward.store.close()
+    assert driver.calls == 1
+
+
+async def test_a_chat_account_that_will_not_sign_in_does_not_stop_the_broker(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """It can still serve what needs no human, and still be driven by an
+    operator — including to find out why."""
+    settings = _settings(tmp_path)
+    _authority(settings)
+    ward = build(settings)
+    ward.driver = StubDriver(fails=True)  # type: ignore[assignment]
+    try:
+        with caplog.at_level("ERROR"):
+            await _sign_in(ward)  # must not raise
+    finally:
+        await ward.store.close()
+    assert "WARD_MATTERMOST_TOKEN" in caplog.text

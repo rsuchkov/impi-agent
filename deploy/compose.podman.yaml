@@ -6,3 +6,4 @@
 services:
   impi:
     userns_mode: "keep-id:uid=${IMPI_UID:-1000},gid=${IMPI_GID:-1000}"
+

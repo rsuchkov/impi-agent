@@ -69,6 +69,11 @@ services:
       - ${IMPI_HOME:?set in compose.env}/conf/ward.env
     volumes:
       - ward-data:/var/lib/ward
+      # Where it hands identities out: `ward init` drops the operator's
+      # certificate and the CA's here, and this is the same directory the
+      # engine's container mounts, so `impi ward …` can authenticate at once.
+      # The authority's key stays in ward-data and never appears here.
+      - ${IMPI_HOME:?set in compose.env}/certs:/var/lib/ward/issued:z
     healthcheck:
       # Both sockets: its own door, and the store on the shared loopback. The
       # second is what makes a broken namespace loud — otherwise both containers

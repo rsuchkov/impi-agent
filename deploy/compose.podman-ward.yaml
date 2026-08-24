@@ -1,0 +1,12 @@
+# Overlay: the secret store, on rootless podman. Only merged when both axes are
+# on — this file names a service that exists solely in compose.ward.yaml, and a
+# deployment without the store would otherwise be handed a service with no image.
+#
+# Same reason as the engine's mapping: `ward init` hands the operator's identity
+# out through the certs/ directory the engine also mounts, and a write from an
+# unmapped container is refused — which ends the ceremony with the only
+# certificate that may drive the broker locked inside its own volume.
+
+services:
+  ward:
+    userns_mode: "keep-id:uid=${IMPI_UID:-1000},gid=${IMPI_GID:-1000}"

@@ -38,6 +38,11 @@ class WardSettings(BaseSettings):
     listen_port: int = 8425
     # The CA, ward's own certificate, and the key. Created by `ward init`.
     tls_dir: str = "/var/lib/ward/tls"
+    # Where identities are handed OUT: the operator's, and later each agent's.
+    # A deployment mounts the directory its clients read from, so `init` can put
+    # the operator's certificate somewhere the operator can actually reach — the
+    # authority's key stays behind, in tls_dir.
+    issued_dir: str = "/var/lib/ward/issued"
     # Names ward's certificate is issued for — what a client verifies it reached.
     server_names: str = "ward,localhost,127.0.0.1"
 
@@ -62,6 +67,10 @@ class WardSettings(BaseSettings):
     @cached_property
     def tls(self) -> Path:
         return Path(self.tls_dir)
+
+    @cached_property
+    def issued(self) -> Path:
+        return Path(self.issued_dir)
 
     @property
     def ca_cert(self) -> Path:
