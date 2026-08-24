@@ -1,4 +1,4 @@
-"""``secret-exec`` (crucible/secrets/exec_cli.py).
+"""``secret-exec`` (wardline/exec_cli.py).
 
 The client half of the contract. Two things matter more than the rest: a value
 never reaches stdout or stderr, and every authorization refusal produces exactly
@@ -12,13 +12,12 @@ from pathlib import Path
 import pytest
 from aiohttp import web
 
-from crucible.secrets import exec_cli
+from ward.ca import CertificateAuthority
+from wardline import exec_cli
 
-AGENT_ENV = {
-    "TOOL_URL": "",  # filled in per test
-    "TOOL_TOKEN": "tok-assistant",
-    "RUNTIME_SESSION_ID": "assistant--dm1",
-}
+# The broker's own certificates, made once for the whole file: issuing them is
+# the slowest thing here and none of these tests care which CA it is.
+_CA, _CA_MATERIAL = CertificateAuthority.create()
 
 
 class StubEngine:
@@ -33,12 +32,14 @@ class StubEngine:
         self.headers: list[dict] = []
         self._runner: web.AppRunner | None = None
 
-    async def start(self, port: int) -> None:
+    async def start(self, port: int, root: Path) -> None:
         app = web.Application()
-        app.router.add_post("/secrets/lease", self._lease)
+        app.router.add_post("/lease", self._lease)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
-        await web.TCPSite(self._runner, "127.0.0.1", port).start()
+        await web.TCPSite(
+            self._runner, "127.0.0.1", port, ssl_context=_server_context(root)
+        ).start()
 
     async def stop(self) -> None:
         if self._runner is not None:
@@ -61,10 +62,27 @@ async def _run(argv: list[str]) -> int:
     return await asyncio.to_thread(exec_cli.main, argv)
 
 
-def _env(monkeypatch: pytest.MonkeyPatch, port: int) -> None:
-    for key, value in AGENT_ENV.items():
-        monkeypatch.setenv(key, value)
-    monkeypatch.setenv("TOOL_URL", f"http://127.0.0.1:{port}")
+def _server_context(root: Path):
+    import ssl
+
+    _CA_MATERIAL.write(root / "ca.crt", root / "ca.key")
+    _CA.issue_server(("localhost", "127.0.0.1")).write(root / "b.crt", root / "b.key")
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(str(root / "b.crt"), str(root / "b.key"))
+    context.load_verify_locations(cafile=str(root / "ca.crt"))
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context
+
+
+def _env(monkeypatch: pytest.MonkeyPatch, port: int, root: Path) -> None:
+    """What the engine puts in an agent's environment: where the broker is, and
+    the identity to prove on the way in."""
+    _CA_MATERIAL.write(root / "ca.crt", root / "ca.key")
+    _CA.issue_client("assistant").write(root / "me.crt", root / "me.key")
+    monkeypatch.setenv("SECRET_BROKER_URL", f"https://localhost:{port}")
+    monkeypatch.setenv("SECRET_BROKER_CERT", str(root / "me.crt"))
+    monkeypatch.setenv("SECRET_BROKER_KEY", str(root / "me.key"))
+    monkeypatch.setenv("SECRET_BROKER_CA", str(root / "ca.crt"))
 
 
 class _Exec:
@@ -102,26 +120,26 @@ def test_a_bad_command_line_fails_before_anything_is_asked(
 
 
 def test_without_an_engine_address_it_says_so(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    monkeypatch.delenv("TOOL_URL", raising=False)
-    monkeypatch.delenv("TOOL_TOKEN", raising=False)
+    for key in ("SECRET_BROKER_URL", "SECRET_BROKER_CERT", "SECRET_BROKER_KEY", "SECRET_BROKER_CA"):
+        monkeypatch.delenv(key, raising=False)
     argv = ["--env", "T=vault://github-token", "--", "gh"]
     assert exec_cli.main(argv) == exec_cli.EXIT_CONFIG
-    assert "TOOL_URL" in capsys.readouterr().err
+    assert "SECRET_BROKER_URL" in capsys.readouterr().err
 
 
 # -- the round trip ------------------------------------------------------------
 
 
 async def test_a_granted_lease_execs_the_command_with_the_value(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     engine = StubEngine()
-    await engine.start(8521)
+    await engine.start(8521, tmp_path)
     runner = _Exec()
     monkeypatch.setattr(exec_cli.os, "execvpe", runner)
-    _env(monkeypatch, 8521)
+    _env(monkeypatch, 8521, tmp_path)
     try:
         code = await _run(
             [
@@ -142,9 +160,6 @@ async def test_a_granted_lease_execs_the_command_with_the_value(
         ]
         assert asked["reason"] == "push the release"
         assert asked["command"] == ["gh", "release", "create", "v1.2.0"]
-        headers = engine.headers[0]
-        assert headers["X-Tool-Token"] == "tok-assistant"
-        assert headers["X-Runtime-Session"] == "assistant--dm1"
 
         # Nothing about the value was printed.
         captured = capsys.readouterr()
@@ -154,15 +169,15 @@ async def test_a_granted_lease_execs_the_command_with_the_value(
 
 
 async def test_several_fields_of_one_secret_arrive_as_several_variables(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     engine = StubEngine(
         {"granted": True, "values": {"SMTP_USER": "bot", "SMTP_PASS": "hunter2"}}
     )
-    await engine.start(8522)
+    await engine.start(8522, tmp_path)
     runner = _Exec()
     monkeypatch.setattr(exec_cli.os, "execvpe", runner)
-    _env(monkeypatch, 8522)
+    _env(monkeypatch, 8522, tmp_path)
     try:
         code = await _run(
             [
@@ -185,16 +200,43 @@ async def test_several_fields_of_one_secret_arrive_as_several_variables(
 # -- refusals ------------------------------------------------------------------
 
 
+async def test_two_different_secrets_travel_in_one_request(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The client has always allowed it; this pins that the wire carries both in
+    a single ask rather than the caller having to nest two invocations."""
+    engine = StubEngine({"granted": True, "values": {"GH": "ghp", "NPM": "npm"}})
+    await engine.start(8530, tmp_path)
+    runner = _Exec()
+    monkeypatch.setattr(exec_cli.os, "execvpe", runner)
+    _env(monkeypatch, 8530, tmp_path)
+    try:
+        code = await _run(
+            ["--env", "GH=vault://github-token", "--env", "NPM=vault://npm-token",
+             "--", "make", "release"]
+        )
+        assert code == 0
+        assert len(engine.requests) == 1
+        assert engine.requests[0]["bindings"] == [
+            {"env": "GH", "ref": "vault://github-token"},
+            {"env": "NPM", "ref": "vault://npm-token"},
+        ]
+        _, _, env = runner.calls[0]
+        assert (env["GH"], env["NPM"]) == ("ghp", "npm")
+    finally:
+        await engine.stop()
+
+
 async def test_every_refusal_prints_the_same_line_and_runs_nothing(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     """The engine already collapses its reasons to one word; this asserts the
     client does not reintroduce a difference of its own."""
     engine = StubEngine({"granted": False, "status": "refused"})
-    await engine.start(8523)
+    await engine.start(8523, tmp_path)
     runner = _Exec()
     monkeypatch.setattr(exec_cli.os, "execvpe", runner)
-    _env(monkeypatch, 8523)
+    _env(monkeypatch, 8523, tmp_path)
     try:
         seen = set()
         for ref in ("vault://absent", "vault://theirs", "vault://mine"):
@@ -208,12 +250,12 @@ async def test_every_refusal_prints_the_same_line_and_runs_nothing(
 
 
 async def test_an_unavailable_store_is_a_different_and_temporary_failure(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     engine = StubEngine({"granted": False, "status": "unavailable"})
-    await engine.start(8524)
+    await engine.start(8524, tmp_path)
     monkeypatch.setattr(exec_cli.os, "execvpe", _Exec())
-    _env(monkeypatch, 8524)
+    _env(monkeypatch, 8524, tmp_path)
     try:
         code = await _run(["--env", "T=vault://github-token", "--", "gh"])
         assert code == exec_cli.EXIT_UNAVAILABLE
@@ -223,23 +265,23 @@ async def test_an_unavailable_store_is_a_different_and_temporary_failure(
 
 
 async def test_an_engine_that_is_not_listening_is_also_temporary(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     monkeypatch.setattr(exec_cli.os, "execvpe", _Exec())
-    _env(monkeypatch, 8525)  # nothing started on this port
+    _env(monkeypatch, 8525, tmp_path)  # nothing started on this port
     code = exec_cli.main(["--env", "T=vault://github-token", "--", "gh"])
     assert code == exec_cli.EXIT_UNAVAILABLE
     assert "not available" in capsys.readouterr().err
 
 
 async def test_a_rejected_request_reports_the_engine_s_own_complaint(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     """A 400 is this process's fault, not an authorization answer, so it says
     what was wrong — and the engine's 400s never mention what exists."""
     engine = StubEngine({"error": "bindings must be a non-empty list"}, status=400)
-    await engine.start(8526)
-    _env(monkeypatch, 8526)
+    await engine.start(8526, tmp_path)
+    _env(monkeypatch, 8526, tmp_path)
     try:
         code = await _run(["--env", "T=vault://github-token", "--", "gh"])
         assert code == exec_cli.EXIT_USAGE
@@ -249,11 +291,11 @@ async def test_a_rejected_request_reports_the_engine_s_own_complaint(
 
 
 async def test_an_unknown_token_is_a_configuration_problem(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     engine = StubEngine({"error": "unauthorized"}, status=401)
-    await engine.start(8527)
-    _env(monkeypatch, 8527)
+    await engine.start(8527, tmp_path)
+    _env(monkeypatch, 8527, tmp_path)
     try:
         code = await _run(["--env", "T=vault://github-token", "--", "gh"])
         assert code == exec_cli.EXIT_CONFIG
@@ -266,8 +308,8 @@ async def test_a_command_that_does_not_exist_says_which_one(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     engine = StubEngine()
-    await engine.start(8528)
-    _env(monkeypatch, 8528)
+    await engine.start(8528, tmp_path)
+    _env(monkeypatch, 8528, tmp_path)
     try:
         missing = str(tmp_path / "no-such-binary")
         code = await _run(["--env", "T=vault://github-token", "--", missing])
@@ -280,7 +322,7 @@ async def test_a_command_that_does_not_exist_says_which_one(
 
 
 async def test_a_nonsense_answer_is_treated_as_a_refusal(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Fail closed: a malformed response must never be what runs a command with
     a half-built environment."""
@@ -288,8 +330,8 @@ async def test_a_nonsense_answer_is_treated_as_a_refusal(
     monkeypatch.setattr(exec_cli.os, "execvpe", runner)
     for answer in ({"granted": True}, {"granted": True, "values": "nope"}, {}):
         engine = StubEngine(answer)
-        await engine.start(8529)
-        _env(monkeypatch, 8529)
+        await engine.start(8529, tmp_path)
+        _env(monkeypatch, 8529, tmp_path)
         try:
             code = await _run(["--env", "T=vault://github-token", "--", "gh"])
         finally:

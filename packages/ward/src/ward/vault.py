@@ -1,19 +1,19 @@
 """The Vault adapter: the only module that knows Vault's API shape.
 
-Hand-rolled over aiohttp rather than a client library. The engine uses six
-endpoints — seal status, unseal, AppRole login, and KV v2 read/write/list — and
-a dedicated client would bring a synchronous API into an async engine for the
-privilege of wrapping them.
+Hand-rolled over aiohttp rather than a client library. Six endpoints are used —
+seal status, unseal, AppRole login, and KV v2 read/write/list — and a dedicated
+client would bring a synchronous API into an async process for the privilege of
+wrapping them.
 
 Two behaviours are worth knowing before reading the code:
 
-* **The engine's credential lives only in memory.** ``unlock`` takes the AppRole
-  secret id, logs in, and keeps the resulting token (and the secret id, to log
-  in again) as instance state. Nothing is written to disk here, because a
+* **The credential lives only in memory.** ``unlock`` takes the AppRole secret
+  id, logs in, and keeps the resulting token (and the secret id, to log in
+  again) as instance state. Nothing is written to disk here, because a
   credential on disk beside the ciphertext is readable by every process that can
   read the ciphertext's path.
 * **A 403 is treated as an expired token, once.** AppRole tokens have a TTL and
-  the engine outlives it. Rather than a renewal loop, a read that comes back
+  the broker outlives it. Rather than a renewal loop, a read that comes back
   forbidden re-logs-in and retries a single time; a second 403 is a real
   permission problem and is raised.
 """
@@ -25,25 +25,21 @@ from typing import Any
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
-from crucible.secrets.ports import (
-    BackendStatus,
-    SecretBackendError,
-    SecretRef,
-    UnlockMaterial,
-)
+from ward.ports import BackendStatus, SecretBackendError, UnlockMaterial
+from wardline.wire import SecretRef
 
 logger = logging.getLogger(__name__)
 
 
-# Renewable indefinitely while the engine keeps using it, so a long-running
+# Renewable indefinitely while the broker keeps using it, so a long-running
 # deployment doesn't need an unlock every hour — but still short enough that a
 # stolen token stops working.
 _TOKEN_PERIOD = "24h"
 
 
-def _engine_policy(mount: str) -> str:
-    """What the engine may do in Vault: everything inside its own mount, and
-    nothing at all outside it. Storing a value runs through the engine too, so
+def _broker_policy(mount: str) -> str:
+    """What the broker may do in Vault: everything inside its own mount, and
+    nothing at all outside it. Storing a value runs through the broker too, so
     write is included; the ceiling is the mount, not the verb."""
     return (
         f'path "{mount}/data/*" {{ capabilities = ["create", "read", "update", "delete"] }}\n'
@@ -55,8 +51,8 @@ def _engine_policy(mount: str) -> str:
 @dataclass(frozen=True)
 class VaultBootstrap:
     """What initialising a fresh Vault produced. Shown to the operator exactly
-    once and never persisted by the engine: the unseal key and the root token
-    belong in a password manager, not in a config file next to the data."""
+    once and never persisted here: the unseal key and the root token belong in a
+    password manager, not in a config file next to the data."""
 
     unseal_key: str
     root_token: str
@@ -72,12 +68,11 @@ class VaultBackend:
     ) -> None:
         self._addr = addr.rstrip("/")
         self._mount = mount.strip("/")
-        # The AppRole and ACL policy the engine logs in as, derived from the
+        # The AppRole and ACL policy the broker logs in as, derived from the
         # mount rather than configured. Both halves live in this adapter —
         # bootstrap creates them, login uses them — so a knob would only be a
-        # way for the two to disagree; and deriving them lets a deployment name
-        # them after itself without this library knowing what it is called.
-        self._role = f"{self._mount}-engine"
+        # way for the two to disagree.
+        self._role = f"{self._mount}-broker"
         self._role_id = role_id
         self._timeout = ClientTimeout(total=timeout_s)
         self._session: ClientSession | None = None
@@ -178,7 +173,7 @@ class VaultBackend:
 
     async def _login(self) -> None:
         if not self._role_id or not self._secret_id:
-            raise SecretBackendError("no vault credential — the engine is locked")
+            raise SecretBackendError("no vault credential — the broker is locked")
         code, payload = await self._call(
             "POST", "auth/approle/login",
             body={"role_id": self._role_id, "secret_id": self._secret_id},
@@ -200,7 +195,7 @@ class VaultBackend:
         """A KV call that survives its own token expiring. See the module
         docstring: one silent re-login, then the failure is real."""
         if not self._token:
-            raise SecretBackendError("the engine holds no vault credential")
+            raise SecretBackendError("the broker holds no vault credential")
         code, payload = await self._call(method, path, body=body, params=params)
         if code == 403:
             await self._login()
@@ -246,7 +241,7 @@ class VaultBackend:
     # -- one-time setup -------------------------------------------------------
 
     async def bootstrap(self) -> VaultBootstrap:
-        """Initialise a fresh Vault for this engine and return the material.
+        """Initialise a fresh Vault for this broker and return the material.
 
         One key share with a threshold of one: the ceremony this protects
         against — several holders having to agree — is not the one a personal
@@ -271,7 +266,7 @@ class VaultBackend:
 
         await self.unlock(UnlockMaterial(unseal_key=unseal_key))
         role_id, secret_id = await self._provision(root)
-        # Log in as the engine right away, so `init` leaves a usable broker
+        # Log in right away, so `init` leaves a usable broker
         # rather than a setup that only works after the next unlock.
         self._role_id, self._secret_id = role_id, secret_id
         await self._login()
@@ -290,10 +285,10 @@ class VaultBackend:
             raise self._fail(code, payload, "enabling the kv engine")
         code, payload = await self._call(
             "PUT", f"sys/policies/acl/{self._role}", token=root,
-            body={"policy": _engine_policy(self._mount)},
+            body={"policy": _broker_policy(self._mount)},
         )
         if code not in (200, 204):
-            raise self._fail(code, payload, "writing the engine policy")
+            raise self._fail(code, payload, "writing the broker policy")
         code, payload = await self._call(
             "POST", "sys/auth/approle", token=root, body={"type": "approle"}
         )
@@ -304,7 +299,7 @@ class VaultBackend:
             body={"token_policies": self._role, "token_period": _TOKEN_PERIOD},
         )
         if code not in (200, 204):
-            raise self._fail(code, payload, "creating the engine role")
+            raise self._fail(code, payload, "creating the broker role")
         code, payload = await self._call(
             "GET", f"auth/approle/role/{self._role}/role-id", token=root
         )

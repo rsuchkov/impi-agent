@@ -1,9 +1,11 @@
-"""Who may ask for which secret, and on what terms.
+"""ward's own file: who may ask for which secret, and on what terms.
 
-The one part of secret handling that does not generalize: windows and the ledger
-are shared with everything else a human can authorize (see
-``store/approvals.py``), but a subject list and an approval mode are ideas only a
-secret has — a tool gate has no notion of "which agents may".
+Everything else in this database is the library's — sessions, the interactions a
+click resolves, the windows and the ledger a human's answers land in. Policies
+are not: a subject list and an approval mode are ideas only a secret has, a tool
+gate has no notion of "which agents may", and the engine has no business
+carrying a table it never reads. So the facet lives here and is mixed into the
+library's store through the hook it leaves for exactly this.
 
 No value is stored here, only permission. Values live in the backend.
 """
@@ -11,9 +13,46 @@ No value is stored here, only permission. Values live in the backend.
 import asyncio
 import sqlite3
 import threading
-from dataclasses import fields
+from dataclasses import dataclass, fields
+from typing import Protocol
 
-from crucible.store.base import SecretPolicyRecord
+from crucible.store.sessions import SqliteSessionStore
+
+
+@dataclass(frozen=True)
+class SecretPolicyRecord:
+    """Who may ask for a secret, and on what terms.
+
+    This is the whole authorization model: a secret with no policy is reachable
+    by nobody, and ``subjects`` is an explicit allowlist rather than a deny-list,
+    so a new agent starts with access to nothing. ``max_grant_s`` is the ceiling
+    on a "leave it open for a while" answer — 0 means no window may be opened at
+    all and every single use is asked about."""
+
+    name: str
+    approval: str  # APPROVAL_ALWAYS | APPROVAL_NEVER, from wardline.wire
+    max_grant_s: int
+    subjects: str  # CSV of agent names; "" = nobody
+    description: str
+    created_at: str
+    updated_at: str
+
+    def allows(self, agent: str) -> bool:
+        return agent in {s.strip() for s in self.subjects.split(",") if s.strip()}
+
+
+class SecretPolicyStore(Protocol):
+    """What the broker and the operator routes need of the policies. A Protocol
+    so the broker's tests can hand it a dictionary instead of a file."""
+
+    async def get_policy(self, name: str) -> SecretPolicyRecord | None: ...
+
+    async def list_policies(self) -> list[SecretPolicyRecord]: ...
+
+    async def put_policy(self, policy: SecretPolicyRecord) -> None: ...
+
+    async def delete_policy(self, name: str) -> bool: ...
+
 
 _POLICIES_SCHEMA = """
 -- Timestamps are UTC ISO8601 (seconds), so string order is time order.
@@ -45,7 +84,7 @@ class SecretPolicyStoreMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
 
-    def _create_secret_tables(self) -> None:
+    def _create_policy_tables(self) -> None:
         self._conn.executescript(_POLICIES_SCHEMA)
 
     def get_policy_sync(self, name: str) -> SecretPolicyRecord | None:
@@ -96,3 +135,16 @@ class SecretPolicyStoreMixin:
 
     async def delete_policy(self, name: str) -> bool:
         return await asyncio.to_thread(self.delete_policy_sync, name)
+
+
+class WardStore(SqliteSessionStore, SecretPolicyStoreMixin):
+    """ward's database: the library's store plus the policies.
+
+    The library's half is not decoration — the windows and the ledger are where
+    a human's answer is recorded, and the interactions tables are how a click
+    finds the request it answers. What ward adds is the one thing the engine
+    must not have.
+    """
+
+    def _create_app_tables(self) -> None:
+        self._create_policy_tables()

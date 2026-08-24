@@ -22,7 +22,6 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.tasks import TaskService
-from crucible.secrets.ports import SecretLeasing
 from crucible.tools.base import (
     CAP_CHAT_ADMIN,
     CAP_FILES,
@@ -34,6 +33,13 @@ from crucible.tools.registry import ToolRegistry, build_registry
 from crucible.tools.server import SessionResolver, ToolServer
 
 logger = logging.getLogger(__name__)
+
+# The one thing every agent's process is told about itself, whatever else it
+# gets. It is a fact, not a credential: programs an agent runs use it to pick a
+# per-agent file or to say who they are running as, and anything that must be
+# *proved* is proved by a token or a certificate instead. Part of the engine's
+# public surface to whatever runs inside an agent, so it does not change lightly.
+AGENT_NAME_ENV = "AGENT_NAME"
 
 
 def _gate_tools(
@@ -89,6 +95,12 @@ class ToolWiring:
         self, spec: AgentSpec, admin: ChatAdmin | None,
         *, extra_caps: frozenset[str] = frozenset(),
     ) -> None:
+        # Its own name, whether or not it has typed tools: any program an agent
+        # runs may need to know which agent it is running as — to pick a
+        # per-agent file, to say so in a log, to present the right identity to
+        # something outside. Naming yourself is not proof of anything, and
+        # nothing here treats it as such.
+        self.add_env(spec.name, {AGENT_NAME_ENV: spec.name})
         if self.registry is None:
             return
         token = secrets.token_hex(16)
@@ -110,11 +122,12 @@ class ToolWiring:
                 spec.name, name, ", ".join(sorted(missing)),
             )
         self.allowlists[spec.name] = frozenset(advertised)
-        self.envs[spec.name] = {"TOOL_URL": self._tools.server_url, "TOOL_TOKEN": token}
+        self.add_env(spec.name, {"TOOL_URL": self._tools.server_url, "TOOL_TOKEN": token})
 
     def add_env(self, name: str, env: dict[str, str]) -> None:
         # Extra tool env that must apply even with tools disabled (engine agents);
-        # separate from enroll, which early-returns when the registry is off.
+        # separate from enroll's typed-tool half, which is skipped when the
+        # registry is off.
         self.envs.setdefault(name, {}).update(env)
 
     def profile_env(self, spec: AgentSpec) -> dict[str, str] | None:
@@ -143,7 +156,6 @@ class ToolWiring:
         task_svc: TaskService | None = None,
         dotenv_path: str,
         session_resolver: SessionResolver | None = None,
-        secret_svc: SecretLeasing | None = None,
         tool_gate: ToolApproving | None = None,
     ) -> ToolServer | None:
         if self.registry is None:
@@ -161,6 +173,5 @@ class ToolWiring:
             file_svc=file_svc,
             task_svc=task_svc,
             session_resolver=session_resolver,
-            secret_svc=secret_svc,
             tool_gate=tool_gate,
         )

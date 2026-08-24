@@ -9,20 +9,29 @@ reference it needs — from its own instructions — or it does not, and it cann
 learn one by asking. What it gets back is an exit code and whatever the command
 it asked for wrote.
 
+It talks to the broker over mutual TLS, and the certificate it presents is what
+says which agent is asking — a header would only be a claim. The key has to be
+readable here for that to work, so anything else in this container can present
+it too, including another agent: they share a user and a directory. What that
+buys is that nothing *outside* the container can present one at all. Every
+request still passes a human.
+
 The value never passes through the agent's context. This process asks the
-engine, receives the value over loopback, and replaces itself with the requested
-command via ``execvpe``, so the secret exists only in the environment of a
-process the model never reads. It is still the human's job to look at the
+broker, receives the value over the TLS connection, and replaces itself with the
+requested command via ``execvpe``, so the secret exists only in the environment
+of a process the model never reads. It is still the human's job to look at the
 command on the approval card: a caller may legally ask to run ``echo $TOKEN``.
 """
 
 import json
 import os
+import ssl
 import sys
 import urllib.error
 import urllib.request
 
-from crucible.secrets.ports import WIRE_UNAVAILABLE, parse_ref
+from wardline.identity import IdentityError, agent_identity
+from wardline.wire import WIRE_UNAVAILABLE, parse_ref
 
 # One message for every authorization outcome. No secret, not permitted, refused
 # by a human, nobody answered — all the same sentence, because a caller that
@@ -35,7 +44,7 @@ _UNAVAILABLE = "secret-exec: the secret store is not available right now"
 EXIT_USAGE = 64  # the command line was wrong
 EXIT_UNAVAILABLE = 75  # temporary: the store is sealed, locked or unreachable
 EXIT_REFUSED = 77  # the request was not granted
-EXIT_CONFIG = 78  # this process was not given the engine's address
+EXIT_CONFIG = 78  # this process was not given an address or an identity
 
 # Generously above any sane approval timeout: the engine decides when to give
 # up waiting for a human, and this must not give up first.
@@ -55,12 +64,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"secret-exec: {exc}\n{_USAGE}", file=sys.stderr)
         return EXIT_USAGE
 
-    url = os.environ.get("TOOL_URL", "").rstrip("/")
-    token = os.environ.get("TOOL_TOKEN", "")
-    if not url or not token:
-        print(
-            "secret-exec: no engine to ask (TOOL_URL/TOOL_TOKEN are unset)", file=sys.stderr
-        )
+    try:
+        identity = agent_identity()
+        context = identity.context()
+    except IdentityError as exc:
+        print(f"secret-exec: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
     payload = {
@@ -69,23 +77,28 @@ def main(argv: list[str] | None = None) -> int:
         "command": command,
     }
     request = urllib.request.Request(
-        f"{url}/secrets/lease",
+        f"{identity.url}/lease",
         data=json.dumps(payload).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "X-Tool-Token": token,
-            "X-Runtime-Session": os.environ.get("RUNTIME_SESSION_ID", ""),
-        },
+        headers={"Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT_S) as response:
+        with urllib.request.urlopen(
+            request, timeout=_HTTP_TIMEOUT_S, context=context
+        ) as response:
             answer = json.loads(response.read() or b"{}")
+    except ssl.SSLError as exc:
+        # A handshake that fails is a deployment problem, not an answer: the
+        # certificate expired, or it was signed by something the broker does not
+        # trust. Say so — it reveals nothing about what is stored.
+        print(f"secret-exec: could not prove who I am ({exc.reason})", file=sys.stderr)
+        return EXIT_CONFIG
     except urllib.error.HTTPError as exc:
-        # A 4xx here is this process's own fault (a malformed request, an unknown
-        # token) — worth saying, and it reveals nothing about what is stored.
+        # A 4xx here is this process's own fault (a malformed request, an
+        # identity the broker will not serve) — worth saying, and it reveals
+        # nothing about what is stored.
         detail = _detail(exc)
-        print(f"secret-exec: the engine refused the request ({detail})", file=sys.stderr)
+        print(f"secret-exec: the broker refused the request ({detail})", file=sys.stderr)
         return EXIT_USAGE if exc.code == 400 else EXIT_CONFIG
     except (urllib.error.URLError, TimeoutError, OSError):
         print(_UNAVAILABLE, file=sys.stderr)

@@ -18,18 +18,40 @@ import time
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 
+from crucible.approvals import (
+    Approval,
+    PendingApprovals,
+    approval_actions,
+    humanize,
+    windows,
+)
 from crucible.approvals.card import command_line
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.types import ConversationRef
-from crucible.secrets.approvals import (
-    Approval,
-    SecretApprovals,
-    approval_actions,
-    approval_text,
-    humanize,
+from crucible.store.base import (
+    DECISION_APPROVED_GRANT,
+    DECISION_APPROVED_ONCE,
+    DECISION_DENIED,
+    DECISION_NO_APPROVER,
+    DECISION_REUSED_GRANT,
+    DECISION_TIMEOUT,
+    ApprovalAudit,
+    ApprovalGrant,
+    ApprovalStore,
 )
-from crucible.secrets.policy import ASK, REFUSE, evaluate, grant_options
-from crucible.secrets.ports import (
+from ward.card import approval_text
+from ward.decisions import (
+    DECISION_AUTO,
+    DECISION_BACKEND_ERROR,
+    DECISION_LOCKED,
+    DECISION_NO_POLICY,
+    DECISION_NOT_PERMITTED,
+    DECISION_NOT_REACHED,
+    DECISION_SEALED,
+    KIND_SECRET,
+)
+from ward.policy import ASK, REFUSE, ceiling, evaluate
+from ward.ports import (
     AgentPosters,
     BackendStatus,
     LeaseRequest,
@@ -38,23 +60,7 @@ from crucible.secrets.ports import (
     SecretBackendError,
     UnlockMaterial,
 )
-from crucible.store.base import (
-    DECISION_APPROVED_GRANT,
-    DECISION_APPROVED_ONCE,
-    DECISION_BACKEND_ERROR,
-    DECISION_DENIED,
-    DECISION_LOCKED,
-    DECISION_NO_APPROVER,
-    DECISION_REUSED_GRANT,
-    DECISION_SEALED,
-    DECISION_TIMEOUT,
-    KIND_SECRET,
-    ApprovalAudit,
-    ApprovalGrant,
-    ApprovalStore,
-    SecretPolicyRecord,
-    SecretPolicyStore,
-)
+from ward.store import SecretPolicyRecord, SecretPolicyStore
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +86,7 @@ class SecretBroker:
         ledger: ApprovalStore,
         presence: AgentPosters,
         admins: Mapping[str, ChatAdmin],
-        approvals: SecretApprovals,
+        approvals: PendingApprovals,
         *,
         approvers: str = "",
         approval_channel: str = "",
@@ -103,68 +109,106 @@ class SecretBroker:
         self._callback_url = callback_url
         # Usernames resolve to ids once. The map is small and stable; re-reading
         # it per request would put a directory lookup in the path of every
-        # credential the engine hands out.
+        # credential the broker hands out.
         self._approver_ids: frozenset[str] | None = None
 
     # -- the decision ---------------------------------------------------------
 
     async def lease(self, request: LeaseRequest) -> LeaseResult:
+        """Serve every secret the request names, or none of them.
+
+        All-or-nothing is the rule. A caller that got half its environment would
+        run its command anyway and fail somewhere less obvious, and a human who
+        approved a set should not have part of it quietly dropped.
+        """
         started = time.monotonic()
-        # One id per invocation: a request may leave several ledger rows, and an
-        # operator reading them needs to see which belong together.
+        # One id per invocation: a request leaves a ledger row per secret, and an
+        # operator reading them needs to see which belong to the same click.
         request_id = f"rq_{tokens.token_hex(6)}"
-        name = request.secret  # ValueError -> a malformed request, not a refusal
-        policy = await self._policies.get_policy(name)
-        verdict = evaluate(policy, request.agent)
-        if verdict.outcome == REFUSE:
-            return await self._refuse(request, verdict.decision, started, request_id)
+        names = request.names  # ValueError -> malformed, not a refusal
+        policies = {name: await self._policies.get_policy(name) for name in names}
+        verdicts = {name: evaluate(policies[name], request.agent) for name in names}
+
+        refusal = next(
+            (v.decision for v in verdicts.values() if v.outcome == REFUSE), ""
+        )
+        if refusal:
+            return await self._refuse(request, verdicts, refusal, started, request_id)
 
         state = await self._backend.status()
         if not state.usable:
-            return await self._refuse(request, _unusable(state), started, request_id)
+            return await self._refuse(request, verdicts, _unusable(state), started, request_id)
 
-        decision, approver, grant = verdict.decision, "", None
-        if verdict.outcome == ASK:
-            assert policy is not None  # ASK is only reachable with a policy
-            grant = await self._ledger.live_grant(KIND_SECRET, request.agent, name, now=_now())
-            if grant is not None:
-                decision = DECISION_REUSED_GRANT
-            else:
-                answer = await self._ask(request, policy)
-                if answer is None:
-                    return await self._refuse(request, DECISION_NO_APPROVER, started, request_id)
-                approver = answer.approver
-                if not answer.allowed:
-                    refusal = DECISION_TIMEOUT if answer.timed_out else DECISION_DENIED
-                    return await self._refuse(request, refusal, started, request_id, approver=approver)
+        # Which of them still needs a human: the ones whose policy asks and that
+        # no open window already covers.
+        asking = [name for name in names if verdicts[name].outcome == ASK]
+        covered = {
+            name: await self._ledger.live_grant(KIND_SECRET, request.agent, name, now=_now())
+            for name in asking
+        }
+        uncovered = [name for name in asking if covered[name] is None]
+
+        decisions = {
+            name: (
+                DECISION_REUSED_GRANT if covered.get(name) is not None
+                else verdicts[name].decision
+            )
+            for name in names
+        }
+        grant_ids = {name: (g.id if g else "") for name, g in covered.items()}
+        approver = ""
+
+        if uncovered:
+            # The most restrictive ceiling in the set governs the whole card: a
+            # basket cannot be left open longer than its tightest member allows.
+            longest = min(
+                ceiling(policies[name], deployment_s=self._max_grant_s)
+                for name in uncovered
+            )
+            answer = await self._ask(request, longest)
+            if answer is None:
+                return await self._refuse(
+                    request, verdicts, DECISION_NO_APPROVER, started, request_id
+                )
+            approver = answer.approver
+            if not answer.allowed:
+                refused = DECISION_TIMEOUT if answer.timed_out else DECISION_DENIED
+                return await self._refuse(
+                    request, verdicts, refused, started, request_id, approver=approver
+                )
+            for name in uncovered:
                 if answer.grant_s > 0:
-                    grant = await self._open_window(request, policy, answer)
-                    decision = DECISION_APPROVED_GRANT
+                    grant_ids[name] = await self._open_window(
+                        request.agent, name, policies[name], answer
+                    )
+                    decisions[name] = DECISION_APPROVED_GRANT
                 else:
-                    decision = DECISION_APPROVED_ONCE
+                    decisions[name] = DECISION_APPROVED_ONCE
 
-        grant_id = grant.id if grant is not None else ""
         try:
             values = {
                 env_name: await self._backend.read(ref) for env_name, ref in request.bindings
             }
         except SecretBackendError as exc:
             failure = DECISION_SEALED if exc.sealed else DECISION_BACKEND_ERROR
-            logger.warning("secret %s for %s: %s", name, request.agent, exc)
+            logger.warning("secrets for %s: %s", request.agent, exc)
             return await self._refuse(
-                request, failure, started, request_id, approver=approver, grant_id=grant_id
+                request, verdicts, failure, started, request_id,
+                approver=approver, grant_ids=grant_ids,
             )
 
-        await self._record(
-            request, decision, started, request_id, approver=approver, grant_id=grant_id
-        )
-        return LeaseResult(granted=True, decision=decision, values=values)
+        for name in names:
+            await self._record(
+                request, name, decisions[name], started, request_id,
+                approver=approver, grant_id=grant_ids.get(name, ""),
+            )
+        # The request's own verdict, for a caller that logs one line: the least
+        # automatic thing that happened to any of its secrets.
+        return LeaseResult(granted=True, decision=_summarize(decisions), values=values)
 
     # -- asking ---------------------------------------------------------------
 
-    async def _ask(
-        self, request: LeaseRequest, policy: SecretPolicyRecord
-    ) -> Approval | None:
+    async def _ask(self, request: LeaseRequest, ceiling_s: int) -> Approval | None:
         """Put the request in front of a human. None when there was nobody to
         put it in front of — a missing approver is a configuration problem, and
         must not read as a refusal in the ledger."""
@@ -172,8 +216,8 @@ class SecretBroker:
         poster = self._presence.poster(request.agent)
         if not approvers or poster is None:
             logger.warning(
-                "secret %s for %s: nobody to ask (approvers=%d, poster=%s)",
-                request.secret, request.agent, len(approvers), poster is not None,
+                "secrets %s for %s: nobody to ask (approvers=%d, poster=%s)",
+                ", ".join(request.names), request.agent, len(approvers), poster is not None,
             )
             return None
         channel = await self._approval_conversation(request.agent, approvers)
@@ -181,9 +225,10 @@ class SecretBroker:
             return None
 
         token = tokens.token_hex(16)
-        windows = grant_options(policy, ceiling_s=self._max_grant_s)
+        offers = windows(ceiling_s=ceiling_s)
         future = self._approvals.register(
-            token, agent=request.agent, secrets=(request.secret,), approvers=approvers
+            token, kind=KIND_SECRET, principal=request.agent,
+            scopes=request.names, approvers=approvers,
         )
         ref = ConversationRef(
             channel_id=channel, conversation_id=channel, message_id=channel
@@ -197,7 +242,7 @@ class SecretBroker:
                     reason=request.reason[:_MAX_REASON],
                     command=request.command,
                 ),
-                approval_actions(token, windows=windows),
+                approval_actions(token, offers=offers),
                 callback_url=self._callback_url,
             )
         except Exception:
@@ -260,18 +305,20 @@ class SecretBroker:
             logger.warning("could not retire the approval card %s", post_id, exc_info=True)
 
     async def _open_window(
-        self, request: LeaseRequest, policy: SecretPolicyRecord, answer: Approval
-    ) -> ApprovalGrant:
+        self, agent: str, name: str, policy: SecretPolicyRecord | None, answer: Approval
+    ) -> str:
         """Record the window a human opened, capped by the policy and by the
         deployment — the ladder is filtered before it is shown, and capped again
         here so a hand-made callback cannot ask for a year."""
-        seconds = min(answer.grant_s, policy.max_grant_s, self._max_grant_s)
+        seconds = min(
+            answer.grant_s, ceiling(policy, deployment_s=self._max_grant_s)
+        )
         now = datetime.now(timezone.utc)
         grant = ApprovalGrant(
             id=f"gr_{tokens.token_hex(6)}",
             kind=KIND_SECRET,
-            principal=request.agent,
-            scope=request.secret,
+            principal=agent,
+            scope=name,
             granted_by=answer.approver,
             granted_at=now.isoformat(timespec="seconds"),
             expires_at=(now + timedelta(seconds=seconds)).isoformat(timespec="seconds"),
@@ -279,28 +326,44 @@ class SecretBroker:
         await self._ledger.create_grant(grant)
         logger.info(
             "secret %s: %s may use it for %s (granted by %s)",
-            request.secret, request.agent, humanize(seconds), answer.approver,
+            name, agent, humanize(seconds), answer.approver,
         )
-        return grant
+        return grant.id
 
     # -- the ledger -----------------------------------------------------------
 
     async def _refuse(
-        self, request: LeaseRequest, decision: str, started: float, request_id: str, *,
-        approver: str = "", grant_id: str = "",
+        self, request: LeaseRequest, verdicts: dict, governing: str, started: float,
+        request_id: str, *, approver: str = "", grant_ids: dict | None = None,
     ) -> LeaseResult:
-        await self._record(
-            request, decision, started, request_id, approver=approver, grant_id=grant_id
-        )
-        return LeaseResult(granted=False, decision=decision)
+        """Refuse the whole request, and say per secret what happened to it.
+
+        A secret that was individually fine but never got decided — because a
+        sibling failed first — is recorded as such rather than being tarred with
+        the refusal it did not earn.
+        """
+        # An authorization refusal belongs to the secret that earned it; the
+        # others were simply never decided. Everything else — locked, sealed,
+        # denied, nobody answered — applies to the request as a whole.
+        per_secret = governing in (DECISION_NO_POLICY, DECISION_NOT_PERMITTED)
+        for name in request.names:
+            verdict = verdicts.get(name)
+            if verdict is not None and verdict.outcome == REFUSE:
+                decision = verdict.decision
+            elif per_secret:
+                decision = DECISION_NOT_REACHED
+            else:
+                decision = governing
+            await self._record(
+                request, name, decision, started, request_id,
+                approver=approver, grant_id=(grant_ids or {}).get(name, ""),
+            )
+        return LeaseResult(granted=False, decision=governing)
 
     async def _record(
-        self, request: LeaseRequest, decision: str, started: float, request_id: str, *,
-        approver: str = "", grant_id: str = "",
+        self, request: LeaseRequest, name: str, decision: str, started: float,
+        request_id: str, *, approver: str = "", grant_id: str = "",
     ) -> None:
-        # request.names rather than request.secret: a malformed multi-secret
-        # request never gets this far, but the ledger must not raise if it did.
-        name = request.names[0] if request.names else ""
         await self._ledger.record_decision(
             ApprovalAudit(
                 id=f"au_{tokens.token_hex(8)}",
@@ -345,6 +408,20 @@ def _unusable(state: BackendStatus) -> str:
     return DECISION_SEALED if state.sealed else DECISION_LOCKED
 
 
+def _summarize(decisions: dict[str, str]) -> str:
+    """One word for a request that served several secrets — the least automatic
+    thing that happened to any of them, so a caller logging a single line is not
+    told "auto" about a basket a human had to approve."""
+    order = (
+        DECISION_APPROVED_ONCE, DECISION_APPROVED_GRANT,
+        DECISION_REUSED_GRANT, DECISION_AUTO,
+    )
+    for decision in order:
+        if decision in decisions.values():
+            return decision
+    return DECISION_AUTO
+
+
 def _verdict_line(request: LeaseRequest, answer: Approval) -> str:
     if not answer.allowed:
         verdict = "Denied"
@@ -352,4 +429,6 @@ def _verdict_line(request: LeaseRequest, answer: Approval) -> str:
         verdict = f"Allowed for {humanize(answer.grant_s)}"
     else:
         verdict = "Allowed once"
-    return _ANSWERED.format(verdict=verdict, agent=request.agent, secret=request.secret)
+    return _ANSWERED.format(
+        verdict=verdict, agent=request.agent, secret=", ".join(request.names)
+    )

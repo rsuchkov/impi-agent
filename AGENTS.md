@@ -32,12 +32,22 @@ green `make installer-lint` + `make installer-test`.
 
 ## Project structure
 
-A [uv](https://docs.astral.sh/uv/) workspace of two packages:
+A [uv](https://docs.astral.sh/uv/) workspace of four packages:
 
 - **`packages/crucible`** — the reusable agent-runtime library (gateways, the `pi`
   driver, tools, interactivity, storage, and the neutral ports). Application-agnostic.
 - **`packages/impi`** — the application: multi-agent wiring, the gateway factory,
   inter-agent tools, and the bundled `support` agent.
+- **`packages/ward`** — the secret broker, a second application on the same
+  library: it holds the credential to the secret store, asks a human, and hands
+  values to a process. It runs in its own container beside the store, so the
+  engine holds neither the credential nor the deciding. The two applications
+  import nothing from each other, which import-linter enforces.
+- **`packages/wardline`** — the secret tool: the `secret-exec` an agent runs, the
+  `ward-admin` an operator runs, and the vocabulary they share with the broker.
+  It ships in the engine's image (agents need it on their PATH) and imports
+  nothing else in the workspace — the engine knows the protocol exists only in
+  the sense that it installs the package.
 
 Alongside the packages (deliberately not intertwined with them):
 
@@ -59,7 +69,7 @@ duplicate architecture here.
   lint`), so a boundary breach fails the lint rather than surfacing at review.
 
 - **Runtime-neutral core.** The neutral layers — `ports`, `flows`, `tools`,
-  `interactions`, `store`, `profiles`, `gateways`, `scheduler`, `secrets`,
+  `interactions`, `store`, `profiles`, `gateways`, `scheduler`, `approvals`,
   `skills`, `attachments` — name no concrete runtime, and not only in imports:
   comments, docstrings, names, and strings there use neutral terms ("the
   runtime", "the runtime's tool extension / session / UI request"), never
@@ -70,8 +80,10 @@ duplicate architecture here.
 
 - **The library names no application.** `crucible` is reusable, so nothing under
   it says "impi" — not in a message it emits, a file it writes, or a path it
-  creates. An application's name belongs in `packages/impi` and in the operator
-  CLI that prints the advice.
+  creates. The same goes for the other packages built on it: the check reads the
+  workspace, so every package that is not the library counts as a name the
+  library may not use. An application's name belongs in that application, and in
+  the operator CLI that prints the advice.
 
   Both rules are checked by `scripts/check_names.py` (part of `make lint`) —
   they live in text rather than in imports, so import-linter cannot see them. A

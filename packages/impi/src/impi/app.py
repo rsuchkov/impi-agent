@@ -30,8 +30,8 @@ import impi.agent_tools  # noqa: E402,F401
 import impi.chat_tools  # noqa: E402,F401
 import impi.skill_tools  # noqa: E402,F401
 import impi.task_tools  # noqa: E402,F401
+from crucible.approvals import PendingApprovals
 from crucible.attachments import AttachmentStore
-from crucible.config import SecretsSettings
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import (
@@ -58,10 +58,6 @@ from crucible.runtimes.pi import EXTENSION_PATH, build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
-from crucible.secrets.approvals import SecretApprovals
-from crucible.secrets.broker import SecretBroker
-from crucible.secrets.ports import UnlockMaterial
-from crucible.secrets.vault import VaultBackend
 from crucible.skills import SkillLibrary
 from crucible.store.base import SessionStore
 from crucible.store.sessions import SqliteSessionStore
@@ -128,9 +124,6 @@ class App:
     screens: ScreenRegistry
     ws_hub: WsHub | None = None
     scheduler: Scheduler | None = None
-    # None when the broker is off. Present but locked is the normal state after a
-    # restart in the interactive unlock mode.
-    secrets: SecretBroker | None = None
 
 
 def _engine_version() -> str:
@@ -329,10 +322,10 @@ def build_app(settings: ImpiSettings) -> App:
     # of them. It answers /command/default, so a deployment can register a slash
     # command without naming an agent in its URL.
     runnable = tuple(name for name, cfg in configs.items() if cfg is not None)
-    # Requests for a credential waiting on a human. Built here because the click
-    # that answers one arrives through the interaction receiver, while the
-    # broker that raises one is assembled further down.
-    approvals = SecretApprovals() if settings.secrets.enabled else None
+    # Requests waiting on a human — a credential, a tool call. Built here
+    # because the click that answers one arrives through the interaction
+    # receiver, while the things that raise one are assembled further down.
+    approvals = PendingApprovals() if settings.integrations.enabled else None
     interactions = InteractionWiring(
         settings.integrations, sessions, presence,
         codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
@@ -341,6 +334,7 @@ def build_app(settings: ImpiSettings) -> App:
         default_agent=settings.agent_name,
         screens=screens,
         approvals=approvals,
+        tool_max_grant_s=settings.tools.max_grant_s,
     )
 
     # TODO(runtime-backend): build_app hardcodes the pi backend. When a second
@@ -437,40 +431,6 @@ def build_app(settings: ImpiSettings) -> App:
             default_timezone=settings.scheduler.timezone,
             max_per_agent=settings.scheduler.max_tasks_per_agent,
         )
-    # The secret broker. Built after enrollment, because asking a human happens
-    # through the requesting agent's own account: its chat client posts the card
-    # and its admin client opens the direct conversation.
-    broker: SecretBroker | None = None
-    # The broker borrows two other subsystems: the tool server carries the lease
-    # endpoint (without it no agent can ask at all) and the interaction receiver
-    # carries the click that answers an approval (without it nobody can say yes).
-    # Both are on by default; say so loudly rather than starting a broker that
-    # cannot complete a single request.
-    if settings.secrets.enabled and not settings.tools.enabled:
-        logger.warning("secrets are on but TOOL_ENABLED is false — no agent can ask")
-    if settings.secrets.enabled and not settings.integrations.enabled:
-        logger.warning(
-            "secrets are on but INTEGRATIONS_ENABLED is false — "
-            "an approval card would have no way back"
-        )
-    if approvals is not None:
-        broker = SecretBroker(
-            VaultBackend(
-                settings.secrets.vault_addr,
-                mount=settings.secrets.vault_mount,
-                role_id=settings.secrets.role_id,
-            ),
-            sessions,   # secret policies
-            sessions,   # windows and the ledger, shared with every other approval
-            presence,
-            tools.admins,
-            approvals,
-            approvers=settings.secrets.approvers,
-            approval_channel=settings.secrets.approval_channel,
-            approval_timeout_s=settings.secrets.approval_timeout_s,
-            max_grant_s=settings.secrets.max_grant_s,
-            callback_url=settings.integrations.interact_url,
-        )
     tool_server = tools.build_server(
         directory=registry,
         interaction_svc=interactions.interaction_svc,
@@ -478,7 +438,7 @@ def build_app(settings: ImpiSettings) -> App:
         task_svc=task_admin,
         dotenv_path=settings.dotenv_path,
         session_resolver=_resolve_conversation,
-        secret_svc=broker,
+        tool_gate=interactions.tool_gate,
     )
     # Scheduled work. Built after the units, because its dispatcher reads the
     # live {agent: AgentSink} map and its prompt runner the units' profiles.
@@ -515,7 +475,7 @@ def build_app(settings: ImpiSettings) -> App:
 
     logger.info(
         "app built: agents=[%s], mm=%s, data=%s, tools=%s, widgets=%s, ws=%s, "
-        "scheduler=%s, secrets=%s",
+        "scheduler=%s",
         ", ".join(u.spec.name for u in units),
         settings.mattermost_url,
         settings.data_dir,
@@ -523,7 +483,6 @@ def build_app(settings: ImpiSettings) -> App:
         "on" if interactions.receiver else "off",
         f"on:{settings.ws_port}" if ws_hub else "off",
         f"on:{settings.scheduler.tick_s:.0f}s" if scheduler else "off",
-        settings.secrets.vault_addr if broker else "off",
     )
     return App(
         settings=settings,
@@ -537,7 +496,6 @@ def build_app(settings: ImpiSettings) -> App:
         screens=screens,
         ws_hub=ws_hub,
         scheduler=scheduler,
-        secrets=broker,
     )
 
 
@@ -563,42 +521,6 @@ async def _supervise(
             backoff = min(backoff * 2, 60.0)
 
 
-async def _unlock_secrets(broker: SecretBroker, config: SecretsSettings) -> None:
-    """Open the secret store at startup, if the deployment chose to keep the
-    material on disk.
-
-    Nothing here is fatal. Without the files the engine simply starts locked,
-    which is the other supported mode: every request is refused until somebody
-    runs `impi secret unlock`, and the log says which state we are in.
-    """
-    material = UnlockMaterial(
-        unseal_key=_read_key(config.unseal_key_file),
-        auth_secret=_read_key(config.secret_id_file),
-    )
-    if not material:
-        logger.info("secrets: locked — waiting for `impi secret unlock`")
-        return
-    try:
-        state = await broker.unlock(material)
-    except Exception:
-        logger.warning("secrets: could not unlock at startup", exc_info=True)
-        return
-    if not state.usable:
-        logger.warning("secrets: still not usable after unlock — %s", state.detail or "sealed")
-
-
-def _read_key(path: str) -> str:
-    """A key file's contents, or "". Trailing newlines are the usual way one of
-    these files is written, so they are not part of the key."""
-    if not path:
-        return ""
-    try:
-        return Path(path).read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        logger.warning("secrets: cannot read %s (%s)", path, exc.strerror)
-        return ""
-
-
 async def run(settings: ImpiSettings) -> None:
     app = build_app(settings)
     app.runtime.start()
@@ -609,8 +531,6 @@ async def run(settings: ImpiSettings) -> None:
         await app.integrations.start()
     if app.ws_hub is not None:
         await app.ws_hub.start()
-    if app.secrets is not None:
-        await _unlock_secrets(app.secrets, settings.secrets)
     try:
         identities = {}
         for unit in app.units:

@@ -1,0 +1,26 @@
+[project]
+name = "wardline"
+version = "0.11.0"
+description = "The line to the secret broker: an agent's `secret-exec`, an operator's `ward-admin`, and the vocabulary both ends share."
+requires-python = ">=3.13"
+# Depends on no other package in this workspace, and on nothing at all for the
+# agent's path: `secret-exec` is stdlib only (urllib + ssl), because it runs in
+# the agent's container and every dependency there is surface. httpx is for the
+# operator's client, which runs where a human runs it.
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.scripts]
+# What an agent runs: fetch secrets into a child process's environment.
+secret-exec = "wardline.exec_cli:main"
+# What an operator runs: store values, write policies, read the ledger. Behind
+# the operator certificate, which an agent does not have.
+ward-admin = "wardline.admin_cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wardline"]

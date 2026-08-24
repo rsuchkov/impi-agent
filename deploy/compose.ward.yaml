@@ -1,0 +1,105 @@
+# Overlay: the secret broker and the store it opens, deployed away from the
+# engine. Optional and independent of the chat-platform axis.
+#
+# The two share a network namespace rather than a network, which lets the store
+# listen on 127.0.0.1 and never appear on the project network at all. A hop that
+# cannot be reached does not need to be encrypted, which is stronger than
+# encrypting it and simpler than managing the certificates that would take.
+#
+# The STORE owns the namespace and the broker joins it, which is the way round
+# that survives an update. A joiner holds the namespace it found at creation, so
+# restarting the owner leaves the other container attached to one that no longer
+# exists — both still report Up, and only a request fails. Releases restart the
+# broker, never the pinned store, so the broker is the one that must be able to
+# come and go. (If the store ever is restarted, restart the broker after it.)
+#
+# What IS on the project network is ward's own door, and it requires a client
+# certificate: the engine's agents reach it at ward:8425 with the identity the
+# engine mounts for them, and nothing else can reach it at all.
+
+services:
+  # Named `vault`, addressed as `ward`: it carries the broker's network, so the
+  # alias belongs to it. Agents connect to ward:8425 and reach the broker.
+  vault:
+    image: docker.io/hashicorp/vault:1.20
+    restart: unless-stopped
+    command: ["server"]
+    networks:
+      default:
+        aliases: [ward]
+    cap_add:
+      # Lets it lock its memory so decrypted material cannot be swapped to disk.
+      - IPC_LOCK
+    environment:
+      # Bound to loopback on purpose — see the note at the top.
+      VAULT_LOCAL_CONFIG: >-
+        {"storage": {"file": {"path": "/vault/file"}},
+         "listener": [{"tcp": {"address": "127.0.0.1:8200", "tls_disable": true}}],
+         "api_addr": "http://127.0.0.1:8200", "ui": false}
+      VAULT_ADDR: "http://127.0.0.1:8200"
+    volumes:
+      - vault-data:/vault/file
+
+  ward:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.ward
+      args:
+        IMPI_UID: "${IMPI_UID:-1000}"
+        IMPI_GID: "${IMPI_GID:-1000}"
+    image: localhost/ward:local
+    restart: unless-stopped
+    command: ["ward", "serve"]
+    # No network of its own: it lives inside the store's, which is what puts the
+    # store on a loopback nothing else can reach.
+    network_mode: "service:vault"
+    depends_on:
+      - vault
+    environment:
+      WARD_DATA_DIR: /var/lib/ward
+      WARD_TLS_DIR: /var/lib/ward/tls
+      # Loopback, inside the namespace the store shares with this process.
+      WARD_VAULT_ADDR: "http://127.0.0.1:8200"
+      WARD_MATTERMOST_URL: "${WARD_MATTERMOST_URL:-http://mattermost:8065}"
+      WARD_SERVER_NAMES: "ward,localhost,127.0.0.1"
+      WARD_CALLBACK_PUBLIC_URL: "http://ward:8426"
+    env_file:
+      # ward's own secrets — its bot token, its role id — kept apart from the
+      # engine's, because the engine has no business reading them.
+      - ${IMPI_HOME:?set in compose.env}/conf/ward.env
+    volumes:
+      - ward-data:/var/lib/ward
+    healthcheck:
+      # Both sockets: its own door, and the store on the shared loopback. The
+      # second is what makes a broken namespace loud — otherwise both containers
+      # report Up and only a request for a secret finds out. Whether the store
+      # is sealed is not checked: that is a state an operator resolves, and a
+      # sealed store still accepts the connection.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; [socket.create_connection(('127.0.0.1', p), 2).close()
+           for p in (8425, 8200)]"
+      interval: 30s
+      start_period: 10s
+
+  impi:
+    # The engine itself knows nothing about any of this. These two variables are
+    # read by the secret tool that ships in its image — `secret-exec`, which an
+    # agent runs, and `ward-admin`, which an operator runs — and agents inherit
+    # them because their processes inherit this container's environment. Which
+    # identity to present each one works out from the agent's own name.
+    environment:
+      SECRET_BROKER_URL: "https://ward:8425"
+      SECRET_BROKER_CERTS_DIR: /app/conf/certs
+    volumes:
+      # Every identity lives here: one certificate per agent, plus the
+      # operator's. The only thing that writes is `impi ward cert`, saving what
+      # the broker issued. The authority's key is not in here and cannot be: it
+      # never leaves the broker.
+      - ${IMPI_HOME:?set in compose.env}/certs:/app/conf/certs:z
+
+volumes:
+  ward-data:
+  vault-data:

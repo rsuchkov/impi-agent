@@ -22,11 +22,6 @@ dependencies = [
     "ruamel.yaml>=0.18",
 ]
 
-[project.scripts]
-# An agent's entire access to credentials. Installed into the venv, which is on
-# PATH inside the container, so an agent's shell can reach it and nothing else.
-secret-exec = "crucible.secrets.exec_cli:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

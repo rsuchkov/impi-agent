@@ -1,4 +1,4 @@
-"""The broker end to end (crucible/secrets/broker.py).
+"""The broker end to end (ward/broker.py).
 
 A real store, a fake backend and a fake poster: the logic under test is the
 order of the checks and what each outcome leaves behind, none of which needs a
@@ -14,47 +14,50 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pytest
-
-from crucible.ports.chat.types import ACTION_SELECT, Action, ConversationRef
-from crucible.secrets.approvals import (
+from crucible.approvals import (
     ANSWER_DENY,
     ANSWER_ONCE,
-    SECRET_APPROVAL_KEY,
-    SecretApprovalOutcome,
-    SecretApprovals,
+    APPROVAL_KEY,
+    ApprovalOutcome,
+    PendingApprovals,
 )
-from crucible.secrets.broker import SecretBroker
-from crucible.secrets.ports import (
-    WIRE_REFUSED,
-    WIRE_UNAVAILABLE,
+from crucible.ports.chat.types import ACTION_SELECT, Action, ConversationRef
+from crucible.store.base import (
+    DECISION_APPROVED_GRANT,
+    DECISION_APPROVED_ONCE,
+    DECISION_DENIED,
+    DECISION_NO_APPROVER,
+    DECISION_REUSED_GRANT,
+    DECISION_TIMEOUT,
+    ApprovalGrant,
+)
+from ward.broker import SecretBroker
+from ward.decisions import (
+    DECISION_AUTO,
+    DECISION_BACKEND_ERROR,
+    DECISION_LOCKED,
+    DECISION_NO_POLICY,
+    DECISION_NOT_PERMITTED,
+    DECISION_NOT_REACHED,
+    DECISION_SEALED,
+    KIND_SECRET,
+)
+from ward.ports import (
     BackendStatus,
     LeaseRequest,
     SecretBackendError,
-    SecretRef,
     UnlockMaterial,
-    parse_ref,
     wire_status,
 )
-from crucible.store.base import (
+from ward.store import SecretPolicyRecord, WardStore
+from wardline.wire import (
     APPROVAL_ALWAYS,
     APPROVAL_NEVER,
-    DECISION_APPROVED_GRANT,
-    DECISION_APPROVED_ONCE,
-    DECISION_AUTO,
-    DECISION_BACKEND_ERROR,
-    DECISION_DENIED,
-    DECISION_LOCKED,
-    DECISION_NO_APPROVER,
-    DECISION_NO_POLICY,
-    DECISION_NOT_PERMITTED,
-    DECISION_REUSED_GRANT,
-    DECISION_SEALED,
-    DECISION_TIMEOUT,
-    KIND_SECRET,
-    SecretPolicyRecord,
+    WIRE_REFUSED,
+    WIRE_UNAVAILABLE,
+    SecretRef,
+    parse_ref,
 )
-from crucible.store.sessions import SqliteSessionStore
 
 T0 = "2026-08-11T09:00:00+00:00"
 APPROVER = "u1"
@@ -158,19 +161,19 @@ class FakeAdmin:
 @dataclass
 class Rig:
     broker: SecretBroker
-    store: SqliteSessionStore
+    store: WardStore
     backend: FakeBackend
     poster: FakePoster
     admin: FakeAdmin
-    approvals: SecretApprovals
+    approvals: PendingApprovals
 
 
 async def _rig(tmp_path: Path, *, backend: FakeBackend | None = None, **over) -> Rig:
-    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    store = WardStore(tmp_path / "db.sqlite")
     backend = backend or FakeBackend()
     poster = FakePoster()
     admin = FakeAdmin()
-    approvals = SecretApprovals()
+    approvals = PendingApprovals()
     broker = SecretBroker(
         backend, store, store,  # policies, then the shared window/ledger store
         FakePresence(poster), {"assistant": admin},  # type: ignore[arg-type]
@@ -212,7 +215,7 @@ async def _card(rig: Rig) -> Posted:
     """
     for _ in range(400):
         for card in reversed(rig.poster.posts):
-            token = str(card.actions[0].context.get(SECRET_APPROVAL_KEY, ""))
+            token = str(card.actions[0].context.get(APPROVAL_KEY, ""))
             if token and rig.approvals.pending(token):
                 return card
         await asyncio.sleep(0.005)
@@ -220,12 +223,12 @@ async def _card(rig: Rig) -> Posted:
 
 
 def _token(card: Posted) -> str:
-    return str(card.actions[0].context[SECRET_APPROVAL_KEY])
+    return str(card.actions[0].context[APPROVAL_KEY])
 
 
 async def _answer(rig: Rig, value: str, *, user: str = APPROVER) -> Posted:
     card = await _card(rig)
-    assert rig.approvals.resolve(_token(card), value, user) is SecretApprovalOutcome.RESOLVED
+    assert rig.approvals.resolve(_token(card), value, user) is ApprovalOutcome.RESOLVED
     return card
 
 
@@ -300,18 +303,115 @@ async def test_several_fields_of_one_secret_are_one_question(tmp_path: Path) -> 
         await rig.store.close()
 
 
-async def test_two_different_secrets_in_one_call_are_malformed(tmp_path: Path) -> None:
-    """Not a refusal — a request the caller built wrong. Two secrets nest as two
-    invocations, so each is approved on its own terms."""
-    rig = await _rig(tmp_path)
+async def test_two_secrets_are_one_question_and_one_request(tmp_path: Path) -> None:
+    """Asking twice for one operation is how a human learns to click without
+    reading, so a request carries the whole set."""
+    rig = await _rig(
+        tmp_path,
+        backend=FakeBackend({"github-token": {"value": "ghp"}, "npm-token": {"value": "npm"}}),
+    )
     try:
+        await rig.store.put_policy(_policy(name="github-token"))
+        await rig.store.put_policy(_policy(name="npm-token"))
         request = LeaseRequest(
             agent="assistant", runtime_session_id="s",
-            bindings=(("A", parse_ref("vault://a")), ("B", parse_ref("vault://b"))),
+            bindings=(
+                ("GITHUB_TOKEN", parse_ref("vault://github-token")),
+                ("NPM_TOKEN", parse_ref("vault://npm-token")),
+            ),
+            reason="publish", command=("make", "release"),
         )
-        with pytest.raises(ValueError):
-            await rig.broker.lease(request)
-        assert await rig.store.list_audit() == []
+        pending = asyncio.create_task(rig.broker.lease(request))
+        card = await _answer(rig, ANSWER_ONCE)
+        result = await pending
+
+        assert result.values == {"GITHUB_TOKEN": "ghp", "NPM_TOKEN": "npm"}
+        assert len(rig.poster.posts) == 1
+        assert "github-token" in card.text and "npm-token" in card.text
+        rows = await rig.store.list_audit()
+        assert {r.scope for r in rows} == {"github-token", "npm-token"}
+        assert len({r.request_id for r in rows}) == 1  # one click, one request
+    finally:
+        await rig.store.close()
+
+
+async def test_a_refusal_on_one_refuses_the_whole_request(tmp_path: Path) -> None:
+    """Half an environment would let the command run and fail somewhere less
+    obvious. The secret that was fine is recorded as never decided, not as
+    refused — it did not earn that."""
+    rig = await _rig(tmp_path)
+    try:
+        await rig.store.put_policy(_policy(name="mine"))
+        request = LeaseRequest(
+            agent="assistant", runtime_session_id="s",
+            bindings=(
+                ("A", parse_ref("vault://mine")),
+                ("B", parse_ref("vault://absent")),
+            ),
+        )
+        result = await rig.broker.lease(request)
+        assert result.granted is False and result.values == {}
+        assert rig.poster.posts == []  # nobody was disturbed
+        rows = {r.scope: r.decision for r in await rig.store.list_audit()}
+        assert rows == {"absent": DECISION_NO_POLICY, "mine": DECISION_NOT_REACHED}
+    finally:
+        await rig.store.close()
+
+
+async def test_the_window_offered_is_the_most_restrictive_in_the_set(
+    tmp_path: Path,
+) -> None:
+    rig = await _rig(
+        tmp_path,
+        backend=FakeBackend({"loose": {"value": "a"}, "tight": {"value": "b"}}),
+    )
+    try:
+        await rig.store.put_policy(_policy(name="loose", max_grant_s=3600))
+        await rig.store.put_policy(_policy(name="tight", max_grant_s=300))
+        request = LeaseRequest(
+            agent="assistant", runtime_session_id="s",
+            bindings=(("A", parse_ref("vault://loose")), ("B", parse_ref("vault://tight"))),
+        )
+        pending = asyncio.create_task(rig.broker.lease(request))
+        card = await _card(rig)
+        dropdown = next(a for a in card.actions if a.kind == ACTION_SELECT)
+        assert [c.value for c in dropdown.options] == ["grant:60", "grant:300"]
+        rig.approvals.resolve(_token(card), "grant:300", APPROVER)
+        await pending
+    finally:
+        await rig.store.close()
+
+
+async def test_a_set_half_covered_by_windows_asks_only_about_the_rest(
+    tmp_path: Path,
+) -> None:
+    rig = await _rig(
+        tmp_path, backend=FakeBackend({"open": {"value": "a"}, "shut": {"value": "b"}})
+    )
+    try:
+        await rig.store.put_policy(_policy(name="open"))
+        await rig.store.put_policy(_policy(name="shut"))
+        await rig.store.create_grant(
+            ApprovalGrant(
+                id="gr_open", kind=KIND_SECRET, principal="assistant", scope="open",
+                granted_by=APPROVER, granted_at=T0,
+                expires_at="2099-01-01T00:00:00+00:00",
+            )
+        )
+        request = LeaseRequest(
+            agent="assistant", runtime_session_id="s",
+            bindings=(("A", parse_ref("vault://open")), ("B", parse_ref("vault://shut"))),
+        )
+        pending = asyncio.create_task(rig.broker.lease(request))
+        card = await _answer(rig, ANSWER_ONCE)
+        assert (await pending).granted
+        # Both are named, so the human sees the whole picture even though only
+        # one of them still needed an answer.
+        assert "open" in card.text and "shut" in card.text
+        rows = {r.scope: r.decision for r in await rig.store.list_audit()}
+        assert rows == {
+            "open": DECISION_REUSED_GRANT, "shut": DECISION_APPROVED_ONCE,
+        }
     finally:
         await rig.store.close()
 
@@ -366,7 +466,7 @@ async def test_a_window_is_capped_by_the_policy_however_it_was_asked_for(
         card = await _card(rig)
         dropdown = next(a for a in card.actions if a.kind == ACTION_SELECT)
         assert [c.value for c in dropdown.options] == ["grant:60", "grant:300"]
-        assert rig.approvals.resolve(_token(card), "grant:86400", APPROVER) is SecretApprovalOutcome.RESOLVED
+        assert rig.approvals.resolve(_token(card), "grant:86400", APPROVER) is ApprovalOutcome.RESOLVED
         await pending
 
         grant = (await rig.store.list_grants(now=T0, kind=KIND_SECRET))[0]
@@ -555,10 +655,10 @@ async def test_a_click_from_anyone_else_decides_nothing(tmp_path: Path) -> None:
         pending = asyncio.create_task(rig.broker.lease(_request()))
         card = await _card(rig)
 
-        assert rig.approvals.resolve(_token(card), ANSWER_ONCE, STRANGER) is SecretApprovalOutcome.NOT_ALLOWED
+        assert rig.approvals.resolve(_token(card), ANSWER_ONCE, STRANGER) is ApprovalOutcome.NOT_ALLOWED
         assert not pending.done()
         # The real approver can still answer the very same card.
-        assert rig.approvals.resolve(_token(card), ANSWER_ONCE, APPROVER) is SecretApprovalOutcome.RESOLVED
+        assert rig.approvals.resolve(_token(card), ANSWER_ONCE, APPROVER) is ApprovalOutcome.RESOLVED
         result = await pending
         assert result.granted and (await rig.store.list_audit())[0].approver == APPROVER
     finally:
@@ -570,7 +670,7 @@ async def test_an_unknown_token_is_left_for_the_other_click_handlers(
 ) -> None:
     rig = await _rig(tmp_path)
     try:
-        assert rig.approvals.resolve("nope", ANSWER_ONCE, APPROVER) is SecretApprovalOutcome.NOT_MINE
+        assert rig.approvals.resolve("nope", ANSWER_ONCE, APPROVER) is ApprovalOutcome.NOT_MINE
     finally:
         await rig.store.close()
 
@@ -582,7 +682,7 @@ async def test_a_card_cannot_be_answered_twice(tmp_path: Path) -> None:
         pending = asyncio.create_task(rig.broker.lease(_request()))
         card = await _answer(rig, ANSWER_ONCE)
         await pending
-        assert rig.approvals.resolve(_token(card), "grant:3600", APPROVER) is SecretApprovalOutcome.NOT_MINE
+        assert rig.approvals.resolve(_token(card), "grant:3600", APPROVER) is ApprovalOutcome.NOT_MINE
         assert await rig.store.list_grants(now=T0, kind=KIND_SECRET) == []
         # And the message says what happened, so a stale card can't mislead.
         assert any("Allowed once" in text for _, text in rig.poster.retracted)

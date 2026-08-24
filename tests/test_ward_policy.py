@@ -1,26 +1,18 @@
-"""Who a policy permits, and how long a window it allows (secrets/policy.py).
+"""Who a policy permits, and how long a window it allows (ward/policy.py).
 
 Pure functions, so this is the cheap place to be exhaustive about the
 authorization rules — which is the point of keeping them out of the broker.
 """
 
-from crucible.secrets.approvals import humanize
-from crucible.secrets.policy import (
-    ALLOW,
-    ASK,
-    GRANT_LADDER,
-    REFUSE,
-    evaluate,
-    grant_options,
-)
-from crucible.store.base import (
-    APPROVAL_ALWAYS,
-    APPROVAL_NEVER,
+from crucible.approvals import GRANT_LADDER, humanize, windows
+from ward.decisions import (
     DECISION_AUTO,
     DECISION_NO_POLICY,
     DECISION_NOT_PERMITTED,
-    SecretPolicyRecord,
 )
+from ward.policy import ALLOW, ASK, REFUSE, ceiling, evaluate
+from ward.store import SecretPolicyRecord
+from wardline.wire import APPROVAL_ALWAYS, APPROVAL_NEVER
 
 T0 = "2026-08-11T09:00:00+00:00"
 
@@ -60,23 +52,26 @@ def test_the_ordinary_case_asks() -> None:
 
 
 def test_the_window_ladder_stops_at_the_policy_ceiling() -> None:
-    assert grant_options(_policy(max_grant_s=3600)) == GRANT_LADDER
-    assert grant_options(_policy(max_grant_s=900)) == (60, 300, 900)
-    assert grant_options(_policy(max_grant_s=300)) == (60, 300)
-    assert grant_options(_policy(max_grant_s=90)) == (60,)
+    assert windows(ceiling_s=ceiling(_policy(max_grant_s=3600))) == GRANT_LADDER
+    assert windows(ceiling_s=ceiling(_policy(max_grant_s=900))) == (60, 300, 900)
+    assert windows(ceiling_s=ceiling(_policy(max_grant_s=90))) == (60,)
 
 
 def test_a_secret_that_allows_no_window_offers_none() -> None:
     # The card then shows only "allow once" and "deny" — a dropdown whose every
     # choice would be capped to nothing is worse than no dropdown.
-    assert grant_options(_policy(max_grant_s=0)) == ()
-    assert grant_options(_policy(max_grant_s=59)) == ()
+    assert windows(ceiling_s=ceiling(_policy(max_grant_s=0))) == ()
+    assert windows(ceiling_s=ceiling(_policy(max_grant_s=59))) == ()
 
 
 def test_the_deployment_ceiling_applies_on_top_of_the_policy() -> None:
-    assert grant_options(_policy(max_grant_s=3600), ceiling_s=300) == (60, 300)
+    assert ceiling(_policy(max_grant_s=3600), deployment_s=300) == 300
     # And never widens what the policy allows.
-    assert grant_options(_policy(max_grant_s=300), ceiling_s=3600) == (60, 300)
+    assert ceiling(_policy(max_grant_s=300), deployment_s=3600) == 300
+
+
+def test_a_secret_with_no_policy_allows_no_window() -> None:
+    assert ceiling(None, deployment_s=3600) == 0
 
 
 def test_durations_read_the_way_a_person_says_them() -> None:
@@ -86,3 +81,20 @@ def test_durations_read_the_way_a_person_says_them() -> None:
     assert humanize(3600) == "1 hour"
     assert humanize(7200) == "2 hours"
     assert humanize(45) == "45s"
+
+
+def test_the_brokers_decision_vocabulary_is_closed_and_complete() -> None:
+    """The library tests its own six the same way. This is the other half: a
+    decision the broker can record and forgot to list is a decision nobody can
+    grep for, and the ledger is the only place a real reason is ever written."""
+    from ward import decisions
+
+    named = {
+        value
+        for name, value in vars(decisions).items()
+        if name.startswith("DECISION_") and isinstance(value, str)
+    }
+    assert set(decisions.DECISIONS) == named
+    assert len(decisions.DECISIONS) == len(named)  # no duplicates either
+    # And the three that mean "not right now" are decisions, not typos.
+    assert decisions.UNAVAILABLE_DECISIONS <= set(decisions.DECISIONS)

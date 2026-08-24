@@ -34,16 +34,16 @@ setup() {
     COMPOSE_ROOTLESS=0
     COMPOSE_VAULT=1
     run derive_compose_files slack
-    [ "$output" = "deploy/compose.yaml deploy/compose.vault.yaml" ]
+    [ "$output" = "deploy/compose.yaml deploy/compose.ward.yaml" ]
     run derive_compose_files codeploy
-    [ "$output" = "deploy/compose.yaml deploy/compose.mattermost.yaml deploy/compose.vault.yaml" ]
+    [ "$output" = "deploy/compose.yaml deploy/compose.mattermost.yaml deploy/compose.ward.yaml" ]
 }
 
 @test "both extra axes can apply at once, podman last" {
     COMPOSE_ROOTLESS=1
     COMPOSE_VAULT=1
     run derive_compose_files external
-    [ "$output" = "deploy/compose.yaml deploy/compose.external-mm.yaml deploy/compose.vault.yaml deploy/compose.podman.yaml" ]
+    [ "$output" = "deploy/compose.yaml deploy/compose.external-mm.yaml deploy/compose.ward.yaml deploy/compose.podman.yaml" ]
 }
 
 @test "no secret store means no vault overlay" {
@@ -122,7 +122,7 @@ setup_home() {
     setup_home
     IMPI_VAULT=1
     run compose_files slack
-    [ "${lines[1]}" = "$IMPI_HOME/repo/deploy/compose.vault.yaml" ]
+    [ "${lines[1]}" = "$IMPI_HOME/repo/deploy/compose.ward.yaml" ]
 }
 
 @test "compose_files returns the engine's files as absolute paths" {
@@ -176,4 +176,20 @@ setup_home() {
     # A hand-added file must not change what the mode is read as.
     run infer_mode_from_files "deploy/compose.yaml deploy/compose.mattermost.yaml ../compose.cloudflared.yaml"
     [ "$output" = codeploy ]
+}
+
+# --- build_services: what an update rebuilds -----------------------------------
+
+@test "without a secret store, only the engine is built" {
+    COMPOSE_VAULT=0
+    unset IMPI_VAULT
+    run build_services
+    [ "$output" = "impi" ]
+}
+
+@test "with a secret store, the broker is built too — an update must not leave the two on different releases" {
+    COMPOSE_VAULT=0
+    IMPI_VAULT=1
+    run build_services
+    [ "$output" = "impi ward" ]
 }

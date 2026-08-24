@@ -47,10 +47,12 @@ Everything is summarized before anything is written. The full log lands in
 
 ```
 ~/.impi/
-  repo/         # git clone at the installed release tag
-  conf/.env     # engine config + secrets (chmod 600), mounted into the container
-  compose.env   # infra knobs for compose + the wrapper (no secrets)
-  agents/       # your agent profiles (default location; git repo)
+  repo/           # git clone at the installed release tag
+  conf/.env       # engine config + secrets (chmod 600), mounted into the container
+  conf/ward.env   # the secret broker's own settings, if you deployed one
+  certs/          # the agents' identities for the broker, if you deployed one
+  compose.env     # infra knobs for compose + the wrapper (no secrets)
+  agents/         # your agent profiles (default location; git repo)
   install.log
 ```
 
@@ -59,10 +61,14 @@ The engine runs as the `impi` compose service built from `deploy/Dockerfile`
 `impi-data` volume, pi's model credentials in `pi-auth`. With a co-deployed
 Mattermost, the `mattermost` + `db` services join the same compose project and
 widget callbacks flow container-to-container (`http://impi:8423`) — nothing is
-exposed except Mattermost itself. Answering yes to the secret store adds a
-`vault` service on the same network, also unexposed, with its data in the
-`vault-data` volume; it starts sealed and stays that way until you unlock it
-(see [secrets.md](secrets.md)).
+exposed except Mattermost itself. Answering yes to the secret store adds
+**two** services: the store itself and `ward`, the broker that opens it. They
+share one network namespace, so the store listens on a loopback that nothing
+else can reach and never appears on the project network — what does is the
+broker's door, and it requires a client certificate. Their state lives in the
+`vault-data` and `ward-data` volumes, the broker's own settings in
+`conf/ward.env`, and the agents' certificates in `certs/`. The store starts
+sealed and stays that way until you unlock it (see [secrets.md](secrets.md)).
 
 ## The `impi` wrapper
 
@@ -77,7 +83,7 @@ The installer drops a small CLI into `~/.local/bin/impi`:
 | `impi reload` | re-read agent profiles in place (skills, tools, prompts) — no restart |
 | `impi skill …` | the shared skill library (see [skills.md](skills.md)) |
 | `impi task …` | scheduled and recurring work (see [tasks.md](tasks.md)) |
-| `impi secret …` | the secret store and who may reach it (see [secrets.md](secrets.md)) |
+| `impi ward …` | the secret store and who may reach it (see [secrets.md](secrets.md)) |
 | `impi agent add` | interactive agent creation (bot + profile + `.env`) |
 | `impi agent list` | profiles with token status |
 | `impi login` | pi subscription login inside the container |

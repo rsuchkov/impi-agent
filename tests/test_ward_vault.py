@@ -1,4 +1,4 @@
-"""The Vault adapter against a stub Vault (crucible/secrets/vault.py).
+"""The Vault adapter against a stub Vault (ward/vault.py).
 
 A real aiohttp server on a real port, in the house style — the adapter's whole
 job is HTTP shape, and a mock of its own request method would assert nothing.
@@ -9,8 +9,9 @@ sealed vs unsealed, a token that expires, a mount that is empty.
 import pytest
 from aiohttp import web
 
-from crucible.secrets.ports import SecretBackendError, SecretRef, UnlockMaterial
-from crucible.secrets.vault import VaultBackend
+from ward.ports import SecretBackendError, UnlockMaterial
+from ward.vault import VaultBackend
+from wardline.wire import SecretRef
 
 # A mount that is nobody's app name: the adapter derives its role and policy
 # from whatever it is given, and the tests should exercise that rather than

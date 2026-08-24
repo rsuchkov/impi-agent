@@ -9,20 +9,35 @@ subprocess (`pi --mode rpc`) and drives it over line-delimited JSON. `pi` holds
 the model connection and the agent's on-disk memory; the engine holds identity,
 routing, persistence, interactivity, and the domain tools.
 
-Two packages, in a uv workspace:
+Four packages, in a uv workspace:
 
 - **`crucible`** — the reusable runtime library (gateways, the `pi` driver, tools,
   interactivity, storage, and the neutral ports). Application-agnostic.
 - **`impi`** — the application. It composes crucible into a multi-agent engine and
   adds multi-agent wiring, the gateway factory, inter-agent tools, and the bundled
   `support` agent.
+- **`ward`** — the secret broker: a second, much smaller application on the same
+  library, in its own container beside the secret store. It holds the store's
+  credential, decides who may reach what and asks a human. See
+  [secrets.md](secrets.md).
+- **`wardline`** — the secret tool: `secret-exec`, which an agent runs, and
+  `ward-admin`, which an operator runs, plus the vocabulary they share with the
+  broker. It ships in the engine's image so agents can run it, and imports
+  nothing else in the workspace.
+
+Secrets are the clearest case of the boundary this repository keeps: the engine
+holds no part of them. Not the broker, not a settings block, not a table in its
+database. It tells each agent one generic thing — its own name — and the tool
+works the rest out from the container's environment. The two applications import
+nothing from each other, and neither imports the tool.
 
 ## Layers and boundaries
 
 The dependency direction is enforced mechanically by import-linter (`make lint`);
 a breach fails the lint instead of surfacing at review. The rules:
 
-1. **The library never imports the application** — `crucible` never imports `impi`.
+1. **The library never imports an application** — `crucible` never imports `impi`
+   or `ward`, and the two applications never import each other.
 2. **The core is platform-blind** — only the gateway adapters (and the app's
    composition root) may import a chat-platform SDK (`mattermostautodriver`,
    `slack_bolt`).
@@ -123,11 +138,33 @@ capabilities it `requires`). At runtime:
   `ToolContext` scoped to that agent (its own `ChatAdmin`, the directory, the
   widget/form services), and runs the tool.
 
+**Confirmation gating:** a tool may also declare `requires_confirmation`, and
+the check happens in the **server**, before `execute` — not only in the
+extension, because the extension's token lives in the agent's own environment
+and a shell in that container could call the tool server directly. The gate asks
+through the same approval primitive the secret broker uses, so a human can
+answer "once" or "for the next 15 minutes" (`TOOL_MAX_GRANT_S` caps the window).
+Where there is no way to ask, the call is refused rather than allowed.
+
 **Capability gating:** a tool declares `requires` (e.g. `CAP_CHAT_ADMIN`,
 `CAP_WIDGETS`, `CAP_FORMS`). At composition, each agent's capability set is
 assembled from its environment (which gateway it runs on, whether interactivity is
 enabled). A tool the agent can't back is dropped from its manifest and allowlist
 (and logged) — so a tool never runs without the dependency it declares.
+
+## Asking a human (`crucible.approvals`)
+
+One primitive, two consumers: a tool call that needs confirming, and a request
+for a credential. It is a leaf layer — it imports nothing else in the library —
+and holds three things: a registry of waiting requests (`token -> Future`, with
+the set of people entitled to answer, empty meaning anyone in the conversation),
+the three answers a card offers (once / for a window / deny), and the safe
+rendering of the card itself, which lets a caller supply content and never
+structure.
+
+A window is a row keyed `(kind, principal, scope)` — `("tool", "assistant",
+"bash")`, `("secret", "assistant", "github-token")` — so the same two tables
+serve both consumers, and revoking one is the same operation whichever it was.
 
 ## Interactions (widgets and forms)
 

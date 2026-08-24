@@ -21,7 +21,6 @@ from crucible.store.base import (
     SessionRecord,
     derive_runtime_session_id,
 )
-from crucible.store.secrets import SecretPolicyStoreMixin
 from crucible.store.tasks import TaskStoreMixin
 
 _SCHEMA = """
@@ -85,7 +84,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, SecretPolicyStoreMixin):
+class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin):
     def __init__(self, db_path: str | Path) -> None:
         path = Path(db_path)
         if path.parent and str(path.parent) != ".":
@@ -104,9 +103,15 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, SecretPolicyStoreMi
             self._conn.executescript(_SCHEMA)
             self._create_task_tables()  # the scheduler facet owns its own schema
             self._create_approval_tables()  # windows and the ledger
-            self._create_secret_tables()  # secret policies
+            self._create_app_tables()  # whatever the application keeps here too
             self._migrate()
             self._conn.commit()
+
+    def _create_app_tables(self) -> None:
+        """Schema an application adds to this file. Empty here on purpose: the
+        library's own facets are above, and a table only one application ever
+        reads belongs to that application — subclass this store, mix in the
+        facet, and create it here."""
 
     def _migrate(self) -> None:
         """Add columns absent from DBs created by older versions. Guarded so a

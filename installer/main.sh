@@ -187,7 +187,8 @@ fi
 title "Secrets"
 dim "A secret store your agents can use but never read: they ask, you approve in"
 dim "chat, and the value goes straight into the process — never into the model's"
-dim "context. Adds a Vault container (~150 MB) that you unlock after each restart."
+dim "context. Adds a broker container and a store beside it, unlocked after each"
+dim "restart. The engine never holds the credential to it."
 IMPI_VAULT=${IMPI_VAULT:-}
 confirm IMPI_VAULT "Run a secret store?" n || true
 if [ "$IMPI_VAULT" = yes ]; then
@@ -333,9 +334,26 @@ else
     env_set INTEGRATIONS_ENABLED false "$ENV_FILE"
 fi
 if [ "${IMPI_VAULT:-no}" = yes ]; then
-    env_set SECRETS_ENABLED true "$ENV_FILE"
-    env_set SECRETS_VAULT_ADDR "http://vault:8200" "$ENV_FILE"
-    env_set SECRETS_APPROVERS "$IMPI_SECRET_APPROVERS" "$ENV_FILE"
+    # Nothing goes in the engine's .env: the engine knows nothing about secrets.
+    # Where to ask and where the identities are mounted are declared by the
+    # compose overlay, which is what the tool (and every agent it runs in) reads
+    # straight from the container's environment.
+    mkdir -p "$IMPI_HOME/certs"
+    # The broker's own file, which the engine does not read.
+    WARD_ENV="$IMPI_HOME/conf/ward.env"
+    env_set WARD_APPROVERS "$IMPI_SECRET_APPROVERS" "$WARD_ENV"
+    env_set WARD_MATTERMOST_URL "$(env_get MATTERMOST_URL "$ENV_FILE")" "$WARD_ENV"
+    # Written empty on purpose: the broker posts as its OWN account, and until
+    # that token is here it can decide nothing — every request needing a human
+    # is refused. An empty key in the file is the reminder.
+    env_set WARD_MATTERMOST_TOKEN "" "$WARD_ENV"
+    ok "conf/ward.env written"
+    dim "  Two things left before secrets work, in this order:"
+    dim "    1. create a bot named 'ward' and put its token in conf/ward.env"
+    dim "       (WARD_MATTERMOST_TOKEN) — the cards are posted as that account"
+    dim "    2. \`impi ward init\` once the stack is up, then put the role id it"
+    dim "       prints in conf/ward.env and \`impi start\`"
+    dim "  Then: impi ward cert <agent>, impi ward unlock. See docs/secrets.md."
 fi
 [ -n "${IMPI_MM_ADMIN_TOKEN:-}" ] && env_set TOOL_CREATE_AGENT_ADMIN_TOKEN "$IMPI_MM_ADMIN_TOKEN" "$ENV_FILE"
 ok "conf/.env written (chmod 600)"

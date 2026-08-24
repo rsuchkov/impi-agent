@@ -124,8 +124,8 @@ impi — manage your impi deployment
   impi task list|show|runs|add|rm|pause|resume|run-now|status
                            scheduled and recurring work
   impi sessions list|delete|purge-idle   conversation memory
-  impi secret init|unlock|status|set|ls|rm|policy|grants|revoke|audit
-                           the secret store and who may reach it
+  impi ward init|unlock|status|set|ls|rm|policy|grants|revoke|audit|cert
+                           the secret broker (see docs/secrets.md)
   impi agent add|list ...  manage agents (runs the CLI inside the container)
   impi login               interactive pi model login inside the container
   impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
@@ -150,6 +150,13 @@ cmd_logs() {
     fi
 }
 
+# Build what this deployment builds from source. The list comes from the shared
+# library, so an update rebuilds the broker too when there is one.
+build_images() {
+    # shellcheck disable=SC2046  # a list of services is meant to split
+    compose build $(build_services)
+}
+
 cmd_restart() {
     compose restart impi
     ok "engine restarted"
@@ -169,16 +176,6 @@ cmd_agent() {
             cmd_restart
         fi
     fi
-}
-
-# `unlock` and `status` have to reach the RUNNING engine: what they change is the
-# credential it holds in memory, which a one-shot container does not share. The
-# rest read the database or the store directly and are happy in a fresh one.
-cmd_secret() {
-    case "${1:-}" in
-        unlock|status) compose exec impi impi secret "$@" ;;
-        *)             compose run --rm impi impi secret "$@" ;;
-    esac
 }
 
 cmd_login() {
@@ -233,11 +230,11 @@ cmd_update() {
     # IMPI_MM_MODE on every call, so overlays added by this release apply at
     # once — and whatever is in compose.d/ is untouched, because it was never
     # part of a list anyone regenerates.
-    if ! compose build impi || ! compose up -d; then
+    if ! build_images || ! compose up -d; then
         bad "update failed"
         if confirm "Roll back to $prev?" y; then
             git -C "$REPO" checkout --quiet "$prev"
-            compose build impi && compose up -d
+            build_images && compose up -d
             die "rolled back to $prev"
         fi
         exit 1
@@ -252,7 +249,7 @@ cmd_update() {
         bad "engine did not report readiness after the update — check \`impi logs\`"
         if confirm "Roll back to $prev?" n; then
             git -C "$REPO" checkout --quiet "$prev"
-            compose build impi && compose up -d
+            build_images && compose up -d
             die "rolled back to $prev"
         fi
     fi
@@ -317,7 +314,18 @@ case "${1:-}" in
     skill)     shift; compose run --rm impi impi skill "$@" ;;
     task)      shift; compose run --rm impi impi task "$@" ;;
     sessions)  shift; compose run --rm impi impi sessions "$@" ;;
-    secret)    shift; cmd_secret "$@" ;;
+    # `init` is the broker's own one-time ceremony and belongs inside its
+    # container. Every other verb is `ward-admin`, the secret tool's operator
+    # CLI: it runs in the engine's container because that is where the operator
+    # certificate is mounted, and reaches the broker over the network like any
+    # other client. WARD_ADMIN_PROG only affects the hints it prints — they
+    # should say what the operator actually typed.
+    ward)      shift
+               if [ "${1:-}" = init ]; then
+                   compose exec ward ward "$@"
+               else
+                   compose run --rm -e WARD_ADMIN_PROG="impi ward" impi ward-admin "$@"
+               fi ;;
     agent)     shift; cmd_agent "$@" ;;
     login)     shift; cmd_login "$@" ;;
     update)    shift; cmd_update "$@" ;;

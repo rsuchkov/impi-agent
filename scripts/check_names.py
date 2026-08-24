@@ -39,8 +39,8 @@ LIBRARY = ROOT / "packages" / "crucible" / "src" / "crucible"
 # than saying "everything except the driver" keeps the two halves of the rule —
 # imports and words — describing the same set.
 NEUTRAL = (
-    "attachments.py", "builtin_tools.py", "flows", "gateways", "interactions",
-    "ports", "profiles", "scheduler", "secrets", "skills", "store", "tools",
+    "approvals", "attachments.py", "builtin_tools.py", "flows", "gateways",
+    "interactions", "ports", "profiles", "scheduler", "skills", "store", "tools",
 )
 
 # Escape hatch for a violation that is genuinely not worth the change it would
@@ -73,7 +73,16 @@ def violations() -> dict[str, str]:
     apps = app_names()
     if not apps:  # a workspace with no app is a bug in this script, not a pass
         raise SystemExit("no application package beside crucible — check_names is misconfigured")
-    app_pattern = re.compile("|".join(re.escape(name) for name in apps))
+    # Bounded on both sides, and by more than \\b: an app called "ward" is a
+    # substring of "forward" and "afterwards", and one called "impi" has to be
+    # caught inside IMPI_VAULT, where \\b would not fire because "_" is a word
+    # character. Case-insensitive, so an env var counts.
+    app_pattern = re.compile(
+        "(?<![A-Za-z0-9])(?:"
+        + "|".join(re.escape(name) for name in apps)
+        + ")(?![A-Za-z0-9])",
+        re.IGNORECASE,
+    )
     # Word-boundary, case-sensitive: `pi` the runtime, not "pip", "api" or
     # "mapping". Also catches the possessive, which is how it usually shows up.
     runtime_pattern = re.compile(r"\bpi\b|\bpi's\b")

@@ -27,11 +27,12 @@ class ActionCallback:
     screen: str = ""
     state: str = ""
     post_id: str = ""
-    # Set when the click answers a request for a CREDENTIAL. Deliberately not
-    # called just "approval": the blocking mid-turn confirm that approves a tool
-    # call arrives on the same callback, in ``token``, and the two are answered
-    # by different registries with different rules about who may click.
-    secret_approval: str = ""
+    # Set when the click answers a request for authorization — a credential an
+    # agent asked for, a tool call the engine gated. Separate from ``token``,
+    # which carries the runtime's own blocking confirm: that one is addressed to
+    # the conversation and leaves nothing behind, while these are answered with
+    # a duration and may open a window.
+    approval: str = ""
 
 
 @dataclass(frozen=True)

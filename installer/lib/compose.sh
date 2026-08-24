@@ -70,9 +70,23 @@ derive_compose_files() {
         slack) : ;;
         *) die "derive_compose_files: unknown mode $1" ;;
     esac
-    [ "${COMPOSE_VAULT:-0}" = 1 ] && files="$files deploy/compose.vault.yaml"
+    [ "${COMPOSE_VAULT:-0}" = 1 ] && files="$files deploy/compose.ward.yaml"
     [ "$COMPOSE_ROOTLESS" = 1 ] && files="$files deploy/compose.podman.yaml"
     printf '%s\n' "$files"
+}
+
+# build_services -> the services this deployment builds from source, space
+# separated. The engine always; the broker too when the secret store is on, or
+# an update would leave it running the image of the release before it. Bare
+# `compose build` would also build whatever a drop-in adds, which is not this
+# script's decision to make.
+build_services() {
+    [ -n "${IMPI_VAULT:-}" ] && COMPOSE_VAULT=$IMPI_VAULT
+    if [ "${COMPOSE_VAULT:-0}" = 1 ]; then
+        printf 'impi ward\n'
+    else
+        printf 'impi\n'
+    fi
 }
 
 # infer_mode_from_files FILES -> codeploy | external | slack. Reads the mode back

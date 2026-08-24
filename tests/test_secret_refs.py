@@ -1,4 +1,4 @@
-"""Parsing a secret reference (crucible/secrets/ports.py).
+"""Parsing a secret reference (wardline/wire.py).
 
 A reference becomes a path on the backend, so this is a boundary check as much
 as a parser: the tests below are mostly about what must NOT be accepted.
@@ -6,7 +6,7 @@ as a parser: the tests below are mostly about what must NOT be accepted.
 
 import pytest
 
-from crucible.secrets.ports import DEFAULT_FIELD, SecretRef, parse_ref
+from wardline.wire import DEFAULT_FIELD, SecretRef, parse_ref
 
 
 def test_both_schemes_mean_the_same_thing() -> None:

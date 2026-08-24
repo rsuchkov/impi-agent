@@ -44,13 +44,19 @@ select = ["E4", "E7", "E9", "F", "I", "PLC0415", "PLC2701"]
 "tests/*" = ["PLC0415", "PLC2701"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["crucible", "impi"]
+known-first-party = ["crucible", "impi", "ward", "wardline"]
 
 [tool.pyright]
 typeCheckingMode = "basic"
 pythonVersion = "3.13"
-include = ["packages/crucible/src", "packages/impi/src", "tests"]
-extraPaths = ["packages/crucible/src", "packages/impi/src"]
+include = [
+    "packages/crucible/src", "packages/impi/src", "packages/ward/src",
+    "packages/wardline/src", "tests",
+]
+extraPaths = [
+    "packages/crucible/src", "packages/impi/src", "packages/ward/src",
+    "packages/wardline/src",
+]
 venvPath = "."
 venv = ".venv"
 
@@ -58,14 +64,35 @@ venv = ".venv"
 # a contract breach fails the lint instead of surfacing at review. Two root
 # packages: the reusable library `crucible` and the app `impi` built on it.
 [tool.importlinter]
-root_packages = ["crucible", "impi"]
+root_packages = ["crucible", "impi", "ward", "wardline"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "The library never imports the app"
+name = "The library never imports an application, or the tools they deploy"
 type = "forbidden"
 source_modules = ["crucible"]
-forbidden_modules = ["impi"]
+forbidden_modules = ["impi", "ward", "wardline"]
+
+# Both ways. The engine not being able to reach ward is the code saying what the
+# deployment says: the credential, and the deciding that guards it, are not the
+# engine's to hold — and cannot quietly become the engine's again.
+[[tool.importlinter.contracts]]
+name = "The two applications are strangers"
+type = "independence"
+modules = ["impi", "ward"]
+
+[[tool.importlinter.contracts]]
+name = "ward runs no agents: no runtime, no gateways, no flows"
+type = "forbidden"
+source_modules = ["ward"]
+forbidden_modules = [
+    "crucible.runtimes.pi",
+    "crucible.flows",
+    "crucible.tools",
+    "crucible.profiles",
+    "crucible.skills",
+    "crucible.scheduler",
+]
 
 [[tool.importlinter.contracts]]
 name = "Core is unaware of the chat platform libraries (adapters + main only)"
@@ -196,27 +223,48 @@ forbidden_modules = [
     "crucible.flows",
     "crucible.tools",
     "crucible.interactions",
-    "crucible.secrets",
     "crucible.store",
     "crucible.profiles",
     "mattermostautodriver",
     "slack_bolt",
 ]
 
+# The secret tool is nobody's dependency but its own. It ships in the agents'
+# image so they can run it, and the broker imports its vocabulary — that is the
+# whole of its coupling to anything here.
 [[tool.importlinter.contracts]]
-name = "The secret broker authorizes and asks; it never reaches a runtime or a platform"
+name = "The secret tool stands alone — it imports nothing else in the workspace"
 type = "forbidden"
-source_modules = ["crucible.secrets"]
-forbidden_modules = [
-    "crucible.runtimes.pi",
-    "crucible.gateways",
-    "crucible.flows",
-    "crucible.tools",
-    "crucible.interactions",
-    "crucible.profiles",
-    "mattermostautodriver",
-    "slack_bolt",
+source_modules = ["wardline"]
+forbidden_modules = ["crucible", "impi", "ward"]
+
+# And only the vocabulary: `wire` is what both ends agreed on, while the two
+# clients in that package are programs, not a library for the server to reuse.
+[[tool.importlinter.contracts]]
+name = "The broker uses the shared vocabulary, not the clients that speak it"
+type = "forbidden"
+source_modules = ["ward"]
+forbidden_modules = ["wardline.exec_cli", "wardline.admin_cli", "wardline.console"]
+
+# The deciding half lives in ward, and only its composition root is allowed to
+# know which chat platform this deployment runs on — the broker asks through the
+# ports, exactly as the engine does.
+[[tool.importlinter.contracts]]
+name = "The broker asks through the chat ports, never through a platform library"
+type = "forbidden"
+source_modules = [
+    "ward.broker",
+    "ward.ca",
+    "ward.card",
+    "ward.decisions",
+    "ward.operations",
+    "ward.policy",
+    "ward.ports",
+    "ward.server",
+    "ward.store",
+    "ward.vault",
 ]
+forbidden_modules = ["crucible.gateways", "mattermostautodriver", "slack_bolt"]
 
 [[tool.importlinter.contracts]]
 name = "The skill library is a plain file store — no runtime, chat or engine machinery"

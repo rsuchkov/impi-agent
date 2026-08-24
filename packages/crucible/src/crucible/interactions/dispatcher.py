@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from uuid import uuid4
 
+from crucible.approvals import ApprovalOutcome, PendingApprovals
 from crucible.interactions.labels import humanize
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.presence import AgentPresence
@@ -26,7 +27,6 @@ from crucible.ports.chat.types import (
     Form,
     IncomingMessage,
 )
-from crucible.secrets.approvals import SecretApprovalOutcome, SecretApprovals
 from crucible.store.base import FormRecord, FormStore, InteractionStore
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ class InteractionDispatcher:
         forms: FormStore,
         *,
         screens: ScreenRegistry | None = None,
-        approvals: SecretApprovals | None = None,
+        approvals: PendingApprovals | None = None,
         callback_url: str = "",
     ) -> None:
         self._interactions = interactions
@@ -76,21 +76,23 @@ class InteractionDispatcher:
         self._forms = forms
         # Screens the engine answers itself (empty = every command is an agent's).
         self._screens = screens
-        # Requests for a credential waiting on a named person (None = no broker).
+        # Requests for authorization waiting on a human (None = nothing here
+        # asks for any).
         self._approvals = approvals
         self._callback_url = callback_url
 
-    def resolve_secret_approval(self, token: str, value: str, user_id: str) -> SecretApprovalOutcome:
-        """A click answering a request for a credential.
+    def resolve_approval(self, token: str, value: str, user_id: str) -> ApprovalOutcome:
+        """A click answering a request for authorization — a credential, a
+        gated tool call.
 
-        Tried before every other click path, because it is the one whose answer
-        depends on WHO clicked: the other kinds are addressed to the
-        conversation, this one to a named person. A click from anyone else is
-        reported back rather than falling through to a handler that doesn't
-        check.
+        Tried before every other click path, because it is the only one whose
+        answer may depend on WHO clicked. Whether it does is per request: a
+        credential names its approvers, a tool call takes anyone in the
+        conversation. A click from somebody outside a named set is reported
+        back rather than falling through to a handler that does not check.
         """
         if not token or self._approvals is None:
-            return SecretApprovalOutcome.NOT_MINE
+            return ApprovalOutcome.NOT_MINE
         return self._approvals.resolve(token, value, user_id)
 
     def resolve_pending(self, token: str, value: str) -> bool:

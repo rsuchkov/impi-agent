@@ -1,18 +1,16 @@
-"""Secret policies in SQLite (crucible/store/secrets.py).
+"""Secret policies in SQLite (ward/store.py).
 
-Windows and the ledger moved to the shared approval store when a second thing —
-the tool gate — turned out to want exactly the same two tables; what is left
-here is the part only a secret has: who may ask, and on what terms.
+Windows and the ledger are the library's — a second consumer, the tool gate,
+turned out to want exactly the same two tables. What is here is the part only a
+secret has, and therefore the part the engine must not carry: who may ask, and
+on what terms.
 """
 
 from pathlib import Path
 
-from crucible.store.base import (
-    APPROVAL_ALWAYS,
-    APPROVAL_NEVER,
-    SecretPolicyRecord,
-)
 from crucible.store.sessions import SqliteSessionStore
+from ward.store import SecretPolicyRecord, WardStore
+from wardline.wire import APPROVAL_ALWAYS, APPROVAL_NEVER
 
 T0 = "2026-08-11T09:00:00+00:00"
 T1 = "2026-08-11T09:15:00+00:00"
@@ -28,8 +26,8 @@ def _policy(**over) -> SecretPolicyRecord:
     return SecretPolicyRecord(**base)  # type: ignore[arg-type]
 
 
-def _store(tmp_path: Path) -> SqliteSessionStore:
-    return SqliteSessionStore(tmp_path / "db.sqlite")
+def _store(tmp_path: Path) -> WardStore:
+    return WardStore(tmp_path / "db.sqlite")
 
 
 async def test_a_policy_round_trips_with_every_field(tmp_path: Path) -> None:
@@ -78,3 +76,21 @@ async def test_the_secrets_facet_coexists_with_the_others(tmp_path: Path) -> Non
         assert await reopened.list_agents() == []
     finally:
         await reopened.close()
+
+
+async def test_the_engine_store_has_no_table_for_these(tmp_path: Path) -> None:
+    """The point of the facet living here. A plain library store carries the
+    windows and the ledger — every application needs those — and nothing that
+    only a broker would ever write."""
+    store = SqliteSessionStore(tmp_path / "engine.sqlite")
+    try:
+        tables = {
+            row[0]
+            for row in store._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        assert "approval_grants" in tables and "approval_audit" in tables
+        assert "secret_policies" not in tables
+    finally:
+        await store.close()

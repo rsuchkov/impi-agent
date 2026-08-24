@@ -1,11 +1,12 @@
 """Windows a human left open, and the ledger of everything that was asked.
 
 A mixin over the same connection and lock as the session inventory, like the
-scheduler and secret-policy facets. Neither table is secret-shaped: they are
-keyed by ``(kind, principal, scope)``, so the same two answer "may this agent
-use that credential" and "may this agent run that tool". A window and a ledger
-row are the same idea either way, and having two copies of them would be how the
-two consumers drift apart.
+scheduler's facet. Neither table is shaped for one consumer: they are keyed by
+``(kind, principal, scope)``, so the same two answer "may this agent run that
+tool" and "may this agent use that credential" — the second asked by an
+application the library knows nothing about. A window and a ledger row are the
+same idea either way, and having two copies of them would be how the consumers
+drift apart.
 
 Nothing here holds a value or a capability — only a permission and a record.
 """

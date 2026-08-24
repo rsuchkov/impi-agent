@@ -14,6 +14,7 @@ from aiohttp import ClientSession
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
+from crucible.approvals import ApprovalOutcome
 from crucible.attachments import AttachmentStore, IncomingFile
 from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.slack.client import MESSAGE_ID_SEP
@@ -22,8 +23,8 @@ from crucible.gateways.slack.rendering import (
     FORM_CALLBACK,
     WIDGET_ACTION_PREFIX,
     decode_action,
+    decode_approval,
     decode_screen,
-    decode_secret_approval,
     extract_submission,
     picked_kind,
 )
@@ -33,7 +34,6 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.gateway import AgentIdentity
 from crucible.ports.chat.types import KIND_DM, KIND_THREAD, IncomingMessage
-from crucible.secrets.approvals import SecretApprovalOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -237,8 +237,8 @@ class SlackGateway:
             return
         token, form_token, value = decode_action(actions[0])
         user_id = (body.get("user") or {}).get("id", "")
-        secret_approval = decode_secret_approval(actions[0])
-        if secret_approval:
+        approval = decode_approval(actions[0])
+        if approval:
             # A request for a CREDENTIAL. Not to be confused with the Allow/Block
             # further down: that one approves a tool call mid-turn and is
             # answered by whoever is in the conversation, while this one is
@@ -247,10 +247,10 @@ class SlackGateway:
             # The broker rewrites its own card once it has the answer, so the
             # buttons are stripped from here only when the click landed on a
             # request that no longer exists.
-            outcome = self._dispatcher.resolve_secret_approval(
-                secret_approval, value, user_id
+            outcome = self._dispatcher.resolve_approval(
+                approval, value, user_id
             )
-            if outcome is SecretApprovalOutcome.NOT_MINE:
+            if outcome is ApprovalOutcome.NOT_MINE:
                 await self._strip_buttons(body, _BUTTONS_RETIRED)
             return
         screen, state = decode_screen(actions[0])

@@ -1,13 +1,14 @@
 ---
-name: secrets
-description: Help with the secret broker — giving an agent a credential it can use but never read, writing the secret-exec line into its profile, choosing a policy, and working out why a request was refused. Use whenever the operator mentions a token, an API key, a password, a credential, Vault, an approval prompt, or asks how an agent should authenticate to something.
+name: ward
+description: Help with ward, the secret broker — giving an agent a credential it can use but never read, writing the secret-exec line into its profile, choosing a policy, and working out why a request was refused. Use whenever the operator mentions a token, an API key, a password, a credential, Vault, an approval prompt, or asks how an agent should authenticate to something.
 ---
 
 # Secrets an agent can use but never read
 
-The engine can hold credentials on an agent's behalf. The agent asks for one by
-name, the operator approves it in chat, and the value is injected straight into
-the process the agent wanted to run — it never enters the agent's context.
+A deployment can hold credentials on an agent's behalf — in the broker, which
+runs in its own container and not in the engine. The agent asks for one by name,
+the operator approves it in chat, and the value is injected straight into the
+process the agent wanted to run; it never enters the agent's context.
 
 Reference: `$IMPI_ROOT/docs/secrets.md`. Read it before answering anything
 detailed; this skill is the operating procedure, not the whole story.
@@ -24,13 +25,16 @@ Everything below is something you either **tell the operator to run** or
 
 ## Is it even on?
 
-Ask the operator for `impi secret status`. Three answers matter:
+Ask the operator for `impi ward status`. Three answers matter:
 
-- **"secrets: off"** — `SECRETS_ENABLED` is false and there is no Vault. Adding
-  it to a running deployment: `SECRETS_ENABLED=true` in the config, `IMPI_VAULT=1`
-  in `~/.impi/compose.env`, `impi restart`, then `impi secret init` once.
-- **"the store is sealed" / "the engine holds no credential"** — normal after a
-  restart. `impi secret unlock`. Until then every request is refused.
+- **no broker in this deployment** — the store was never enabled, so there is no
+  address to ask at. Turning it on in a deployment that already runs takes
+  several steps in a particular order (the broker's env file has to exist before
+  the stack will come up); send the operator to the "Turning it on in a
+  deployment that already runs" section of `$IMPI_ROOT/docs/secrets.md` rather
+  than improvising it.
+- **sealed, or the broker holds no credential** — normal after a restart.
+  `impi ward unlock`. Until then every request is refused.
 - **"secrets: open"** — working; move on to the policy.
 
 ## Giving an agent a credential
@@ -39,8 +43,8 @@ Two separate things, and both are needed. A value with no policy is reachable by
 nobody, which is the intended default.
 
 ```
-impi secret set github-token                      # prompts, never echoes
-impi secret policy set github-token \
+impi ward set github-token                      # prompts, never echoes
+impi ward policy set github-token \
     --subjects <agent> --approval always --max-grant 15m
 ```
 
@@ -56,7 +60,7 @@ Guidance worth giving on the policy:
   minutes for one deploy, an hour only for a long session of work.
 
 A secret with several fields is one secret:
-`impi secret set smtp --field username=bot --field password=hunter2`, then
+`impi ward set smtp --field username=bot --field password=hunter2`, then
 `vault://smtp#username` and `vault://smtp#password`.
 
 ## Teaching an agent to use it
@@ -73,15 +77,18 @@ To publish a release, run:
 
 Points to get right when you write one of these:
 
-- One invocation is about **one** secret. Several fields of it are fine; two
-  different secrets nest —
-  `secret-exec --env A=vault://one -- secret-exec --env B=vault://two -- cmd`.
+- One invocation may name several secrets (up to five). They are served
+  together or not at all, one card covers them all, and the window offered is
+  the shortest any of their policies allows.
 - `--reason` is shown to the human deciding. Tell the agent to write a real one.
 - The **whole command** is shown on the approval card. That is the operator's
   only defence, so an agent should run the tool it actually needs, not a shell
   that then does something else.
-- The agent needs `bash` in its allowlist, and nothing else — `secret-exec` is
-  on `PATH` in the container.
+- The agent needs `bash` in its allowlist, and an identity: `impi ward cert
+  <agent>` mints one, and the agent picks it up on the next restart. The tool
+  finds it by the agent's own name, so the certificate has to be named after the
+  agent — which `impi ward cert` does. Without one `secret-exec` cannot prove who
+  it is and exits 78.
 - Exit codes: `77` refused, `75` the store is unavailable right now. Nothing
   about a value is ever printed.
 
@@ -92,35 +99,42 @@ on purpose, so an agent cannot map the store by trying names. The real reason is
 only in the ledger:
 
 ```
-impi secret audit --limit 20
-impi secret audit --agent <name>
-impi secret audit --secret <name>
+impi ward audit --limit 20
+impi ward audit --agent <name>
+impi ward audit --secret <name>
 ```
 
 | decision | what to do about it |
 |---|---|
-| `no_policy` | the name is wrong, or nothing is configured — `impi secret policy show` |
+| `no_policy` | the name is wrong, or nothing is configured — `impi ward policy show` |
 | `not_permitted` | the agent is not in `--subjects` — re-run `policy set` with it added |
 | `denied` | a human said no; ask them why before changing anything |
 | `timeout` | nobody clicked in time — see the turn-timeout trap below |
-| `no_approver` | `SECRETS_APPROVERS` is empty or names someone unresolvable |
-| `locked` / `sealed` | `impi secret unlock` |
+| `no_approver` | `WARD_APPROVERS` is empty or names someone unresolvable |
+| `locked` / `sealed` | `impi ward unlock` |
 | `backend_error` | approved, but the read failed — the secret may not be stored |
 
 **The turn-timeout trap.** The wait for a human blocks a command inside the
 agent's turn, and the turn has its own timeout. If turns die while the operator
-is still deciding, either lower `SECRETS_APPROVAL_TIMEOUT_S` or raise
+is still deciding, either lower `WARD_APPROVAL_TIMEOUT_S` or raise
 `runtime.timeout` in that agent's `agent.yaml`. Say which one you changed.
 
-**No card arrived at all.** Requests go by direct message from the requesting
-agent to the first name in `SECRETS_APPROVERS`. That agent needs an account that
-can open a direct message; on a gateway without channel administration it
-cannot, and the deployment needs `SECRETS_APPROVAL_CHANNEL` instead.
+**No card arrived at all.** Cards are posted by the broker's **own** chat
+account — not by the agent that asked — as a direct message to the first name in
+`WARD_APPROVERS`. So check three things: that the account exists at all
+(`WARD_MATTERMOST_TOKEN` in the broker's `conf/ward.env`), that the approver
+resolves, and that the account can open a direct message. On a gateway without
+channel administration it cannot, and the deployment needs
+`WARD_APPROVAL_CHANNEL` instead.
+
+**The card arrives and the buttons do nothing.** The click goes from the chat
+platform to the broker's receiver, and Mattermost will not call an address
+missing from `AllowedUntrustedInternalConnections`. `ward` has to be in it.
 
 ## Windows
 
 `Allow for…` leaves a window open: that agent, that secret, no more questions
-until it closes. `impi secret grants` lists them; `impi secret revoke <id>`
+until it closes. `impi ward grants` lists them; `impi ward revoke <id>`
 closes one immediately, and the very next request asks again. The value is read
 fresh every time, so rotating a secret takes effect at once too.
 
@@ -131,7 +145,8 @@ If an operator is being asked too often, the fix is a longer `--max-grant`, not
 
 Be honest about this when asked, and do not oversell the feature. The broker
 keeps a value out of the model's context, out of the logs and out of the
-transcript, and makes every use approved and recorded. It does **not** defend
-against someone who has taken over the container: the engine and the agents run
-as the same user, and the config file is readable there. `$IMPI_ROOT/docs/secrets.md`
+transcript, and makes every use approved and recorded. It runs in its own
+container, so taking over the engine no longer means taking the secrets — but it
+does still mean being able to *ask* as any agent, which is why the card matters.
+Within an agent's own container there is no separation at all. `$IMPI_ROOT/docs/secrets.md`
 has the full statement — quote it rather than paraphrasing it loosely.

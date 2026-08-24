@@ -1,0 +1,41 @@
+# The broker's image. Deliberately not the engine's: this container holds the
+# credential to the secret store, so what is installed beside it is part of its
+# threat model. No `pi`, no Node, no agent machinery — a Python runtime, the
+# library, and ward.
+FROM docker.io/library/python:3.13-slim
+
+ARG IMPI_UID=1000
+ARG IMPI_GID=1000
+
+RUN set -eux; \
+    getent group "$IMPI_GID" >/dev/null || groupadd -g "$IMPI_GID" ward; \
+    getent passwd "$IMPI_UID" >/dev/null || \
+        useradd -u "$IMPI_UID" -g "$IMPI_GID" -m -s /bin/bash ward; \
+    install -d -o "$IMPI_UID" -g "$IMPI_GID" /var/lib/ward
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+COPY packages/crucible/pyproject.toml packages/crucible/
+COPY packages/ward/pyproject.toml packages/ward/
+# The broker speaks the same protocol its callers do, so the vocabulary comes
+# along; the two client programs in that package are never run here.
+COPY packages/wardline/pyproject.toml packages/wardline/
+# The engine's manifest is part of the workspace resolution, but none of its
+# code is copied in.
+COPY packages/impi/pyproject.toml packages/impi/
+RUN uv sync --frozen --no-dev --no-install-workspace --package ward
+
+COPY packages/crucible/ packages/crucible/
+COPY packages/wardline/ packages/wardline/
+COPY packages/ward/ packages/ward/
+RUN uv sync --frozen --no-dev --package ward
+
+ENV PATH=/app/.venv/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    WARD_DATA_DIR=/var/lib/ward \
+    WARD_TLS_DIR=/var/lib/ward/tls
+
+USER $IMPI_UID:$IMPI_GID
+CMD ["ward", "serve"]

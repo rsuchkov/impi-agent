@@ -333,68 +333,28 @@ class SchedulerStateStore(Protocol):
     async def read_heartbeat(self) -> SchedulerHeartbeat | None: ...
 
 
-# -- secrets ------------------------------------------------------------------
+# -- approvals ------------------------------------------------------------------
 
-# Whether reaching a secret needs a human. `never` is for the fully automatic
-# ones (a model endpoint key a nightly task needs); `always` means every use is
-# asked about unless a live grant already covers it.
-# What a window or a ledger row is about. The two consumers of the approval
-# primitive: a credential an agent asked for, and a tool call it wants to make.
-KIND_SECRET = "secret"
+# What a window or a ledger row is about. The engine's own consumer is the tool
+# gate; an application may authorize other things and brings its own word for
+# them, which is why this is a plain string in the schema rather than an enum.
 KIND_TOOL = "tool"
 
-APPROVAL_ALWAYS = "always"
-APPROVAL_NEVER = "never"
-APPROVALS = (APPROVAL_ALWAYS, APPROVAL_NEVER)
-
-# What a request for a secret came to. A closed set, like the run statuses: the
-# audit is the only place the real reason is ever written, because the caller is
-# told the same thing whatever happened (see the broker), so "why was it refused"
-# has to be greppable here or it is nowhere.
+# How a request a human was asked about came out. A closed set, like the run
+# statuses: the ledger is the only place the real reason is written, so "why did
+# that not work" has to be greppable here or it is nowhere. An application that
+# authorizes something of its own extends this with its own words — see the
+# secret broker, whose refusals are its own business and not the engine's.
 DECISION_APPROVED_ONCE = "approved_once"  # a human allowed this one call
 DECISION_APPROVED_GRANT = "approved_grant"  # a human opened a window; this call used it
 DECISION_REUSED_GRANT = "reused_grant"  # served by a window opened earlier
-DECISION_AUTO = "auto"  # policy says approval: never
 DECISION_DENIED = "denied"  # a human refused
 DECISION_TIMEOUT = "timeout"  # nobody answered in time
-DECISION_NO_POLICY = "no_policy"  # nothing is configured under that name
-DECISION_NOT_PERMITTED = "not_permitted"  # the policy does not list this agent
 DECISION_NO_APPROVER = "no_approver"  # approval needed, nobody configured to give it
-DECISION_LOCKED = "locked"  # the engine has no backend credential yet
-DECISION_SEALED = "sealed"  # the backend itself is sealed
-DECISION_BACKEND_ERROR = "backend_error"  # approved, but the read failed
 DECISIONS = (
     DECISION_APPROVED_ONCE, DECISION_APPROVED_GRANT, DECISION_REUSED_GRANT,
-    DECISION_AUTO, DECISION_DENIED, DECISION_TIMEOUT, DECISION_NO_POLICY,
-    DECISION_NOT_PERMITTED, DECISION_NO_APPROVER, DECISION_LOCKED,
-    DECISION_SEALED, DECISION_BACKEND_ERROR,
+    DECISION_DENIED, DECISION_TIMEOUT, DECISION_NO_APPROVER,
 )
-# The decisions under which a value actually reached the caller.
-GRANTED_DECISIONS = (
-    DECISION_APPROVED_ONCE, DECISION_APPROVED_GRANT, DECISION_REUSED_GRANT, DECISION_AUTO,
-)
-
-
-@dataclass(frozen=True)
-class SecretPolicyRecord:
-    """Who may ask for a secret, and on what terms.
-
-    This is the whole authorization model: a secret with no policy is reachable
-    by nobody, and ``subjects`` is an explicit allowlist rather than a deny-list,
-    so a new agent starts with access to nothing. ``max_grant_s`` is the ceiling
-    on a "leave it open for a while" answer — 0 means no window may be opened at
-    all and every single use is asked about."""
-
-    name: str
-    approval: str  # APPROVAL_ALWAYS | APPROVAL_NEVER
-    max_grant_s: int
-    subjects: str  # CSV of agent names; "" = nobody
-    description: str
-    created_at: str
-    updated_at: str
-
-    def allows(self, agent: str) -> bool:
-        return agent in {s.strip() for s in self.subjects.split(",") if s.strip()}
 
 
 @dataclass(frozen=True)
@@ -412,7 +372,7 @@ class ApprovalGrant:
     """
 
     id: str
-    kind: str  # KIND_SECRET | KIND_TOOL
+    kind: str  # KIND_TOOL, or whatever else an application authorizes
     principal: str  # who was trusted — an agent name
     scope: str  # with what — a secret name, a tool name
     granted_by: str  # the user id that clicked
@@ -467,24 +427,17 @@ class ApprovalStore(Protocol):
 
     async def revoke_grant(self, grant_id: str, *, now: str) -> bool: ...
 
+    async def revoke_scope(self, kind: str, scope: str, *, now: str) -> int:
+        """Close every window over one scope, returning how many. What deleting
+        the thing the windows point at has to do, or a principal keeps reaching
+        something whose permission is gone."""
+        ...
+
     async def record_decision(self, record: ApprovalAudit) -> None: ...
 
     async def list_audit(
         self, *, limit: int = 50, kind: str = "", principal: str = "", scope: str = ""
     ) -> list[ApprovalAudit]: ...
-
-
-class SecretPolicyStore(Protocol):
-    """Who may ask for which secret, and on what terms. Secret-specific, unlike
-    the windows and the ledger — a tool gate has no notion of a subject list."""
-
-    async def get_policy(self, name: str) -> SecretPolicyRecord | None: ...
-
-    async def list_policies(self) -> list[SecretPolicyRecord]: ...
-
-    async def put_policy(self, policy: SecretPolicyRecord) -> None: ...
-
-    async def delete_policy(self, name: str) -> bool: ...
 
 
 class AgentStore(Protocol):

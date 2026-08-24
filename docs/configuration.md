@@ -207,30 +207,43 @@ See [troubleshooting.md](troubleshooting.md) if callbacks don't arrive.
 
 ## Secrets
 
-The human-approved secret broker: an agent asks for a credential, you approve it
-in chat, and the value is injected into the process it named — never into the
-model's context. Off unless you turn it on, because it needs a backend to talk
-to. Full guide, including what this does and does not protect against:
+An agent asks for a credential, you approve it in chat, and the value is
+injected into the process it named — never into the model's context. Full guide:
 [secrets.md](secrets.md).
+
+**None of it is configured in this file.** Secrets are a tool that ships beside
+the engine rather than a part of it: the broker runs in its own container, and
+its two clients — `secret-exec`, which an agent runs, and `ward-admin`, which
+`impi ward …` runs — read their settings from the container's environment, which
+the compose overlay declares. The engine has no field for any of this, and a
+value here would reach nothing.
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `SECRET_BROKER_URL` | the overlay, on the engine's container | where the broker answers |
+| `SECRET_BROKER_CERTS_DIR` | the same | where the identities are mounted |
+| `SECRET_BROKER_CERT` / `_KEY` / `_CA` | optional | explicit paths, for a deployment that mounts them elsewhere |
+
+An identity is otherwise derived: an agent presents `<certs>/<its own
+name>.crt`, the operator presents `<certs>/operator.crt`, and both verify the
+broker against `<certs>/ca.crt`. The engine's whole contribution is `AGENT_NAME`,
+a generic fact it gives every agent about itself. The authority's key is in none
+of these directories — it lives with the broker, so nothing on this side can mint
+an identity for an agent that does not exist.
+
+The broker's own settings — the store's address, the approvers, the timeouts —
+are `WARD_*` and live in its container's environment, not here.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SECRETS_ENABLED` | `false` | run the broker at all |
-| `SECRETS_VAULT_ADDR` | `http://vault:8200` | where the store lives |
-| `SECRETS_VAULT_MOUNT` | `secrets` | the KV v2 mount the engine owns |
-| `SECRETS_ROLE_ID` | — | the engine's AppRole; written by `impi secret init` |
-| `SECRETS_UNSEAL_KEY_FILE` | — | unattended unlock: the unseal key, mounted as a file |
-| `SECRETS_SECRET_ID_FILE` | — | unattended unlock: the AppRole secret, mounted as a file |
-| `SECRETS_APPROVERS` | — | CSV of usernames or user ids that may answer a request |
-| `SECRETS_APPROVAL_CHANNEL` | — | where requests are posted (empty = DM the first approver) |
-| `SECRETS_APPROVAL_TIMEOUT_S` | `120` | how long a request waits before it is refused |
-| `SECRETS_MAX_GRANT_S` | `3600` | ceiling over every policy's own window ceiling |
-
-The AppRole **secret** has no variable on purpose: it is the credential that
-opens the store, and anything in `.env` is readable by every agent that can read
-`.env`. It reaches the engine either interactively (`impi secret unlock`, held
-only in memory) or through `SECRETS_SECRET_ID_FILE` — which is the convenient
-option and the weaker one, for exactly that reason.
+| `WARD_VAULT_ADDR` | `http://127.0.0.1:8200` | the store, on the loopback it shares with the broker |
+| `WARD_ROLE_ID` | — | the broker's AppRole; written by `ward init` |
+| `WARD_UNSEAL_KEY_FILE` / `WARD_SECRET_ID_FILE` | — | unattended unlock, mounted as files |
+| `WARD_MATTERMOST_TOKEN` | — | the bot approval cards are posted as |
+| `WARD_APPROVERS` | — | CSV of usernames or ids that may answer |
+| `WARD_APPROVAL_CHANNEL` | — | where cards go (empty = a DM to the first approver) |
+| `WARD_APPROVAL_TIMEOUT_S` | `120` | how long a request waits before it is refused |
+| `WARD_MAX_GRANT_S` | `3600` | ceiling over every policy's own window ceiling |
 
 ## Tool confirmations
 

@@ -34,7 +34,7 @@ class MattermostCallbackCodec:
             screen=str(context.get("screen") or ""),
             state=str(context.get("state") or ""),
             post_id=str(body.get("post_id") or ""),
-            secret_approval=str(context.get("secret_approval") or ""),
+            approval=str(context.get("approval") or ""),
         )
 
     def parse_dialog(self, body: dict) -> DialogCallback:

@@ -6,6 +6,49 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The secret broker runs in its own container.** It holds the store's
+  credential and decides who may reach what; the engine holds neither. Taking
+  over the engine no longer means taking the secrets silently — it means being
+  able to ask, which is a card somebody reads and a row in the ledger. Agents
+  reach the broker over mutual TLS, and the certificate is what says which agent
+  is asking: a header would only be a claim. The certificate authority lives
+  with the broker and its key goes nowhere else, so an engine cannot invent an
+  agent. `impi ward cert <agent>` asks for one.
+- **Secrets an agent can use but never read.** An agent runs `secret-exec --env
+  GITHUB_TOKEN=vault://github-token -- gh release create …`; you get a card in
+  chat showing the agent, the secret, the reason and the exact command, and
+  answer **Allow once**, **Allow for…** (1 min to 1 hour) or **Deny**. On an
+  approval the value is injected straight into that child process — it never
+  enters the model's context, the session history or the logs. Values live in a Vault reachable only on the
+  broker's own loopback; the broker owns the policies, the time-boxed windows
+  and the ledger. Only a configured approver can answer, there is no way for an
+  agent to list what exists, and every authorization refusal reads identically
+  so the store cannot be mapped by guessing names. Off by default; the installer
+  asks. See [docs/secrets.md](docs/secrets.md), which is explicit about what the
+  broker protects against and what it doesn't.
+- **`impi ward …`** — `init`, `unlock`, `status`, `set`, `ls`, `rm`, `policy`,
+  `grants`, `revoke`, `audit`, `cert`.
+- **Turning the secret store on later.** A new installation is asked; an
+  existing one needs the broker's own settings written before the stack comes
+  up, a chat account for the broker to post cards as, and the one-time `impi ward
+  init` — in that order. The steps are in
+  [docs/secrets.md](docs/secrets.md#turning-it-on-in-a-deployment-that-already-runs).
+  `impi update` now rebuilds the broker's image along with the engine's, so an
+  update does not leave the two on different releases.
+- **Secrets are a tool beside the engine, not a part of it.** The client, the
+  operator CLI and the vocabulary they share moved into their own package, and
+  the engine now holds nothing about secrets at all: no settings, no table in its
+  database, no code. It tells each agent one generic thing — its own name, in
+  `AGENT_NAME` — and the tool works out which identity to present from that. Two
+  consequences for an existing deployment: the `SECRET_BROKER_*` keys in
+  `conf/.env` do nothing any more (the compose overlay declares the two that
+  matter, and `impi ward …` is unchanged), and the engine's image no longer
+  contains the broker.
+- **One request can carry several secrets.** A command needing two credentials
+  used to mean two cards for one operation, which is how a human learns to click
+  without reading. They are now served together or not at all: one card lists
+  them, the shortest policy governs the window, and any that open windows
+  already cover are not asked about again.
 - **A tool's confirmation is now enforced by the engine, and can be given for a
   while.** `requires_confirmation` was checked only in the runtime's extension,
   and the token that extension authenticates with lives in the agent's own
@@ -14,20 +57,6 @@ when a release is cut, and `impi update` shows the target version's section.
   that does the work, and fails closed where there is no way to ask. The same
   card offers **Allow once** / **Allow for…** / **Deny**, so a human can stop
   being asked every single time; `TOOL_MAX_GRANT_S` caps the window.
-- **Secrets an agent can use but never read.** An agent runs `secret-exec --env
-  GITHUB_TOKEN=vault://github-token -- gh release create …`; you get a card in
-  chat showing the agent, the secret, the reason and the exact command, and
-  answer **Allow once**, **Allow for…** (1 min to 1 hour) or **Deny**. On an
-  approval the value is injected straight into that child process — it never
-  enters the model's context, the session history or the logs. Values live in an
-  optional Vault container; impi owns the policies, the time-boxed windows and
-  the ledger. Only a configured approver can answer, there is no way for an
-  agent to list what exists, and every authorization refusal reads identically
-  so the store cannot be mapped by guessing names. Off by default; the installer
-  asks. See [docs/secrets.md](docs/secrets.md), which is explicit about what the
-  broker protects against and what it doesn't.
-- **`impi secret …`** — `init`, `unlock`, `status`, `set`, `ls`, `rm`, `policy`,
-  `grants`, `revoke`, `audit`.
 - **A skill's provenance marker is now `.skill-source.json`** (it was
   `.impi-source.json` — the library that writes it must not name the
   application). Skills installed before this update keep working, but list as

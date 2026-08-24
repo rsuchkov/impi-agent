@@ -43,7 +43,11 @@ services:
       MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
       MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
       MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
-      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: "impi localhost 127.0.0.1"
+      # `ward` is here whether or not the secret store is deployed: an allowlist
+      # entry for a host that does not exist costs nothing, and without it the
+      # click on an approval card would be refused by Mattermost rather than by
+      # anything that says so.
+      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: "impi ward localhost 127.0.0.1"
     volumes:
       - mm-config:/mattermost/config
       - mm-data:/mattermost/data

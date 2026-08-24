@@ -92,22 +92,6 @@ class SchedulerSettings(BaseModel):
     max_tasks_per_agent: int
 
 
-class SecretsSettings(BaseModel):
-    """The human-approved secret broker. Flat env names on Settings, like the
-    other groups here (SECRETS_VAULT_ADDR, not SECRETS__VAULT_ADDR)."""
-
-    enabled: bool
-    vault_addr: str
-    vault_mount: str
-    role_id: str  # the AppRole the engine logs in as; its secret comes at unlock
-    secret_id_file: str  # unattended unlock: where that secret is mounted
-    unseal_key_file: str  # unattended unlock: where the unseal key is mounted
-    approvers: str  # CSV of usernames or user ids that may answer
-    approval_channel: str  # "" = a direct message to the first approver
-    approval_timeout_s: float
-    max_grant_s: int  # ceiling over every policy's own window ceiling
-
-
 class Settings(BaseSettings):
     """Base engine + gateway configuration. An application subclasses this to add
     its own fields (see ImpiSettings). Extend as the system grows."""
@@ -236,31 +220,6 @@ class Settings(BaseSettings):
     # The slash command that browses tasks, configurable for the same reason
     # SKILLS_COMMAND is: a workspace may already use the word.
     tasks_command: str = "tasks"
-
-    # The secret broker (env: SECRETS_*) — read grouped via `.secrets`. Off by
-    # default: it needs a backend to talk to, and an engine without one should
-    # say "not enabled" rather than fail every request.
-    secrets_enabled: bool = False
-    secrets_vault_addr: str = "http://vault:8200"
-    secrets_vault_mount: str = "secrets"
-    # The engine's AppRole. The role id is not a credential on its own — the
-    # secret id is, and it deliberately has no field here: it arrives at unlock
-    # and lives in memory, because a credential in this file is readable by
-    # every agent that can read this file.
-    secrets_role_id: str = ""
-    # The unattended alternative: both halves mounted as files. Convenient (a
-    # restart needs no human, so a 3am task still runs) and weaker in exactly
-    # that way — see docs/secrets.md.
-    secrets_secret_id_file: str = ""
-    secrets_unseal_key_file: str = ""
-    # Who may answer a request. Usernames or platform ids; nobody by default,
-    # which makes every approval-needing secret unreachable until someone is named.
-    secrets_approvers: str = ""
-    secrets_approval_channel: str = ""
-    # Shorter than an agent's turn timeout on purpose: the wait blocks a command
-    # inside a turn, and a turn that dies waiting is worse than a refusal.
-    secrets_approval_timeout_s: float = 120.0
-    secrets_max_grant_s: int = 3600
 
     log_level: str = "INFO"
 
@@ -411,21 +370,6 @@ class Settings(BaseSettings):
             startup_grace_s=self.scheduler_startup_grace_s,
             max_failures=self.scheduler_max_failures,
             max_tasks_per_agent=self.scheduler_max_tasks_per_agent,
-        )
-
-    @property
-    def secrets(self) -> SecretsSettings:
-        return SecretsSettings(
-            enabled=self.secrets_enabled,
-            vault_addr=self.secrets_vault_addr,
-            vault_mount=self.secrets_vault_mount,
-            role_id=self.secrets_role_id,
-            secret_id_file=self.secrets_secret_id_file,
-            unseal_key_file=self.secrets_unseal_key_file,
-            approvers=self.secrets_approvers,
-            approval_channel=self.secrets_approval_channel,
-            approval_timeout_s=self.secrets_approval_timeout_s,
-            max_grant_s=self.secrets_max_grant_s,
         )
 
     @property

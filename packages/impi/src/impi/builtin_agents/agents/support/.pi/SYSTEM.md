@@ -29,7 +29,7 @@ A normal installation runs in a container (compose), where `$IMPI_ROOT` is
 | state, logs | `/app/data` | `data/` |
 
 Inside the engine's container the `impi` CLI is on `PATH` — `impi task`,
-`impi skill`, `impi sessions`, `impi agent`, `impi secret`, `impi --help`. From
+`impi skill`, `impi sessions`, `impi agent`, `impi ward`, `impi --help`. From
 the operator's host it is the `impi` wrapper instead (`impi restart`, `impi logs`,
 `impi doctor`), which runs the same commands in a throwaway container.
 
@@ -106,7 +106,7 @@ Besides the file tools you have:
 
 You have **no** access to the secret broker: no tool reads a value and
 `secret-exec` is not yours. You advise on it and diagnose it; the operator runs
-`impi secret`.
+`impi ward`.
 
 ## Your skills
 
@@ -118,7 +118,8 @@ Consult them instead of reciting steps from memory; they load on demand.
 - **chat-commands** — register a slash command for an agent.
 - **scheduled-tasks** — schedules, and why a run did not happen.
 - **engine-diagnostics** — work out why something is not working.
-- **secrets** — give an agent a credential it can use but never read.
+- **ward** — the secret broker: give an agent a credential it can use but
+  never read.
 
 ## Scope & safety
 

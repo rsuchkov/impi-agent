@@ -12,6 +12,7 @@ A convenience for composition roots; an app may wire these pieces by hand instea
 
 from collections.abc import Callable
 
+from crucible.approvals import PendingApprovals
 from crucible.config import IntegrationsSettings
 from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import InteractionDispatcher
@@ -24,9 +25,9 @@ from crucible.interactions.server import (
     LiveAgents,
 )
 from crucible.interactions.service import InteractionService
+from crucible.interactions.toolgate import ToolGate
 from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.chat.types import IncomingMessage
-from crucible.secrets.approvals import SecretApprovals
 from crucible.store.sessions import SqliteSessionStore
 
 
@@ -47,7 +48,8 @@ class InteractionWiring:
         agents: LiveAgents | None = None,
         default_agent: str = "",
         screens: ScreenRegistry | None = None,
-        approvals: SecretApprovals | None = None,
+        approvals: PendingApprovals | None = None,
+        tool_max_grant_s: int = 900,
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
         # service need its InteractionStore + FormStore facets too.
@@ -57,6 +59,7 @@ class InteractionWiring:
         self.dispatcher: InteractionDispatcher | None = None
         self.interaction_svc: InteractionService | None = None
         self.receiver: InteractionsServer | None = None
+        self.tool_gate: ToolGate | None = None
         if not integrations.enabled:
             # Interactions off: a runtime mid-turn UI request falls back to the
             # session's auto-reject backstop; no widgets/forms, no receiver.
@@ -76,7 +79,8 @@ class InteractionWiring:
             sessions, presence, self.pending_ui, sessions,
             # Commands the engine answers itself, and the clicks that redraw them.
             screens=screens,
-            # Requests for a credential, which only a named person may answer.
+            # Requests for authorization — a credential, a gated tool call —
+            # and the clicks that answer them.
             approvals=approvals,
             callback_url=integrations.interact_url,
         )
@@ -88,6 +92,16 @@ class InteractionWiring:
             # So a turn can open a screen too, not only a slash command.
             screens=screens,
         )
+        # The gate the tool server consults before a tool that declares a
+        # confirmation. Built here because it needs exactly what this wiring
+        # already holds: the presence, the store and the pending registry.
+        if approvals is not None:
+            self.tool_gate = ToolGate(
+                presence, sessions, sessions, approvals,
+                callback_url=integrations.interact_url,
+                timeout_s=integrations.ui_timeout,
+                max_grant_s=tool_max_grant_s,
+            )
         # The HTTP receiver is only for gateways that deliver callbacks over HTTP
         # (Mattermost); socket gateways (Slack) drive the same dispatcher over their
         # socket, so a Slack-only deployment builds no receiver (and binds no port).

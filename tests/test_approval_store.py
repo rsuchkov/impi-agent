@@ -1,19 +1,22 @@
 """Windows and the ledger in SQLite (crucible/store/approvals.py).
 
 Shared by everything a human can authorize, so the tests exercise two kinds side
-by side: a window over a secret must not answer for a window over a tool, even
-when the agent and the timing are identical.
+by side: a window of one kind must not answer for a window of another, even when
+the agent, the scope and the timing are identical.
 """
 
 from pathlib import Path
 
 from crucible.store.base import (
-    KIND_SECRET,
     KIND_TOOL,
     ApprovalAudit,
     ApprovalGrant,
 )
 from crucible.store.sessions import SqliteSessionStore
+
+# A kind the library does not define — an application brings its own (the secret
+# broker's, here), and the column is a plain string precisely so it can.
+KIND_SECRET = "secret"
 
 T0 = "2026-08-11T09:00:00+00:00"
 T1 = "2026-08-11T09:15:00+00:00"
@@ -224,3 +227,20 @@ async def test_no_table_can_hold_a_secret_value(tmp_path: Path) -> None:
         assert not columns & {"value", "secret_value", "ciphertext", "token"}
     finally:
         await store.close()
+
+
+def test_the_decision_vocabulary_is_closed_and_complete() -> None:
+    """The tuple claims to list every decision the library itself names. Without
+    this it is a comment, and the way it rots is somebody adding a constant and
+    not the entry — after which "why was it refused" stops being greppable from
+    one place. An application that authorizes something of its own extends the
+    set on its side and owes itself the same test."""
+    from crucible.store import base
+
+    named = {
+        value
+        for name, value in vars(base).items()
+        if name.startswith("DECISION_") and isinstance(value, str)
+    }
+    assert set(base.DECISIONS) == named
+    assert len(base.DECISIONS) == len(named)  # no duplicates either

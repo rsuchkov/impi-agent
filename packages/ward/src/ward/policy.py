@@ -8,19 +8,13 @@ cheap to test exhaustively.
 
 from dataclasses import dataclass
 
-from crucible.store.base import (
-    APPROVAL_NEVER,
+from ward.decisions import (
     DECISION_AUTO,
     DECISION_NO_POLICY,
     DECISION_NOT_PERMITTED,
-    SecretPolicyRecord,
 )
-
-# What a human may be offered when they decide to leave access open for a while.
-# An hour is the coarsest useful answer and a minute the finest: below that the
-# window closes before the command it was opened for finishes, and above it the
-# grant outlives the reason anyone remembers giving it.
-GRANT_LADDER = (60, 300, 900, 3600)
+from ward.store import SecretPolicyRecord
+from wardline.wire import APPROVAL_NEVER
 
 # The three shapes a verdict takes before anything is asked or read.
 ASK = "ask"
@@ -55,14 +49,15 @@ def evaluate(policy: SecretPolicyRecord | None, agent: str) -> Verdict:
     return Verdict(ASK)
 
 
-def grant_options(policy: SecretPolicyRecord, *, ceiling_s: int = 0) -> tuple[int, ...]:
-    """The window lengths a human may choose for this secret, longest last.
+def ceiling(policy: SecretPolicyRecord | None, *, deployment_s: int = 0) -> int:
+    """How long a window over this secret may stay open.
 
-    Empty when no window is allowed at all — a secret with ``max_grant_s`` of 0
-    is asked about every single time, and the approval card shows no dropdown
-    rather than a dropdown that would be refused on submit.
+    The policy's own ceiling, never above the deployment's. Zero means no window
+    at all: every single use is asked about, and the card shows no dropdown
+    rather than one whose choices would be capped to nothing.
     """
-    cap = policy.max_grant_s
-    if ceiling_s > 0:
-        cap = min(cap, ceiling_s)
-    return tuple(seconds for seconds in GRANT_LADDER if seconds <= cap)
+    if policy is None:
+        return 0
+    if deployment_s > 0:
+        return min(policy.max_grant_s, deployment_s)
+    return policy.max_grant_s

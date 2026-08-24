@@ -5,7 +5,10 @@ gateways, tools, interactivity, storage) plus a few **wiring helpers** that
 assemble the common combinations from neutral config. Your application writes a
 **composition root** — a `build_app` that constructs the concretes and a `run`
 that starts them. `impi` (`packages/impi/src/impi/app.py`) is the full reference;
-this is the shape.
+this is the shape. For a much smaller one, read `ward`
+(`packages/ward/src/ward/app.py`): under two hundred lines that take a chat
+client, the approval primitive, the interaction receiver and the store, and no
+runtime at all — an app on this library does not have to run agents.
 
 ## The division of labour
 
@@ -133,6 +136,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   on, any interactive request the runtime emits makes the UI bridge try to post
   a real widget — on Slack that additionally requires the app's Interactivity
   setup, and a failure is logged and declined. Off = declined locally, quietly.
+- **A confirmed tool needs a gate to confirm it.** If any of your tools declares
+  `requires_confirmation`, pass `tool_gate=` to `build_server`. Without one the
+  server refuses those calls rather than running them: a confirmation nobody can
+  answer is not a confirmation, and failing open would make the flag decorative.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base

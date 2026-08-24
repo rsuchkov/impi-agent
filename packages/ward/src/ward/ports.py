@@ -1,5 +1,10 @@
-"""The vocabulary of the secret broker: what a caller asks for, what a backend
-must be able to do, and how a secret is named.
+"""The broker's own vocabulary: what a request is, what a decision is, and what
+a backend must be able to do.
+
+None of this crosses the wire as-is — the shared spelling of a reference and the
+two words a caller may be told live in ``wardline.wire``, because the
+client needs them too. What is here is the deciding side, and it stays on the
+side of the door that holds the credential.
 
 Nothing here reaches a network or a disk. The backend is a Protocol so the
 broker's own tests run on a fake — the alternative would be a live Vault for
@@ -7,30 +12,13 @@ every assertion about who may see what, which is exactly the logic that most
 needs cheap tests.
 """
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from crucible.ports.chat.client import ChatClient
-
-# Both spellings mean the same thing: a reference resolved by the engine's
-# backend. `vault://` is what the design and the operator's muscle memory use;
-# `secret://` reads better when the backend is not Vault. There is deliberately
-# no bare-name form — a reference has to be unmistakable in an argv, so that a
-# literal value can never be mistaken for one, or the reverse.
-SCHEMES = ("vault://", "secret://")
-
-# Kept deliberately tight. This lands in a URL path on the backend, so anything
-# that could climb out of the engine's own mount ("../", a slash, a space) is
-# not a name. Lowercase-first also keeps names case-unambiguous across backends.
-_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-_FIELD = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-
-# The field inside a secret when the reference doesn't name one. Most secrets
-# are a single string; the multi-field case (a username beside a password) is
-# the exception that has to spell itself out.
-DEFAULT_FIELD = "value"
+from ward.decisions import UNAVAILABLE_DECISIONS
+from wardline.wire import WIRE_REFUSED, WIRE_UNAVAILABLE, SecretRef
 
 
 class SecretBackendError(Exception):
@@ -40,40 +28,6 @@ class SecretBackendError(Exception):
     def __init__(self, message: str, *, sealed: bool = False) -> None:
         super().__init__(message)
         self.sealed = sealed
-
-
-@dataclass(frozen=True)
-class SecretRef:
-    """Which secret, and which field of it."""
-
-    name: str
-    field: str = DEFAULT_FIELD
-
-    def __str__(self) -> str:
-        return f"vault://{self.name}" + (f"#{self.field}" if self.field != DEFAULT_FIELD else "")
-
-
-def parse_ref(raw: str) -> SecretRef:
-    """``vault://github-token`` / ``secret://smtp#password`` -> a SecretRef.
-
-    Raises ValueError with a caller-safe message: it says the reference is
-    malformed, never whether the named secret exists — that distinction is the
-    thing the broker works hardest not to leak.
-    """
-    text = raw.strip()
-    for scheme in SCHEMES:
-        if text.startswith(scheme):
-            text = text[len(scheme) :]
-            break
-    else:
-        raise ValueError(f"not a secret reference (expected {SCHEMES[0]}…): {raw!r}")
-    name, sep, field_name = text.partition("#")
-    field_name = field_name if sep else DEFAULT_FIELD
-    if not _NAME.match(name):
-        raise ValueError(f"malformed secret name: {name!r}")
-    if not _FIELD.match(field_name):
-        raise ValueError(f"malformed secret field: {field_name!r}")
-    return SecretRef(name=name, field=field_name)
 
 
 @dataclass(frozen=True)
@@ -98,7 +52,7 @@ class BackendStatus:
 
     Three separate facts, because they have three different remedies: the
     backend is unreachable (fix the deployment), it is sealed (unseal it), or
-    the engine holds no credential for it (unlock the engine).
+    the broker holds no credential for it (unlock the broker).
     """
 
     reachable: bool = False
@@ -111,34 +65,22 @@ class BackendStatus:
         return self.reachable and not self.sealed and self.authenticated
 
 
-# What the caller is told, and all it is told. Every authorization outcome
-# collapses to REFUSED — a caller that could tell "no such secret" from "not
-# yours" could enumerate the store by trying names. UNAVAILABLE is separate
-# because it is not an authorization answer: it means the engine could not serve
-# anyone right now, which is an operator's problem and reveals nothing about
-# what exists.
-WIRE_REFUSED = "refused"
-WIRE_UNAVAILABLE = "unavailable"
-
-_UNAVAILABLE_DECISIONS = frozenset({"locked", "sealed", "backend_error"})
-
-
 def wire_status(decision: str) -> str:
-    """Collapse an audit decision into the two things a caller may learn."""
-    return WIRE_UNAVAILABLE if decision in _UNAVAILABLE_DECISIONS else WIRE_REFUSED
+    """Collapse a ledger decision into the two things a caller may learn."""
+    return WIRE_UNAVAILABLE if decision in UNAVAILABLE_DECISIONS else WIRE_REFUSED
 
 
 @dataclass(frozen=True)
 class LeaseRequest:
-    """One invocation of ``secret-exec``: the fields of ONE secret bound to
-    environment variables, why, and what it intends to run.
+    """One invocation of ``secret-exec``: the fields of one or more secrets bound
+    to environment variables, why, and what it intends to run.
 
-    One secret per invocation is deliberate. It keeps the approval card
-    unambiguous (a human approves a named thing, not a basket), keeps one
-    request to one ledger row, and costs nothing in expressiveness: several
-    fields of the same secret are one request, and two different secrets nest —
-    ``secret-exec --env A=… -- secret-exec --env B=… -- cmd`` — which asks about
-    each of them separately, as it should.
+    Several secrets in one request are served together or not at all. Asking
+    about them one at a time would double the questions a human answers for a
+    single operation, and approval fatigue is what defeats a system like this
+    long before anything clever does. The card lists all of them, the most
+    restrictive policy governs the window, and a refusal on any one refuses the
+    whole request rather than handing back half an environment.
 
     ``command`` is not decoration. It is what the human is shown before
     deciding, and the only defence against a caller that asks for a secret in
@@ -155,14 +97,6 @@ class LeaseRequest:
     def names(self) -> tuple[str, ...]:
         """The distinct secret names asked for, in the order first requested."""
         return tuple(dict.fromkeys(ref.name for _, ref in self.bindings))
-
-    @property
-    def secret(self) -> str:
-        """The one secret this request is about."""
-        found = self.names
-        if len(found) != 1:
-            raise ValueError("a request names exactly one secret")
-        return found[0]
 
     @property
     def references(self) -> tuple[str, ...]:
@@ -186,21 +120,22 @@ class AgentPosters(Protocol):
 
     Declared here rather than imported from the interactions layer so the
     dependency runs one way: that layer routes the click that answers an
-    approval, and therefore knows about this package. ``AgentPresence``
-    satisfies this structurally, which is all the composition root has to pass.
+    approval, and therefore must not have to know about this one.
+    ``AgentPresence`` satisfies this structurally, which is all a composition
+    root has to pass.
     """
 
     def poster(self, agent: str) -> ChatClient | None: ...
 
 
 class SecretLeasing(Protocol):
-    """What the tool server needs from the broker.
+    """What the door needs from the broker.
 
-    Narrow on purpose. The server is reachable from inside the container, which
-    is where the agents are, so the only things exposed there are the two an
-    agent may legitimately trigger: asking for a secret, and — knowing the key —
-    unlocking the engine. Reading a list of names, writing a value or editing a
-    policy are operator verbs and have no route at all.
+    Narrow on purpose. Two of these three verbs are reachable by an agent, so
+    the only things exposed are what an agent may legitimately trigger: asking
+    for a secret, and — knowing the key — unlocking the broker. Reading a list
+    of names, writing a value or editing a policy are operator verbs and have no
+    route from an agent at all.
     """
 
     async def lease(self, request: LeaseRequest) -> LeaseResult: ...

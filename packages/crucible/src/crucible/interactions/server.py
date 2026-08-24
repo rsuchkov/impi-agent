@@ -14,11 +14,11 @@ from collections.abc import Callable
 
 from aiohttp import web
 
+from crucible.approvals import ApprovalOutcome
 from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import ActionResult, InteractionDispatcher
 from crucible.interactions.presence import AgentPresence
 from crucible.ports.chat.types import KIND_CHANNEL, KIND_THREAD
-from crucible.secrets.approvals import SecretApprovalOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 _BUTTONS_RETIRED_MESSAGE = "These buttons are no longer active."
 _AGENT_UNAVAILABLE_MESSAGE = "The agent is currently unavailable."
 _CHOSE_PREFIX = "Selected: "
-# Shown to whoever clicked a credential request they are not an approver for.
+# Shown to whoever clicked a request they are not an approver for.
 # Ephemeral: the card stays live for the person it was actually addressed to.
 _NOT_AN_APPROVER_MESSAGE = "Only an approver can answer that request."
 _COMMAND_ACK_MESSAGE = "Working on it — the answer will appear in this conversation."
@@ -128,19 +128,18 @@ class InteractionsServer:
         # platform->host hop is the usual failure point for widget callbacks).
         logger.info("interact callback: token=%s form=%s", cb.token, bool(cb.form_token))
 
-        # A request for a CREDENTIAL, answered by a named person. First, because
-        # it is the only click whose answer depends on WHO sent it: the blocking
-        # confirm below (ask_user_confirm, and the gate in front of a tool call)
-        # is addressed to the conversation and takes any click that carries its
-        # token. The broker rewrites its own card once it has the answer, so
-        # nothing is replaced from here.
-        if cb.secret_approval:
-            outcome = self._dispatcher.resolve_secret_approval(
-                cb.secret_approval, cb.value, cb.user_id
+        # A request for AUTHORIZATION — a credential, a gated tool call. First,
+        # because it is the only click whose answer may depend on WHO sent it;
+        # the blocking confirm below takes any click that carries its token and
+        # leaves nothing behind. Whatever raised the request rewrites its own
+        # card once it has the answer, so nothing is replaced from here.
+        if cb.approval:
+            outcome = self._dispatcher.resolve_approval(
+                cb.approval, cb.value, cb.user_id
             )
-            if outcome is SecretApprovalOutcome.NOT_ALLOWED:
+            if outcome is ApprovalOutcome.NOT_ALLOWED:
                 return web.json_response(self._codec.reply_notice(_NOT_AN_APPROVER_MESSAGE))
-            if outcome is SecretApprovalOutcome.RESOLVED:
+            if outcome is ApprovalOutcome.RESOLVED:
                 return web.json_response(self._codec.reply_none())
             return web.json_response(self._codec.reply_replace(_BUTTONS_RETIRED_MESSAGE))
 

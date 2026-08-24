@@ -7,7 +7,9 @@ can swap any concrete without touching the rest.
 
 crucible knows nothing about any specific application. The multi-agent app
 [`impi`](../impi) is the reference consumer: it composes crucible's pieces from
-its own settings into a running engine.
+its own settings into a running engine. [`ward`](../ward), the secret broker, is
+the second and much smaller one — a chat client, the approval primitive, a
+receiver and a store, and no runtime at all.
 
 ## What's inside
 
@@ -19,7 +21,11 @@ its own settings into a running engine.
 | Flows | `crucible.flows` | Conversation orchestration: `AgentFlow` (a batch → one reply), `MessageCoalescer`. |
 | Tools | `crucible.tools` | The typed-tool framework: `@tool` registry, capability gating, an HTTP tool-server. |
 | Interactions | `crucible.interactions` | The widget/form callback machinery (dispatcher, receiver, UI bridge). Stateless: reads an `AgentPresence` the app owns. |
-| Store | `crucible.store` | SQLite persistence for sessions, interactions, and forms. |
+| Approvals | `crucible.approvals` | Asking a human: who may answer, once / for a window / deny, and the containment that keeps a card's content from forging its structure. A leaf — it imports nothing else here. |
+| Store | `crucible.store` | SQLite persistence for sessions, interactions, forms, scheduled tasks, approval windows and the decision ledger. |
+| Scheduler | `crucible.scheduler` | One ticker over the task tables: cron and one-shot runs, through ports. |
+| Skills | `crucible.skills` | The shared skill library as a plain file store. |
+| Attachments | `crucible.attachments` | Incoming and outgoing files as a plain file store. |
 | Profiles | `crucible.profiles` | Load agent profiles from a directory into neutral `AgentSpec`s. |
 | Config | `crucible.config` | `Settings` (pydantic-settings); no module-level singleton. |
 
@@ -63,7 +69,10 @@ An application depends only on these; concretes are swappable behind them.
 The dependency direction is enforced mechanically by import-linter (`make lint`).
 The rules, in plain terms:
 
-- The library never imports the application.
+- The library never imports an application, and the applications never import
+  each other.
+- **Asking a human is a leaf** — the approval primitive knows no other layer, so
+  a tool call and a request for a credential can both use it.
 - The **core is platform-blind** — only the gateway adapters (and the app's
   composition root) may import a chat-platform SDK.
 - A **gateway** depends on chat ports only — not the runtime, flows, store, or profiles.

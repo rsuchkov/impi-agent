@@ -303,7 +303,11 @@ def test_an_engine_agent_is_told_where_the_engine_is_even_with_tools_off(
 
     env = wiring.profile_env(spec)
 
-    assert env == {"IMPI_ROOT": "/app", "AGENTS_PATH": "/app/agents"}
+    # Its own name travels whatever else does — enrolling is what tells an agent
+    # who it is, and that must not depend on whether it has typed tools.
+    assert env == {
+        "AGENT_NAME": "support", "IMPI_ROOT": "/app", "AGENTS_PATH": "/app/agents"
+    }
     assert wiring.profile_env(
         dataclasses.replace(spec, name="assistant")
     ) is None  # an ordinary agent still gets nothing
