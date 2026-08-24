@@ -198,7 +198,9 @@ def test_a_reloaded_profile_updates_the_servers_allowlist(tmp_path: Path) -> Non
     from crucible.tools.wiring import ToolWiring
 
     wiring = ToolWiring(
-        ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422),
+        ToolSettings(
+            enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900
+        ),
         data_dir=str(tmp_path), interactivity_on=True,
     )
     before = AgentSpec(
@@ -287,7 +289,9 @@ def test_an_engine_agent_is_told_where_the_engine_is_even_with_tools_off(
     from crucible.tools.wiring import ToolWiring
 
     wiring = ToolWiring(
-        ToolSettings(enabled=False, server_host="127.0.0.1", server_port=8422),
+        ToolSettings(
+            enabled=False, server_host="127.0.0.1", server_port=8422, max_grant_s=900
+        ),
         data_dir=str(tmp_path), interactivity_on=True,
     )
     spec = AgentSpec(

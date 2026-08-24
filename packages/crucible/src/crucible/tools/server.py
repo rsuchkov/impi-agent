@@ -27,6 +27,7 @@ from typing import Any
 
 from aiohttp import web
 
+from crucible.approvals.ports import ToolApproving
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
@@ -74,6 +75,7 @@ class ToolServer:
         task_svc: TaskService | None = None,
         session_resolver: SessionResolver | None = None,
         secret_svc: SecretLeasing | None = None,
+        tool_gate: ToolApproving | None = None,
     ) -> None:
         self._registry = registry
         self._directory = directory
@@ -88,6 +90,9 @@ class ToolServer:
         self._task_svc = task_svc
         self._session_resolver = session_resolver
         self._secret_svc = secret_svc
+        # Asks a human before a tool that declares it runs. See the note in
+        # interactions/toolgate.py for why the runtime-side gate is not enough.
+        self._tool_gate = tool_gate
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
@@ -146,6 +151,22 @@ class ToolServer:
             resolved = await self._session_resolver(runtime_session_id)
             if resolved is not None:
                 channel_id, user_id = resolved
+
+        # The confirmation a tool declares, enforced HERE and not only in the
+        # runtime's extension: the extension's gate can be walked around by
+        # anything in the agent's container that can reach this port, which is
+        # the same shell the agent runs commands in.
+        if tool.requires_confirmation:
+            if self._tool_gate is None:
+                # Fail closed. A composition with no way to ask cannot answer
+                # "yes" on a human's behalf, and the runtime's own backstop
+                # already refuses for the same reason.
+                logger.warning("tool %s needs a confirmation and there is no gate", tool.name)
+                return web.json_response({"error": "cannot be confirmed here"}, status=403)
+            if not await self._tool_gate.confirm(
+                agent, tool.name, args, runtime_session_id=runtime_session_id
+            ):
+                return web.json_response({"error": "declined by the user"}, status=403)
 
         ctx = ToolContext(
             agent_name=agent,

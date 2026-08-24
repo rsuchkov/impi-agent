@@ -14,6 +14,7 @@ import logging
 import secrets
 from pathlib import Path
 
+from crucible.approvals.ports import ToolApproving
 from crucible.config import ToolSettings
 from crucible.ports.agent import AgentSpec
 from crucible.ports.chat.admin import ChatAdmin
@@ -143,6 +144,7 @@ class ToolWiring:
         dotenv_path: str,
         session_resolver: SessionResolver | None = None,
         secret_svc: SecretLeasing | None = None,
+        tool_gate: ToolApproving | None = None,
     ) -> ToolServer | None:
         if self.registry is None:
             return None
@@ -160,4 +162,5 @@ class ToolWiring:
             task_svc=task_svc,
             session_resolver=session_resolver,
             secret_svc=secret_svc,
+            tool_gate=tool_gate,
         )

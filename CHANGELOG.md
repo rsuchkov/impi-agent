@@ -6,6 +6,14 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A tool's confirmation is now enforced by the engine, and can be given for a
+  while.** `requires_confirmation` was checked only in the runtime's extension,
+  and the token that extension authenticates with lives in the agent's own
+  environment — so a shell in that container could reach the tool server
+  directly and never see the question. The check now also happens in the server
+  that does the work, and fails closed where there is no way to ask. The same
+  card offers **Allow once** / **Allow for…** / **Deny**, so a human can stop
+  being asked every single time; `TOOL_MAX_GRANT_S` caps the window.
 - **Secrets an agent can use but never read.** An agent runs `secret-exec --env
   GITHUB_TOKEN=vault://github-token -- gh release create …`; you get a card in
   chat showing the agent, the secret, the reason and the exact command, and

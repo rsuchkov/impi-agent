@@ -39,6 +39,9 @@ class ToolSettings(BaseModel):
     enabled: bool
     server_host: str
     server_port: int
+    # Ceiling on "allow this tool for a while". Shorter than a secret's by
+    # default: leave bash open and you have left everything open.
+    max_grant_s: int
 
     @property
     def server_url(self) -> str:
@@ -207,6 +210,7 @@ class Settings(BaseSettings):
     tool_enabled: bool = True
     tool_server_host: str = "127.0.0.1"
     tool_server_port: int = 8422
+    tool_max_grant_s: int = 900
 
     # Widget callbacks. Binds 0.0.0.0; MM calls back over
     # host.containers.internal. env: INTEGRATIONS_*
@@ -362,6 +366,7 @@ class Settings(BaseSettings):
             enabled=self.tool_enabled,
             server_host=self.tool_server_host,
             server_port=self.tool_server_port,
+            max_grant_s=self.tool_max_grant_s,
         )
 
     @property

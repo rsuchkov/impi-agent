@@ -232,6 +232,16 @@ opens the store, and anything in `.env` is readable by every agent that can read
 only in memory) or through `SECRETS_SECRET_ID_FILE` — which is the convenient
 option and the weaker one, for exactly that reason.
 
+## Tool confirmations
+
+A tool that declares `requires_confirmation` is asked about before it runs, by
+the engine itself and not only by the runtime — a call that reaches the tool
+server directly is gated too.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TOOL_MAX_GRANT_S` | `900` | longest window a human may open for a gated tool (`0` = ask every time) |
+
 ## Logging
 
 | Variable | Default | Purpose |
