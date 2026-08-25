@@ -58,7 +58,7 @@ impi reload
 ```
 
 The first `impi start` builds the browser image, which takes a few minutes:
-Chrome is about 1.5 GB. While no page is open the container costs a few
+about 1 GB of it is Chrome. While no page is open the container costs a few
 megabytes — the relay alone — and Chrome starts on the first connection.
 
 ## What an agent runs
@@ -71,7 +71,7 @@ the engine:
 playwright-cli attach --cdp="$BROWSER_CDP_URL"
 playwright-cli goto https://example.com
 playwright-cli snapshot
-playwright-cli click e15
+playwright-cli click f3e6        # a ref from the snapshot
 playwright-cli detach
 ```
 
@@ -101,6 +101,14 @@ what not to type into it.
   product token, because headless Chrome is otherwise refused outright by a lot
   of sites. It is a deception, and a small one — but the skill tells agents to
   answer honestly when a site asks who they are.
+- **Chrome is not pinned, on purpose.** Google's repository carries exactly one
+  version, the current one, and a new stable lands about every four weeks — so a
+  pin resolves for two or three weeks and then fails every build after that. It
+  would not buy reproducibility either: the older version is simply gone, so two
+  people installing the same impi release a month apart cannot get the same
+  Chrome from this source. What did land is in the build log. Pin deliberately
+  with `IMPI_BROWSER_CHROME_VERSION` if you are chasing a specific bug, and
+  expect it to expire.
 - **Cookies survive a restart.** The profile is a volume. `impi` never clears
   it; removing the `browser-profile` volume is how you reset it.
 
@@ -112,7 +120,7 @@ this, the same way it has none for the secret store.
 | Variable | Default | What it does |
 |---|---|---|
 | `IMPI_BROWSER` | `0` | Whether the browser containers are part of the stack |
-| `IMPI_BROWSER_CHROME_VERSION` | the pin in the Dockerfile | Empty takes current stable — the way out when the pin expires |
+| `IMPI_BROWSER_CHROME_VERSION` | unset | Pin Chrome deliberately; unset takes current stable |
 | `IMPI_BROWSER_IDLE_TIMEOUT` | `5m` | How long Chrome stays up after the last client leaves |
 | `IMPI_BROWSER_WINDOW_SIZE` | `1440,900` | Viewport |
 | `IMPI_BROWSER_MEM_LIMIT` | `2g` | Container memory, including the 1 GB `/dev/shm` |
@@ -131,9 +139,8 @@ this, the same way it has none for the secret store.
   (its path in the overlay is absolute through `IMPI_HOME`; a relative one
   resolves against the wrong directory), or a nested user namespace was denied,
   which is the rootless-podman case.
-- **The image will not build, `apt-get` cannot find Chrome** — the pin expired.
-  Set `IMPI_BROWSER_CHROME_VERSION=` (empty) in `compose.env`, or bump the
-  `ARG CHROME_VERSION` in `deploy/Dockerfile.browser`.
+- **The image will not build, `apt-get` cannot find Chrome** — you pinned a
+  version and it expired. Clear `IMPI_BROWSER_CHROME_VERSION` in `compose.env`.
 - **The agent has the skill but never browses** — `impi skill list` shows who
   has it, and a running engine needs `impi reload`. A conversation already in
   flight keeps its old configuration until its session resets.

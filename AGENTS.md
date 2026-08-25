@@ -150,11 +150,6 @@ keep the suite green (`uv run pytest`), and keep `make lint` green before finish
   hit a bug: it went five releases describing an engine that no longer existed
   and answering 403 on tools the docs promised. A patch release does not need
   this; a minor or major one is exactly when the gap opens.
-- **Before a MINOR or MAJOR release, check the Chrome pin** in
-  `deploy/Dockerfile.browser`. Google's stable repository carries only the
-  current version, so a pin stops resolving a few weeks after the release that
-  set it and every rebuild of the browser image fails. Bump it, or confirm it
-  still installs.
 - **Write commit messages inline** with `git commit -m` (not `-F <file>`).
 - **State only what the change does** — concrete facts, not plans, discussion, or
   what was deferred. No verification either: test and lint counts describe the

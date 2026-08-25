@@ -17,13 +17,21 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/relay .
 # Debian is required to install Google's .deb.
 FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS main
 
-# Pinned so the image is reproducible. Bump deliberately, not by rebuilding.
+# Deliberately unpinned, which is the opposite of what the base images above do.
 #
-# Google's stable repository carries only the current version, so a pin stops
-# resolving a few weeks after the release that set it. An empty
-# IMPI_BROWSER_CHROME_VERSION in compose.env takes whatever stable is today,
-# which is the way out of that without editing this file.
-ARG CHROME_VERSION=151.0.7922.108-1
+# Google's stable repository carries exactly one version — the current one — and
+# a new stable lands about every four weeks. A pin therefore resolves for two or
+# three weeks and then fails every build that follows, which for an operator is
+# not a slightly-wrong version but an install that does not complete. It also
+# would not buy what pinning is for: two people installing the same impi release
+# a month apart cannot get the same Chrome from this source, because the older
+# one is simply gone.
+#
+# What actually lands is recorded: `google-chrome --version` at the end of this
+# step prints it into the build log. Set CHROME_VERSION (via
+# IMPI_BROWSER_CHROME_VERSION) to pin on purpose — to reproduce a bug — knowing
+# it will stop resolving.
+ARG CHROME_VERSION=
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -44,11 +52,10 @@ RUN set -eux; \
         fonts-noto-color-emoji \
         fonts-noto-cjk \
       || { \
-        echo "Chrome ${CHROME_VERSION} is not in Google's stable repository."; \
-        echo "That repository carries only the current version, so a pin expires."; \
-        echo "Either bump CHROME_VERSION in deploy/Dockerfile.browser, or set an"; \
-        echo "empty IMPI_BROWSER_CHROME_VERSION= in compose.env to take current"; \
-        echo "stable."; \
+        echo "Could not install google-chrome-stable${CHROME_VERSION:+=${CHROME_VERSION}}."; \
+        echo "If a version is named above: Google's repository carries only the"; \
+        echo "current one, so that pin has expired. Clear"; \
+        echo "IMPI_BROWSER_CHROME_VERSION in compose.env to take current stable."; \
         exit 1; \
       }; \
     apt-get purge -y --auto-remove curl gnupg; \

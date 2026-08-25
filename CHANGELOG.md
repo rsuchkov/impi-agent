@@ -25,6 +25,12 @@ when a release is cut, and `impi update` shows the target version's section.
   cookies are shared deployment-wide. See
   [docs/browsing.md](docs/browsing.md), which is explicit about all of it.
 
+  Chrome is deliberately not pinned. Google's repository carries exactly one
+  version and a new stable lands about every four weeks, so a pin resolves for
+  two or three weeks and then fails every build after it — and it would not buy
+  reproducibility anyway, because the older version is gone. What did land is in
+  the build log.
+
   Chrome's own sandbox stays engaged — the image never passes `--no-sandbox`,
   which would drop exactly the renderer isolation that matters when the renderer
   is parsing a stranger's HTML. The seccomp profile relaxes the four `CLONE_NEW*`

@@ -200,7 +200,7 @@ title "Web browsing"
 dim "A real Chrome your agents can drive: fetch a page and read it, follow links,"
 dim "fill a form, take a screenshot. It runs in a container of its own, on a"
 dim "network of its own, with a profile that starts empty — none of your sessions,"
-dim "none of your cookies. About 1.5 GB of disk; ~250 MB of RAM while a page is"
+dim "none of your cookies. About 1 GB of disk; ~250 MB of RAM while a page is"
 dim "open and nothing when idle."
 IMPI_BROWSER=${IMPI_BROWSER:-}
 confirm IMPI_BROWSER "Give your agents a browser?" n || true

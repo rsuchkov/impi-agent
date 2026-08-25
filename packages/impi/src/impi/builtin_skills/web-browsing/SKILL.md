@@ -55,19 +55,20 @@ playwright-cli detach
 ```bash
 playwright-cli goto https://example.com
 playwright-cli snapshot
-playwright-cli click e15
-playwright-cli fill e7 "text"
+playwright-cli click f3e6
+playwright-cli fill f3e4 "text"
 playwright-cli press Enter
 ```
 
 `snapshot` is the thing to lean on. It returns the page as an accessibility tree
-where every element carries a ref (`e15`), and those refs are what `click`,
+where every element carries a ref (`f3e6`), and those refs are what `click`,
 `fill`, `hover` and `select` take. **Use the ref from the snapshot. Never invent
 a CSS selector** — a ref names something that is demonstrably on the page, a
 guessed selector names something you hope is.
 
-A snapshot lands in a file and the command prints its path; read the file. After
-a click that navigates, take a new snapshot: the old refs are stale.
+A snapshot lands in a file and the command prints its path; read the file — the
+refs are in there, not in what the command printed. After anything that
+navigates, take a new snapshot: the old refs are stale.
 
 ## Long pages
 

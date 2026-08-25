@@ -28,9 +28,10 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.browser
       args:
-        # Empty takes current stable — the way out when the pin expires, which
-        # it does: Google's repository carries only the current version.
-        CHROME_VERSION: "${IMPI_BROWSER_CHROME_VERSION-151.0.7922.108-1}"
+        # Unset by default: see the note in deploy/Dockerfile.browser for why a
+        # pin cannot hold here. Set IMPI_BROWSER_CHROME_VERSION to pin
+        # deliberately — to reproduce something — and expect it to expire.
+        CHROME_VERSION: "${IMPI_BROWSER_CHROME_VERSION-}"
     image: localhost/impi-browser:local
     restart: unless-stopped
     # Chrome leaves helper processes behind when it is killed; PID 1 has to reap
@@ -46,6 +47,12 @@ services:
       - seccomp=${IMPI_HOME:?set in compose.env}/repo/deploy/seccomp/chrome.json
       - no-new-privileges:true
     cap_drop: ["ALL"]
+    # Chrome's sandbox chroots the zygote into an empty directory, and that is a
+    # capability, not a syscall the seccomp profile can wave through: with ALL
+    # dropped and nothing added back, the zygote dies with
+    # `Check failed: sys_chroot(...) == 0` and the browser never opens its port.
+    # This is the one capability it needs, and dropping the rest still holds.
+    cap_add: ["SYS_CHROOT"]
     # The default 64 MB /dev/shm crashes Chrome on heavy pages. Raising it is
     # more faithful than --disable-dev-shm-usage, which reroutes shared memory to
     # disk and changes the behaviour under test. It counts against mem_limit,
