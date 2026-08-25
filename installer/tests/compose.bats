@@ -53,6 +53,37 @@ setup() {
     [ "$output" = "deploy/compose.yaml deploy/compose.mattermost.yaml" ]
 }
 
+@test "the browser is its own axis too" {
+    COMPOSE_ROOTLESS=0
+    COMPOSE_VAULT=0
+    COMPOSE_BROWSER=1
+    run derive_compose_files codeploy
+    [ "$output" = "deploy/compose.yaml deploy/compose.mattermost.yaml deploy/compose.browser.yaml" ]
+}
+
+@test "the browser and the secret store are independent of each other" {
+    COMPOSE_ROOTLESS=0
+    COMPOSE_VAULT=1
+    COMPOSE_BROWSER=1
+    run derive_compose_files codeploy
+    [ "$output" = "deploy/compose.yaml deploy/compose.mattermost.yaml deploy/compose.ward.yaml deploy/compose.browser.yaml" ]
+}
+
+@test "every axis at once still puts podman last" {
+    COMPOSE_ROOTLESS=1
+    COMPOSE_VAULT=1
+    COMPOSE_BROWSER=1
+    run derive_compose_files external
+    [ "$output" = "deploy/compose.yaml deploy/compose.external-mm.yaml deploy/compose.ward.yaml deploy/compose.browser.yaml deploy/compose.podman.yaml deploy/compose.podman-ward.yaml" ]
+}
+
+@test "no browser means no browser overlay" {
+    COMPOSE_ROOTLESS=0
+    COMPOSE_BROWSER=0
+    run derive_compose_files codeploy
+    [ "$output" = "deploy/compose.yaml deploy/compose.mattermost.yaml" ]
+}
+
 @test "unknown mode dies" {
     COMPOSE_ROOTLESS=0
     run derive_compose_files nonsense

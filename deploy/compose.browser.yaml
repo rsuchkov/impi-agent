@@ -1,0 +1,84 @@
+# Overlay: a browser the agents can drive. An axis of its own, independent of
+# the chat platform and of the secret store.
+#
+# Real Chrome, headless, in a container of its own — a web page is untrusted
+# code and the engine is where the agents live. Two things make that separation
+# worth anything, and neither is inside the tool the agent runs:
+#
+#   * The profile starts empty and belongs to nobody. This is deliberately NOT
+#     the operator's browser: no session, cookie or saved password of theirs is
+#     reachable from here.
+#   * The browser sits on a network of its own. Everything else in this
+#     deployment — the chat server, the secret store — is on `default`, and a
+#     browser that could reach them would be an SSRF hop with an agent's hands
+#     on the wheel. The engine joins both networks, so it is the only thing that
+#     can reach this one.
+#
+# Anything the tool itself refuses (a scheme, a private address) is a guardrail
+# against accident, not a boundary: an agent with `bash` can speak CDP straight
+# to the port. The two above are the boundary.
+#
+# Chrome's own sandbox is engaged — the image never passes --no-sandbox — and
+# that needs four CLONE_NEW* flags Docker's default seccomp profile denies.
+# deploy/seccomp/chrome.json relaxes exactly those and nothing else.
+
+services:
+  browser:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.browser
+      args:
+        # Empty takes current stable — the way out when the pin expires, which
+        # it does: Google's repository carries only the current version.
+        CHROME_VERSION: "${IMPI_BROWSER_CHROME_VERSION-151.0.7922.108-1}"
+    image: localhost/impi-browser:local
+    restart: unless-stopped
+    # Chrome leaves helper processes behind when it is killed; PID 1 has to reap
+    # them or the container fills up with zombies over a long uptime.
+    init: true
+    # Its own network, and nothing published to the host: CDP is total control of
+    # the browser, and the engine reaches it by service name.
+    networks: [browser]
+    security_opt:
+      # Absolute, through IMPI_HOME: a relative path here is resolved against the
+      # project directory, which with a derived -f list is the directory of the
+      # FIRST compose file, not of this one.
+      - seccomp=${IMPI_HOME:?set in compose.env}/repo/deploy/seccomp/chrome.json
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    # The default 64 MB /dev/shm crashes Chrome on heavy pages. Raising it is
+    # more faithful than --disable-dev-shm-usage, which reroutes shared memory to
+    # disk and changes the behaviour under test. It counts against mem_limit,
+    # which is why that is 2g and not 1g.
+    shm_size: 1gb
+    mem_limit: "${IMPI_BROWSER_MEM_LIMIT:-2g}"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+      - /home/chrome:mode=0700,uid=10001,gid=10001,size=64m
+    volumes:
+      - browser-profile:/profile
+    environment:
+      CHROME_IDLE_TIMEOUT: "${IMPI_BROWSER_IDLE_TIMEOUT:-5m}"
+      CHROME_WINDOW_SIZE: "${IMPI_BROWSER_WINDOW_SIZE:-1440,900}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  impi:
+    # `default` is listed explicitly because naming any network at all takes a
+    # service off the implicit default — and the engine still needs the chat
+    # server, the secret broker and everything else that lives there.
+    networks: [default, browser]
+    environment:
+      # Read by the browser tool an agent runs. Agents inherit it because their
+      # processes inherit this container's environment.
+      BROWSER_CDP_URL: "http://browser:9222"
+
+networks:
+  browser:
+
+volumes:
+  browser-profile:

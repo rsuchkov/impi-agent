@@ -196,6 +196,15 @@ if [ "$IMPI_VAULT" = yes ]; then
     ask IMPI_SECRET_APPROVERS "Approvers" "${IMPI_MM_ADMIN_USER:-}"
 fi
 
+title "Web browsing"
+dim "A real Chrome your agents can drive: fetch a page and read it, follow links,"
+dim "fill a form, take a screenshot. It runs in a container of its own, on a"
+dim "network of its own, with a profile that starts empty — none of your sessions,"
+dim "none of your cookies. About 1.5 GB of disk; ~250 MB of RAM while a page is"
+dim "open and nothing when idle."
+IMPI_BROWSER=${IMPI_BROWSER:-}
+confirm IMPI_BROWSER "Give your agents a browser?" n || true
+
 title "Model backend"
 if [ -z "${IMPI_LLM_MODE:-}" ]; then
     CHOICE_LLM=""
@@ -243,6 +252,7 @@ if [ "${IMPI_VAULT:-no}" = yes ]; then
 else
     say "  Secret store      : no"
 fi
+say "  Web browsing      : ${IMPI_BROWSER:-no}"
 if [ "$IMPI_LLM_MODE" = subscription ]; then
     say "  Model backend     : subscription login (provider: ${IMPI_DEFAULT_PROVIDER:-whatever you log in with}, model: ${IMPI_DEFAULT_MODEL:-its default})"
 else
@@ -285,6 +295,7 @@ env_set IMPI_COMPOSE_ROOTLESS "$COMPOSE_ROOTLESS" "$COMPOSE_ENV"
 # Its own axis, like rootless: the wrapper sources this file, so `impi …`
 # derives the same file list the install used.
 env_set IMPI_VAULT "$([ "${IMPI_VAULT:-no}" = yes ] && echo 1 || echo 0)" "$COMPOSE_ENV"
+env_set IMPI_BROWSER "$([ "${IMPI_BROWSER:-no}" = yes ] && echo 1 || echo 0)" "$COMPOSE_ENV"
 env_set IMPI_MM_PORT "${IMPI_MM_PORT:-8065}" "$COMPOSE_ENV"
 env_set IMPI_INTEGRATIONS_PORT "$IMPI_INTEGRATIONS_PORT" "$COMPOSE_ENV"
 env_set IMPI_VERSION_INSTALLED "v$VERSION" "$COMPOSE_ENV"
@@ -371,6 +382,10 @@ if command -v git >/dev/null 2>&1; then
 fi
 
 run_step "Building the impi image (a few minutes on first run)" compose build impi || die "build failed"
+if [ "${IMPI_BROWSER:-no}" = yes ]; then
+    run_step "Building the browser image (Chrome; several minutes)" \
+        compose build browser || die "browser build failed"
+fi
 
 if [ "$IMPI_MM_MODE" = codeploy ]; then
     run_step "Starting Mattermost + Postgres" compose up -d db mattermost || die "could not start Mattermost"
@@ -427,6 +442,17 @@ else
             --gateway slack --slack-bot-token "$IMPI_SLACK_BOT_TOKEN" \
             --slack-app-token "$IMPI_SLACK_APP_TOKEN" --yes \
         || die "agent provisioning failed"
+fi
+
+# The browser is no use to an agent that was never told it exists: an agent
+# cannot discover a tool, only be handed one.
+if [ "${IMPI_BROWSER:-no}" = yes ]; then
+    run_step "Installing the web-browsing skill" \
+        compose run --rm -T impi impi skill install --bundled web-browsing --yes \
+        || bad "could not install the web-browsing skill — \`impi skill install --bundled web-browsing\`"
+    run_step "Giving it to '$IMPI_FIRST_AGENT'" \
+        compose run --rm -T impi impi skill assign web-browsing "$IMPI_FIRST_AGENT" --yes \
+        || bad "could not assign the skill — \`impi skill assign web-browsing $IMPI_FIRST_AGENT\`"
 fi
 
 if [ "$IMPI_LLM_MODE" = subscription ]; then

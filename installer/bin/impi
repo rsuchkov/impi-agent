@@ -383,6 +383,28 @@ cmd_doctor() {
     # The store, when there is one: locked and open look identical from outside,
     # and a locked store refuses every agent until somebody unlocks it.
     [ "${IMPI_VAULT:-0}" = 1 ] && { compose run --rm -T ward-admin ward-admin status || true; }
+    # The browser, when there is one. This walks the whole path an agent walks —
+    # engine container, the browser network, the relay, Chrome — and reports what
+    # Chrome says it is. Probing the relay alone would only prove the half that
+    # does not break. httpx rather than curl: the engine's image has no curl.
+    if [ "${IMPI_BROWSER:-0}" = 1 ]; then
+        # shellcheck disable=SC2016  # the body is Python, not shell: nothing in
+        # it is meant to expand here, and the backticks are message text.
+        compose run --rm -T impi python3 -c '
+import os, sys, httpx
+url = os.environ.get("BROWSER_CDP_URL")
+if not url:
+    print("\u2718 browser: BROWSER_CDP_URL is unset — the overlay did not merge")
+    sys.exit(0)
+try:
+    info = httpx.get(f"{url}/json/version", timeout=20).json()
+except Exception as exc:
+    print(f"\u2718 browser: no answer at {url} ({type(exc).__name__}) — see `impi logs browser`")
+    sys.exit(0)
+name = info.get("Browser", "?")
+print(f"\u2714 browser: {name} at {url}")
+' || true
+    fi
     return 0
 }
 

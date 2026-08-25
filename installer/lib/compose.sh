@@ -11,6 +11,8 @@ COMPOSE_ROOTLESS=0
 # Whether this deployment runs a Vault for the secret broker. An axis of its own,
 # independent of the chat platform.
 COMPOSE_VAULT=0
+# Whether this deployment runs a browser for the agents. Another such axis.
+COMPOSE_BROWSER=0
 
 has_docker_compose() { docker compose version >/dev/null 2>&1; }
 has_podman_compose() { podman compose version >/dev/null 2>&1; }
@@ -71,6 +73,7 @@ derive_compose_files() {
         *) die "derive_compose_files: unknown mode $1" ;;
     esac
     [ "${COMPOSE_VAULT:-0}" = 1 ] && files="$files deploy/compose.ward.yaml"
+    [ "${COMPOSE_BROWSER:-0}" = 1 ] && files="$files deploy/compose.browser.yaml"
     [ "$COMPOSE_ROOTLESS" = 1 ] && files="$files deploy/compose.podman.yaml"
     # The one file that belongs to both axes: it maps the broker's user, and the
     # broker exists only when the store does.
@@ -85,12 +88,12 @@ derive_compose_files() {
 # `compose build` would also build whatever a drop-in adds, which is not this
 # script's decision to make.
 build_services() {
+    local _services="impi"
     [ -n "${IMPI_VAULT:-}" ] && COMPOSE_VAULT=$IMPI_VAULT
-    if [ "${COMPOSE_VAULT:-0}" = 1 ]; then
-        printf 'impi ward\n'
-    else
-        printf 'impi\n'
-    fi
+    [ -n "${IMPI_BROWSER:-}" ] && COMPOSE_BROWSER=$IMPI_BROWSER
+    [ "${COMPOSE_VAULT:-0}" = 1 ] && _services="$_services ward"
+    [ "${COMPOSE_BROWSER:-0}" = 1 ] && _services="$_services browser"
+    printf '%s\n' "$_services"
 }
 
 # infer_mode_from_files FILES -> codeploy | external | slack. Reads the mode back
@@ -114,6 +117,7 @@ compose_files() {
     # Same shape: recorded in compose.env for an installed deployment, set by the
     # installer's own question during an install.
     [ -n "${IMPI_VAULT:-}" ] && COMPOSE_VAULT=$IMPI_VAULT
+    [ -n "${IMPI_BROWSER:-}" ] && COMPOSE_BROWSER=$IMPI_BROWSER
     for _f in $(derive_compose_files "$1"); do
         printf '%s\n' "$IMPI_HOME/repo/$_f"
     done
