@@ -6,7 +6,31 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A browser your agents can drive.** Optional, off by default, and its own
+  axis: `IMPI_BROWSER=1` adds a real headless Chrome in a container of its own,
+  fronted by a small relay that starts it on the first connection and stops it
+  once nothing has been attached for the idle timeout — so an idle deployment
+  pays a few megabytes rather than Chrome's. Agents run `playwright-cli`, which
+  ships in the engine's image and attaches over CDP; `snapshot` hands the model
+  an accessibility tree with a ref on every element, so it clicks something the
+  page demonstrably has instead of guessing a selector.
+
+  Two things make handing an agent a browser survivable, and neither is inside
+  the tool it runs: the profile starts empty and belongs to nobody — none of the
+  operator's sessions or cookies are reachable from it — and the browser sits on
+  a network of its own, so a page cannot be used as a hop into the chat server
+  or the secret store. Anything `playwright-cli` itself refuses is a guardrail
+  against accident, not a boundary: CDP is total control and an agent with
+  `bash` can speak it directly. One browser serves every agent, so its tabs and
+  cookies are shared deployment-wide. See
+  [docs/browsing.md](docs/browsing.md), which is explicit about all of it.
+
+  Chrome's own sandbox stays engaged — the image never passes `--no-sandbox`,
+  which would drop exactly the renderer isolation that matters when the renderer
+  is parsing a stranger's HTML. The seccomp profile relaxes the four `CLONE_NEW*`
+  flags that needs and nothing else.
+- **`impi skill install --bundled <name>`** installs a skill that ships with
+  impi, without a path to type. The first one is **web-browsing**.
 
 ## v0.13.1 — 2026-08-25
 

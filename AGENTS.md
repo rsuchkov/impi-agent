@@ -22,17 +22,23 @@ engine never calls an LLM directly — every agent turn is delegated to the exte
 | `make reload` | hot-reload agent profiles (re-read every `agent.yaml` + `.pi/`) |
 | `make test` | `uv run pytest` |
 | `make lint` | ruff + import-linter (layer boundaries) + pyright |
+| `make relay-lint` | `go vet` + `gofmt` over the browser relay (skipped without Go) |
+| `make relay-test` | `go test -race` over the browser relay (skipped without Go) |
 | `make installer-lint` | shellcheck + `bash -n` over `install.sh` / `installer/` |
 | `make installer-test` | bats unit tests for the installer libraries |
 | `make e2e-install` | full throwaway compose install (Linux; slow, needs podman/docker) |
 
 Run `make lint` and `make test` before considering a change done; both must be
 green. Touching `install.sh`, `installer/`, or `deploy/` additionally requires a
-green `make installer-lint` + `make installer-test`.
+green `make installer-lint` + `make installer-test`; touching
+`packages/browser-relay` requires `make relay-lint` + `make relay-test`. The
+browser image build runs the relay's vet and tests too, so a release is covered
+on a machine with no Go toolchain — but not before the image is built.
 
 ## Project structure
 
-A [uv](https://docs.astral.sh/uv/) workspace of four packages:
+A [uv](https://docs.astral.sh/uv/) workspace of four Python packages, plus one
+Go program that lives beside them because it is application code like they are:
 
 - **`packages/crucible`** — the reusable agent-runtime library (gateways, the `pi`
   driver, tools, interactivity, storage, and the neutral ports). Application-agnostic.
@@ -48,6 +54,13 @@ A [uv](https://docs.astral.sh/uv/) workspace of four packages:
   It ships in the engine's image (agents need it on their PATH) and imports
   nothing else in the workspace — the engine knows the protocol exists only in
   the sense that it installs the package.
+
+- **`packages/browser-relay`** — the browser container's front door, in Go: it
+  fronts Chrome's CDP port on a routable address, starts Chrome on the first
+  client and stops it once the last one has been gone for the idle timeout, and
+  answers its own health endpoint without waking it. Excluded from the uv
+  workspace in the root `pyproject.toml`, since the `packages/*` glob would
+  otherwise demand a `pyproject.toml` from it.
 
 Alongside the packages (deliberately not intertwined with them):
 
@@ -137,6 +150,11 @@ keep the suite green (`uv run pytest`), and keep `make lint` green before finish
   hit a bug: it went five releases describing an engine that no longer existed
   and answering 403 on tools the docs promised. A patch release does not need
   this; a minor or major one is exactly when the gap opens.
+- **Before a MINOR or MAJOR release, check the Chrome pin** in
+  `deploy/Dockerfile.browser`. Google's stable repository carries only the
+  current version, so a pin stops resolving a few weeks after the release that
+  set it and every rebuild of the browser image fails. Bump it, or confirm it
+  still installs.
 - **Write commit messages inline** with `git commit -m` (not `-F <file>`).
 - **State only what the change does** — concrete facts, not plans, discussion, or
   what was deferred. No verification either: test and lint counts describe the
@@ -159,6 +177,10 @@ Create a bot account, copy its token, and put it in `.env`. See
 
 - **[uv](https://docs.astral.sh/uv/)** and **Python 3.13** (`.python-version`).
 - The **`pi` CLI on `PATH`**: `npm i -g @earendil-works/pi-coding-agent` (needs Node.js).
+- For an agent with the web-browsing skill, the **`playwright-cli` on `PATH`**:
+  `npm i -g @playwright/cli`. The engine's image installs it; a `make run` on the
+  host does not, so an agent that browses would fail there with nothing to point
+  at. It also needs a browser to attach to — see [docs/browsing.md](docs/browsing.md).
 - Configuration is pydantic-settings (`packages/*/src/*/config.py`); secrets live in
   `.env` (git-ignored), templated by `.env.example`. Full reference:
   [docs/configuration.md](docs/configuration.md).
