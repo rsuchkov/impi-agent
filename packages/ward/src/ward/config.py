@@ -59,6 +59,10 @@ class WardSettings(BaseSettings):
     approval_channel: str = ""  # "" = a direct message to the first approver
     approval_timeout_s: float = 120.0
     max_grant_s: int = 3600
+    # How long a run of automatic grants folds into one notice. A scheduled task
+    # would otherwise turn the approver's messages into a feed, and a notice
+    # nobody reads is the same as no notice.
+    notice_fold_s: float = 900.0
 
     # The slash command's tokens (CSV), as Mattermost minted them when the
     # command was registered. Empty = no operator surface in chat at all: the

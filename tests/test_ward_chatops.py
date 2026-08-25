@@ -489,3 +489,100 @@ async def test_what_an_operator_did_is_readable_afterwards(tmp_path: Path) -> No
         assert "unlock" in text and OPERATOR in text and "(operator)" in text
     finally:
         await store.close()
+
+
+# -- editing a policy from chat -------------------------------------------------------
+
+
+async def _policy_form(screen, store, name: str = "github-token") -> str:
+    """Open the Edit modal on a secret and return its form token."""
+    view = await screen.render(
+        ScreenState(screen="ward", data={"view": "secrets"}), user_id=OPERATOR
+    )
+    button = next(a for a in _actions(view) if a.id == f"ed-{name}")
+    return str(button.context["form"])
+
+
+async def _stored(tmp_path: Path, store, **over) -> None:
+    base = dict(
+        name="github-token", approval="always", max_grant_s=900,
+        subjects="assistant", description="", created_at=T0, updated_at=T0,
+    )
+    base.update(over)
+    await store.put_policy(SecretPolicyRecord(**base))  # type: ignore[arg-type]
+
+
+async def test_a_policy_is_edited_from_the_card(tmp_path: Path) -> None:
+    screen, forms, store, _broker, chat, backend = await _rig(tmp_path)
+    try:
+        backend.values["github-token"] = {"value": "x"}
+        await _stored(tmp_path, store)
+        token = await _policy_form(screen, store)
+
+        await _handle(forms, store, token, {
+            "subjects": "assistant, builder",
+            "auto_commands": "gh release create *",
+        }, OPERATOR)
+
+        saved = await store.get_policy("github-token")
+        assert saved is not None
+        assert saved.subjects == "assistant, builder"
+        assert saved.rules == (("gh", "release", "create", "*"),)
+        # Approval and window were not touched, so they are as they were.
+        assert saved.approval == "always" and saved.max_grant_s == 900
+    finally:
+        await store.close()
+
+
+async def test_an_unreadable_rule_leaves_the_policy_alone(tmp_path: Path) -> None:
+    """A rule that cannot be read would be a rule that silently never fires, so
+    it is refused before the store sees it — and refusing must not half-apply
+    the rest of the form."""
+    screen, forms, store, _broker, chat, backend = await _rig(tmp_path)
+    try:
+        backend.values["github-token"] = {"value": "x"}
+        await _stored(tmp_path, store)
+        token = await _policy_form(screen, store)
+
+        await _handle(forms, store, token, {
+            "subjects": "everyone", "auto_commands": "*",
+        }, OPERATOR)
+
+        saved = await store.get_policy("github-token")
+        assert saved is not None and saved.subjects == "assistant"  # untouched
+        assert "never" in chat.posted[-1][1]  # and told why
+    finally:
+        await store.close()
+
+
+async def test_the_change_is_recorded_with_what_it_changed(tmp_path: Path) -> None:
+    """Handing an agent access from a chat session has to be answerable
+    afterwards, and the diff is the whole of that answer."""
+    screen, forms, store, _broker, _chat, backend = await _rig(tmp_path)
+    try:
+        backend.values["github-token"] = {"value": "x"}
+        await _stored(tmp_path, store)
+        token = await _policy_form(screen, store)
+
+        await _handle(forms, store, token, {"subjects": "builder"}, OPERATOR)
+
+        row = (await store.list_audit(limit=1, kind=KIND_OPERATOR))[0]
+        assert row.principal == OPERATOR and row.decision == "policy"
+        assert "assistant" in row.scope and "builder" in row.scope
+    finally:
+        await store.close()
+
+
+async def test_a_stranger_cannot_edit_a_policy(tmp_path: Path) -> None:
+    screen, forms, store, _broker, _chat, backend = await _rig(tmp_path)
+    try:
+        backend.values["github-token"] = {"value": "x"}
+        await _stored(tmp_path, store)
+        token = await _policy_form(screen, store)
+
+        await _handle(forms, store, token, {"subjects": "attacker"}, STRANGER)
+
+        saved = await store.get_policy("github-token")
+        assert saved is not None and saved.subjects == "assistant"
+    finally:
+        await store.close()

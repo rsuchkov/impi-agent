@@ -27,25 +27,27 @@ Worth reading before you rely on it.
 
 **It protects** the value from ever reaching the model: not in the context
 window, not in the pi session history, not in the engine's logs, not at the
-model provider. It makes every use visible — a request nobody approves is a
-request that doesn't happen — and it leaves a ledger row for every attempt,
-including the refused ones.
+model provider. Every use leaves a ledger row, including the refused ones, and
+every use is either approved by a human or reported to one.
 
 **It limits, but does not undo,** a compromised engine. The broker runs in its
 own container with the store's credential, and the engine has none — so taking
 the engine no longer means taking the secrets silently. What it still means is
 being able to *ask*: a compromised engine can make requests as any agent it
-runs, with a reason and a command of its choosing. Every one of them is a card
-somebody has to read and click, and a row in the ledger.
+runs, with a reason and a command of its choosing. Each of those is a card
+somebody has to read and click — **unless an auto-rule covers the command it
+claims**, in which case it is a message somebody may read afterwards. That is
+the trade a rule makes, and the reason to write them narrowly.
 
 **It does not protect** an agent's own container from itself. The engine and the
 agents' shells still run as the same user there, and the certificate an agent
 proves itself with has to be readable for `secret-exec` to use it — so anything
 else in that container can present it too, including another agent: every
-identity is mounted in the same directory. What that buys today is that nothing
-*outside* that container can present one at all. Telling agents apart becomes a
-real boundary the day they get containers of their own; the per-agent
-certificate is what makes that a move rather than a rewrite.
+agent's identity is mounted in the same directory. (The operator's is not: that
+one lives where no agent runs.) What that buys today is that nothing *outside*
+that container can present one at all. Telling agents apart becomes a real
+boundary the day they get containers of their own; the per-agent certificate is
+what makes that a move rather than a rewrite.
 
 Three consequences worth stating plainly:
 
@@ -179,6 +181,9 @@ impi ward policy set github-token \
   nightly task needs) and asks nobody, ever.
 - `--max-grant` is the longest window a human may leave open from the card. `0`
   means no window at all: every single use is asked about.
+- `--auto` names a command this secret may be taken for with no card at all —
+  see [below](#letting-a-command-through-without-asking). Repeatable, and it
+  narrows the automatic case rather than widening who may ask.
 
 A multi-field secret is one secret:
 
@@ -200,7 +205,7 @@ approval replaces itself with `command`, with the values bound to the named
 environment variables. It never prints a value.
 
 There is **no way to list what exists**. A list of names is a list of things to
-try, so there is no `ls` for an agent and no route on the engine that would
+try, so there is no `ls` for an agent and no route on the broker that would
 answer one. An agent either knows the reference it needs — from its own
 `SYSTEM.md`, a skill, or a person telling it — or it does not.
 
@@ -230,6 +235,72 @@ Tell an agent about a secret in its profile or a skill, e.g.:
 
 > To publish a release, run:
 > `secret-exec --env GITHUB_TOKEN=vault://github-token --reason "<why>" -- gh release create …`
+
+## Letting a command through without asking
+
+A policy had two settings and nothing between them: ask every time, or never
+ask. An agent that runs one known script on a schedule fits neither — it either
+wears you out or gets a credential for anything it cares to do with it.
+
+A rule is the middle:
+
+```bash
+impi ward policy set kadence-token --subjects assistant \
+    --auto 'python kadence.py *'
+```
+
+Now `secret-exec … -- python kadence.py --sync` is served without a card, and
+you get a message instead:
+
+```
+🤖 assistant took a secret automatically.
+   Secret: vault://kadence-token
+   Rule:   python kadence.py *
+   Command:
+   python kadence.py --sync
+```
+
+A run of those folds into the one message rather than filling the conversation
+(`WARD_NOTICE_FOLD_S`, 15 minutes by default). Anything the rules do not cover —
+`curl`, a different script, an extra argument where the rule has none — still
+produces a card.
+
+Matching is by argument, not by text: a trailing `*` means "and any arguments",
+and it is the only wildcard. `python3` does not match a rule written for
+`python`, and neither does `sh -c 'python kadence.py'`. A rule of just `*` is
+refused, because it would be `--approval never` wearing a rule's clothes.
+
+**What a rule is worth, exactly.** `secret-exec` replaces itself with the argv it
+declared, so for anything going through it the declared command is the command
+that runs: to put a token into `curl` a model must say `curl`, and that gets a
+card. The rule binds the model.
+
+It does not bind an attacker. The certificate an agent proves itself with is
+readable by everything in its container and the protocol is HTTPS and JSON, so
+anything alongside the agent can claim whatever argv it likes. **A rule narrows
+what an honest caller may do quietly; against a compromised container it is
+worth nothing.** And an agent that can write files can rewrite the very script a
+rule allows — the rule will still match.
+
+So: a rule is a good way to make `--approval never` narrower and visible. It is
+a bad way to stop being asked about something you wanted to be asked about.
+
+## What being an approver means
+
+Worth stating plainly, because it was true before any of this and the docs did
+not say it: **`WARD_APPROVERS` is effectively access to every secret some agent
+may reach.** An approver can tell an agent to run something, and then approve the
+card that arrives. The card shows the command, but the person reading it is the
+person who asked for it.
+
+The remaining limit is `subjects` — an agent that is not on a secret's list
+cannot ask for it at all. Editing a policy removes that limit, which is why
+every policy change made from chat is recorded with the user id that made it and
+what it changed (`impi ward audit --kind operator`).
+
+Nothing in the chat surface hands a credential back, and nothing there reads a
+value. That is the property being protected; the rest is a matter of who you put
+on the list.
 
 ## Approving
 
@@ -275,6 +346,7 @@ that work" is always greppable:
 | `approved_grant` | a human opened a window; this call used it |
 | `reused_grant` | served by a window opened earlier |
 | `auto` | the policy says `approval: never` |
+| `auto_command` | an auto-rule covered the command; the row's reason names which |
 | `denied` | a human refused |
 | `timeout` | nobody answered in time |
 | `no_policy` | nothing is configured under that name |
@@ -316,8 +388,10 @@ until you turn it on.
   field, so that putting the key to the whole store through a chat platform is
   a thing you choose, not a field you happen to fill in.
 - **Store a secret** takes a name and a value in a modal.
-- **Secrets**, **Windows**, **Ledger** are read-only; Windows has a Revoke
-  button on each open window.
+- **Secrets** lists what is stored, with an **Edit** button per secret: subjects,
+  approval, window and auto-rules in one modal. Every change is recorded against
+  whoever made it — `impi ward audit --kind operator`.
+- **Windows** has a Revoke button on each open window; **Ledger** is read-only.
 
 Three rules the surface holds to:
 
@@ -339,11 +413,16 @@ who sent it.
 
 **What it costs, plainly.** Administering the broker stops being "holds a
 private key on a machine" and becomes "is logged into a chat account". A stolen
-session can store values, close windows and open the store; it cannot read a
-value, because no route does. And anything typed into a modal has passed through
-Mattermost — for the credential that is recoverable (`impi ward rotate`), for the
-unseal key it is not. Every action lands in the ledger with the user id that did
-it: `impi ward audit --kind operator`.
+session can store values, close windows, open the store and **rewrite a
+policy** — which is the one that matters, because a policy decides who may reach
+what. It still cannot read a value: no route does. See
+[what being an approver means](#what-being-an-approver-means) for where that
+leaves the role.
+
+Anything typed into a modal has passed through Mattermost — for the credential
+that is recoverable (`impi ward rotate`), for the unseal key it is not. Every
+action lands in the ledger with the user id that did it and, for a policy, with
+what changed: `impi ward audit --kind operator`.
 
 ## Replacing the broker's credential
 

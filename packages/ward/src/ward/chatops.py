@@ -29,20 +29,34 @@ import logging
 import secrets as tokens
 from collections.abc import Mapping
 from datetime import datetime, timezone
+from typing import Any
 
+from crucible.approvals import GRANT_LADDER, humanize
 from crucible.approvals.card import one_line
 from crucible.interactions.screens import ScreenState, View, screen_action
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.interactions import form_to_json
-from crucible.ports.chat.types import Action, Card, ConversationRef, Form, FormField
+from crucible.ports.chat.types import (
+    Action,
+    Card,
+    ConversationRef,
+    Form,
+    FormField,
+)
 from crucible.store.base import ApprovalAudit, ApprovalStore, FormRecord, FormStore
 from ward.approvers import Approvers
+from ward.autorules import RuleError, parse
 from ward.decisions import KIND_OPERATOR
 from ward.operations import Operations
 from ward.ports import SecretBackendError, SecretLeasing, UnlockMaterial
+from wardline.wire import APPROVAL_ALWAYS, APPROVALS
 
 logger = logging.getLogger(__name__)
+
+# Mattermost refuses a dialog whose title is too long, and a secret's name is a
+# caller-supplied-ish string that lands in one.
+_TITLE_MAX = 24
 
 COMMAND = "ward"
 
@@ -55,9 +69,16 @@ _VIEW = "view"
 _MENU, _SECRETS, _WINDOWS, _LEDGER = "", "secrets", "windows", "ledger"
 _REVOKE = "revoke"
 
+# The verb prefix an Edit button carries, so the handler knows which secret's
+# policy came back — a modal has no other way to say what it was opened for.
+_POLICY = "policy"
+
 # Field names inside the modals, and the two that carry material.
 _F_UNSEAL, _F_SECRET_ID = "unseal_key", "secret_id"
 _F_NAME, _F_VALUE = "name", "value"
+_F_SUBJECTS, _F_APPROVAL, _F_GRANT, _F_RULES = (
+    "subjects", "approval", "max_grant", "auto_commands"
+)
 
 # How much of a list a card shows. A phone is the point of this surface, and a
 # hundred rows on a phone is a wall nobody reads.
@@ -123,7 +144,7 @@ class WardScreen:
     async def render(self, state: ScreenState, *, user_id: str) -> View:
         view = str(state.data.get(_VIEW) or _MENU)
         if view == _SECRETS:
-            return await self._secrets(state)
+            return await self._secrets(state, user_id)
         if view == _WINDOWS:
             return await self._windows(state, user_id)
         if view == _LEDGER:
@@ -181,22 +202,35 @@ class WardScreen:
         ))
         return View.of(f"{headline}{detail}", tuple(actions))
 
-    async def _secrets(self, state: ScreenState) -> View:
+    async def _secrets(self, state: ScreenState, user_id: str) -> View:
         answer = await self._ops.list_secrets()
         if answer.get("error"):
             return self._back(state, f"🔴 {one_line(str(answer['error']))}")
         entries = answer.get("secrets") or []
         if not entries:
             return self._back(state, "No secrets stored yet.")
-        lines = []
+        cards: list[Card] = []
         for entry in entries[:_LIMIT]:
-            policy = entry.get("policy")
-            if policy is None or not policy.get("subjects"):
+            name = str(entry["name"])
+            policy = entry.get("policy") or {}
+            if not policy or not policy.get("subjects"):
                 note = "_unreachable by every agent_"
             else:
-                note = f"{policy['approval']}, for: {one_line(str(policy['subjects']))}"
-            lines.append(f"• `{one_line(str(entry['name']))}` — {note}")
-        return self._back(state, "\n".join(_capped(lines, len(entries))))
+                rules = policy.get("auto_commands") or []
+                automatic = f", {len(rules)} auto-rule(s)" if rules else ""
+                note = (
+                    f"{policy['approval']}{automatic}, "
+                    f"for: {one_line(str(policy['subjects']))}"
+                )
+            edit = await self._form_action(
+                state, user_id, id=f"ed-{name}", label="Edit",
+                form=_policy_form(name, policy), verb=f"{_POLICY}:{name}",
+            )
+            cards.append(Card(text=f"`{one_line(name)}` — {note}", actions=(edit,)))
+        if len(entries) > _LIMIT:
+            cards.append(Card(text=_capped_note(len(entries) - _LIMIT)))
+        cards.append(Card(text="", actions=(self._home(state),)))
+        return View(cards=tuple(cards))
 
     async def _windows(self, state: ScreenState, user_id: str) -> View:
         # A click may carry a window to close; do that first, then redraw the
@@ -246,7 +280,8 @@ class WardScreen:
     # -- modals ---------------------------------------------------------------
 
     async def _form_action(
-        self, state: ScreenState, user_id: str, *, id: str, label: str, form: Form
+        self, state: ScreenState, user_id: str, *, id: str, label: str, form: Form,
+        verb: str = "",
     ) -> Action:
         """A button that opens a modal rather than redrawing.
 
@@ -271,7 +306,7 @@ class WardScreen:
                 handler=HANDLER,
             )
         )
-        self._pending.register(token, id)
+        self._pending.register(token, verb or id)
         return Action(id=id, label=label, context={"form": token})
 
 
@@ -318,10 +353,83 @@ def _store_form() -> Form:
     )
 
 
-def _capped(lines: list[str], total: int) -> list[str]:
-    if total > len(lines):
-        lines = [*lines, f"_…and {total - len(lines)} more — `impi ward ls` shows them all._"]
-    return lines
+def _policy_form(name: str, policy: dict[str, Any]) -> Form:
+    """Who may reach a secret, and on what terms — every field at once.
+
+    All of it in one modal rather than a field at a time: subjects and rules
+    decide the same question from two directions, and editing one without seeing
+    the other is how a policy ends up meaning something nobody intended.
+    """
+    grant = int(policy.get("max_grant_s") or 0)
+    return Form(
+        title=f"Policy for {name}"[:_TITLE_MAX],
+        intro="Empty fields are left as they are.",
+        submit_label="Save",
+        fields=(
+            FormField(
+                name=_F_SUBJECTS, label="Agents that may ask (comma separated)",
+                type="text", optional=True,
+                placeholder=str(policy.get("subjects") or "nobody yet"),
+            ),
+            FormField(
+                name=_F_APPROVAL, label="Approval", type="select", optional=True,
+                options=APPROVALS,
+                placeholder=str(policy.get("approval") or APPROVAL_ALWAYS),
+            ),
+            FormField(
+                name=_F_GRANT, label="Longest window a human may open",
+                type="select", optional=True,
+                # Seconds as the operator reads them; parsed back on submit. A
+                # select spares them the "is 900 minutes or seconds" question
+                # that a free-text duration always raises.
+                options=("none", *(humanize(s) for s in GRANT_LADDER)),
+                placeholder=humanize(grant) if grant else "none",
+            ),
+            FormField(
+                name=_F_RULES,
+                label="Automatic for these commands (one per line)",
+                type="textarea", optional=True,
+                placeholder="\n".join(policy.get("auto_commands") or []) or "none",
+                help_text=(
+                    "A trailing * means 'and any arguments'. This is what the "
+                    "caller SAYS it will run — see docs/secrets.md."
+                ),
+            ),
+        ),
+    )
+
+
+def _seconds(chosen: str, current: int) -> int:
+    """The window a select returned, back to seconds."""
+    chosen = chosen.strip()
+    if not chosen:
+        return current
+    if chosen == "none":
+        return 0
+    for value in GRANT_LADDER:
+        if humanize(value) == chosen:
+            return value
+    return current
+
+
+def _diff(current: dict[str, Any], subjects: str, approval: str, grant: int,
+          rules: list[str]) -> str:
+    """What actually changed, in the words the operator used."""
+    was_rules = list(current.get("auto_commands") or [])
+    parts = []
+    if subjects != current["subjects"]:
+        parts.append(f"subjects {current['subjects'] or '(nobody)'} → {subjects}")
+    if approval != current["approval"]:
+        parts.append(f"approval {current['approval']} → {approval}")
+    if grant != int(current["max_grant_s"] or 0):
+        parts.append(f"window {current['max_grant_s']}s → {grant}s")
+    if rules != was_rules:
+        parts.append(f"rules {len(was_rules)} → {len(rules)}: {'; '.join(rules) or 'none'}")
+    return ", ".join(parts)
+
+
+def _capped_note(hidden: int) -> str:
+    return f"_…and {hidden} more — `impi ward ls` shows them all._"
 
 
 class PendingOperatorForms:
@@ -403,6 +511,8 @@ class OperatorForms:
             return await self._open_store(verb, values, user_id)
         if verb == "store":
             return await self._store(values, user_id)
+        if verb.startswith(f"{_POLICY}:"):
+            return await self._policy(verb.split(":", 1)[1], values, user_id)
         logger.warning("ward: unknown operator form %r", verb)
         return "🔴 Unknown form."
 
@@ -450,6 +560,52 @@ class OperatorForms:
         return (
             f"{stored}\n\nIt has no policy, so no agent can reach it yet:\n"
             f"`impi ward policy set {one_line(name)} --subjects <agent>`"
+        )
+
+
+    async def _policy(
+        self, name: str, values: Mapping[str, str], user_id: str
+    ) -> str:
+        """Rewrite a secret's policy from the form.
+
+        Empty means "leave it": a modal cannot tell "cleared" from "not touched",
+        and losing a subject list to an untouched field would be the worse
+        reading of the two. Clearing is `impi ward policy set` with the flag that
+        says so.
+        """
+        answer = await self._ops.list_policies()
+        current = next(
+            (p for p in answer.get("policies") or [] if p["name"] == name), None
+        )
+        if current is None:
+            return f"🔴 `{one_line(name)}` has no policy to edit yet."
+
+        subjects = values.get(_F_SUBJECTS, "").strip() or str(current["subjects"])
+        approval = values.get(_F_APPROVAL, "").strip() or str(current["approval"])
+        grant = _seconds(values.get(_F_GRANT, ""), int(current["max_grant_s"] or 0))
+        written = values.get(_F_RULES, "").strip()
+        rules = (
+            [line.strip() for line in written.splitlines() if line.strip()]
+            if written else list(current.get("auto_commands") or [])
+        )
+        try:
+            for line in rules:
+                parse(line)  # refuse here, so a bad rule never reaches the store
+        except RuleError as exc:
+            return f"🔴 {one_line(str(exc))}\n\nThe policy was not changed."
+
+        await self._ops.put_policy(name, {
+            "approval": approval, "max_grant_s": grant, "subjects": subjects,
+            "description": current.get("description", ""), "auto_commands": rules,
+        })
+        # The diff, not just "changed": handing an agent access to a secret from
+        # a chat session has to be answerable afterwards, and "who did what" is
+        # the whole of that answer.
+        changes = _diff(current, subjects, approval, grant, rules)
+        await self._record(user_id, "policy", f"{name}: {changes or 'no change'}")
+        return (
+            f"✅ Policy for `{one_line(name)}` saved.\n"
+            f"{one_line(changes) if changes else 'Nothing changed.'}"
         )
 
     async def _tell(self, user_id: str, text: str) -> None:

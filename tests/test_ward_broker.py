@@ -35,6 +35,7 @@ from ward.approvers import Approvers
 from ward.broker import SecretBroker
 from ward.decisions import (
     DECISION_AUTO,
+    DECISION_AUTO_COMMAND,
     DECISION_BACKEND_ERROR,
     DECISION_LOCKED,
     DECISION_NO_POLICY,
@@ -187,6 +188,7 @@ async def _rig(tmp_path: Path, *, backend: FakeBackend | None = None, **over) ->
         Approvers(over.pop("approvers", "roman"), admin),  # type: ignore[arg-type]
         approval_timeout_s=over.pop("approval_timeout_s", 5.0),
         max_grant_s=over.pop("max_grant_s", 3600),
+        notice_fold_s=over.pop("notice_fold_s", 900.0),
         callback_url="http://engine/interact",
         **over,
     )
@@ -797,5 +799,120 @@ async def test_the_answered_card_contains_the_command_it_cannot_be_forged_by(
         assert sum(line.startswith("**Secret:**") for line in outside) == 1
         assert "vault://innocent" not in "\n".join(outside)
         assert "Denied" in answered
+    finally:
+        await rig.store.close()
+
+
+# -- taken without asking ------------------------------------------------------
+
+
+def _with_rules(*written: str, **over):
+    """A policy whose commands are covered by rules."""
+    from ward.autorules import encode, parse
+
+    return _policy(auto_commands=encode(tuple(parse(t) for t in written)), **over)
+
+
+async def test_a_covered_command_is_served_without_a_card(tmp_path: Path) -> None:
+    """The middle the rules exist for: no human, but not silent either."""
+    rig = await _rig(tmp_path)
+    try:
+        await rig.store.put_policy(_with_rules("gh release create *"))
+        result = await rig.broker.lease(
+            _request(command=("gh", "release", "create", "v1.2.0"))
+        )
+
+        assert result.granted and result.decision == DECISION_AUTO_COMMAND
+        assert rig.poster.posts[0].actions == []  # a notice, not a card to answer
+        rows = await rig.store.list_audit(limit=1, kind=KIND_SECRET)
+        assert "rule: gh release create *" in rows[0].reason
+    finally:
+        await rig.store.close()
+
+
+async def test_a_command_no_rule_covers_still_asks(tmp_path: Path) -> None:
+    rig = await _rig(tmp_path)
+    try:
+        await rig.store.put_policy(_with_rules("gh release create *"))
+        pending = asyncio.create_task(
+            rig.broker.lease(_request(command=("curl", "https://evil")))
+        )
+        card = await _answer(rig, ANSWER_ONCE)
+        result = await pending
+
+        assert card.actions  # it was a card, with buttons
+        assert result.decision == DECISION_APPROVED_ONCE
+    finally:
+        await rig.store.close()
+
+
+async def test_one_secret_needing_a_human_asks_for_the_whole_request(
+    tmp_path: Path,
+) -> None:
+    """All-or-nothing already governs serving; it governs asking too, or a
+    basket could be half-quiet and half-answered."""
+    rig = await _rig(tmp_path, backend=FakeBackend({
+        "github-token": {"value": "ghp_x"}, "npm-token": {"value": "npm_y"},
+    }))
+    try:
+        await rig.store.put_policy(_with_rules("make release", name="github-token"))
+        await rig.store.put_policy(_policy(name="npm-token"))  # no rules: asks
+        pending = asyncio.create_task(rig.broker.lease(_request(
+            bindings=(
+                ("GITHUB_TOKEN", parse_ref("vault://github-token")),
+                ("NPM_TOKEN", parse_ref("vault://npm-token")),
+            ),
+            command=("make", "release"),
+        )))
+        await _answer(rig, ANSWER_ONCE)
+        result = await pending
+
+        assert result.granted
+        decisions = {
+            r.scope: r.decision for r in await rig.store.list_audit(limit=5, kind=KIND_SECRET)
+        }
+        assert decisions["npm-token"] == DECISION_APPROVED_ONCE
+        # The covered one was served under the human's answer, not quietly.
+        assert decisions["github-token"] == DECISION_APPROVED_ONCE
+    finally:
+        await rig.store.close()
+
+
+async def test_a_run_of_grants_folds_into_one_notice(tmp_path: Path) -> None:
+    rig = await _rig(tmp_path)
+    try:
+        await rig.store.put_policy(_with_rules("gh release create *"))
+        for _ in range(3):
+            await rig.broker.lease(_request(command=("gh", "release", "create", "v1")))
+
+        assert len(rig.poster.posts) == 1  # one message, edited twice
+        assert len(rig.poster.retracted) == 2
+        assert "3 so far" in rig.poster.retracted[-1][1]
+    finally:
+        await rig.store.close()
+
+
+async def test_a_grant_after_the_window_starts_a_new_notice(tmp_path: Path) -> None:
+    rig = await _rig(tmp_path, notice_fold_s=0.0)
+    try:
+        await rig.store.put_policy(_with_rules("gh release create *"))
+        await rig.broker.lease(_request(command=("gh", "release", "create", "v1")))
+        await rig.broker.lease(_request(command=("gh", "release", "create", "v2")))
+
+        assert len(rig.poster.posts) == 2
+    finally:
+        await rig.store.close()
+
+
+async def test_approval_never_stays_silent(tmp_path: Path) -> None:
+    """A deliberate silence is not the same as an unwatched grant: `never` was
+    chosen knowing nobody would hear about it."""
+    rig = await _rig(tmp_path)
+    try:
+        await rig.store.put_policy(_policy(approval=APPROVAL_NEVER))
+        result = await rig.broker.lease(_request())
+
+        assert result.decision == DECISION_AUTO
+        assert rig.poster.posts == []
     finally:
         await rig.store.close()

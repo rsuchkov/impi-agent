@@ -30,6 +30,7 @@ KIND_SECRET = "secret"
 KIND_OPERATOR = "operator"
 
 DECISION_AUTO = "auto"  # policy says approval: never
+DECISION_AUTO_COMMAND = "auto_command"  # an auto-rule covered the command asked about
 DECISION_NO_POLICY = "no_policy"  # nothing is configured under that name
 DECISION_NOT_PERMITTED = "not_permitted"  # the policy does not list this agent
 DECISION_NOT_REACHED = "not_reached"  # its request died on another of its secrets
@@ -46,6 +47,7 @@ DECISIONS = (
     DECISION_TIMEOUT,
     DECISION_NO_APPROVER,
     DECISION_AUTO,
+    DECISION_AUTO_COMMAND,
     DECISION_NO_POLICY,
     DECISION_NOT_PERMITTED,
     DECISION_NOT_REACHED,

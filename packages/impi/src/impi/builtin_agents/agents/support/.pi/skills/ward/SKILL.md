@@ -108,6 +108,7 @@ impi ward audit --secret <name>
 
 | decision | what to do about it |
 |---|---|
+| `auto_command` | an auto-rule covered it, so nobody was asked; the row's reason names the rule |
 | `no_policy` | the name is wrong, or nothing is configured — `impi ward policy show` |
 | `not_permitted` | the agent is not in `--subjects` — re-run `policy set` with it added |
 | `denied` | a human said no; ask them why before changing anything |
@@ -148,14 +149,20 @@ What to know when advising:
 - Only people in `WARD_APPROVERS` get anything back, and only in a DM — in a
   channel it refuses on purpose, because the card would show secret names to
   everyone in the room.
+- **Secrets** lists what is stored with an **Edit** button on each: subjects,
+  approval, window and auto-rules in one modal. Empty fields are left alone, and
+  a rule that cannot be read is refused without touching the rest.
 - **Unlock** and **Unseal…** are different buttons: the first needs only the
   broker's credential (the case after `impi update`), the second also needs the
   unseal key. Advise the first wherever it is enough.
 - There is no `rotate` and no `cert` there, and there will not be: both hand a
   credential back, and a credential in a chat message is a credential in
   Mattermost's database. Those stay `impi ward rotate` / `impi ward cert`.
-- What an operator did from chat is in the ledger:
-  `impi ward audit --kind operator`.
+- What an operator did from chat is in the ledger, and a policy change records
+  what it changed: `impi ward audit --kind operator`.
+- Advising a policy change: the Edit button and `impi ward policy set` do the
+  same thing, so suggest whichever the operator is nearer to. Say that editing a
+  policy hands out access, and that it is recorded.
 
 ## Windows
 
@@ -164,8 +171,32 @@ until it closes. `impi ward grants` lists them; `impi ward revoke <id>`
 closes one immediately, and the very next request asks again. The value is read
 fresh every time, so rotating a secret takes effect at once too.
 
-If an operator is being asked too often, the fix is a longer `--max-grant`, not
-`--approval never`.
+If an operator is being asked too often, the fix is a longer `--max-grant` or an
+auto-rule, not `--approval never`.
+
+## Auto-rules
+
+A rule makes one command automatic, with a notice instead of a card:
+
+```
+impi ward policy set kadence-token --subjects assistant \
+    --auto 'python kadence.py *'
+```
+
+When to advise one: the operator has `--approval never` and wants it narrower,
+or an agent runs one known command on a schedule and the cards are being clicked
+without being read. Both are improvements.
+
+When NOT to advise one: as a way to stop being asked about something that
+deserved asking. Say plainly that a rule matches what the caller **says** it will
+run. `secret-exec` does run exactly that, so a rule does bind the model — but
+anything else in the agent's container can claim any command it likes, and an
+agent that can write files can rewrite the script the rule allows. A rule is a
+narrower `never`, not a substitute for a human.
+
+Details worth getting right: the only wildcard is a trailing `*` ("and any
+arguments"); `python3` does not match a rule written for `python`; a rule of
+just `*` is refused. `impi ward audit` names the rule that fired.
 
 ## Never handle the material yourself
 

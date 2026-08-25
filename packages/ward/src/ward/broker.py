@@ -16,6 +16,7 @@ import logging
 import secrets as tokens
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from crucible.approvals import (
@@ -40,9 +41,10 @@ from crucible.store.base import (
     ApprovalStore,
 )
 from ward.approvers import Approvers
-from ward.card import approval_text, verdict_text
+from ward.card import approval_text, notice_text, verdict_text
 from ward.decisions import (
     DECISION_AUTO,
+    DECISION_AUTO_COMMAND,
     DECISION_BACKEND_ERROR,
     DECISION_LOCKED,
     DECISION_NO_POLICY,
@@ -64,6 +66,15 @@ from ward.ports import (
 from ward.store import SecretPolicyRecord, SecretPolicyStore
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Folded:
+    """A notice already posted, and how many grants it now stands for."""
+
+    post_id: str
+    repeats: int
+    until: float
 
 # The card is rewritten once it has been answered, so a second click finds no
 # buttons and the ledger cannot disagree with what the message says happened.
@@ -94,6 +105,7 @@ class SecretBroker:
         approval_channel: str = "",
         approval_timeout_s: float = 120.0,
         max_grant_s: int = 3600,
+        notice_fold_s: float = 900.0,
         callback_url: str = "",
     ) -> None:
         self._backend = backend
@@ -109,6 +121,11 @@ class SecretBroker:
         self._timeout = approval_timeout_s
         self._max_grant_s = max_grant_s
         self._callback_url = callback_url
+        self._fold_s = notice_fold_s
+        # What has already been said, so a repeat edits its own message rather
+        # than adding one. In memory: a notice nobody is looking at any more is
+        # not worth a row in a database.
+        self._notices: dict[tuple[str, tuple[str, ...]], Folded] = {}
 
     # -- the decision ---------------------------------------------------------
 
@@ -125,7 +142,10 @@ class SecretBroker:
         request_id = f"rq_{tokens.token_hex(6)}"
         names = request.names  # ValueError -> malformed, not a refusal
         policies = {name: await self._policies.get_policy(name) for name in names}
-        verdicts = {name: evaluate(policies[name], request.agent) for name in names}
+        verdicts = {
+            name: evaluate(policies[name], request.agent, request.command)
+            for name in names
+        }
 
         refusal = next(
             (v.decision for v in verdicts.values() if v.outcome == REFUSE), ""
@@ -174,8 +194,16 @@ class SecretBroker:
                 return await self._refuse(
                     request, verdicts, refused, started, request_id, approver=approver
                 )
-            for name in uncovered:
-                if answer.grant_s > 0:
+            # A rule-grant inside a request a human answered was NOT unwatched:
+            # the card listed every secret, and they said yes to the basket. The
+            # decision names what authorized it, so here that is the human — the
+            # rule stays visible in the row's reason.
+            answered = [
+                name for name in names
+                if verdicts[name].rule or name in uncovered
+            ]
+            for name in answered:
+                if answer.grant_s > 0 and name in uncovered:
                     grant_ids[name] = await self._open_window(
                         request.agent, name, policies[name], answer
                     )
@@ -199,7 +227,13 @@ class SecretBroker:
             await self._record(
                 request, name, decisions[name], started, request_id,
                 approver=approver, grant_id=grant_ids.get(name, ""),
+                rule=verdicts[name].rule,
             )
+        if not uncovered:
+            # Nobody was asked, so nobody knows this happened unless it is said.
+            # Only for the rules: `approval: never` is a deliberate silence, and
+            # a window was opened by a human who has already seen a card.
+            await self._notify(request, verdicts)
         # The request's own verdict, for a caller that logs one line: the least
         # automatic thing that happened to any of its secrets.
         return LeaseResult(granted=True, decision=_summarize(decisions), values=values)
@@ -310,6 +344,57 @@ class SecretBroker:
         )
         return grant.id
 
+    # -- telling somebody -----------------------------------------------------
+
+    async def _notify(self, request: LeaseRequest, verdicts: dict) -> None:
+        """Say that a secret was taken without anyone being asked.
+
+        Detection, not control: by the time this arrives the value is out. What
+        it buys is that an automatic grant is not also an invisible one — and
+        the honest way to describe a rule is "quieter", not "unwatched".
+
+        Folded rather than repeated. A task on a schedule would otherwise turn
+        the approver's direct messages into a feed nobody reads, and a notice
+        nobody reads is the same as no notice.
+        """
+        rules = sorted({v.rule for v in verdicts.values() if v.rule})
+        if not rules:
+            return  # `approval: never` is a deliberate silence, not this
+        approvers = await self._approvers.ids()
+        poster = self._presence.poster(request.agent)
+        if not approvers or poster is None:
+            return
+        channel = await self._approval_conversation(request.agent, approvers)
+        if not channel:
+            return
+
+        key = (request.agent, request.names)
+        now = time.monotonic()
+        seen = self._notices.get(key)
+        repeats = seen.repeats + 1 if seen and now < seen.until else 1
+        text = notice_text(
+            request.agent,
+            references=request.references,
+            command=request.command,
+            rules=tuple(rules),
+            repeats=repeats,
+        )
+        ref = ConversationRef(
+            channel_id=channel, conversation_id=channel, message_id=channel
+        )
+        try:
+            if seen is not None and now < seen.until:
+                await poster.retract(seen.post_id, text)
+                self._notices[key] = Folded(seen.post_id, repeats, seen.until)
+                return
+            post_id = await poster.post_actions(
+                ref, text, [], callback_url=self._callback_url
+            )
+        except Exception:
+            logger.warning("could not report an automatic grant", exc_info=True)
+            return
+        self._notices[key] = Folded(str(post_id or ""), repeats, now + self._fold_s)
+
     # -- the ledger -----------------------------------------------------------
 
     async def _refuse(
@@ -342,7 +427,7 @@ class SecretBroker:
 
     async def _record(
         self, request: LeaseRequest, name: str, decision: str, started: float,
-        request_id: str, *, approver: str = "", grant_id: str = "",
+        request_id: str, *, approver: str = "", grant_id: str = "", rule: str = "",
     ) -> None:
         await self._ledger.record_decision(
             ApprovalAudit(
@@ -351,7 +436,13 @@ class SecretBroker:
                 kind=KIND_SECRET,
                 principal=request.agent,
                 scope=name,
-                reason=request.reason[:_MAX_REASON],
+                # The rule goes in front of the caller's own words: when nobody
+                # was asked, "why was this handed over" is answered by the rule
+                # and by nothing else.
+                reason=(
+                    f"rule: {rule} — {request.reason[:_MAX_REASON]}"
+                    if rule else request.reason[:_MAX_REASON]
+                ),
                 detail=command_line(request.command),
                 decision=decision,
                 approver=approver,
@@ -394,7 +485,7 @@ def _summarize(decisions: dict[str, str]) -> str:
     told "auto" about a basket a human had to approve."""
     order = (
         DECISION_APPROVED_ONCE, DECISION_APPROVED_GRANT,
-        DECISION_REUSED_GRANT, DECISION_AUTO,
+        DECISION_REUSED_GRANT, DECISION_AUTO_COMMAND, DECISION_AUTO,
     )
     for decision in order:
         if decision in decisions.values():

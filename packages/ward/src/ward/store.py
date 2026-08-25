@@ -17,6 +17,7 @@ from dataclasses import dataclass, fields
 from typing import Protocol
 
 from crucible.store.sessions import SqliteSessionStore
+from ward.autorules import decode
 
 
 @dataclass(frozen=True)
@@ -36,9 +37,17 @@ class SecretPolicyRecord:
     description: str
     created_at: str
     updated_at: str
+    # Commands this secret may be taken for without asking anyone, encoded by
+    # `autorules.encode` — "" means every use is asked about. A rule narrows the
+    # automatic case; it never widens who may ask, which is `subjects` above.
+    auto_commands: str = ""
 
     def allows(self, agent: str) -> bool:
         return agent in {s.strip() for s in self.subjects.split(",") if s.strip()}
+
+    @property
+    def rules(self) -> tuple[tuple[str, ...], ...]:
+        return decode(self.auto_commands)
 
 
 class SecretPolicyStore(Protocol):
@@ -57,13 +66,14 @@ class SecretPolicyStore(Protocol):
 _POLICIES_SCHEMA = """
 -- Timestamps are UTC ISO8601 (seconds), so string order is time order.
 CREATE TABLE IF NOT EXISTS secret_policies (
-  name        TEXT PRIMARY KEY,
-  approval    TEXT NOT NULL,
-  max_grant_s INTEGER NOT NULL DEFAULT 0,
-  subjects    TEXT NOT NULL DEFAULT '',
-  description TEXT NOT NULL DEFAULT '',
-  created_at  TEXT NOT NULL,
-  updated_at  TEXT NOT NULL
+  name          TEXT PRIMARY KEY,
+  approval      TEXT NOT NULL,
+  max_grant_s   INTEGER NOT NULL DEFAULT 0,
+  subjects      TEXT NOT NULL DEFAULT '',
+  description   TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  auto_commands TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -86,6 +96,13 @@ class SecretPolicyStoreMixin:
 
     def _create_policy_tables(self) -> None:
         self._conn.executescript(_POLICIES_SCHEMA)
+        # Empty is "ask every time", so a policy written before rules existed
+        # keeps behaving exactly as it did.
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(secret_policies)")}
+        if "auto_commands" not in columns:
+            self._conn.execute(
+                "ALTER TABLE secret_policies ADD COLUMN auto_commands TEXT NOT NULL DEFAULT ''"
+            )
 
     def get_policy_sync(self, name: str) -> SecretPolicyRecord | None:
         with self._lock:

@@ -106,6 +106,7 @@ def build(settings: WardSettings) -> Ward:
         approval_channel=settings.approval_channel,
         approval_timeout_s=settings.approval_timeout_s,
         max_grant_s=settings.max_grant_s,
+        notice_fold_s=settings.notice_fold_s,
         callback_url=settings.interact_url,
     )
 

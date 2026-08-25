@@ -53,3 +53,38 @@ def verdict_text(
         block_label="Command",
         block=command_line(command),
     )
+
+
+def notice_text(
+    agent: str,
+    *,
+    references: tuple[str, ...],
+    command: tuple[str, ...],
+    rules: tuple[str, ...],
+    repeats: int = 1,
+) -> str:
+    """What an approver is told after a secret was handed over without them.
+
+    Same containment as the card it replaces. A rule making a command automatic
+    does not make the command trustworthy — the argv is still the caller's text,
+    and this message is now the only place a human sees it.
+
+    ``repeats`` folds a run of grants into the message already posted: a task on
+    a schedule would otherwise fill the conversation, and a notice nobody reads
+    is the same as no notice at all.
+    """
+    label = "Secret" if len(references) == 1 else "Secrets"
+    fields = [
+        (label, ", ".join(references)),
+        ("Rule" if len(rules) == 1 else "Rules", ", ".join(rules)),
+    ]
+    if repeats > 1:
+        # Plain text, not a field the caller can influence: it is the engine's
+        # own count.
+        fields.append(("Times", f"{repeats} so far"))
+    return render_card(
+        f"🤖 **{agent}** took a secret automatically.",
+        fields,
+        block_label="Command",
+        block=command_line(command),
+    )

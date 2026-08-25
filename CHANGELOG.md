@@ -6,12 +6,13 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-- **The secret broker can be driven from chat.** `/ward` in a direct message
-  with the ward bot opens a card: the store's state, what is stored and who may
-  reach it, the open windows with a Revoke on each, the ledger — and modals for
-  opening the store and for storing a value. It exists to answer the two things
-  that do not wait for the machine holding `operator.key`: a store sealed by an
-  unplanned restart, and "why was my agent refused" asked from a phone.
+- **The secret broker can be driven from chat.** `/ward` in a direct message with
+  the ward bot opens a card: the store's state, what is stored and who may reach
+  it — with an Edit button per secret for subjects, approval, window and
+  auto-rules — the open windows with a Revoke on each, the ledger, and modals for
+  opening the store and for storing a value. It answers the two things that do
+  not wait for the machine holding `operator.key`: a store sealed by an unplanned
+  restart, and "why was my agent refused" asked from a phone.
 
   **Unlock** and **Unseal…** are separate buttons on purpose. The first needs
   only the broker's credential, which is all a restart of the broker costs (an
@@ -23,20 +24,39 @@ when a release is cut, and `impi update` shows the target version's section.
   Turned on by registering a slash command and setting `WARD_COMMAND_TOKENS`;
   answers only people in `WARD_APPROVERS`, only in a direct message, and never
   hands a credential back — `rotate` and `cert` stay in the CLI. Every action
-  lands in the ledger with the user id that did it: `impi ward audit --kind
-  operator`.
-- **Fixed: an agent could read the certificate that administers the broker.**
-  The operator's identity was mounted into the engine's container, where agents
-  run as the same user, in the same directory as their own certificates — so an
-  agent with a shell could act as the operator: store values, mint identities,
-  write itself into a policy's subjects. It now goes to `~/.impi/operator`,
-  which only the operator's own one-shot container mounts.
+  lands in the ledger with the user id that did it, and a policy change with what
+  it changed: `impi ward audit --kind operator`.
+- **A secret can be automatic for one command.** `impi ward policy set … --auto
+  'python kadence.py *'` serves that command without a card and sends a notice
+  instead; a run of them folds into the one message rather than filling the
+  conversation. Everything the rules do not cover still asks. The middle that was
+  missing: a policy could ask every time or never ask, and an agent running one
+  known script on a schedule fitted neither.
+
+  Matching is by argument, not by text — a trailing `*` is the only wildcard,
+  `python3` does not match `python`, and a rule of just `*` is refused because it
+  would be `--approval never` wearing a rule's clothes. What a rule is worth is
+  written down in [docs/secrets.md](docs/secrets.md): it binds the model, because
+  `secret-exec` runs exactly what it declared; it does not bind anything else in
+  the agent's container, and an agent that can write files can rewrite the script
+  a rule allows.
+- **The docs now say what being an approver means.** It was always true and never
+  written: an approver can tell an agent to run something and then approve the
+  card that arrives, so the list is effectively access to every secret some agent
+  may reach. The remaining limit is a secret's `subjects`, and editing a policy
+  removes it — which is why those changes are recorded.
+- **Fixed: an agent could read the certificate that administers the broker.** The
+  operator's identity was mounted into the engine's container, where agents run
+  as the same user, in the same directory as their own certificates — so an agent
+  with a shell could act as the operator: store values, mint identities, write
+  itself into a policy's subjects. It now goes to `~/.impi/operator`, which only
+  the operator's own one-shot container mounts.
 
   **Existing deployments:** move `operator.crt` and `operator.key` from
   `~/.impi/certs` to `~/.impi/operator` (copy `ca.crt` too, leaving the original
   in place) and delete them from the first. Anything else keeps working.
-- **`impi ward audit` shows what operators did**, not only what agents asked
-  for; `--kind secret` / `--kind operator` narrows it.
+- **`impi ward audit` shows what operators did**, not only what agents asked for;
+  `--kind secret` / `--kind operator` narrows it.
 
 ## v0.12.1 — 2026-08-24
 

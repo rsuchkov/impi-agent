@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from crucible.store.base import ApprovalStore
+from ward.autorules import encode, parse, unparse
 from ward.decisions import KIND_SECRET
 from ward.ports import SecretBackend, SecretBackendError
 from ward.store import SecretPolicyRecord, SecretPolicyStore
@@ -87,6 +88,14 @@ class Operations:
     async def put_policy(self, name: str, body: Mapping[str, Any]) -> dict[str, Any]:
         existing = await self._policies.get_policy(name)
         now = _now()
+        # Rules arrive written, as an operator typed them, and are refused here
+        # rather than stored unparsed: a rule nobody could read would be a rule
+        # that silently never fires.
+        written = body.get("auto_commands")
+        if isinstance(written, list):
+            rules = tuple(parse(str(line)) for line in written if str(line).strip())
+        else:
+            rules = existing.rules if existing else ()
         policy = SecretPolicyRecord(
             name=name,
             approval=str(body.get("approval") or "always"),
@@ -95,9 +104,13 @@ class Operations:
             description=str(body.get("description") or ""),
             created_at=existing.created_at if existing else now,
             updated_at=now,
+            auto_commands=encode(rules),
         )
         await self._policies.put_policy(policy)
-        logger.info("policy for %s: %s, for: %s", name, policy.approval, policy.subjects)
+        logger.info(
+            "policy for %s: %s, for: %s, %d auto-rule(s)",
+            name, policy.approval, policy.subjects, len(rules),
+        )
         return {"policy": _policy_json(policy)}
 
     # -- windows and the ledger -----------------------------------------------
@@ -153,4 +166,5 @@ def _policy_json(policy: SecretPolicyRecord) -> dict[str, Any]:
         "max_grant_s": policy.max_grant_s,
         "subjects": policy.subjects,
         "description": policy.description,
+        "auto_commands": [unparse(rule) for rule in policy.rules],
     }

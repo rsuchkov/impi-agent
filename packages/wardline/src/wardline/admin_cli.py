@@ -16,6 +16,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -196,7 +197,9 @@ def _cmd_ls(args: argparse.Namespace) -> int:
                 humanize(policy["max_grant_s"])
                 if policy["max_grant_s"] else "ask every time"
             )
-            note = f"{policy['approval']}, {window}, for: {policy['subjects']}"
+            rules = len(policy.get("auto_commands") or [])
+            automatic = f", {rules} auto-rule(s)" if rules else ""
+            note = f"{policy['approval']}, {window}{automatic}, for: {policy['subjects']}"
         missing = "" if entry.get("stored") else dim("  (policy only — no value stored)")
         print(f"  {bold(entry['name']):<28} {note}{missing}")
     return 0
@@ -222,19 +225,28 @@ def _cmd_policy_set(args: argparse.Namespace) -> int:
     subjects = ",".join(
         part.strip() for part in (args.subjects or "").split(",") if part.strip()
     )
-    _ask(
-        "PUT",
-        f"/policies/{args.name}",
-        json={
-            "approval": args.approval,
-            "max_grant_s": parse_duration(args.max_grant),
-            "subjects": subjects,
-            "description": args.description,
-        },
-    )
+    body: dict[str, Any] = {
+        "approval": args.approval,
+        "max_grant_s": parse_duration(args.max_grant),
+        "subjects": subjects,
+        "description": args.description,
+    }
+    if args.no_auto:
+        body["auto_commands"] = []
+    elif args.auto:
+        body["auto_commands"] = list(args.auto)
+    _ask("PUT", f"/policies/{args.name}", json=body)
     ok(f"policy for {args.name}: {args.approval}, for: {subjects or '(nobody)'}")
     if args.approval == APPROVAL_NEVER:
         print(dim("  approval: never — every listed agent may use it unattended"))
+        if args.auto:
+            # The rules would never be consulted: `never` allows every command
+            # already, so a rule beside it reads as a limit that is not there.
+            print(dim("  …so the auto-rules are never consulted — drop one or the other"))
+    elif args.auto:
+        for rule in args.auto:
+            print(dim(f"  automatic for: {rule}"))
+        print(dim("  a rule is what the caller SAYS it will run — see docs/secrets.md"))
     return 0
 
 
@@ -251,6 +263,8 @@ def _cmd_policy_show(args: argparse.Namespace) -> int:
         window = policy["max_grant_s"]
         print("  window   : " + (humanize(window) if window else "none (ask every time)"))
         print(f"  subjects : {policy['subjects'] or '(nobody)'}")
+        for rule in policy.get("auto_commands") or []:
+            print(f"  automatic: {rule}")
         if policy["description"]:
             print(f"  about    : {policy['description']}")
     return 0
@@ -421,6 +435,15 @@ def build_parser() -> argparse.ArgumentParser:
     policy_set.add_argument(
         "--max-grant", default="1h",
         help="longest window a human may leave open (15m, 1h, or 0 to always ask)",
+    )
+    policy_set.add_argument(
+        "--auto", action="append", metavar="COMMAND",
+        help="a command this secret may be taken for without asking anyone; "
+             "repeatable. A trailing `*` means 'and any arguments' "
+             "(`--auto 'python sync.py *'`). Replaces the existing rules.",
+    )
+    policy_set.add_argument(
+        "--no-auto", action="store_true", help="remove every auto-rule"
     )
     policy_set.add_argument("--description", default="")
     policy_set.set_defaults(func=_cmd_policy_set)

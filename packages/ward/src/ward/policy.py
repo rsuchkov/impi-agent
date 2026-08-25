@@ -8,8 +8,10 @@ cheap to test exhaustively.
 
 from dataclasses import dataclass
 
+from ward.autorules import matching
 from ward.decisions import (
     DECISION_AUTO,
+    DECISION_AUTO_COMMAND,
     DECISION_NO_POLICY,
     DECISION_NOT_PERMITTED,
 )
@@ -30,15 +32,28 @@ class Verdict:
 
     outcome: str
     decision: str = ""
+    # Which auto-rule allowed this, when one did — for the ledger and the notice.
+    rule: str = ""
 
 
-def evaluate(policy: SecretPolicyRecord | None, agent: str) -> Verdict:
-    """Whether ``agent`` may reach the secret ``policy`` describes.
+def evaluate(
+    policy: SecretPolicyRecord | None,
+    agent: str,
+    command: tuple[str, ...] = (),
+) -> Verdict:
+    """Whether ``agent`` may reach the secret ``policy`` describes, for this
+    command.
 
     The two refusals are separate values on purpose — the ledger needs to tell
     "nobody configured that name" from "that agent isn't on the list" — but the
     caller is told the same thing for both, which is the broker's job, not this
     function's.
+
+    The command only ever makes an ASK quieter, never a REFUSE permissive: a
+    rule is consulted after the allowlist, so it narrows what may happen without
+    a human and cannot widen who may ask. ``rule`` on the verdict names which
+    one fired, because "granted automatically" without saying why is a ledger
+    row nobody can act on.
     """
     if policy is None:
         return Verdict(REFUSE, DECISION_NO_POLICY)
@@ -46,6 +61,9 @@ def evaluate(policy: SecretPolicyRecord | None, agent: str) -> Verdict:
         return Verdict(REFUSE, DECISION_NOT_PERMITTED)
     if policy.approval == APPROVAL_NEVER:
         return Verdict(ALLOW, DECISION_AUTO)
+    rule = matching(policy.rules, command) if command else ""
+    if rule:
+        return Verdict(ALLOW, DECISION_AUTO_COMMAND, rule=rule)
     return Verdict(ASK)
 
 
