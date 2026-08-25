@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.13.1 — 2026-08-25
+
 - **Fixed: a secret stored from chat could not be made to work from chat.**
   `/ward` → **Store a secret** left it with no policy, and the Edit button beside
   it refused after the form was filled in — "has no policy to edit yet" — because

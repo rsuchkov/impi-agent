@@ -1,6 +1,6 @@
 [project]
 name = "ward"
-version = "0.13.0"
+version = "0.13.1"
 description = "The secret broker: holds the credential, asks a human, hands the value to a process."
 requires-python = ">=3.13"
 # Deliberately thin. This is the container that holds the credential to the
