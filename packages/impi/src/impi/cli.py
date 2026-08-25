@@ -350,10 +350,26 @@ def _cmd_skill_show(args: argparse.Namespace) -> int:
     return 0
 
 
+# The skills this application ships. Resolved here rather than in the library:
+# `crucible.skills` must not know an application's name or its layout, so the
+# app hands it an ordinary directory and the library stays reusable.
+BUILTIN_SKILLS_PATH = Path(__file__).parent / "builtin_skills"
+
+
 def _cmd_skill_install(args: argparse.Namespace) -> int:
     library = _library(args)
+    source = args.source
+    if args.bundled:
+        bundled = BUILTIN_SKILLS_PATH / source
+        if not (bundled / "SKILL.md").is_file():
+            available = sorted(
+                p.name for p in BUILTIN_SKILLS_PATH.glob("*") if (p / "SKILL.md").is_file()
+            )
+            _fail(f"no bundled skill named {source!r} (have: {', '.join(available) or 'none'})")
+            return 2
+        source = str(bundled)
     try:
-        staged = stage(args.source)
+        staged = stage(source)
     except SkillError as exc:
         _fail(str(exc))
         return 2
@@ -848,10 +864,16 @@ def _build_parser() -> argparse.ArgumentParser:
         if name == "install":
             cmd.add_argument(
                 "source",
-                help="a directory, owner/repo[/path][@ref], or a git URL[#path][@ref]",
+                help="a directory, owner/repo[/path][@ref], a git URL[#path][@ref], "
+                "or — with --bundled — the name of a skill that ships with impi",
             )
             cmd.add_argument("--name", help="install under this name (default: the skill's own)")
             cmd.add_argument("--force", action="store_true", help="overwrite an installed skill")
+            cmd.add_argument(
+                "--bundled",
+                action="store_true",
+                help="read SOURCE as the name of a skill that ships with impi",
+            )
         elif name == "assign":
             cmd.add_argument("name", help="skill name")
             cmd.add_argument("agent", help="agent name")

@@ -302,3 +302,25 @@ def test_deleting_a_task_with_no_terminal_to_ask_refuses_instead_of_raising(
 
 def _no_terminal(_prompt: str = "") -> str:
     raise EOFError
+
+
+def test_skill_install_bundled_resolves_a_shipped_skill(tmp_path, _isolated_env):
+    """--bundled names a skill that ships in the image, so nobody has to know
+    where inside the package it lives."""
+    library = tmp_path / "skills"
+    rc = cli.main([
+        "skill", "install", "--bundled", "web-browsing",
+        "--skills-dir", str(library), "--yes",
+    ])
+    assert rc == 0
+    assert (library / "web-browsing" / "SKILL.md").is_file()
+
+
+def test_skill_install_bundled_names_what_is_available(capsys, tmp_path, _isolated_env):
+    """A typo answers with the list rather than a path the operator never typed."""
+    rc = cli.main([
+        "skill", "install", "--bundled", "no-such-skill",
+        "--skills-dir", str(tmp_path / "skills"), "--yes",
+    ])
+    assert rc == 2
+    assert "web-browsing" in capsys.readouterr().err

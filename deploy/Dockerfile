@@ -26,6 +26,17 @@ ARG PI_VERSION=0.80.3
 RUN npm install -g @earendil-works/pi-coding-agent@${PI_VERSION} \
  && npm cache clean --force
 
+# The browser tool an agent runs. It attaches to a Chrome that is already
+# running in another container, so no browser binaries are installed here —
+# `playwright install` is never called and this stays around 14 MB.
+#
+# Pinned hard: the package is in 0.1.x and its command surface has moved between
+# releases, so a bump is a deliberate step that re-reads the web-browsing skill,
+# not something a rebuild does on its own.
+ARG PLAYWRIGHT_CLI_VERSION=0.1.18
+RUN npm install -g @playwright/cli@${PLAYWRIGHT_CLI_VERSION} \
+ && npm cache clean --force
+
 # Match the host user so bind-mounted conf/ and agents/ writes stay owned by
 # the operator (rootful docker; rootless podman adds userns keep-id on top).
 # Either id may already belong to a group/user of the base image — macOS gid 20
