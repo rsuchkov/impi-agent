@@ -80,6 +80,20 @@ _F_SUBJECTS, _F_APPROVAL, _F_GRANT, _F_RULES = (
     "subjects", "approval", "max_grant", "auto_commands"
 )
 
+# What a secret with no policy counts as, so one modal both creates and edits.
+# Every field is the strictest reading — nobody may ask, every use asks a human,
+# no window, no rule — because widening is the direction an operator should have
+# to type in. Read by the modal for its placeholders and by the handler for its
+# defaults, so a placeholder cannot promise something the submission does not do.
+# Shared, so nothing in it is mutable.
+_NEW_POLICY: dict[str, Any] = {
+    "subjects": "",
+    "approval": APPROVAL_ALWAYS,
+    "max_grant_s": 0,
+    "description": "",
+    "auto_commands": (),
+}
+
 # How much of a list a card shows. A phone is the point of this surface, and a
 # hundred rows on a phone is a wall nobody reads.
 _LIMIT = 10
@@ -213,8 +227,13 @@ class WardScreen:
         for entry in entries[:_LIMIT]:
             name = str(entry["name"])
             policy = entry.get("policy") or {}
-            if not policy or not policy.get("subjects"):
-                note = "_unreachable by every agent_"
+            # Two ways to be unreachable, and they need different things done
+            # about them — one wants a policy, the other wants a name in the one
+            # that exists. "Unreachable" alone left the reader to guess which.
+            if not policy:
+                note = "_no policy — unreachable by every agent_"
+            elif not policy.get("subjects"):
+                note = "_no agents named — unreachable by every agent_"
             else:
                 rules = policy.get("auto_commands") or []
                 automatic = f", {len(rules)} auto-rule(s)" if rules else ""
@@ -223,7 +242,8 @@ class WardScreen:
                     f"for: {one_line(str(policy['subjects']))}"
                 )
             edit = await self._form_action(
-                state, user_id, id=f"ed-{name}", label="Edit",
+                state, user_id, id=f"ed-{name}",
+                label="Edit" if policy else "Set policy",
                 form=_policy_form(name, policy), verb=f"{_POLICY}:{name}",
             )
             cards.append(Card(text=f"`{one_line(name)}` — {note}", actions=(edit,)))
@@ -359,16 +379,33 @@ def _policy_form(name: str, policy: dict[str, Any]) -> Form:
     All of it in one modal rather than a field at a time: subjects and rules
     decide the same question from two directions, and editing one without seeing
     the other is how a policy ends up meaning something nobody intended.
+
+    The same modal writes the FIRST policy as well as a change to one, because
+    the alternative is a surface where a secret can be stored and then never
+    made to work — the machine holding `operator.key` back in the loop for the
+    one step that decides whether any of this was any use. What changes is what
+    an empty field means: nothing to leave, so it takes the default shown.
     """
+    creating = not policy
+    policy = policy or _NEW_POLICY
     grant = int(policy.get("max_grant_s") or 0)
     return Form(
         title=f"Policy for {name}"[:_TITLE_MAX],
-        intro="Empty fields are left as they are.",
-        submit_label="Save",
+        intro=(
+            "No policy yet, so no agent can reach this. Name the agents that "
+            "may ask; anything left empty takes the value shown."
+            if creating else
+            "Empty fields are left as they are."
+        ),
+        submit_label="Create" if creating else "Save",
         fields=(
             FormField(
                 name=_F_SUBJECTS, label="Agents that may ask (comma separated)",
-                type="text", optional=True,
+                type="text",
+                # Required when there is nothing to leave alone: a policy naming
+                # nobody is exactly as unreachable as no policy, so asking for it
+                # here beats accepting it and refusing after the submit.
+                optional=not creating,
                 placeholder=str(policy.get("subjects") or "nobody yet"),
             ),
             FormField(
@@ -557,8 +594,12 @@ class OperatorForms:
         stored = f"✅ `{one_line(name)}` is stored."
         if name in known:
             return stored
+        # The chat path first, because that is the one available to whoever is
+        # reading this: a message that named only the CLI would send them back
+        # to the machine this surface exists to do without.
         return (
-            f"{stored}\n\nIt has no policy, so no agent can reach it yet:\n"
+            f"{stored}\n\nIt has no policy, so no agent can reach it yet — "
+            f"**Secrets** → **Set policy**, or at the machine:\n"
             f"`impi ward policy set {one_line(name)} --subjects <agent>`"
         )
 
@@ -566,21 +607,32 @@ class OperatorForms:
     async def _policy(
         self, name: str, values: Mapping[str, str], user_id: str
     ) -> str:
-        """Rewrite a secret's policy from the form.
+        """Write a secret's policy from the form — its first one, or a change.
 
-        Empty means "leave it": a modal cannot tell "cleared" from "not touched",
-        and losing a subject list to an untouched field would be the worse
-        reading of the two. Clearing is `impi ward policy set` with the flag that
-        says so.
+        When one exists, empty means "leave it": a modal cannot tell "cleared"
+        from "not touched", and losing a subject list to an untouched field would
+        be the worse reading of the two. Clearing is `impi ward policy set` with
+        the flag that says so.
+
+        When none does, there is nothing to leave, so empty takes the default the
+        modal showed — except the agents. A policy naming nobody is as unreachable
+        as no policy at all, so that one is asked for rather than defaulted. The
+        modal marks it required; this checks again, because a submission arrives
+        from the platform and says for itself what is in it.
         """
         answer = await self._ops.list_policies()
-        current = next(
+        found = next(
             (p for p in answer.get("policies") or [] if p["name"] == name), None
         )
-        if current is None:
-            return f"🔴 `{one_line(name)}` has no policy to edit yet."
+        creating = found is None
+        current = dict(_NEW_POLICY) if found is None else found
 
         subjects = values.get(_F_SUBJECTS, "").strip() or str(current["subjects"])
+        if not subjects and creating:
+            return (
+                f"🔴 `{one_line(name)}` has no policy yet, and one naming no agent "
+                "would leave it just as unreachable. Name at least one."
+            )
         approval = values.get(_F_APPROVAL, "").strip() or str(current["approval"])
         grant = _seconds(values.get(_F_GRANT, ""), int(current["max_grant_s"] or 0))
         written = values.get(_F_RULES, "").strip()
@@ -602,9 +654,13 @@ class OperatorForms:
         # a chat session has to be answerable afterwards, and "who did what" is
         # the whole of that answer.
         changes = _diff(current, subjects, approval, grant, rules)
-        await self._record(user_id, "policy", f"{name}: {changes or 'no change'}")
+        made = "created" if creating else "saved"
+        await self._record(
+            user_id, "policy",
+            f"{name}: {'created, ' if creating else ''}{changes or 'no change'}",
+        )
         return (
-            f"✅ Policy for `{one_line(name)}` saved.\n"
+            f"✅ Policy for `{one_line(name)}` {made}.\n"
             f"{one_line(changes) if changes else 'Nothing changed.'}"
         )
 

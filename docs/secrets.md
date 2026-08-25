@@ -388,9 +388,14 @@ until you turn it on.
   field, so that putting the key to the whole store through a chat platform is
   a thing you choose, not a field you happen to fill in.
 - **Store a secret** takes a name and a value in a modal.
-- **Secrets** lists what is stored, with an **Edit** button per secret: subjects,
-  approval, window and auto-rules in one modal. Every change is recorded against
-  whoever made it — `impi ward audit --kind operator`.
+- **Secrets** lists what is stored, with a button per secret: subjects, approval,
+  window and auto-rules in one modal. It says **Edit** where a policy exists and
+  **Set policy** where none does — the same modal writes the first one, so a
+  secret stored from chat can be made to work from chat. Creating one has to name
+  at least one agent (a policy naming nobody leaves the secret exactly as
+  unreachable), and everything else takes the strict default shown: ask a human
+  every time, no window, no rules. Every change is recorded against whoever made
+  it — `impi ward audit --kind operator`.
 - **Windows** has a Revoke button on each open window; **Ledger** is read-only.
 
 Three rules the surface holds to:

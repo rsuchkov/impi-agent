@@ -6,6 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: a secret stored from chat could not be made to work from chat.**
+  `/ward` → **Store a secret** left it with no policy, and the Edit button beside
+  it refused after the form was filled in — "has no policy to edit yet" — because
+  the modal only ever rewrote a policy that already existed. The first one needed
+  `impi ward policy set`, which is the machine this surface exists to do without.
+  The same modal now writes it: the button says **Set policy** where there is
+  none, naming at least one agent is required, and the rest takes the strict
+  default it shows (ask a human every time, no window, no rules). The Secrets
+  list also says which of the two kinds of unreachable a secret is — no policy,
+  or a policy naming nobody.
 - **Fixed: `impi ward init` raced the store it initialises.** On a clean volume
   the first run could end with `vault at http://127.0.0.1:8200 is unreachable`,
   and the same command worked a moment later — compose brings the store and the

@@ -24,7 +24,7 @@ from crucible.interactions.screens import (
     state_from_context,
 )
 from crucible.ports.chat.interactions import form_from_json
-from crucible.ports.chat.types import ConversationRef
+from crucible.ports.chat.types import ConversationRef, Form
 from tests.fakes.fake_chat import FakeChat as PostingChat
 from tests.fakes.presence import presence_of
 from ward.approvers import Approvers
@@ -495,12 +495,22 @@ async def test_what_an_operator_did_is_readable_afterwards(tmp_path: Path) -> No
 
 
 async def _policy_form(screen, store, name: str = "github-token") -> str:
-    """Open the Edit modal on a secret and return its form token."""
+    """Open the policy modal on a secret and return its form token."""
+    button = await _policy_button(screen, name)
+    return str(button.context["form"])
+
+
+async def _policy_button(screen, name: str = "github-token"):
     view = await screen.render(
         ScreenState(screen="ward", data={"view": "secrets"}), user_id=OPERATOR
     )
-    button = next(a for a in _actions(view) if a.id == f"ed-{name}")
-    return str(button.context["form"])
+    return next(a for a in _actions(view) if a.id == f"ed-{name}")
+
+
+async def _spec(store, token: str) -> Form:
+    record = await store.get_form(token)
+    assert record is not None
+    return form_from_json(record.spec)
 
 
 async def _stored(tmp_path: Path, store, **over) -> None:
@@ -569,6 +579,115 @@ async def test_the_change_is_recorded_with_what_it_changed(tmp_path: Path) -> No
         row = (await store.list_audit(limit=1, kind=KIND_OPERATOR))[0]
         assert row.principal == OPERATOR and row.decision == "policy"
         assert "assistant" in row.scope and "builder" in row.scope
+    finally:
+        await store.close()
+
+
+# -- the first policy, from the same modal ---------------------------------------------
+
+
+async def test_a_secret_stored_from_chat_can_be_made_to_work_from_chat(
+    tmp_path: Path,
+) -> None:
+    """The chain the surface exists for: Store a secret, then give it a policy,
+    without the machine that holds `operator.key`. Storing one that could only
+    ever be made to work from that machine would have hollowed out the point."""
+    screen, forms, store, _broker, chat, backend = await _rig(tmp_path)
+    try:
+        view = await _open(screen, user_id=OPERATOR)
+        store_button = next(a for a in _actions(view) if a.id == "store")
+        await _handle(
+            forms, store, str(store_button.context["form"]),
+            {"name": "test", "value": "s3cret"}, OPERATOR,
+        )
+        assert backend.values["test"] == {"value": "s3cret"}
+
+        token = await _policy_form(screen, store, "test")
+        await _handle(forms, store, token, {"subjects": "assistant"}, OPERATOR)
+
+        saved = await store.get_policy("test")
+        assert saved is not None and saved.subjects == "assistant"
+        # And the defaults are the strict ones the modal showed, not whatever
+        # happened to be convenient: ask a human every time, no window, no rule.
+        assert saved.approval == "always"
+        assert saved.max_grant_s == 0 and saved.rules == ()
+        assert "created" in chat.posted[-1][1]
+    finally:
+        await store.close()
+
+
+async def test_the_first_policy_must_name_somebody(tmp_path: Path) -> None:
+    """One naming nobody leaves the secret exactly as unreachable, so accepting
+    it would be a second dead end wearing a tick."""
+    screen, forms, store, _broker, chat, backend = await _rig(tmp_path)
+    try:
+        backend.values["test"] = {"value": "x"}
+        token = await _policy_form(screen, store, "test")
+
+        await _handle(forms, store, token, {"approval": "never"}, OPERATOR)
+
+        assert await store.get_policy("test") is None
+        assert "🔴" in chat.posted[-1][1]
+    finally:
+        await store.close()
+
+
+async def test_the_modal_says_which_of_the_two_it_is(tmp_path: Path) -> None:
+    """A form whose intro promises "left as they are" when there is nothing to
+    leave is a form that lies about what an empty field does. And the agents
+    field is required exactly when a default for it would be useless, so the
+    refusal above is a backstop rather than the first the operator hears of it."""
+    screen, _forms, store, _broker, _chat, backend = await _rig(tmp_path)
+    try:
+        backend.values["fresh"] = {"value": "x"}
+        await _stored(tmp_path, store)
+        backend.values["github-token"] = {"value": "x"}
+
+        first = await _spec(store, await _policy_form(screen, store, "fresh"))
+        assert "No policy yet" in first.intro
+        assert first.submit_label == "Create"
+        assert next(f for f in first.fields if f.name == "subjects").optional is False
+
+        again = await _spec(store, await _policy_form(screen, store, "github-token"))
+        assert "left as they are" in again.intro
+        assert again.submit_label == "Save"
+        assert next(f for f in again.fields if f.name == "subjects").optional is True
+    finally:
+        await store.close()
+
+
+async def test_the_button_and_the_note_say_what_is_missing(tmp_path: Path) -> None:
+    """`impi ward ls` distinguishes "no policy" from "no subjects" because the
+    two want different things done about them; the card used to say neither."""
+    screen, _forms, store, _broker, _chat, backend = await _rig(tmp_path)
+    try:
+        backend.values["fresh"] = {"value": "x"}
+        backend.values["nameless"] = {"value": "x"}
+        await _stored(tmp_path, store, name="nameless", subjects="")
+        view = await screen.render(
+            ScreenState(screen="ward", data={"view": "secrets"}), user_id=OPERATOR
+        )
+        assert "no policy" in _text(view)
+        assert "no agents named" in _text(view)
+        assert (await _policy_button(screen, "fresh")).label == "Set policy"
+        assert (await _policy_button(screen, "nameless")).label == "Edit"
+    finally:
+        await store.close()
+
+
+async def test_creating_one_is_recorded_as_a_creation(tmp_path: Path) -> None:
+    """"Who gave assistant access to this" and "who widened what it already had"
+    are different questions, and the ledger is where both are answered."""
+    screen, forms, store, _broker, _chat, backend = await _rig(tmp_path)
+    try:
+        backend.values["test"] = {"value": "x"}
+        token = await _policy_form(screen, store, "test")
+
+        await _handle(forms, store, token, {"subjects": "assistant"}, OPERATOR)
+
+        row = (await store.list_audit(limit=1, kind=KIND_OPERATOR))[0]
+        assert row.principal == OPERATOR and row.decision == "policy"
+        assert "created" in row.scope and "assistant" in row.scope
     finally:
         await store.close()
 
