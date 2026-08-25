@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import logging
 import sys
+import time
 from typing import TextIO
 
 from ward.app import run
@@ -21,6 +22,40 @@ from ward.ca import OPERATOR_CN, CertificateAuthority, Issued
 from ward.config import WardSettings, load_settings
 from ward.ports import SecretBackendError
 from ward.vault import VaultBackend, VaultBootstrap
+
+# How long the ceremony waits for the store's listener, and how often it looks.
+# Generous: the cost of waiting too long is a slow first install, and the cost of
+# not waiting long enough is an install that fails on a machine slower than the
+# one this was tried on.
+_STORE_WAIT_S = 60.0
+_STORE_POLL_S = 0.5
+
+
+async def _initialise(backend: VaultBackend, *, out: TextIO) -> VaultBootstrap:
+    """Wait for the store to answer, then run the ceremony.
+
+    `ward init` runs in a container brought up beside the store, both at once, so
+    whether the store's listener is ready when the ceremony starts is a race —
+    and losing it ends a first install with "unreachable" and no sign that
+    running the same command again would work.
+
+    Compose is told to wait too (the store has a healthcheck and this service
+    depends on it being healthy), but only for `up`: not every compose runtime
+    applies a dependency condition to the one-off container `run` creates.
+    Waiting here is what makes the ceremony safe on all of them.
+
+    On the deadline this returns anyway rather than reporting its own failure —
+    the ceremony below produces the message that says what is wrong, and two
+    spellings of "unreachable" is one too many.
+    """
+    deadline = time.monotonic() + _STORE_WAIT_S
+    announced = False
+    while not (await backend.status()).reachable and time.monotonic() < deadline:
+        if not announced:
+            print("waiting for the store to come up...", file=out)
+            announced = True
+        await asyncio.sleep(_STORE_POLL_S)
+    return await backend.bootstrap()
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -31,7 +66,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     backend = VaultBackend(settings.vault_addr, mount=settings.vault_mount)
     try:
-        material = asyncio.run(backend.bootstrap())
+        material = asyncio.run(_initialise(backend, out=sys.stderr))
     except SecretBackendError as exc:
         print(f"could not initialise the store: {exc}", file=sys.stderr)
         if "already initialized" in str(exc):

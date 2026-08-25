@@ -39,6 +39,21 @@ services:
       VAULT_ADDR: "http://127.0.0.1:8200"
     volumes:
       - vault-data:/vault/file
+    healthcheck:
+      # `seal-status`, not `sys/health` and not `vault status`: those two report
+      # a store that is sealed or not yet initialised as a failure, and that is
+      # every store before the ceremony and every store after a restart. The
+      # question here is only whether the API answers — being sealed is a state
+      # an operator resolves, not a reason to hold the broker back.
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8200/v1/sys/seal-status
+      interval: 5s
+      start_period: 30s
 
   ward:
     build:
@@ -54,7 +69,12 @@ services:
     # store on a loopback nothing else can reach.
     network_mode: "service:vault"
     depends_on:
-      - vault
+      # Healthy, not merely started. `ward init` runs in this service, and on a
+      # first install compose brings both up at once — so without a condition
+      # the ceremony reaches for a listener the store has not opened yet, and
+      # ends with "unreachable" on a store that was simply not ready.
+      vault:
+        condition: service_healthy
     environment:
       WARD_DATA_DIR: /var/lib/ward
       WARD_TLS_DIR: /var/lib/ward/tls

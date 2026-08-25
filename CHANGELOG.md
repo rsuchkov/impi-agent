@@ -6,7 +6,14 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: `impi ward init` raced the store it initialises.** On a clean volume
+  the first run could end with `vault at http://127.0.0.1:8200 is unreachable`,
+  and the same command worked a moment later — compose brings the store and the
+  container running the ceremony up together, so which of the two won was a
+  matter of timing. The store now has a healthcheck and the broker waits for it
+  to pass, and the ceremony waits for the store on its own account as well: a
+  dependency condition is honoured for `up` by every compose runtime and for a
+  one-off `run` by only some of them.
 
 ## v0.13.0 — 2026-08-25
 

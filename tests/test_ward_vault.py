@@ -4,11 +4,20 @@ A real aiohttp server on a real port, in the house style — the adapter's whole
 job is HTTP shape, and a mock of its own request method would assert nothing.
 The stub keeps just enough state to make the interesting sequences reachable:
 sealed vs unsealed, a token that expires, a mount that is empty.
+
+The tail of the file covers the ceremony's wait for the store (`ward/cli.py`)
+rather than the adapter itself. It lives here because the only way to test
+waiting for a store is to have one that is not up yet, and this is where the
+stub that can be started late already is.
 """
+
+import asyncio
+import io
 
 import pytest
 from aiohttp import web
 
+from ward import cli as ward_cli
 from ward.ports import SecretBackendError, UnlockMaterial
 from ward.vault import VaultBackend
 from wardline.wire import SecretRef
@@ -420,3 +429,48 @@ async def test_the_broker_can_replace_its_own_credential() -> None:
     finally:
         await backend.close()
         await stub.stop()
+
+
+# -- waiting for a store that is still coming up (ward/cli.py) -----------------------
+
+
+async def _start_late(stub: StubVault, port: int, *, after: float) -> None:
+    await asyncio.sleep(after)
+    await stub.start(port)
+
+
+async def test_the_ceremony_waits_for_a_store_that_is_still_starting() -> None:
+    """On a first install the store and the container running `ward init` are
+    brought up together, so the ceremony can reach for a listener that does not
+    exist yet. Losing that race used to end the install with "unreachable" and
+    nothing saying that the same command would work on a second try."""
+    stub = StubVault(initialized=False, sealed=True)
+    backend = VaultBackend("http://127.0.0.1:8495", mount=MOUNT)
+    late = asyncio.create_task(_start_late(stub, 8495, after=0.3))
+    said = io.StringIO()
+    try:
+        material = await ward_cli._initialise(backend, out=said)
+        assert material.unseal_key == UNSEAL_KEY
+        # And says so, because a command that sits there silently for a minute
+        # is one an operator interrupts.
+        assert "waiting" in said.getvalue()
+    finally:
+        await late
+        await backend.close()
+        await stub.stop()
+
+
+async def test_a_store_that_never_comes_up_is_reported_as_the_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wait ends in the ceremony's own error, not a second one about
+    waiting: an operator who reads "unreachable" should go and look at the
+    store, whether the wait was a moment or a minute."""
+    monkeypatch.setattr(ward_cli, "_STORE_WAIT_S", 0.2)
+    backend = VaultBackend("http://127.0.0.1:8496", mount=MOUNT)
+    try:
+        with pytest.raises(SecretBackendError) as caught:
+            await ward_cli._initialise(backend, out=io.StringIO())
+        assert "unreachable" in str(caught.value)
+    finally:
+        await backend.close()
