@@ -338,7 +338,9 @@ if [ "${IMPI_VAULT:-no}" = yes ]; then
     # Where to ask and where the identities are mounted are declared by the
     # compose overlay, which is what the tool (and every agent it runs in) reads
     # straight from the container's environment.
-    mkdir -p "$IMPI_HOME/certs"
+    # Two directories on purpose: the agents' identities are mounted into the
+    # engine, the operator's is not — see docs/secrets.md.
+    mkdir -p "$IMPI_HOME/certs" "$IMPI_HOME/operator"
     # The broker's own file, which the engine does not read.
     WARD_ENV="$IMPI_HOME/conf/ward.env"
     env_set WARD_APPROVERS "$IMPI_SECRET_APPROVERS" "$WARD_ENV"

@@ -87,6 +87,14 @@ class FormRecord:
     # The message carrying the "fill in" button, so submitting can strike it out.
     # "" for records written before the engine started recording it.
     post_id: str = ""
+    # Who answers this form when it comes back. "" — the default and everything
+    # an agent opens — means the values go into the conversation as a synthetic
+    # message. A name means the application answers it instead, and the routing
+    # is written down HERE rather than worked out by asking handlers whether a
+    # token is theirs: a handler that guessed wrong, or failed, would otherwise
+    # let the values fall through into a conversation, and for some forms that
+    # is exactly the thing that must not happen.
+    handler: str = ""
 
 
 class FormStore(Protocol):

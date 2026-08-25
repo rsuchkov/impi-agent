@@ -11,8 +11,10 @@ from crucible.interactions import (
     MappingPresence,
 )
 from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.interactions.screens import ScreenRegistry, View
 from crucible.ports.chat.types import KIND_CHANNEL, KIND_THREAD
 from crucible.store.sessions import SqliteSessionStore
+from tests.fakes.fake_chat import FakeChat
 from tests.fakes.presence import presence_of
 
 # A real Mattermost payload (captured from a live server with a slash command
@@ -43,13 +45,13 @@ class SinkSpy:
 
 async def _server(
     port: int, store, *, tokens=("good-token",), token_owners=("assistant",),
-    agents=None, default_agent="", present="assistant",
+    agents=None, default_agent="", present="assistant", screens=None, chat=None,
 ) -> tuple[InteractionsServer, SinkSpy]:
     spy = SinkSpy()
     dispatcher = InteractionDispatcher(
         store,
-        presence_of(object(), sink=spy, agent=present),  # type: ignore[arg-type]
-        PendingUiRequests(), store,
+        presence_of(chat or object(), sink=spy, agent=present),  # type: ignore[arg-type]
+        PendingUiRequests(), store, screens=screens,
     )
     server = InteractionsServer(
         dispatcher, MattermostCallbackCodec(), MappingPresence({}),
@@ -237,6 +239,70 @@ async def test_default_still_has_to_prove_the_token(tmp_path: Path) -> None:
 
         assert status == 403
         assert spy.submitted == []
+    finally:
+        await server.stop()
+        await store.close()
+
+
+# --- a screen that will not appear here -------------------------------------------
+
+
+class PickyScreen:
+    """A screen with an opinion about where it may be opened."""
+
+    command = "picky"
+
+    def __init__(self) -> None:
+        self.rendered = 0
+
+    async def admits(self, *, user_id: str, ref) -> str:
+        return "" if user_id == "welcome" else "not for you, not here"
+
+    async def render(self, state, *, user_id: str) -> View:
+        self.rendered += 1
+        return View.of("the contents")
+
+
+async def test_a_refused_screen_answers_privately_and_posts_nothing(
+    tmp_path: Path,
+) -> None:
+    """The refusal is the command's own answer — ephemeral, in the platform's
+    shape for a command rather than for a click — and nothing reaches the
+    conversation, which is the point of refusing."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat, screen = FakeChat(), PickyScreen()
+    screens = ScreenRegistry()
+    screens.register(screen)
+    server, spy = await _server(8497, store, screens=screens, chat=chat)
+    try:
+        status, body = await _post(8497, "assistant", {**THREAD_PAYLOAD, "command": "/picky"})
+
+        assert status == 200
+        assert body == {"response_type": "ephemeral", "text": "not for you, not here"}
+        assert chat.posted_cards == []  # nothing was drawn into the conversation
+        assert screen.rendered == 0  # and nothing was rendered to draw
+        assert spy.submitted == []  # nor did it fall through to the agent
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_an_admitted_screen_is_posted_and_answers_with_nothing(
+    tmp_path: Path,
+) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat, screen = FakeChat(), PickyScreen()
+    screens = ScreenRegistry()
+    screens.register(screen)
+    server, _ = await _server(8498, store, screens=screens, chat=chat)
+    try:
+        status, body = await _post(
+            8498, "assistant", {**THREAD_PAYLOAD, "command": "/picky", "user_id": "welcome"}
+        )
+
+        assert status == 200 and body == {}  # the card IS the answer
+        assert screen.rendered == 1
+        assert len(chat.posted_cards) == 1
     finally:
         await server.stop()
         await store.close()

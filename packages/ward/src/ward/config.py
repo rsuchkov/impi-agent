@@ -38,11 +38,15 @@ class WardSettings(BaseSettings):
     listen_port: int = 8425
     # The CA, ward's own certificate, and the key. Created by `ward init`.
     tls_dir: str = "/var/lib/ward/tls"
-    # Where identities are handed OUT: the operator's, and later each agent's.
-    # A deployment mounts the directory its clients read from, so `init` can put
-    # the operator's certificate somewhere the operator can actually reach — the
-    # authority's key stays behind, in tls_dir.
+    # Where the AGENTS' identities are handed out. Mounted by the engine, whose
+    # container is where the agents run — so nothing an agent must not have goes
+    # in here.
     issued_dir: str = "/var/lib/ward/issued"
+    # And where the OPERATOR's goes, which is a different directory for exactly
+    # that reason: an operator certificate beside the agents' is an operator
+    # certificate any agent can read, and administering the broker would stop
+    # being something only a human does.
+    operator_dir: str = "/var/lib/ward/operator"
     # Names ward's certificate is issued for — what a client verifies it reached.
     server_names: str = "ward,localhost,127.0.0.1"
 
@@ -55,6 +59,16 @@ class WardSettings(BaseSettings):
     approval_channel: str = ""  # "" = a direct message to the first approver
     approval_timeout_s: float = 120.0
     max_grant_s: int = 3600
+
+    # The slash command's tokens (CSV), as Mattermost minted them when the
+    # command was registered. Empty = no operator surface in chat at all: the
+    # receiver refuses a command it has no token for, so the feature is off
+    # until somebody registers the command AND puts its token here.
+    #
+    # Operator-grade. Anything that reaches the receiver with this token can
+    # claim to be any user, so the check that follows it — the approver list —
+    # is what actually decides. Not shared with the engine's own commands.
+    command_tokens: str = ""
 
     # Where the click on an approval comes back to. Its own receiver, on its own
     # port, because the engine's belongs to the engine.
@@ -71,6 +85,10 @@ class WardSettings(BaseSettings):
     @cached_property
     def issued(self) -> Path:
         return Path(self.issued_dir)
+
+    @cached_property
+    def operator(self) -> Path:
+        return Path(self.operator_dir)
 
     @property
     def ca_cert(self) -> Path:
@@ -93,12 +111,22 @@ class WardSettings(BaseSettings):
         return Path(self.data_dir) / "ward.db"
 
     @property
+    def tokens(self) -> tuple[str, ...]:
+        return tuple(t.strip() for t in self.command_tokens.split(",") if t.strip())
+
+    @property
     def names(self) -> tuple[str, ...]:
         return tuple(n.strip() for n in self.server_names.split(",") if n.strip())
 
     @property
     def interact_url(self) -> str:
         return f"{self.callback_public_url.rstrip('/')}/interact"
+
+    @property
+    def dialog_url(self) -> str:
+        """Where a modal's submission comes back to. A dialog the platform has
+        nowhere to send is a dialog it refuses to open at all."""
+        return f"{self.callback_public_url.rstrip('/')}/dialog"
 
 
 def load_settings() -> WardSettings:

@@ -56,6 +56,10 @@ _FIELD_ELEMENTS = {
     "text": "plain_text_input",
     "textarea": "plain_text_input",
     "tel": "plain_text_input",
+    # Slack has no masked input. Plain text is the honest rendering: a form that
+    # refused to open would be worse, and masking was never what keeps a value
+    # safe — see the note in docs/creating-agents.md.
+    "password": "plain_text_input",
     "number": "number_input",
     "email": "email_text_input",
     "url": "url_text_input",

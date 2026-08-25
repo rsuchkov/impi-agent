@@ -82,7 +82,7 @@ async def test_a_command_with_a_screen_never_reaches_an_agent(tmp_path: Path) ->
             kind="channel", user_id="u1",
         )
 
-        assert opened is True
+        assert opened.owned is True and opened.refused == ""
         assert spy.submitted == []  # no turn: the engine answered
         ref, cards, _url = chat.posted_cards[0]
         assert cards[0].text == "page 0" and ref.channel_id == "ch1"
@@ -95,10 +95,11 @@ async def test_an_unknown_command_is_left_to_the_agent(tmp_path: Path) -> None:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     dispatcher = _dispatcher(store, FakeChat(), SinkSpy(), ScreenRegistry())
     try:
-        assert await dispatcher.open_screen(
+        opened = await dispatcher.open_screen(
             "assistant", "/summarize", channel_id="ch1", conversation_id="ch1",
             kind="channel", user_id="u1",
-        ) is False
+        )
+        assert opened.owned is False
     finally:
         await store.close()
 

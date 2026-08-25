@@ -177,20 +177,31 @@ def test_the_operator_identity_lands_where_an_operator_can_reach_it(
     """`ward init` runs inside the broker's container, and the operator does not.
     Without this the only certificate that may drive the broker would sit in the
     broker's own volume and every administrative command would answer 404."""
-    settings = _settings(tmp_path, issued_dir=str(tmp_path / "issued"))
+    settings = _settings(
+        tmp_path,
+        issued_dir=str(tmp_path / "issued"),
+        operator_dir=str(tmp_path / "operator"),
+    )
     ca, _ = CertificateAuthority.create()
     operator = ca.issue_client(OPERATOR)
 
     _hand_out(settings, ca, operator)
 
-    issued = tmp_path / "issued"
-    assert (issued / "operator.crt").read_text() == operator.certificate
+    issued, operator_dir = tmp_path / "issued", tmp_path / "operator"
+    assert (operator_dir / "operator.crt").read_text() == operator.certificate
+    assert (operator_dir / "ca.crt").read_text() == ca.certificate
+    # Everyone verifies the broker with the CA, so it goes to both.
     assert (issued / "ca.crt").read_text() == ca.certificate
-    # The signing key is the one thing that must not travel: this directory is
-    # mounted by whatever runs the clients, and a key here would let that side
-    # mint an agent.
+    # And the operator's identity goes ONLY there. The agents' directory is
+    # mounted by the container the agents run in; a certificate that
+    # administers the broker in it would be one any agent could read.
+    assert not (issued / "operator.crt").exists()
+    assert not (issued / "operator.key").exists()
+    # The signing key travels to neither: a key on a mounted side would let that
+    # side mint an agent.
     assert not (issued / "ca.key").exists()
-    assert str(issued) in capsys.readouterr().out
+    assert not (operator_dir / "ca.key").exists()
+    assert str(operator_dir) in capsys.readouterr().out
 
 
 def test_an_unmounted_directory_says_what_to_copy(
@@ -200,7 +211,11 @@ def test_an_unmounted_directory_says_what_to_copy(
     tells the operator what to do instead."""
     blocked = tmp_path / "blocked"
     blocked.write_text("not a directory")
-    settings = _settings(tmp_path, issued_dir=str(blocked / "issued"))
+    settings = _settings(
+        tmp_path,
+        issued_dir=str(blocked / "issued"),
+        operator_dir=str(blocked / "operator"),
+    )
     ca, _ = CertificateAuthority.create()
 
     _hand_out(settings, ca, ca.issue_client(OPERATOR))
@@ -254,3 +269,14 @@ async def test_a_chat_account_that_will_not_sign_in_does_not_stop_the_broker(
     finally:
         await ward.store.close()
     assert "WARD_MATTERMOST_TOKEN" in caplog.text
+
+
+def test_the_receiver_knows_where_a_modal_submits(tmp_path: Path) -> None:
+    """A dialog the platform has nowhere to send back is a dialog it refuses to
+    open — which is every operator modal in the chat surface."""
+    settings = _settings(tmp_path, callback_public_url="http://ward:8426")
+    _authority(settings)
+    ward = build(settings)
+    assert settings.dialog_url == "http://ward:8426/dialog"
+    assert ward.callbacks._dialog_submit_url == settings.dialog_url
+    ward.store._conn.close()

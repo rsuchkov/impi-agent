@@ -88,11 +88,16 @@ class Action:
 # above the ports layer knows what a platform calls them.
 FIELD_TYPES = (
     "text", "textarea", "number", "email", "url", "tel",  # typed free text
+    "password",                                           # free text, masked
     "select", "multiselect", "radio", "bool",             # choices
     "user", "users", "channel", "channels",               # workspace pickers
     "date", "datetime", "time",                           # temporal
     "label",                                              # static text, no value
 )
+# Masking is the platform's, and not every platform has it — an adapter that
+# cannot mask renders plain text rather than refusing the form. A value typed
+# into one of these is still a value that travelled through the chat platform;
+# the field type is about shoulder-surfing, not about secrecy.
 # Types whose value is a list of picks rather than one.
 MULTI_FIELD_TYPES = frozenset({"multiselect", "users", "channels"})
 # Types the user picks from the workspace: the platform returns an ID, which the

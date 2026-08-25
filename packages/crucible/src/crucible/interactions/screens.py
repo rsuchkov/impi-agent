@@ -73,6 +73,19 @@ class View:
         return View(cards=(Card(text=text, actions=actions, accent=accent),))
 
 
+@dataclass(frozen=True)
+class ScreenOpened:
+    """What became of a command a screen might own.
+
+    ``refused`` is a message for the person who asked and nobody else: a screen
+    that will not appear here has not been drawn, so there is nothing posted to
+    carry the reason.
+    """
+
+    owned: bool
+    refused: str = ""
+
+
 class Screen(Protocol):
     """One engine-answered command. ``command`` is the trigger word it binds to:
     a screen with ``command = "skills"`` answers ``/skills`` and nothing else, so
@@ -82,6 +95,38 @@ class Screen(Protocol):
     command: str
 
     async def render(self, state: ScreenState, *, user_id: str) -> View: ...
+
+
+class Admitting(Protocol):
+    """A screen that decides who may open it, and where.
+
+    Separate from ``render`` on purpose. A refusal is not a view: drawing one
+    would mean posting "you may not see this" into the very conversation the
+    screen was refusing to appear in, and for a screen whose content is
+    sensitive the refusal has to be the reason nothing was posted at all —
+    rather than something drawn instead of the content.
+
+    ``ref`` is where the command was invoked, and is ``None`` on a click: a
+    message already exists there, so what is left to decide is who may drive it.
+    Returning "" admits; any other string is the reason, delivered privately to
+    whoever asked.
+    """
+
+    async def admits(self, *, user_id: str, ref: ConversationRef | None) -> str: ...
+
+
+async def refusal(screen: Screen, *, user_id: str, ref: ConversationRef | None) -> str:
+    """Why this screen will not open, or "" — including for the screens that
+    never refuse.
+
+    Asked of every screen and answered by the few that implement ``Admitting``.
+    A guard the caller cannot forget to invoke is worth more than one every
+    screen has to remember to write.
+    """
+    admits = getattr(screen, "admits", None)
+    if admits is None:
+        return ""
+    return await admits(user_id=user_id, ref=ref)
 
 
 ScreenRenderer = Callable[[ScreenState, str], Awaitable[View]]
@@ -156,5 +201,7 @@ async def post_first_view(
     Shared by the two ways a screen is opened — a slash command, and an agent
     reaching for it mid-turn — so both produce the same message, and every click
     on it afterwards takes the same engine-only path."""
-    view = await screen.render(ScreenState(screen=screen.command, agent=agent), user_id=user_id)
+    view = await screen.render(
+        ScreenState(screen=screen.command, agent=agent), user_id=user_id
+    )
     await poster.post_cards(ref, list(view.cards), callback_url=callback_url)

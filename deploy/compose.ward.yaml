@@ -69,11 +69,12 @@ services:
       - ${IMPI_HOME:?set in compose.env}/conf/ward.env
     volumes:
       - ward-data:/var/lib/ward
-      # Where it hands identities out: `ward init` drops the operator's
-      # certificate and the CA's here, and this is the same directory the
-      # engine's container mounts, so `impi ward …` can authenticate at once.
-      # The authority's key stays in ward-data and never appears here.
+      # Where it hands identities out. Two directories, because two audiences:
+      # the agents' certificates go where the engine can mount them, and the
+      # operator's goes where only the operator's tool can. The authority's key
+      # stays in ward-data and appears in neither.
       - ${IMPI_HOME:?set in compose.env}/certs:/var/lib/ward/issued:z
+      - ${IMPI_HOME:?set in compose.env}/operator:/var/lib/ward/operator:z
     healthcheck:
       # Both sockets: its own door, and the store on the shared loopback. The
       # second is what makes a broken namespace loud — otherwise both containers
@@ -91,19 +92,38 @@ services:
 
   impi:
     # The engine itself knows nothing about any of this. These two variables are
-    # read by the secret tool that ships in its image — `secret-exec`, which an
-    # agent runs, and `ward-admin`, which an operator runs — and agents inherit
-    # them because their processes inherit this container's environment. Which
-    # identity to present each one works out from the agent's own name.
+    # read by `secret-exec`, the tool an agent runs, which ships in its image;
+    # agents inherit them because their processes inherit this container's
+    # environment, and which identity to present each one works out from the
+    # agent's own name.
     environment:
       SECRET_BROKER_URL: "https://ward:8425"
       SECRET_BROKER_CERTS_DIR: /app/conf/certs
     volumes:
-      # Every identity lives here: one certificate per agent, plus the
-      # operator's. The only thing that writes is `impi ward cert`, saving what
-      # the broker issued. The authority's key is not in here and cannot be: it
-      # never leaves the broker.
+      # The AGENTS' identities, and only theirs. The operator's is deliberately
+      # elsewhere: this container is where the agents run, so a certificate here
+      # is a certificate an agent can read — and the operator's administers the
+      # broker. The authority's key is in neither and cannot be: it never leaves
+      # the broker.
       - ${IMPI_HOME:?set in compose.env}/certs:/app/conf/certs:z
+
+  # The operator's own tool. Never started — `impi ward …` runs it one command at
+  # a time — and that is the point: it is the only container that mounts the
+  # certificate which administers the broker, and no agent runs in it.
+  ward-admin:
+    image: localhost/impi:local
+    command: ["ward-admin", "--help"]
+    environment:
+      SECRET_BROKER_URL: "https://ward:8425"
+      # Where it writes an agent's identity, and where it reads its own.
+      SECRET_BROKER_CERTS_DIR: /app/conf/certs
+      SECRET_BROKER_OPERATOR_CERT: /app/conf/operator/operator.crt
+      SECRET_BROKER_OPERATOR_KEY: /app/conf/operator/operator.key
+      SECRET_BROKER_CA: /app/conf/operator/ca.crt
+      WARD_ADMIN_PROG: "impi ward"
+    volumes:
+      - ${IMPI_HOME:?set in compose.env}/certs:/app/conf/certs:z
+      - ${IMPI_HOME:?set in compose.env}/operator:/app/conf/operator:z
 
 volumes:
   ward-data:

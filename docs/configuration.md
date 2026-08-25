@@ -251,6 +251,8 @@ are `WARD_*` and live in its container's environment, not here.
 | `WARD_APPROVAL_CHANNEL` | — | where cards go (empty = a DM to the first approver) |
 | `WARD_APPROVAL_TIMEOUT_S` | `120` | how long a request waits before it is refused |
 | `WARD_MAX_GRANT_S` | `3600` | ceiling over every policy's own window ceiling |
+| `WARD_COMMAND_TOKENS` | — | the `/ward` slash command's tokens (CSV). Empty = no operator surface in chat. Operator-grade: anything reaching the receiver with one of these can claim to be any user, and only the approver check that follows decides |
+| `WARD_OPERATOR_DIR` | `/var/lib/ward/operator` | where `ward init` puts the operator's identity — a different directory from the agents', because that one is mounted where the agents run |
 
 ## Tool confirmations
 

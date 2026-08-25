@@ -1,5 +1,6 @@
 """open_form: Form (de)serialization, InteractionService, and the receiver dialog paths."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import aiohttp
@@ -7,6 +8,7 @@ import aiohttp
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.interactions import InteractionDispatcher, InteractionsServer
 from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.interactions.ports import FormHandlers
 from crucible.interactions.service import InteractionService
 from crucible.ports.chat.interactions import form_from_json, form_to_json
 from crucible.ports.chat.types import KIND_DM, Action, ConversationRef, Form, FormField
@@ -79,12 +81,15 @@ class SinkSpy:
         self.submitted.append(msg)
 
 
-async def _server(port: int, store, poster) -> tuple[InteractionsServer, SinkSpy]:
+async def _server(
+    port: int, store, poster, handlers=None
+) -> tuple[InteractionsServer, SinkSpy]:
     spy = SinkSpy()
     dispatcher = InteractionDispatcher(
         # Same client on both sides: the dispatcher retires the button through the
         # agent's chat client, and the test reads it back off the poster.
-        store, presence_of(poster, sink=spy), PendingUiRequests(), store
+        store, presence_of(poster, sink=spy), PendingUiRequests(), store,
+        handlers=handlers,
     )
     server = InteractionsServer(
         dispatcher, MattermostCallbackCodec(), presence_of(poster),
@@ -284,6 +289,126 @@ async def test_unresolvable_id_degrades_to_the_raw_value(tmp_path: Path) -> None
                 assert resp.status == 200
 
         assert "- Channel: c-unknown" in spy.submitted[0].text  # raw, never blank
+    finally:
+        await server.stop()
+        await store.close()
+
+
+# --- a form the application answers itself ----------------------------------------
+
+
+class SpyHandler:
+    """A ``FormHandler``: it is called only for forms that named it."""
+
+    def __init__(self, *, explodes: bool = False) -> None:
+        self.seen: list[tuple[str, dict, str]] = []
+        self._explodes = explodes
+
+    async def handle(self, record, values, user_id: str) -> None:
+        self.seen.append((record.token, dict(values), user_id))
+        if self._explodes:
+            raise RuntimeError("the handler fell over")
+
+
+def _handlers(name: str, handler) -> FormHandlers:
+    registry = FormHandlers()
+    registry.register(name, handler)
+    return registry
+
+
+async def _submit(port: int, token: str, submission: dict) -> None:
+    async with aiohttp.ClientSession() as s:
+        async with s.post(
+            f"http://127.0.0.1:{port}/dialog",
+            json={"type": "dialog_submission", "state": token, "cancelled": False,
+                  "user_id": "u", "submission": submission},
+        ) as resp:
+            assert resp.status == 200
+
+
+async def _post_handled_form(store, poster, handler_name: str) -> str:
+    """A form written with a handler's name, as an application writes one."""
+    token = await _post_form(store, poster)
+    record = await store.get_form(token)
+    assert record is not None
+    await store.delete_form(token)
+    await store.create_form(replace(record, handler=handler_name))
+    return token
+
+
+async def test_a_form_names_the_handler_that_answers_it(tmp_path: Path) -> None:
+    """Values a form collects for the application must not become a message in
+    the conversation — the point of routing, and the case where one of them is
+    a credential."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    handler = SpyHandler()
+    server, spy = await _server(8486, store, poster, handlers=_handlers("ops", handler))
+    try:
+        token = await _post_handled_form(store, poster, "ops")
+        await _submit(8486, token, {"summary": "crash", "prio": "high"})
+
+        assert handler.seen == [(token, {"summary": "crash", "prio": "high"}, "u")]
+        assert spy.submitted == []  # nothing was fed into the conversation
+        assert poster.retracted == []  # and nothing was rewritten
+        assert await store.get_form(token) is None  # still one-shot
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_a_form_with_no_handler_takes_the_agent_path(tmp_path: Path) -> None:
+    """The regression that matters for the engine: an unnamed form — every form
+    an agent opens — behaves exactly as it did."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    handler = SpyHandler()
+    server, spy = await _server(8487, store, poster, handlers=_handlers("ops", handler))
+    try:
+        token = await _post_form(store, poster)
+        await _submit(8487, token, {"summary": "crash", "prio": "high"})
+
+        assert handler.seen == []  # never consulted
+        assert len(spy.submitted) == 1
+        assert "crash" in spy.submitted[0].text
+        assert poster.retracted == [("pid", "✅ Submitted.")]
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_a_handler_that_fails_does_not_hand_the_values_on(tmp_path: Path) -> None:
+    """The reason routing beats asking. A handler that raised while claiming
+    ownership by return value would drop the values into a conversation — and
+    for the forms this exists for, that is the one unacceptable outcome."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    server, spy = await _server(
+        8488, store, poster, handlers=_handlers("ops", SpyHandler(explodes=True))
+    )
+    try:
+        token = await _post_handled_form(store, poster, "ops")
+        await _submit(8488, token, {"summary": "crash"})
+
+        assert spy.submitted == []
+        assert poster.retracted == []
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_a_form_naming_an_unregistered_handler_is_dropped(tmp_path: Path) -> None:
+    """A composition error, and the safe reading of one: the values go nowhere
+    rather than to whoever happens to be listening."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    server, spy = await _server(8489, store, poster, handlers=FormHandlers())
+    try:
+        token = await _post_handled_form(store, poster, "nobody-registered-this")
+        await _submit(8489, token, {"summary": "crash"})
+
+        assert spy.submitted == []
+        assert poster.retracted == []
     finally:
         await server.stop()
         await store.close()

@@ -13,7 +13,7 @@ import secrets
 from datetime import datetime, timezone
 
 from crucible.interactions.presence import AgentPresence
-from crucible.interactions.screens import ScreenRegistry, post_first_view
+from crucible.interactions.screens import ScreenRegistry, post_first_view, refusal
 from crucible.ports.chat.interactions import (
     ASK_CHANNELS,
     ASK_SELECT,
@@ -178,15 +178,23 @@ class InteractionService:
         The model chooses to open it and nothing more: the view is rendered by
         the engine, and every click on it afterwards is answered by the engine
         too — no turn, no model, no chance to describe a task that isn't there.
-        False when no screen answers to ``name`` or the conversation can't be
-        resolved."""
+        False when no screen answers to ``name``, the conversation can't be
+        resolved, or the screen refuses to appear here — an agent reaching for a
+        panel is subject to the same admission as a person typing its command,
+        and for the same reason: the panel would be posted into a conversation
+        the screen has said it will not appear in."""
         screen = self._screens.get(name) if self._screens else None
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
         poster = self._presence.poster(agent)
         if screen is None or record is None or poster is None:
             return False
+        ref = self._ref(record)
+        denial = await refusal(screen, user_id=user_id, ref=ref)
+        if denial:
+            logger.info("screen %s refused in an agent turn: %s", screen.command, denial)
+            return False
         await post_first_view(
-            screen, poster, self._ref(record),
+            screen, poster, ref,
             agent=agent, user_id=user_id, callback_url=self._callback_url,
         )
         logger.info("screen %s opened by %s (agent turn)", screen.command, agent)

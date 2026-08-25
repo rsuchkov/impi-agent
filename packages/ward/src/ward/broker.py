@@ -39,6 +39,7 @@ from crucible.store.base import (
     ApprovalGrant,
     ApprovalStore,
 )
+from ward.approvers import Approvers
 from ward.card import approval_text, verdict_text
 from ward.decisions import (
     DECISION_AUTO,
@@ -88,8 +89,8 @@ class SecretBroker:
         presence: AgentPosters,
         admins: Mapping[str, ChatAdmin],
         approvals: PendingApprovals,
+        approvers: Approvers,
         *,
-        approvers: str = "",
         approval_channel: str = "",
         approval_timeout_s: float = 120.0,
         max_grant_s: int = 3600,
@@ -103,15 +104,11 @@ class SecretBroker:
         self._presence = presence
         self._admins = admins
         self._approvals = approvals
-        self._approvers_raw = approvers
+        self._approvers = approvers
         self._approval_channel = approval_channel
         self._timeout = approval_timeout_s
         self._max_grant_s = max_grant_s
         self._callback_url = callback_url
-        # Usernames resolve to ids once. The map is small and stable; re-reading
-        # it per request would put a directory lookup in the path of every
-        # credential the broker hands out.
-        self._approver_ids: frozenset[str] | None = None
 
     # -- the decision ---------------------------------------------------------
 
@@ -213,7 +210,7 @@ class SecretBroker:
         """Put the request in front of a human. None when there was nobody to
         put it in front of — a missing approver is a configuration problem, and
         must not read as a refusal in the ledger."""
-        approvers = await self._resolve_approvers(request.agent)
+        approvers = await self._approvers.ids()
         poster = self._presence.poster(request.agent)
         if not approvers or poster is None:
             logger.warning(
@@ -275,24 +272,6 @@ class SecretBroker:
             if channel:
                 return channel
         return ""
-
-    async def _resolve_approvers(self, agent: str) -> frozenset[str]:
-        """The configured approvers as platform user ids.
-
-        Entries may be written either way. An entry the directory recognizes as
-        a username becomes its id; anything else is taken to be an id already,
-        so a deployment whose platform has no username lookup still works.
-        """
-        if self._approver_ids is not None:
-            return self._approver_ids
-        entries = [e.strip().lstrip("@") for e in self._approvers_raw.split(",") if e.strip()]
-        admin = self._admins.get(agent)
-        resolved: set[str] = set()
-        for entry in entries:
-            found = await admin.resolve_username(entry) if admin is not None else None
-            resolved.add(found or entry)
-        self._approver_ids = frozenset(resolved)
-        return self._approver_ids
 
     @staticmethod
     async def _rewrite(poster, post_id: str, text: str) -> None:

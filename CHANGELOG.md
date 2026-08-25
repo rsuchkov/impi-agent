@@ -6,7 +6,37 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The secret broker can be driven from chat.** `/ward` in a direct message
+  with the ward bot opens a card: the store's state, what is stored and who may
+  reach it, the open windows with a Revoke on each, the ledger — and modals for
+  opening the store and for storing a value. It exists to answer the two things
+  that do not wait for the machine holding `operator.key`: a store sealed by an
+  unplanned restart, and "why was my agent refused" asked from a phone.
+
+  **Unlock** and **Unseal…** are separate buttons on purpose. The first needs
+  only the broker's credential, which is all a restart of the broker costs (an
+  `impi update`, say) and which `impi ward rotate` can replace afterwards. The
+  second also needs the unseal key, which cannot be replaced that way — so
+  putting it through a chat platform is a thing you choose rather than a field
+  you happen to fill in.
+
+  Turned on by registering a slash command and setting `WARD_COMMAND_TOKENS`;
+  answers only people in `WARD_APPROVERS`, only in a direct message, and never
+  hands a credential back — `rotate` and `cert` stay in the CLI. Every action
+  lands in the ledger with the user id that did it: `impi ward audit --kind
+  operator`.
+- **Fixed: an agent could read the certificate that administers the broker.**
+  The operator's identity was mounted into the engine's container, where agents
+  run as the same user, in the same directory as their own certificates — so an
+  agent with a shell could act as the operator: store values, mint identities,
+  write itself into a policy's subjects. It now goes to `~/.impi/operator`,
+  which only the operator's own one-shot container mounts.
+
+  **Existing deployments:** move `operator.crt` and `operator.key` from
+  `~/.impi/certs` to `~/.impi/operator` (copy `ca.crt` too, leaving the original
+  in place) and delete them from the first. Anything else keeps working.
+- **`impi ward audit` shows what operators did**, not only what agents asked
+  for; `--kind secret` / `--kind operator` narrows it.
 
 ## v0.12.1 — 2026-08-24
 

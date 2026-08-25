@@ -133,6 +133,30 @@ channel administration it cannot, and the deployment needs
 platform to the broker's receiver, and Mattermost will not call an address
 missing from `AllowedUntrustedInternalConnections`. `ward` has to be in it.
 
+## The chat surface (`/ward`)
+
+Some of this can be done without the operator's machine: `/ward` in a **direct
+message with the ward bot** opens a card with the store's state, the lists, and
+modals for unlocking and for storing a value. It is the answer to "the store is
+sealed and I am not at my laptop".
+
+What to know when advising:
+
+- It exists only if the deployment registered the slash command and put its
+  token in `WARD_COMMAND_TOKENS`. `/ward` doing nothing at all usually means one
+  of those two is missing.
+- Only people in `WARD_APPROVERS` get anything back, and only in a DM — in a
+  channel it refuses on purpose, because the card would show secret names to
+  everyone in the room.
+- **Unlock** and **Unseal…** are different buttons: the first needs only the
+  broker's credential (the case after `impi update`), the second also needs the
+  unseal key. Advise the first wherever it is enough.
+- There is no `rotate` and no `cert` there, and there will not be: both hand a
+  credential back, and a credential in a chat message is a credential in
+  Mattermost's database. Those stay `impi ward rotate` / `impi ward cert`.
+- What an operator did from chat is in the ledger:
+  `impi ward audit --kind operator`.
+
 ## Windows
 
 `Allow for…` leaves a window open: that agent, that secret, no more questions

@@ -19,9 +19,14 @@ from crucible.gateways.mattermost import MattermostCallbackCodec, MattermostChat
 from crucible.gateways.mattermost.options import driver_options
 from crucible.interactions import InteractionDispatcher, InteractionsServer
 from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.interactions.ports import FormHandlers
+from crucible.interactions.screens import ScreenRegistry
 from crucible.ports.chat.client import ChatClient
+from ward.approvers import Approvers
 from ward.broker import SecretBroker
 from ward.ca import CertificateAuthority
+from ward.chatops import HANDLER as WARD_HANDLER
+from ward.chatops import OperatorForms, PendingOperatorForms, WardScreen
 from ward.config import WardSettings
 from ward.operations import Operations
 from ward.ports import UnlockMaterial
@@ -84,6 +89,9 @@ def build(settings: WardSettings) -> Ward:
     chat = MattermostChatClient(driver)
     presence = OneBot(chat)
 
+    # Who may answer, and — the same trust — who may administer from chat.
+    approvers = Approvers(settings.approvers, chat)
+
     broker = SecretBroker(
         VaultBackend(
             settings.vault_addr, mount=settings.vault_mount, role_id=settings.role_id
@@ -94,32 +102,52 @@ def build(settings: WardSettings) -> Ward:
         # The same one account posts the card and opens the direct message.
         presence,  # type: ignore[arg-type]  # a one-entry map, without the map
         approvals,
-        approvers=settings.approvers,
+        approvers,
         approval_channel=settings.approval_channel,
         approval_timeout_s=settings.approval_timeout_s,
         max_grant_s=settings.max_grant_s,
         callback_url=settings.interact_url,
     )
 
+    operations = Operations(broker.backend, store, store)
     ca = CertificateAuthority.load(settings.ca_cert, settings.ca_key)
     door = WardServer(
         broker,
         ca,
-        Operations(broker.backend, store, store),
+        operations,
         host=settings.listen_host,
         port=settings.listen_port,
         ssl_context=mutual_tls(
             certificate=settings.server_cert, key=settings.server_key, ca=settings.ca_cert
         ),
     )
+    # The operator surface in chat. Registered whatever the settings say — what
+    # gates it is the command token (no token, no route) and the approver list
+    # (nobody named, nobody allowed), both checked on every call.
+    pending_forms = PendingOperatorForms()
+    handlers = FormHandlers()
+    handlers.register(
+        WARD_HANDLER,
+        OperatorForms(broker, operations, approvers, chat, chat, store, pending_forms),
+    )
+    screens = ScreenRegistry()
+    screens.register(
+        WardScreen(broker, operations, approvers, chat, store, store, pending_forms)
+    )
     callbacks = InteractionsServer(
         InteractionDispatcher(
-            store, presence, PendingUiRequests(), store, approvals=approvals
+            store, presence, PendingUiRequests(), store,
+            screens=screens,
+            approvals=approvals,
+            handlers=handlers,
+            callback_url=settings.interact_url,
         ),  # type: ignore[arg-type]
         MattermostCallbackCodec(),
         presence,  # type: ignore[arg-type]
         host=settings.callback_host,
         port=settings.callback_port,
+        dialog_submit_url=settings.dialog_url,
+        command_tokens=lambda _agent: settings.tokens,
     )
     logger.info(
         "ward built: store=%s, vault=%s, approvers=%s",

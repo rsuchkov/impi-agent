@@ -121,10 +121,17 @@ class Operations:
         return {"closed": await self._ledger.revoke_grant(grant_id, now=_now())}
 
     async def list_audit(
-        self, *, limit: int = 50, agent: str = "", secret: str = ""
+        self, *, limit: int = 50, agent: str = "", secret: str = "", kind: str = ""
     ) -> dict[str, Any]:
+        """The ledger, of one kind or of all of them.
+
+        Both kinds live in one table and both answer "what happened here": a
+        request for a credential, and an operator acting from chat. Defaulting
+        to all of them is deliberate — an audit row nobody's reader shows is not
+        an audit row, and the operator ones were invisible while this filtered.
+        """
         rows = await self._ledger.list_audit(
-            limit=limit, kind=KIND_SECRET, principal=agent, scope=secret
+            limit=limit, kind=kind, principal=agent, scope=secret
         )
         return {
             "audit": [
@@ -132,6 +139,7 @@ class Operations:
                     "at": r.at, "agent": r.principal, "secret": r.scope,
                     "reason": r.reason, "detail": r.detail, "decision": r.decision,
                     "approver": r.approver, "request_id": r.request_id,
+                    "kind": r.kind,
                 }
                 for r in rows
             ]

@@ -288,6 +288,63 @@ The four in the middle — `denied`, `timeout`, `no_policy`, `not_permitted` —
 what the caller saw as one identical refusal. This table is the only place they
 are told apart.
 
+## From chat: `/ward`
+
+Two things do not wait for the machine that holds `operator.key`. After an
+unplanned restart the store is sealed and every agent is refused until somebody
+opens it, and "why was my agent refused" is a question you have while holding a
+phone. So a subset of the operator surface lives in chat.
+
+Register a slash command in Mattermost pointing at the broker's receiver
+(`http://ward:8426/command/ward`, trigger word `ward`), and put the token it
+mints into `conf/ward.env` as `WARD_COMMAND_TOKENS`. No token, no surface: the
+receiver refuses a command it has no token for, which is what keeps this off
+until you turn it on.
+
+`/ward` opens a card:
+
+```
+🔒 secrets: sealed — the store itself is closed
+
+  [Unlock]  [Unseal…]  [Store a secret]  [Secrets]  [Windows]  [Ledger]
+```
+
+- **Unlock** asks for the broker's credential only — the case after `impi
+  update` or any restart of the broker, where Vault stayed unsealed.
+- **Unseal…** appears only when the store itself is closed, and asks for the
+  unseal key as well. Two commands rather than one form with a conditional
+  field, so that putting the key to the whole store through a chat platform is
+  a thing you choose, not a field you happen to fill in.
+- **Store a secret** takes a name and a value in a modal.
+- **Secrets**, **Windows**, **Ledger** are read-only; Windows has a Revoke
+  button on each open window.
+
+Three rules the surface holds to:
+
+- **No arguments.** `/ward` takes none. A slash command with arguments becomes a
+  public post the moment the command word is mistyped, which is how a key ends
+  up in a channel; there is nothing here to mistype.
+- **Direct messages only.** In a channel it refuses and says so — the card is
+  posted where the command was invoked, and there it would show secret names and
+  policies to the room.
+- **Nothing that hands out a credential.** `impi ward rotate` and `impi ward
+  cert` are absent here on purpose: their whole output is a credential, and a
+  credential in a chat message is a credential in Mattermost's database.
+
+Who may use it is `WARD_APPROVERS` — the same people who answer the approval
+cards, on the grounds that approving `prod-db-password` and administering the
+store are the same trust. Checked on the command, on every click, and again on
+every modal submission, because each of those arrives from the platform saying
+who sent it.
+
+**What it costs, plainly.** Administering the broker stops being "holds a
+private key on a machine" and becomes "is logged into a chat account". A stolen
+session can store values, close windows and open the store; it cannot read a
+value, because no route does. And anything typed into a modal has passed through
+Mattermost — for the credential that is recoverable (`impi ward rotate`), for the
+unseal key it is not. Every action lands in the ledger with the user id that did
+it: `impi ward audit --kind operator`.
+
 ## Replacing the broker's credential
 
 If the secret id ever leaks — a screen share, a log, a file in the wrong place:
@@ -341,6 +398,8 @@ or simply unopened, how many policies exist, and when the last request was.
 | the store's credential | the broker's memory, unless you chose the key files |
 | the unseal key and that credential | `~/.impi/ward-recovery.txt` on the host (600), mounted into nothing |
 | the certificate authority | the broker's container; its key goes nowhere else |
+| the agents' identities | `~/.impi/certs`, mounted into the engine |
+| the operator's identity | `~/.impi/operator`, mounted into nothing the agents run in |
 | the agent's access | `secret-exec`, over mutual TLS, and nothing else |
 | the operator's access | `ward-admin` (what `impi ward …` runs), with a different certificate |
 | the engine's access | none. It installs the tool and tells each agent its own name |

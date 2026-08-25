@@ -31,6 +31,7 @@ from crucible.store.base import (
     DECISION_TIMEOUT,
     ApprovalGrant,
 )
+from ward.approvers import Approvers
 from ward.broker import SecretBroker
 from ward.decisions import (
     DECISION_AUTO,
@@ -183,7 +184,7 @@ async def _rig(tmp_path: Path, *, backend: FakeBackend | None = None, **over) ->
         backend, store, store,  # policies, then the shared window/ledger store
         FakePresence(poster), {"assistant": admin},  # type: ignore[arg-type]
         approvals,
-        approvers=over.pop("approvers", "roman"),
+        Approvers(over.pop("approvers", "roman"), admin),  # type: ignore[arg-type]
         approval_timeout_s=over.pop("approval_timeout_s", 5.0),
         max_grant_s=over.pop("max_grant_s", 3600),
         callback_url="http://engine/interact",

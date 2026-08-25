@@ -15,8 +15,15 @@ from uuid import uuid4
 from crucible.approvals import ApprovalOutcome, PendingApprovals
 from crucible.interactions.labels import humanize
 from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.interactions.ports import FormHandlers
 from crucible.interactions.presence import AgentPresence
-from crucible.interactions.screens import ScreenRegistry, ScreenState, post_first_view
+from crucible.interactions.screens import (
+    ScreenOpened,
+    ScreenRegistry,
+    ScreenState,
+    post_first_view,
+    refusal,
+)
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.interactions import form_from_json
@@ -68,6 +75,7 @@ class InteractionDispatcher:
         *,
         screens: ScreenRegistry | None = None,
         approvals: PendingApprovals | None = None,
+        handlers: FormHandlers | None = None,
         callback_url: str = "",
     ) -> None:
         self._interactions = interactions
@@ -79,6 +87,10 @@ class InteractionDispatcher:
         # Requests for authorization waiting on a human (None = nothing here
         # asks for any).
         self._approvals = approvals
+        # Handlers for forms the application answers itself, keyed by name
+        # (None = nothing does, so every form's values go back into the
+        # conversation, which is what a tool wants).
+        self._handlers = handlers
         self._callback_url = callback_url
 
     def resolve_approval(self, token: str, value: str, user_id: str) -> ApprovalOutcome:
@@ -196,14 +208,19 @@ class InteractionDispatcher:
         conversation_id: str,
         kind: str,
         user_id: str,
-    ) -> bool:
+    ) -> ScreenOpened:
         """A command the ENGINE answers: render its first view and post it as
-        ``agent``. False when no screen owns the command (the caller then routes
-        it to the agent as usual) or the agent isn't available."""
+        ``agent``.
+
+        Three outcomes, and the caller needs all three: no screen owns the
+        command (route it to the agent as usual), a screen owns it and its view
+        was posted, or a screen owns it and refused — in which case nothing was
+        posted and the reason belongs to whoever asked, privately.
+        """
         screen = self._screens.get(command) if self._screens else None
         target = self._presence.poster(agent)
         if screen is None or target is None:
-            return False
+            return ScreenOpened(owned=False)
         thread_root = conversation_id if kind == KIND_THREAD else ""
         ref = ConversationRef(
             channel_id=channel_id,
@@ -211,12 +228,18 @@ class InteractionDispatcher:
             message_id=conversation_id,
             thread_root_id=thread_root,
         )
+        denial = await refusal(screen, user_id=user_id, ref=ref)
+        if denial:
+            # Nothing is posted. Whatever the screen would have drawn, this
+            # conversation is not where it may appear.
+            logger.info("screen %s refused for %s: %s", screen.command, user_id, denial)
+            return ScreenOpened(owned=True, refused=denial)
         await post_first_view(
             screen, target, ref,
             agent=agent, user_id=user_id, callback_url=self._callback_url,
         )
         logger.info("screen %s opened for %s by %s", screen.command, agent, user_id)
-        return True
+        return ScreenOpened(owned=True)
 
     async def redraw_screen(
         self, state_raw: str, value: str, *, post_id: str, user_id: str
@@ -230,6 +253,12 @@ class InteractionDispatcher:
         poster = self._presence.poster(state.agent)
         if poster is None or not post_id:
             return False
+        # Asked again, and with no ref: the message exists, so what is left to
+        # decide is whether THIS person may drive it. A click carries whoever
+        # pressed it, not whoever opened the card.
+        if await refusal(screen, user_id=user_id, ref=None):
+            logger.info("screen %s: click refused for %s", screen.command, user_id)
+            return False
         if value:
             # What the control returned (a picked option, a button's value) is the
             # screen's input for this render.
@@ -241,8 +270,9 @@ class InteractionDispatcher:
     async def submit_form(
         self, state: str, submission: dict, cancelled: bool, user_id: str
     ) -> bool:
-        """Modal-form submission: consume the pending form and feed the rendered
-        values back as a synthetic message. Returns whether a message was fed.
+        """Modal-form submission: consume the pending form and hand the values
+        on — to the application when it claims them, otherwise back into the
+        conversation as a synthetic message. Returns whether anything took them.
 
         A CANCELLED modal leaves the form pending on purpose — the "fill in"
         button stays live, so closing the dialog by accident costs nothing. Only
@@ -254,6 +284,13 @@ class InteractionDispatcher:
             logger.info("form %s cancelled — its button stays live", state[:8])
             return False
         await self._forms.delete_form(state)  # one-shot: answered
+        if record.handler:
+            # Routed by what the form was written with, not by asking handlers
+            # whether the token is theirs. That is the difference between a
+            # handler failing and the values quietly continuing into somebody's
+            # conversation — which for some forms is the one unacceptable
+            # outcome.
+            return await self._handle_form(record, submission, user_id)
         target = self._presence.sink(record.agent)
         if target is None:
             return False
@@ -273,6 +310,28 @@ class InteractionDispatcher:
         target.sink.submit(msg, target.chat)
         logger.info("form %s submitted: %d field(s)", state[:8], len(submission))
         await self._retire_button(record, target.chat)
+        return True
+
+    async def _handle_form(
+        self, record: FormRecord, submission: dict, user_id: str
+    ) -> bool:
+        """Give a form's values to the handler it named."""
+        handler = self._handlers.get(record.handler) if self._handlers else None
+        if handler is None:
+            # Named a handler nobody registered: a composition error. The values
+            # are dropped rather than sent on — the alternative is guessing, and
+            # this is exactly the form whose values must not be guessed about.
+            logger.error(
+                "form %s names the handler %r, which is not registered — dropped",
+                record.token[:8], record.handler,
+            )
+            return False
+        try:
+            await handler.handle(record, dict(submission), user_id)
+        except Exception:
+            logger.exception("form %s: handler %r failed", record.token[:8], record.handler)
+            return False
+        logger.info("form %s handled by %r", record.token[:8], record.handler)
         return True
 
     @staticmethod

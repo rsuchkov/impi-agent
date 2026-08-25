@@ -204,12 +204,11 @@ cmd_ward() {
             esac
             if [ -n "$_src" ]; then
                 [ -r "$_src" ] || die "cannot read $_src"
-                compose run --rm -T -e WARD_ADMIN_PROG="impi ward" impi \
-                    ward-admin unlock "$@" <"$_src"
+                compose run --rm -T ward-admin ward-admin unlock "$@" <"$_src"
             else
-                compose run --rm -e WARD_ADMIN_PROG="impi ward" impi ward-admin unlock "$@"
+                compose run --rm ward-admin ward-admin unlock "$@"
             fi ;;
-        *) compose run --rm -e WARD_ADMIN_PROG="impi ward" impi ward-admin "$@" ;;
+        *) compose run --rm ward-admin ward-admin "$@" ;;
     esac
 }
 
@@ -383,7 +382,7 @@ cmd_doctor() {
     compose run --rm -T impi impi health || true
     # The store, when there is one: locked and open look identical from outside,
     # and a locked store refuses every agent until somebody unlocks it.
-    [ "${IMPI_VAULT:-0}" = 1 ] && { compose run --rm -T impi ward-admin status || true; }
+    [ "${IMPI_VAULT:-0}" = 1 ] && { compose run --rm -T ward-admin ward-admin status || true; }
     return 0
 }
 

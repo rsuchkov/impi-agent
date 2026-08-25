@@ -245,8 +245,12 @@ class WardServer:
         query = request.query
         limit = min(int(query.get("limit", "50") or 50), 500)
         agent, secret = query.get("agent", ""), query.get("secret", "")
+        kind = query.get("kind", "")
         return await self._operate(
-            request, lambda ops: ops.list_audit(limit=limit, agent=agent, secret=secret)
+            request,
+            lambda ops: ops.list_audit(
+                limit=limit, agent=agent, secret=secret, kind=kind
+            ),
         )
 
     async def _rotate(self, request: web.Request) -> web.Response:

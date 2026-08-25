@@ -23,6 +23,11 @@ from crucible.store.base import (
 # What a window and a ledger row are about here. The column is a plain string
 # precisely so an application can bring its own word for what it authorizes.
 KIND_SECRET = "secret"
+# And what an operator did, when they did it from chat rather than from the CLI.
+# The ledger is the only place those two look alike: a shell is a machine
+# somebody owns, a chat session is a session, and "who unsealed the store at
+# three in the morning" has to be answerable for both.
+KIND_OPERATOR = "operator"
 
 DECISION_AUTO = "auto"  # policy says approval: never
 DECISION_NO_POLICY = "no_policy"  # nothing is configured under that name

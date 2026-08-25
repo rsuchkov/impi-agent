@@ -291,14 +291,19 @@ def _cmd_audit(args: argparse.Namespace) -> int:
         params["agent"] = args.agent
     if args.secret:
         params["secret"] = args.secret
+    if args.kind:
+        params["kind"] = args.kind
     rows = _ask("GET", "/audit", params=params).get("audit", [])
     if not rows:
         print("nothing requested yet")
         return 0
     for row in rows:
+        # An operator row is a person doing something, not an agent being
+        # answered; saying which keeps the two from reading alike.
+        mark = "" if row.get("kind", "secret") == "secret" else dim("  [operator]")
         print(
             f"  {local_time(row['at'])}  {bold(row['decision']):<24} "
-            f"{row['agent']} -> {row['secret']}"
+            f"{row['agent']} -> {row['secret']}{mark}"
         )
         if row["detail"]:
             print(dim(f"      {row['detail']}"))
@@ -444,6 +449,11 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--limit", type=int, default=20)
     audit.add_argument("--agent")
     audit.add_argument("--secret")
+    audit.add_argument(
+        "--kind", default="",
+        help="only requests for a credential (`secret`) or only what an operator "
+             "did from chat (`operator`); both by default",
+    )
     audit.set_defaults(func=_cmd_audit)
     return parser
 

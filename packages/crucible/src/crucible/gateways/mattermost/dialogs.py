@@ -30,6 +30,7 @@ _TEXT_SUBTYPES = {
     "email": "email",
     "url": "url",
     "tel": "tel",
+    "password": "password",
 }
 _TIME_HINT = "HH:MM"
 # Mattermost's own limits — exceeding them makes the dialog API reject the whole

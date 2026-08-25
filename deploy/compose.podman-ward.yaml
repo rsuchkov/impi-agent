@@ -10,3 +10,8 @@
 services:
   ward:
     userns_mode: "keep-id:uid=${IMPI_UID:-1000},gid=${IMPI_GID:-1000}"
+
+  # Same reason again: `impi ward cert` writes an agent's identity into a bind
+  # mount, from this container.
+  ward-admin:
+    userns_mode: "keep-id:uid=${IMPI_UID:-1000},gid=${IMPI_GID:-1000}"

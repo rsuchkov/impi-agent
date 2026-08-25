@@ -105,10 +105,15 @@ arrives later as a new message.
 One neutral vocabulary; each platform renders its own control. Nothing in an
 agent's profile mentions Mattermost or Slack.
 
+`password` masks the characters as they are typed, where the platform can. That
+is all it does: the value still travels through the chat platform like any
+other, so the field is about the person behind you, not about secrecy.
+
 | `type` | Mattermost | Slack | The agent gets back |
 |---|---|---|---|
 | `text` / `textarea` | text / textarea | plain-text input (multiline for textarea) | the text |
 | `number`, `email`, `url`, `tel` | text with that subtype | number / email / URL input (`tel` → plain text) | the text |
+| `password` | text, masked while typing | *(no masked input — plain text)* | the text |
 | `select` | dropdown | static select | the chosen option |
 | `multiselect` | multi-select dropdown | multi static select | `a, b` |
 | `radio` | radio group | radio buttons | the chosen option |

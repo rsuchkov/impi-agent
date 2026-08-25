@@ -109,32 +109,42 @@ def _hand_out(
     # redirects it later gets.
     out: TextIO | None = None,
 ) -> None:
-    """Put the operator's identity where an operator can reach it.
+    """Put the identities where the people and programs that need them can read
+    them — and, as much, keep them apart.
 
-    Without this the ceremony ends with the only certificate that may drive the
-    broker locked inside the broker's own volume, and every administrative
-    command answers 404 — the operator would have to copy files out of a
-    container before the tool they were told to run could work at all.
+    Two directories, because two audiences. The agents' one is mounted by the
+    engine, whose container is where the agents run; the operator's is mounted
+    only by the tool an operator runs. A single directory would mean an agent
+    could read the certificate that administers the broker.
 
-    The authority's key is NOT copied and never is: this directory is mounted by
-    whatever runs the clients, and a signing key there would let that side mint
-    an agent.
+    Without this the ceremony would end with the only certificate that may drive
+    the broker locked inside the broker's own volume, and every administrative
+    command answering 404.
+
+    The authority's key is in neither, and never is: both are mounted somewhere
+    else, and a signing key there would let that side mint an agent.
     """
     out = out if out is not None else sys.stdout
     try:
+        # The CA goes in both: everyone verifies the broker with it, and it
+        # authenticates nobody on its own.
         settings.issued.mkdir(parents=True, exist_ok=True)
-        operator.write(settings.issued / "operator.crt", settings.issued / "operator.key")
         (settings.issued / "ca.crt").write_text(ca.certificate, encoding="utf-8")
+        settings.operator.mkdir(parents=True, exist_ok=True)
+        operator.write(
+            settings.operator / "operator.crt", settings.operator / "operator.key"
+        )
+        (settings.operator / "ca.crt").write_text(ca.certificate, encoding="utf-8")
     except OSError as exc:
         print(
-            f"could not write the operator identity to {settings.issued} ({exc.strerror}).\n"
+            f"could not hand the identities out ({exc.strerror}).\n"
             "Copy operator.crt, operator.key and ca.crt out of "
             f"{settings.tls} by hand, or mount that directory — until then no "
             "administrative command can authenticate.",
             file=sys.stderr,
         )
         return
-    print(f"the operator identity is in {settings.issued}", file=out)
+    print(f"the operator identity is in {settings.operator}", file=out)
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:

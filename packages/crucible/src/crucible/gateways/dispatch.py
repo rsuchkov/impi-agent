@@ -9,6 +9,7 @@ while still routing interactive callbacks to the neutral dispatch brain.
 from typing import Protocol
 
 from crucible.approvals import ApprovalOutcome
+from crucible.interactions.screens import ScreenOpened
 from crucible.ports.chat.types import Form
 
 
@@ -34,7 +35,7 @@ class GatewayDispatcher(Protocol):
     async def open_screen(
         self, agent: str, command: str, *, channel_id: str, conversation_id: str,
         kind: str, user_id: str,
-    ) -> bool: ...
+    ) -> ScreenOpened: ...
     async def redraw_screen(
         self, state_raw: str, value: str, *, post_id: str, user_id: str
     ) -> bool: ...
