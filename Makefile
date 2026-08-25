@@ -1,4 +1,4 @@
-.PHONY: install test run run-bg stop reload lint installer-lint installer-test e2e-install
+.PHONY: install test run run-bg stop reload lint relay-lint relay-test installer-lint installer-test e2e-install
 
 install:
 	uv sync
@@ -42,6 +42,22 @@ lint:
 	uv run lint-imports
 	uv run python scripts/check_names.py
 	uv run pyright
+
+# The browser relay is Go, so it sits outside ruff/pyright/pytest. The image
+# build runs `go vet` and `go test` too — that is what protects a release when
+# no Go toolchain is installed here. These targets are for working on it.
+RELAY_DIR = packages/browser-relay
+relay-lint:
+	@command -v go >/dev/null 2>&1 \
+		|| { echo "no go toolchain — the image build runs these instead"; exit 0; }
+	cd $(RELAY_DIR) && go vet ./... && gofmt -l . | (! grep .)
+	@echo "relay-lint OK"
+
+# -race needs cgo, which the static image build cannot use; here it can.
+relay-test:
+	@command -v go >/dev/null 2>&1 \
+		|| { echo "no go toolchain — the image build runs these instead"; exit 0; }
+	cd $(RELAY_DIR) && go test -race ./...
 
 # Installer shell sources: shellcheck locally if present, else via a container.
 INSTALLER_SH = install.sh installer/main.sh installer/bin/impi installer/lib/*.sh scripts/release.sh

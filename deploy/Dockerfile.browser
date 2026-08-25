@@ -1,0 +1,85 @@
+# The browser the agents drive: real Chrome, headless, behind the relay that
+# starts it on demand and stops it when nothing is connected.
+#
+# The relay is a static binary, so the runtime image needs no language runtime at
+# all — just Chrome and its libraries. Nothing here is shared with the engine's
+# image: a web page is untrusted code and this is the container that parses it.
+FROM golang:1.25-trixie@sha256:c083e42786e39fb1a7dd4ae5ab02f5d80c3beb3224848ca0fa89f4a063a4ba29 AS relay-build
+WORKDIR /src
+COPY packages/browser-relay/ ./
+# The operator has no Go toolchain and these tests have no CI of their own, so
+# the build is where a broken relay has to fail — before an agent's turn finds
+# out. (-race needs cgo; that stays a local `make relay-test`.)
+RUN go vet ./... && go test ./...
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/relay .
+
+# Docker Official Image, pinned by manifest-list digest (trixie-slim).
+# Debian is required to install Google's .deb.
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS main
+
+# Pinned so the image is reproducible. Bump deliberately, not by rebuilding.
+#
+# Google's stable repository carries only the current version, so a pin stops
+# resolving a few weeks after the release that set it. An empty
+# IMPI_BROWSER_CHROME_VERSION in compose.env takes whatever stable is today,
+# which is the way out of that without editing this file.
+ARG CHROME_VERSION=151.0.7922.108-1
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Google's signing key goes to a dedicated keyring referenced by signed-by=,
+# so this key can only ever validate this one repository.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg; \
+    install -d -m 0755 /etc/apt/keyrings; \
+    curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+        | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg; \
+    chmod 0644 /etc/apt/keyrings/google-chrome.gpg; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+        > /etc/apt/sources.list.d/google-chrome.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        "google-chrome-stable${CHROME_VERSION:+=${CHROME_VERSION}}" \
+        fonts-noto-color-emoji \
+        fonts-noto-cjk \
+      || { \
+        echo "Chrome ${CHROME_VERSION} is not in Google's stable repository."; \
+        echo "That repository carries only the current version, so a pin expires."; \
+        echo "Either bump CHROME_VERSION in deploy/Dockerfile.browser, or set an"; \
+        echo "empty IMPI_BROWSER_CHROME_VERSION= in compose.env to take current"; \
+        echo "stable."; \
+        exit 1; \
+      }; \
+    apt-get purge -y --auto-remove curl gnupg; \
+    rm -rf /var/lib/apt/lists/*; \
+    google-chrome --version
+
+# A high, unprivileged id that collides with nothing in the base image.
+RUN groupadd --gid 10001 chrome \
+    && useradd --uid 10001 --gid chrome --create-home --shell /bin/bash chrome \
+    && mkdir -p /profile \
+    && chown chrome:chrome /profile
+
+COPY --from=relay-build /out/relay /usr/local/bin/relay
+COPY --chown=root:root packages/browser-relay/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/relay
+
+ENV CDP_PORT=9222 \
+    CHROME_INTERNAL_PORT=9223 \
+    CHROME_PROFILE_DIR=/profile \
+    CHROME_WINDOW_SIZE=1440,900 \
+    CHROME_IDLE_TIMEOUT=5m
+
+USER chrome
+WORKDIR /profile
+EXPOSE 9222
+
+# Probes the relay's own endpoint. Hitting /json/version instead would start
+# Chrome on every check and the container would never be idle.
+# Shell form so CDP_PORT is expanded; the exec form would pin the default port
+# even when the relay was told to listen elsewhere.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD /usr/local/bin/relay -healthcheck -listen "0.0.0.0:${CDP_PORT}"
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

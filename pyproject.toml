@@ -1,5 +1,8 @@
 [tool.uv.workspace]
 members = ["packages/*"]
+# The relay is Go. It lives beside the Python packages because it is application
+# code like they are, but uv wants a manifest from everything the glob matches.
+exclude = ["packages/browser-relay"]
 
 [dependency-groups]
 dev = [
