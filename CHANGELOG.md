@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.13.0 — 2026-08-25
+
 - **The secret broker can be driven from chat.** `/ward` in a direct message with
   the ward bot opens a card: the store's state, what is stored and who may reach
   it — with an Edit button per secret for subjects, approval, window and
