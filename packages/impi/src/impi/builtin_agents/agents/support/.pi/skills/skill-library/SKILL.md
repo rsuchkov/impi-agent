@@ -25,11 +25,16 @@ the usual mistake.
 
 ## 2. Install
 
-`install_skill(source, name?, force?)` where `source` is:
+`install_skill(source, name?, bundled?, force?)` where `source` is:
 
 - a directory on disk — `/app/agents/_staging/my-skill`;
 - `owner/repo[/path][@ref]` — `anthropics/skills/pdf@v2`;
-- a git URL — `https://git.example.com/s.git#skills/greek@main`.
+- a git URL — `https://git.example.com/s.git#skills/greek@main`;
+- with `bundled=true`, the NAME of a skill that ships with impi — currently
+  **web-browsing**. Nothing is fetched and nobody has to know where inside the
+  package it sits; `install_skill("web-browsing", bundled=True)` is the whole
+  call. The operator's equivalent is
+  `impi skill install --bundled web-browsing`.
 
 The operator confirms before anything is copied, and the confirmation lists
 **every file, its size, and which are executable**. Say plainly what you are

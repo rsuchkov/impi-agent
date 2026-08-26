@@ -324,3 +324,22 @@ def test_skill_install_bundled_names_what_is_available(capsys, tmp_path, _isolat
     ])
     assert rc == 2
     assert "web-browsing" in capsys.readouterr().err
+
+
+def test_skill_install_bundled_refuses_a_name_that_is_a_path(capsys, tmp_path, _isolated_env):
+    """The tool behind this takes the name from a model, so the resolved
+    directory is checked back against its parent — joining a caller's string
+    onto a path is how `../something` becomes a skill source.
+
+    The traversal used here lands on a real skill directory that is deliberately
+    NOT part of the bundled set (one of the support agent's own), so the refusal
+    can only come from the parent check: a target with no SKILL.md would be
+    turned away by the existence test alone and prove nothing."""
+    rc = cli.main([
+        "skill", "install", "--bundled",
+        "../builtin_agents/agents/support/.pi/skills/ward",
+        "--skills-dir", str(tmp_path / "skills"), "--yes",
+    ])
+    assert rc == 2
+    assert "no bundled skill" in capsys.readouterr().err
+    assert not (tmp_path / "skills" / "ward").exists()

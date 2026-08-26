@@ -36,7 +36,13 @@ when a release is cut, and `impi update` shows the target version's section.
   is parsing a stranger's HTML. The seccomp profile relaxes the four `CLONE_NEW*`
   flags that needs and nothing else.
 - **`impi skill install --bundled <name>`** installs a skill that ships with
-  impi, without a path to type. The first one is **web-browsing**.
+  impi, without a path to type. The first one is **web-browsing**. The
+  `install_skill` tool takes the same `bundled` flag, so the support agent can
+  hand the skill out without reciting a path into the package.
+- **The support agent knows about the browser.** A new **browsing** skill: how
+  to turn the axis on in a deployment that already runs, that an agent needs
+  `bash` for the skill to be worth anything, what to say about a browser shared
+  by every agent, and what the symptoms mean when one will not browse.
 
 ## v0.13.1 — 2026-08-25
 

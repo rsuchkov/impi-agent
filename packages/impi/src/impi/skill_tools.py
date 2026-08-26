@@ -31,6 +31,37 @@ from crucible.tools.registry import tool
 
 _SUPPORT_AGENT = "support"
 
+# The skills this application ships. Resolved here rather than in the library:
+# `crucible.skills` must not know an application's name or its layout, so the
+# app hands it an ordinary directory and the library stays reusable.
+BUILTIN_SKILLS_PATH = Path(__file__).parent / "builtin_skills"
+
+
+def bundled_names() -> list[str]:
+    """What ships, so a caller that got the name wrong is told the choices."""
+    return sorted(
+        p.name for p in BUILTIN_SKILLS_PATH.glob("*") if (p / "SKILL.md").is_file()
+    )
+
+
+def bundled_skill(name: str) -> Path:
+    """The directory of a skill that ships in this package.
+
+    A NAME, never a path. The tool below takes this argument from a model, so
+    the resolved directory has to be checked back against its parent: joining a
+    caller's string onto a path is how `../../etc` becomes a skill source.
+    """
+    candidate = (BUILTIN_SKILLS_PATH / name).resolve()
+    if (
+        candidate.parent != BUILTIN_SKILLS_PATH.resolve()
+        or not (candidate / "SKILL.md").is_file()
+    ):
+        raise SkillError(
+            f"no bundled skill named {name!r} "
+            f"(have: {', '.join(bundled_names()) or 'none'})"
+        )
+    return candidate
+
 
 class SkillSettings(BaseSettings):
     """Where the library and the profiles live (env: TOOL_SKILL_*), falling back
@@ -124,21 +155,27 @@ class InstallSkill(Tool):
     requires_confirmation: ClassVar[bool] = True
     settings_cls: ClassVar[type | None] = SkillSettings
     description: ClassVar[str] = (
-        "Install a skill into the shared library from a directory on disk or a "
-        "repository (owner/repo[/path][@ref], or a git URL[#path][@ref]). Copies "
-        "the files in and records where they came from. This does NOT give the "
-        "skill to any agent — call assign_skill for that."
+        "Install a skill into the shared library from a directory on disk, a "
+        "repository (owner/repo[/path][@ref], or a git URL[#path][@ref]), or — "
+        "with bundled=true — the NAME of a skill that ships with impi, such as "
+        "web-browsing. Copies the files in and records where they came from. "
+        "This does NOT give the skill to any agent — call assign_skill for that."
     )
     parameters: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "source": {
                 "type": "string",
-                "description": "Directory path, owner/repo[/path][@ref], or git URL",
+                "description": "Directory path, owner/repo[/path][@ref], git URL, "
+                "or — with bundled=true — the name of a skill that ships with impi",
             },
             "name": {
                 "type": "string",
                 "description": "Install under this name (default: the skill's own)",
+            },
+            "bundled": {
+                "type": "boolean",
+                "description": "Read source as the name of a skill that ships with impi",
             },
             "force": {"type": "boolean", "description": "Overwrite an installed skill"},
         },
@@ -151,6 +188,8 @@ class InstallSkill(Tool):
         if not source:
             raise ToolError("source must not be empty")
         try:
+            if args.get("bundled"):
+                source = str(bundled_skill(source))
             with stage(source) as staged:
                 files = [
                     {"path": path, "bytes": size, "executable": executable}
