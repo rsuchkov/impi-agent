@@ -27,6 +27,7 @@ engine never calls an LLM directly — every agent turn is delegated to the exte
 | `make installer-lint` | shellcheck + `bash -n` over `install.sh` / `installer/` |
 | `make installer-test` | bats unit tests for the installer libraries |
 | `make e2e-install` | full throwaway compose install (Linux; slow, needs podman/docker) |
+| `make e2e-install BROWSER=1` | the same, with the browser axis installed and driven end to end |
 
 Run `make lint` and `make test` before considering a change done; both must be
 green. Touching `install.sh`, `installer/`, or `deploy/` additionally requires a

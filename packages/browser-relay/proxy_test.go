@@ -186,3 +186,66 @@ func TestHealthEndpointDoesNotStartTheBrowser(t *testing.T) {
 		t.Error("health check started the browser")
 	}
 }
+
+func TestAnOpenConnectionKeepsTheBrowserOffTheIdleTimer(t *testing.T) {
+	// What makes the idle timeout safe to have at all. A CDP client holds its
+	// WebSocket open for the whole session, and that connection is the thing
+	// counted — so the browser cannot be stopped underneath an agent that is
+	// mid-task and merely thinking between commands. It becomes idle when the
+	// client goes away, not when it goes quiet.
+	upstream, _ := fakeChrome(t)
+	relay := startRelay(t, upstream, 50*time.Millisecond)
+
+	client, err := net.Dial("tcp", relay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	fmt.Fprintf(client, "GET /json/version HTTP/1.1\r\nHost: %s\r\n\r\n", relay)
+	if _, err := http.ReadResponse(bufio.NewReader(client), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Several idle timeouts' worth of doing nothing on an open connection.
+	time.Sleep(300 * time.Millisecond)
+	if !browserOf(t, relay).running {
+		t.Fatal("the browser was stopped while a client was still connected")
+	}
+
+	client.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for browserOf(t, relay).running && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if browserOf(t, relay).running {
+		t.Fatal("the browser stayed up after the last client left")
+	}
+}
+
+type relayHealth struct {
+	running bool
+	clients int
+}
+
+// browserOf reads the relay's own health endpoint, which reports the browser
+// without touching it.
+func browserOf(t *testing.T, relay string) relayHealth {
+	t.Helper()
+	response, err := http.Get("http://" + relay + HealthPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+
+	var payload struct {
+		Browser struct {
+			Running bool `json:"running"`
+			Clients int  `json:"clients"`
+		} `json:"browser"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	return relayHealth{running: payload.Browser.Running, clients: payload.Browser.Clients}
+}

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -158,6 +160,14 @@ func (p *Proxy) forward(request *http.Request, reader *bufio.Reader, client, ups
 	response.Body = io.NopCloser(bytes.NewReader(body))
 	response.ContentLength = int64(len(body))
 	response.Header.Set("Content-Length", fmt.Sprint(len(body)))
+	// And the framing it arrived in does not survive: the whole body is in hand
+	// and its length is known, so it goes out by Content-Length.
+	//
+	// Not a correctness fix — net/http would re-chunk this perfectly well, and
+	// would then ignore both lines above, since a chunked response never carries
+	// a Content-Length. That is the reason to clear it: leaving it set makes two
+	// statements about the framing, only one of which decides anything.
+	response.TransferEncoding = nil
 	return false, response.Write(client)
 }
 
@@ -224,12 +234,16 @@ func isWebSocketUpgrade(request *http.Request) bool {
 	return strings.EqualFold(request.Header.Get("Upgrade"), "websocket")
 }
 
+// isClosedConn reports the ordinary ways a peer goes away: the other side hung
+// up, or this side closed the socket to unblock a copy. None of them is worth a
+// log line.
+//
+// By sentinel rather than by message text: the strings these errors format to
+// are not API, they differ between platforms, and a wrapper that reworded one
+// would silently turn a routine disconnect into noise in the log — or, on the
+// other side of the same coin, hide a real error whose text happened to match.
 func isClosedConn(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := err.Error()
-	return strings.Contains(message, "use of closed network connection") ||
-		strings.Contains(message, "connection reset by peer") ||
-		strings.Contains(message, "broken pipe")
+	return errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE)
 }

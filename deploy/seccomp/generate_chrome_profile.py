@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive docker/seccomp/chrome.json from Docker's upstream default profile.
+"""Derive deploy/seccomp/chrome.json from Docker's upstream default profile.
 
 Chrome's namespace sandbox calls clone(2) with CLONE_NEWUSER, which Docker's
 default seccomp profile denies. The usual advice is `--no-sandbox`, which turns
@@ -9,7 +9,7 @@ four namespace flags Chrome needs and leaves everything else as upstream has it.
 
 Regenerate after a Docker upgrade so the profile does not drift from upstream:
 
-    python3 docker/seccomp/generate_chrome_profile.py
+    python3 deploy/seccomp/generate_chrome_profile.py
 """
 
 from __future__ import annotations

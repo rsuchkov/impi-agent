@@ -167,6 +167,16 @@ func (b *Browser) launch(ctx context.Context) error {
 
 	if err := waitForPort(ctx, b.upstream, b.startTimeout, exited); err != nil {
 		b.terminate(cmd, exited, "failed to start")
+		// The reaper above clears b.cmd, but only after closing `exited` — which
+		// is the very thing terminate waits on, so it may not have run yet. A
+		// client retrying in that window would find a dead process recorded as
+		// running, skip the launch, and be told the browser is not reachable
+		// instead of getting a second attempt at starting it.
+		b.mu.Lock()
+		if b.cmd == cmd {
+			b.cmd = nil
+		}
+		b.mu.Unlock()
 		return err
 	}
 	return nil

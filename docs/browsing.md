@@ -82,7 +82,8 @@ browser is broken".
 `snapshot` returns the page as an accessibility tree with a ref on every
 element, and `click`/`fill`/`hover` take those refs. That is the part worth
 knowing: the model acts on something the page demonstrably has, instead of
-guessing a CSS selector.
+guessing a CSS selector. `snapshot` prints that tree inline; the commands that
+change the page print a link to a file holding it instead.
 
 `detach` leaves the browser running for the other agents. `close` would shut it
 down for all of them.
@@ -93,10 +94,19 @@ what not to type into it.
 
 ## Limits worth stating
 
-- **No downloads.** The container's filesystem is read-only and its `/tmp` is a
-  tmpfs the engine cannot see, so a downloaded file exists only inside the
-  browser. Getting one out would take a volume mounted into both containers.
-- **No `file://`**, no local paths: the browser sees the web, not the host.
+- **No downloads.** Whatever the browser saves lands on a disk of its own that
+  the engine cannot see, so a downloaded file exists only inside the browser
+  container. Getting one out would take a volume mounted into both.
+- **A screenshot needs a filename.** `playwright-cli screenshot` writes into
+  `.playwright-cli/` and prints a path relative to the agent's working
+  directory, which is not the one `send_file` resolves against — so the skill
+  tells agents to write to an absolute path under `/tmp` instead.
+- **`file://` is refused by the tool, not by Chrome.** `playwright-cli` blocks
+  the scheme; an agent speaking CDP directly opens it — verified, so read it as
+  a guardrail like the rest of the tool's checks. What is behind it is the
+  browser container's own filesystem: a read-only image plus the shared profile,
+  which every agent can already read through the browser anyway. Not the host,
+  and not the engine.
 - **The user agent does not say "headless".** The image rebuilds the normal
   product token, because headless Chrome is otherwise refused outright by a lot
   of sites. It is a deception, and a small one — but the skill tells agents to
@@ -137,8 +147,15 @@ this, the same way it has none for the secret store.
 - **Connection refused** — `impi logs browser`.
 - **Chrome never opens its port** — either the seccomp profile did not apply
   (its path in the overlay is absolute through `IMPI_HOME`; a relative one
-  resolves against the wrong directory), or a nested user namespace was denied,
-  which is the rootless-podman case.
+  resolves against the wrong directory), or the host refused a nested user
+  namespace, which the sandbox cannot start without. Rootless podman is not by
+  itself the problem — the axis is tested there, renderers and all — but a host
+  with `user.max_user_namespaces` at zero will refuse one under any runtime.
+  The answer is to raise it, never to add `--no-sandbox`.
+- **Chrome starts, then dies before the port** — its home has to be writable by
+  the `chrome` user or crashpad has nowhere to go. That is the `/home/chrome`
+  tmpfs in the overlay; a drop-in that re-declares `tmpfs:` replaces the list
+  rather than adding to it.
 - **The image will not build, `apt-get` cannot find Chrome** — you pinned a
   version and it expired. Clear `IMPI_BROWSER_CHROME_VERSION` in `compose.env`.
 - **The agent has the skill but never browses** — `impi skill list` shows who

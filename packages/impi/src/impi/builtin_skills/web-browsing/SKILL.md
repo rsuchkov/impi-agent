@@ -47,8 +47,10 @@ Detach when you are finished:
 playwright-cli detach
 ```
 
-`detach` leaves the shared browser running for everyone else. Do not use
-`close`: it shuts the browser down under the other agents.
+`detach` leaves the shared browser running for everyone else. Use it rather
+than `close`: `close` cannot shut down a browser it only attached to, so here
+the two do the same thing — but `detach` is the one that says what you mean, and
+that stays true if the browser ever stops being a shared one.
 
 ## The loop
 
@@ -66,9 +68,16 @@ where every element carries a ref (`f3e6`), and those refs are what `click`,
 a CSS selector** — a ref names something that is demonstrably on the page, a
 guessed selector names something you hope is.
 
-A snapshot lands in a file and the command prints its path; read the file — the
-refs are in there, not in what the command printed. After anything that
-navigates, take a new snapshot: the old refs are stale.
+Where the refs turn up depends on which command you ran, and the difference
+matters because one of the two answers looks like nothing happened:
+
+- `snapshot` prints the tree **in the output**, as a fenced block of YAML. The
+  refs are right there; there is no file to open.
+- `attach`, `goto`, `click` and everything else that changes the page print only
+  a **link to a file** — `[Snapshot](.playwright-cli/page-….yml)`. Read that
+  file, or just run `snapshot` to get the tree inline.
+
+After anything that navigates, take a new snapshot: the old refs are stale.
 
 ## Long pages
 
@@ -90,22 +99,29 @@ with a narrower scope beats dumping everything.
 ## Screenshots
 
 ```bash
-playwright-cli screenshot
+playwright-cli screenshot --filename=/tmp/page.png
 ```
 
-It writes a file and prints the path. To put it in chat, pass that absolute path
-to `send_file` — but only if `send_file` is in your allowlist. It is not part of
-this skill; if you do not have it, describe what you saw instead.
+**Name the file, with an absolute path.** Plain `screenshot` writes into
+`.playwright-cli/` and prints a path RELATIVE to your working directory —
+`send_file` resolves a relative path against a different one and will not find
+it. `/tmp` is somewhere you may both write and send from.
+
+Then pass `/tmp/page.png` to `send_file` — but only if `send_file` is in your
+allowlist. It is not part of this skill; if you do not have it, describe what
+you saw instead.
 
 ## What this cannot do
 
 Say so plainly rather than trying and failing:
 
-- **No downloads.** The browser's filesystem is read-only and its `/tmp` is not
-  yours — a downloaded file exists only inside that container and you cannot
-  read it.
-- **No `file://`**, and no local paths. The browser sees the web, not this
-  machine.
+- **No downloads.** Anything the browser saves lands inside ITS container, on a
+  disk this one cannot see. The file exists; it is simply not reachable from
+  here, and no path you construct will change that.
+- **No `file://`.** The tool refuses the scheme. Chrome itself would open one,
+  and speaking CDP directly would get you there — but do not: what is behind it
+  is the browser's own container, not this one and not the operator's machine,
+  so there is nothing there that is yours to read.
 - **It cannot reach this deployment's own services.** The browser sits on a
   network of its own precisely so a web page cannot be used as a hop into the
   chat server or the secret store. `http://mattermost:8065` will not resolve

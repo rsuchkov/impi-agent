@@ -62,7 +62,16 @@ services:
     read_only: true
     tmpfs:
       - /tmp:mode=1777,size=256m
-      - /home/chrome:mode=0700,uid=10001,gid=10001,size=64m
+      # Chrome's home, and it has to be writable BY CHROME: crashpad derives a
+      # directory from it and the browser dies at startup without one, before
+      # the port is ever opened.
+      #
+      # Mode rather than owner because podman supports no `uid=`/`gid=` on a
+      # tmpfs — neither `--tmpfs` nor `--mount type=tmpfs` — so a compose file
+      # that names them cannot create the container there at all. Nothing is
+      # given away by the wider mode: the only accounts in this image are root,
+      # which could write here regardless, and chrome.
+      - /home/chrome:mode=1777,size=64m
     volumes:
       - browser-profile:/profile
     environment:
@@ -85,6 +94,13 @@ services:
       BROWSER_CDP_URL: "http://browser:9222"
 
 networks:
+  # Declared, though every other file in this deployment gets it implicitly.
+  # Naming ANY network at the top level makes podman-compose validate every
+  # network a service references against this map, and the engine references
+  # `default` just above — so leaving it out fails the whole merge with
+  # "missing networks: default", before a single container is created. That
+  # takes the entire stack down, not only the browser.
+  default:
   browser:
 
 volumes:

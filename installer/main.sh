@@ -292,10 +292,19 @@ esac
 env_set IMPI_COMPOSE_CMD "$COMPOSE_CMD" "$COMPOSE_ENV"
 env_set IMPI_MM_MODE "$IMPI_MM_MODE" "$COMPOSE_ENV"
 env_set IMPI_COMPOSE_ROOTLESS "$COMPOSE_ROOTLESS" "$COMPOSE_ENV"
-# Its own axis, like rootless: the wrapper sources this file, so `impi …`
-# derives the same file list the install used.
-env_set IMPI_VAULT "$([ "${IMPI_VAULT:-no}" = yes ] && echo 1 || echo 0)" "$COMPOSE_ENV"
-env_set IMPI_BROWSER "$([ "${IMPI_BROWSER:-no}" = yes ] && echo 1 || echo 0)" "$COMPOSE_ENV"
+# The optional axes, each recorded like rootless: the wrapper sources this file,
+# so `impi …` derives the same file list the install used.
+#
+# Converted here and used in the converted form from here down. The prompts
+# answer `yes`/`no`; compose.sh reads these two variables and tests them against
+# `1`, so a `compose` call made further down with the prompt's spelling derives
+# a file list with the axis MISSING from it — and a missing overlay is a service
+# that does not exist rather than an error anyone would notice.
+IMPI_VAULT=$([ "${IMPI_VAULT:-no}" = yes ] && echo 1 || echo 0)
+IMPI_BROWSER=$([ "${IMPI_BROWSER:-no}" = yes ] && echo 1 || echo 0)
+export IMPI_VAULT IMPI_BROWSER
+env_set IMPI_VAULT "$IMPI_VAULT" "$COMPOSE_ENV"
+env_set IMPI_BROWSER "$IMPI_BROWSER" "$COMPOSE_ENV"
 env_set IMPI_MM_PORT "${IMPI_MM_PORT:-8065}" "$COMPOSE_ENV"
 env_set IMPI_INTEGRATIONS_PORT "$IMPI_INTEGRATIONS_PORT" "$COMPOSE_ENV"
 env_set IMPI_VERSION_INSTALLED "v$VERSION" "$COMPOSE_ENV"
@@ -344,7 +353,7 @@ if [ "${IMPI_WIDGETS:-no}" = yes ] && [ "$IMPI_GATEWAY" = mattermost ]; then
 else
     env_set INTEGRATIONS_ENABLED false "$ENV_FILE"
 fi
-if [ "${IMPI_VAULT:-no}" = yes ]; then
+if [ "$IMPI_VAULT" = 1 ]; then
     # Nothing goes in the engine's .env: the engine knows nothing about secrets.
     # Where to ask and where the identities are mounted are declared by the
     # compose overlay, which is what the tool (and every agent it runs in) reads
@@ -382,7 +391,7 @@ if command -v git >/dev/null 2>&1; then
 fi
 
 run_step "Building the impi image (a few minutes on first run)" compose build impi || die "build failed"
-if [ "${IMPI_BROWSER:-no}" = yes ]; then
+if [ "$IMPI_BROWSER" = 1 ]; then
     run_step "Building the browser image (Chrome; several minutes)" \
         compose build browser || die "browser build failed"
 fi
@@ -446,7 +455,7 @@ fi
 
 # The browser is no use to an agent that was never told it exists: an agent
 # cannot discover a tool, only be handed one.
-if [ "${IMPI_BROWSER:-no}" = yes ]; then
+if [ "$IMPI_BROWSER" = 1 ]; then
     run_step "Installing the web-browsing skill" \
         compose run --rm -T impi impi skill install --bundled web-browsing --yes \
         || bad "could not install the web-browsing skill — \`impi skill install --bundled web-browsing\`"

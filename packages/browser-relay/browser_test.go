@@ -173,3 +173,34 @@ func TestUserDataDirFrom(t *testing.T) {
 		t.Errorf("got %q, want empty when the flag is absent", got)
 	}
 }
+
+func TestAFailedStartIsNotRememberedAsRunning(t *testing.T) {
+	// The contract, not the race: after a start that failed, nothing is
+	// running and the next client gets a real second attempt rather than a
+	// "browser is not reachable" for a process that died.
+	//
+	// The window this guards is narrow enough that the test cannot force it —
+	// the reaper goroutine clears the recorded process a moment after the
+	// failed launch stops waiting on it, and in practice wins. The assertion
+	// is what the caller is entitled to see, which is worth stating whether or
+	// not a scheduler can be made to lose that race.
+	address := freePort(t)
+	browser := NewBrowser([]string{"/bin/sh", "-c", "sleep 300"}, address, time.Minute, 200*time.Millisecond)
+	defer browser.Stop("test over")
+
+	if err := browser.Acquire(context.Background()); err == nil {
+		t.Fatal("expected Acquire to fail when the port never opens")
+	}
+	if browser.Running() {
+		t.Fatal("a browser that failed to start is still recorded as running")
+	}
+
+	// And the retry actually launches, rather than being skipped.
+	browser.command = listenerCommand(address)
+	if err := browser.Acquire(context.Background()); err != nil {
+		t.Fatalf("second Acquire: %v", err)
+	}
+	if !browser.Running() {
+		t.Fatal("the retry did not start the browser")
+	}
+}

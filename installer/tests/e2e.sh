@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # Local end-to-end test of the installer (Linux + podman/docker):
-#   make e2e-install          # asserts a full zero-touch codeploy install
-#   make e2e-install KEEP=1   # keep the stack for inspection
+#   make e2e-install             # asserts a full zero-touch codeploy install
+#   make e2e-install KEEP=1      # keep the stack for inspection
+#   make e2e-install BROWSER=1   # also install and exercise the browser axis
+#
+# The legs that need a real model are opt-in and take their configuration from
+# outside the tree, so nothing here has to be edited to run them:
+#   EXTRA_ANSWERS=file  appended to the answers, e.g. a real LLM_* or a
+#                       subscription mode with a pinned provider
+#   E2E_PI_AUTH=file    seed pi's subscription login (~/.pi/agent/auth.json)
+#   E2E_LLM=1           ask the agent things and wait for it to answer
 #
 # Installs the CURRENT WORKING TREE (not a git clone, so uncommitted installer
 # changes are covered) into a temp IMPI_HOME under a dedicated compose project
@@ -16,6 +24,9 @@ E2E_HOME=$(mktemp -d "${TMPDIR:-/tmp}/impi-e2e.XXXXXX")
 export IMPI_PROJECT=impi-e2e
 export IMPI_ASSUME_YES=1
 MM_PORT=8066
+# Off by default: the browser image is Chrome, which is minutes of build and
+# about a gigabyte. Opt in when the axis is what you are changing.
+BROWSER=${BROWSER:-0}
 
 PASS=0
 FAIL=0
@@ -58,8 +69,20 @@ rsync -a --exclude .git --exclude .venv --exclude data --exclude '.*_cache' \
 git -C "$E2E_HOME/repo" init -q 2>/dev/null || true
 
 # 2. Run the installer non-interactively.
-bash "$E2E_HOME/repo/installer/main.sh" --home "$E2E_HOME" \
-    --answers "$E2E_HOME/repo/installer/tests/e2e.answers"
+#
+# Through the answers file rather than the environment, even for the one key
+# that varies: an answers file is the interface an unattended install actually
+# uses, so a key the whitelist does not know has to fail here rather than in
+# somebody's CI.
+ANSWERS=$E2E_HOME/answers
+cp "$E2E_HOME/repo/installer/tests/e2e.answers" "$ANSWERS"
+if [ "$BROWSER" = 1 ]; then echo "IMPI_BROWSER=yes" >>"$ANSWERS"; fi
+# Last wins, so this overrides the checked-in defaults rather than adding to
+# them — which is what lets a real model be supplied without editing a file
+# that every other run depends on.
+if [ -n "${EXTRA_ANSWERS:-}" ]; then cat "$EXTRA_ANSWERS" >>"$ANSWERS"; fi
+
+bash "$E2E_HOME/repo/installer/main.sh" --home "$E2E_HOME" --answers "$ANSWERS"
 
 # 3. Assertions.
 # shellcheck disable=SC1091
@@ -116,26 +139,178 @@ tester_up() {
 }
 check "engine picked up 'tester' after restart" tester_up
 
-# 5. Optional live DM roundtrip (needs a real model): E2E_LLM=1 + real LLM_* in
-#    the answers file.
+# 5. The browser axis, when it was installed (BROWSER=1).
+#
+# Every check runs FROM THE ENGINE, which is the whole point: the browser
+# publishes no host port and sits on a network of its own, so a probe from here
+# would prove nothing an agent can use. This walks the same path an agent walks
+# — engine, browser network, relay, Chrome — and then drives the CLI the skill
+# tells the agent to run.
+if [ "$BROWSER" = 1 ]; then
+    in_engine() { compose run --rm -T impi "$@"; }
+
+    check "compose.env records the browser axis" \
+        grep -q '^IMPI_BROWSER=1$' "$E2E_HOME/compose.env"
+    browser_up() { compose ps 2>/dev/null | grep -q "${IMPI_PROJECT}_browser"; }
+    check "the browser container is running" browser_up
+    check "the engine is told where the browser is" \
+        in_engine sh -c 'test -n "$BROWSER_CDP_URL"'
+
+    # httpx, not curl: the engine's image has none. Chrome starts on this call —
+    # the relay launches it for the first client — so the timeout is generous.
+    cdp_answers() {
+        in_engine python3 -c '
+import os, sys, httpx
+info = httpx.get(os.environ["BROWSER_CDP_URL"] + "/json/version", timeout=60).json()
+name = info.get("Browser", "")
+agent = info.get("User-Agent", "")
+sys.stderr.write(f"{name} / {agent}\n")
+# HeadlessChrome in either field is the automation tell the image rebuilds the
+# product token to avoid; a plain "Chrome/NNN" is what should come back.
+sys.exit(0 if name.startswith("Chrome/") and "Headless" not in agent else 1)
+'
+    }
+    check "Chrome answers CDP from the engine, and does not say Headless" cdp_answers
+
+    # The rewrite is load-bearing: playwright attaches by reading this URL out of
+    # /json/version, so a webSocketDebuggerUrl still pointing at the browser
+    # container's own loopback would send the client back to itself.
+    ws_rewritten() {
+        in_engine python3 -c '
+import os, sys, httpx
+url = os.environ["BROWSER_CDP_URL"]
+ws = httpx.get(url + "/json/version", timeout=60).json().get("webSocketDebuggerUrl", "")
+sys.stderr.write(ws + "\n")
+sys.exit(0 if ws.startswith("ws://browser:9222/") else 1)
+'
+    }
+    check "webSocketDebuggerUrl points back at the relay" ws_rewritten
+
+    skill_installed() { in_engine impi skill list 2>/dev/null | grep -q web-browsing; }
+    check "the web-browsing skill is installed" skill_installed
+    # By reference, not by copy: `skill assign` writes the library entry into
+    # the profile, which is what makes one installed skill servable to many.
+    check "the first agent has it" \
+        grep -q 'registry:web-browsing' "$E2E_HOME/agents/agents/assistant/agent.yaml"
+
+    # What the skill tells an agent to run, in the order it tells them to.
+    #
+    # One `bash -c`, deliberately: playwright-cli keeps its session in the
+    # container it ran in, so a sequence split across `compose run` invocations
+    # would find no session on the second command. An agent is not split that
+    # way — every bash call it makes lands in the same running engine.
+    browse() {
+        in_engine bash -c '
+set -e
+playwright-cli attach --cdp="$BROWSER_CDP_URL" >/dev/null
+playwright-cli goto https://example.com >/dev/null
+# Inline, as a fenced block — this is the command that does NOT write a file.
+out=$(playwright-cli snapshot)
+printf "%s\n" "$out" >&2
+printf "%s" "$out" | grep -qi "example domain"
+# And a ref out of that tree drives the page, which is the whole loop.
+ref=$(printf "%s" "$out" | grep -oE "\[ref=[a-z0-9]+\]" | head -n1 | tr -d "[]" | cut -d= -f2)
+test -n "$ref"
+playwright-cli click "$ref" >/dev/null
+playwright-cli detach >/dev/null
+'
+    }
+    check "attach -> goto -> snapshot -> click drives the page" browse
+
+    # Through the wrapper, because `impi doctor` is where an operator looks
+    # first and its browser probe has its own copy of the reasoning. A probe
+    # that never runs is a probe nobody finds out is wrong.
+    doctor_sees_chrome() {
+        IMPI_HOME=$E2E_HOME "$HOME/.local/bin/impi" doctor 2>&1 | grep -q "browser: Chrome/"
+    }
+    check "impi doctor reports the browser" doctor_sees_chrome
+
+    # The boundary, not a guardrail: the browser is on a network the chat server
+    # is not on, so a page cannot be used as a hop into it.
+    no_hop() {
+        ! compose exec -T browser \
+            timeout 5 bash -c 'exec 3<>/dev/tcp/mattermost/8065' 2>/dev/null
+    }
+    check "the browser cannot reach Mattermost" no_hop
+fi
+
+# 6. Optional live model legs (E2E_LLM=1, with a real model in the answers).
+#    Everything above proves the plumbing; these two ask whether an agent
+#    actually uses it.
+#
+#    E2E_PI_AUTH=<path to ~/.pi/agent/auth.json> seeds a subscription login into
+#    the stack. The installer cannot: that login is interactive, and an
+#    unattended run has no terminal to do it in — which would otherwise put the
+#    only legs that exercise a model out of reach of an unattended run.
+if [ -n "${E2E_PI_AUTH:-}" ]; then
+    seed_auth() {
+        compose run --rm -T impi sh -c \
+            'mkdir -p /home/impi/.pi/agent && cat > /home/impi/.pi/agent/auth.json
+             chmod 600 /home/impi/.pi/agent/auth.json' <"$E2E_PI_AUTH"
+    }
+    check "pi subscription login seeded" seed_auth
+    compose restart impi >/dev/null 2>&1
+    for _ in $(seq 1 30); do
+        engine_logged "app built:" && break
+        sleep 2
+    done
+fi
+
 if [ "${E2E_LLM:-0}" = 1 ]; then
     ASSISTANT_ID=$(auth_get /users/username/assistant | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
     ME_ID=$(auth_get /users/me | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
     CHAN=$(curl -sf -H "Authorization: Bearer $ADMIN_PAT" -X POST "$BASE/channels/direct" \
         -d "[\"$ME_ID\",\"$ASSISTANT_ID\"]" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-    curl -sf -H "Authorization: Bearer $ADMIN_PAT" -X POST "$BASE/posts" \
-        -d "{\"channel_id\":\"$CHAN\",\"message\":\"ping\"}" >/dev/null
-    reply() {
-        for _ in $(seq 1 60); do
-            if curl -sf -H "Authorization: Bearer $ADMIN_PAT" "$BASE/channels/$CHAN/posts" \
-                | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(p['user_id']=='$ASSISTANT_ID' for p in d['posts'].values()) else 1)"; then
-                return 0
-            fi
+    export CHAN BASE ADMIN_PAT ASSISTANT_ID
+
+    # Both helpers take their arguments through the environment: a prompt is
+    # prose, and prose in a shell argument is a quoting accident waiting to
+    # rewrite the test.
+    ask() { MSG=$1 python3 -c '
+import json, os, urllib.request
+body = json.dumps({"channel_id": os.environ["CHAN"], "message": os.environ["MSG"]}).encode()
+request = urllib.request.Request(os.environ["BASE"] + "/posts", data=body, method="POST")
+request.add_header("Authorization", "Bearer " + os.environ["ADMIN_PAT"])
+request.add_header("Content-Type", "application/json")
+urllib.request.urlopen(request, timeout=10).read()
+'; }
+
+    # Has the agent posted anything containing $WANT? An empty WANT matches any
+    # reply at all, which is what the bare roundtrip asks.
+    said() { WANT=${1:-} python3 -c '
+import json, os, sys, urllib.request
+request = urllib.request.Request(os.environ["BASE"] + "/channels/" + os.environ["CHAN"] + "/posts")
+request.add_header("Authorization", "Bearer " + os.environ["ADMIN_PAT"])
+posts = json.load(urllib.request.urlopen(request, timeout=10))["posts"].values()
+mine = [p["message"] for p in posts if p["user_id"] == os.environ["ASSISTANT_ID"]]
+sys.stderr.write(repr(mine) + chr(10))
+sys.exit(0 if any(os.environ["WANT"].lower() in m.lower() for m in mine) else 1)
+'; }
+
+    waits_for() { # WANT tries
+        for _ in $(seq 1 "$2"); do
+            said "$1" 2>/dev/null && return 0
             sleep 2
         done
         return 1
     }
-    check "assistant replied to a DM" reply
+
+    ask "ping"
+    replied() { waits_for "" 60; }
+    check "assistant replied to a DM" replied
+
+    # The one leg nothing else can cover: whether the MODEL, handed the skill,
+    # reaches for the browser on its own. Every other browser check drives
+    # playwright-cli directly, which proves the plumbing and says nothing about
+    # whether an agent ever finds it.
+    if [ "$BROWSER" = 1 ]; then
+        ask "Open https://example.com in your browser and reply with the page's exact H1 heading and nothing else."
+        # A string that is on the page. Asking for something it could recite
+        # from training would pass without a browser ever opening, so the run
+        # afterwards checks the relay saw a client too.
+        browsed() { waits_for "example domain" 90; }
+        check "the agent browsed a page when asked" browsed
+    fi
 fi
 
 echo "== e2e: $PASS passed, $FAIL failed =="
