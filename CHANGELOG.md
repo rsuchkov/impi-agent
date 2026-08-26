@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.14.0 — 2026-08-26
+
 - **A browser your agents can drive.** Optional, off by default, and its own
   axis: `IMPI_BROWSER=1` adds a real headless Chrome in a container of its own,
   fronted by a small relay that starts it on the first connection and stops it
