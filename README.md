@@ -18,24 +18,60 @@
 ---
 
 Each agent is a bot account on a chat platform (Mattermost or Slack) with its
-own personality and tools; the engine hosts many of them in one process and
-routes conversations between people and agents — and between agents.
+own personality and tools. One deployment runs many of them and routes
+conversations between people and agents — and between agents.
+
+## What it does
+
+- **Many agents, one deployment.** Each with its own personality, its own tool
+  allowlist, and its own model if it needs one. → [creating-agents.md](docs/creating-agents.md)
+- **Answers you can click.** Buttons, forms and approval cards in the chat
+  itself, so a turn can ask before it acts. → [creating-agents.md](docs/creating-agents.md)
+- **Skills you hand out.** A shared library installed from a directory or a
+  repository, given to the agents that need it. → [skills.md](docs/skills.md)
+- **Work on a schedule.** One-off and recurring runs, and an honest account of
+  a run that did not happen. → [tasks.md](docs/tasks.md)
+- **Secrets an agent can use but never read.** A broker in its own container
+  holds the credential, asks a human, and hands the value to a process — never
+  into the model's context. → [secrets.md](docs/secrets.md)
+- **A real browser.** Headless Chrome in a container of its own, driven over
+  `playwright-cli`, on a network that cannot reach the chat server.
+  → [browsing.md](docs/browsing.md)
+- **A container per agent.** Optional: its own image, its own volumes, its own
+  broker certificate. → [agent-containers.md](docs/agent-containers.md)
+- **Files in both directions.** Attachments people send, files and screenshots
+  agents send back. → [files.md](docs/files.md)
+- **Your own services.** Plug a program in over WebSocket as if it were another
+  chat platform. → [ws-gateway.md](docs/ws-gateway.md)
+
+## How it works
 
 The engine does **not** call an LLM directly. Every agent turn is delegated to
-the external [`pi`](https://github.com/earendil-works/pi) coding agent, spawned
-as a subprocess (`pi --mode rpc`) and driven over line-delimited JSON. `pi` owns
-the model connection, the built-in tools, and the agent's on-disk memory; the
-engine owns identity, routing, persistence, interactivity, and the domain tools.
+the external [`pi`](https://github.com/earendil-works/pi) coding agent, driven
+over line-delimited JSON. `pi` owns the model connection, the built-in tools and
+the agent's on-disk memory; the engine owns identity, routing, persistence,
+interactivity, and the domain tools.
 
+```mermaid
+flowchart TB
+  U(("person"))
+  U -->|message| GW
+  GW -->|reply| U
+
+  subgraph engine["engine"]
+    GW["gateway<br/>Mattermost · Slack · ws"] --> FLOW["AgentFlow"]
+    FLOW --> RT["PiRuntime"]
+    TS["tool-server"] --> FLOW
+  end
+
+  RT -->|"spawn, then JSONL"| PI["pi --mode rpc<br/>model · built-in tools · memory"]
+  PI -->|"typed tools"| TS
 ```
-  chat platform (Mattermost / Slack)
-        │  message
-        ▼
-  gateway ──► coalescer ──► AgentFlow ──► pi subprocess (pi --mode rpc)
-        ▲                                     │   │
-        │  reply                        tool calls │ mid-turn UI
-        └───────────────  tool-server ◄───────────┘ (widgets/forms)
-```
+
+By default `pi` runs as a child process of the engine. With
+[agent containers](docs/agent-containers.md) it runs in the agent's own
+container instead, behind `runtime-relay`, and the engine reaches it over a
+network only the two of them share.
 
 ## Status
 
@@ -53,15 +89,15 @@ curl -fsSL https://raw.githubusercontent.com/rsuchkov/impi-agent/main/install.sh
 ```
 
 Needs Linux or macOS, git, and Docker (compose v2) or podman. Afterwards manage
-the deployment with the `impi` wrapper (`impi status|logs|restart|agent add|
-update|uninstall`). Full guide: [docs/installation.md](docs/installation.md).
+the deployment with the `impi` wrapper (`impi status|logs|restart|reload|agent
+add|agent sync|update|doctor|uninstall`). Full guide: [docs/installation.md](docs/installation.md).
 
 The rest of this README is the **development** setup — running the engine from
 a checkout.
 
 ## Repository layout
 
-This is a [uv](https://docs.astral.sh/uv/) workspace of four packages:
+This is a [uv](https://docs.astral.sh/uv/) workspace of six packages:
 
 - **`packages/crucible`** — a reusable agent-runtime library: platform gateways,
   the `pi` runtime driver, typed tools, interactivity, session storage, and the
@@ -78,6 +114,10 @@ This is a [uv](https://docs.astral.sh/uv/) workspace of four packages:
 - **`packages/browser-relay`** — the optional browser container's front door, in
   Go: it fronts Chrome's debugging port, starts Chrome on the first client and
   stops it when the last one leaves, so an idle deployment does not pay for it.
+- **`packages/runtime-relay`** — the same shape, for an agent's own container:
+  it starts that agent's runtime when the engine asks and relays it. Ships in
+  the agent image and imports nothing else in the workspace.
+  See [docs/agent-containers.md](docs/agent-containers.md).
 
 ## Prerequisites
 
@@ -125,7 +165,10 @@ To add your own agent (its profile, tools, and personality), see
 | `make lint` | ruff + import-linter (layer boundaries) + pyright |
 | `make installer-lint` | shellcheck + syntax check for the installer scripts |
 | `make installer-test` | bats unit tests for the installer libraries |
+| `make relay-lint` / `make relay-test` | `go vet` + tests for the browser relay (skipped without Go) |
 | `make e2e-install` | full throwaway install via compose (Linux; slow) |
+| `make e2e-install BROWSER=1` | the same, with the browser axis driven end to end |
+| `make e2e-install AGENTS=1` | the same, with each agent in a container of its own |
 
 ## Documentation
 
