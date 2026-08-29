@@ -9,5 +9,9 @@
 !packages
 packages/**/__pycache__
 packages/**/*.egg-info
+# A stray runtime directory in a bundled agent's profile: git ignores `data/`,
+# so it never shows up in a diff, and without this line it is copied into the
+# image of anyone who builds locally after running the engine from the tree.
+packages/**/data
 !deploy
 !docs
