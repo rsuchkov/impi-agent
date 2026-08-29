@@ -47,18 +47,18 @@ select = ["E4", "E7", "E9", "F", "I", "PLC0415", "PLC2701"]
 "tests/*" = ["PLC0415", "PLC2701"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["crucible", "impi", "ward", "wardline"]
+known-first-party = ["crucible", "impi", "runtime_relay", "ward", "wardline"]
 
 [tool.pyright]
 typeCheckingMode = "basic"
 pythonVersion = "3.13"
 include = [
-    "packages/crucible/src", "packages/impi/src", "packages/ward/src",
-    "packages/wardline/src", "tests",
+    "packages/crucible/src", "packages/runtime-relay/src", "packages/impi/src",
+    "packages/ward/src", "packages/wardline/src", "tests",
 ]
 extraPaths = [
-    "packages/crucible/src", "packages/impi/src", "packages/ward/src",
-    "packages/wardline/src",
+    "packages/crucible/src", "packages/runtime-relay/src", "packages/impi/src",
+    "packages/ward/src", "packages/wardline/src",
 ]
 venvPath = "."
 venv = ".venv"
@@ -67,14 +67,14 @@ venv = ".venv"
 # a contract breach fails the lint instead of surfacing at review. Two root
 # packages: the reusable library `crucible` and the app `impi` built on it.
 [tool.importlinter]
-root_packages = ["crucible", "impi", "ward", "wardline"]
+root_packages = ["crucible", "impi", "runtime_relay", "ward", "wardline"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "The library never imports an application, or the tools they deploy"
 type = "forbidden"
 source_modules = ["crucible"]
-forbidden_modules = ["impi", "ward", "wardline"]
+forbidden_modules = ["impi", "runtime_relay", "ward", "wardline"]
 
 # Both ways. The engine not being able to reach ward is the code saying what the
 # deployment says: the credential, and the deciding that guards it, are not the
@@ -231,6 +231,16 @@ forbidden_modules = [
     "mattermostautodriver",
     "slack_bolt",
 ]
+
+# The relay ships in the AGENTS' image, not the engine's. Importing the
+# library from there would put the engine's whole dependency set back into that
+# image, which is the thing a separate image exists to avoid — so it re-declares
+# the handful of constants it shares, and a contract test compares the copies.
+[[tool.importlinter.contracts]]
+name = "The runtime relay stands alone — it imports nothing else in the workspace"
+type = "forbidden"
+source_modules = ["runtime_relay"]
+forbidden_modules = ["crucible", "impi", "ward", "wardline"]
 
 # The secret tool is nobody's dependency but its own. It ships in the agents'
 # image so they can run it, and the broker imports its vocabulary — that is the

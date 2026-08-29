@@ -50,6 +50,21 @@ the last stderr lines** — read them, they name the actual cause. Typical ones:
 To reproduce outside the engine: run
 `pi --provider <p> --model <m> -p "ping"` by hand with the same environment.
 
+## "runtime host is not reachable" / "refused the spawn"
+
+Only in a deployment with [a container per agent](agent-containers.md). Nothing
+started, and the fix is a deployment one rather than a model one:
+
+- **not reachable** — that agent's container is down. `impi agent logs <agent>`,
+  then `impi start`.
+- **refused the connection** — the token the engine holds and the one the
+  container holds are different. `impi agent sync` rewrites both from one value.
+- **protocol N, the engine speaks M** — a half-finished update: the engine image
+  moved and the agent images did not. `impi agent sync`.
+- **an agent runs in the engine although the axis is on** — no
+  `AGENTS_HOST_TOKEN__<AGENT>`, which means it was never synced. The engine
+  names such agents at boot.
+
 ## The model says a tool was denied / "blocked by security policy"
 
 The agent answers that it is not allowed to use its tools, or logs show

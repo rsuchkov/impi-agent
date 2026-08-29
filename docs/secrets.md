@@ -39,15 +39,21 @@ somebody has to read and click — **unless an auto-rule covers the command it
 claims**, in which case it is a message somebody may read afterwards. That is
 the trade a rule makes, and the reason to write them narrowly.
 
-**It does not protect** an agent's own container from itself. The engine and the
-agents' shells still run as the same user there, and the certificate an agent
-proves itself with has to be readable for `secret-exec` to use it — so anything
-else in that container can present it too, including another agent: every
-agent's identity is mounted in the same directory. (The operator's is not: that
-one lives where no agent runs.) What that buys today is that nothing *outside*
-that container can present one at all. Telling agents apart becomes a real
-boundary the day they get containers of their own; the per-agent certificate is
-what makes that a move rather than a rewrite.
+**It does not protect** an agent's own container from itself. The certificate an
+agent proves itself with has to be readable for `secret-exec` to use it, so
+anything else in that container can present it too. What that means depends on
+one deployment choice:
+
+- **By default**, every agent's runtime is a child of the engine, so "that
+  container" is the engine's, and every agent's identity is mounted in one
+  directory there. An agent with `bash` can present another agent's certificate.
+  (The operator's is not among them: that one lives where no agent runs.)
+- **With [a container per agent](agent-containers.md)**, an agent's container
+  mounts its own two files and the authority, read-only, and nobody else's.
+  Telling agents apart is then a real boundary rather than a convention — which
+  is what the per-agent certificate was for from the start.
+
+Either way, nothing *outside* those containers can present one at all.
 
 Three consequences worth stating plainly:
 

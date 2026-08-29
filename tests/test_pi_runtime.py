@@ -9,8 +9,9 @@ import pytest
 from crucible.ports.agent.runtime import PromptImage
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
-from crucible.runtimes.pi.runtime import PiRuntime, SessionFactory, _safe_session_id
+from crucible.runtimes.pi.runtime import PiRuntime, SessionFactory
 from crucible.runtimes.pi.session import PiResult, PiRpcSession
+from crucible.runtimes.pi.spawn import safe_session_id as _safe_session_id
 
 
 class FakeSession:
@@ -222,10 +223,10 @@ async def test_reaper_drops_idle_and_never_used_sessions_but_not_busy() -> None:
     old = rt._now() - 100.0
     rt._sessions["assistant--used"].last_used = old
     rt._sessions["assistant--never"] = _ManagedSession(
-        session=cast(PiRpcSession, never_used), created_at=old
+        session=cast(PiRpcSession, never_used), agent="assistant", created_at=old
     )
     rt._sessions["assistant--busy"] = _ManagedSession(
-        session=cast(PiRpcSession, busy), created_at=old
+        session=cast(PiRpcSession, busy), agent="assistant", created_at=old
     )
     # _reap_once releases a semaphore permit per drop; take permits for the
     # manually injected sessions so the count stays balanced.
@@ -253,7 +254,7 @@ async def _capture_spawn(
         captured["cwd"] = cwd
         return SimpleNamespace()  # transport stub; PiRpcSession just holds it
 
-    monkeypatch.setattr("crucible.runtimes.pi.runtime.SubprocessTransport.spawn", fake_spawn)
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", fake_spawn)
     rt = PiRuntime(**runtime_kwargs)
     await rt._spawn_session(profile, session_id, None, cwd=cwd)
     return captured
@@ -364,7 +365,7 @@ async def test_session_id_is_injected_into_env(monkeypatch) -> None:
         captured["env"] = env
         return SimpleNamespace()
 
-    monkeypatch.setattr("crucible.runtimes.pi.runtime.SubprocessTransport.spawn", fake_spawn)
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", fake_spawn)
     rt = PiRuntime()
     await rt._spawn_session(_profile(), "assistant--conv1", None)
     assert captured["env"]["RUNTIME_SESSION_ID"] == "assistant--conv1"

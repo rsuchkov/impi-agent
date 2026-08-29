@@ -59,7 +59,9 @@ def test_build_app_wires_the_graph(tmp_path: Path) -> None:
     # per-agent tool token + manifest path are injected into the profile env
     assert unit.flow._profile.env.get("TOOL_TOKEN")
     assert unit.flow._profile.env["TOOL_URL"].startswith("http://127.0.0.1")
-    assert unit.flow._profile.env["TOOL_MANIFEST"].endswith("assistant.json")
+    # The manifest is a file, so it rides in env_files: a host with its own
+    # filesystem is handed the content, not this side's path.
+    assert unit.flow._profile.env_files["TOOL_MANIFEST"].endswith("assistant.json")
     app.sessions.close_sync()
 
 

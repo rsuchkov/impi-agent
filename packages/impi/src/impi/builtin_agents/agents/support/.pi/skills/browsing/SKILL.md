@@ -99,9 +99,10 @@ suggest pasting a password for an agent to type.
   version expired. Google's repository carries only the current one. Clear
   `IMPI_BROWSER_CHROME_VERSION` in `compose.env`.
 - **An agent's screenshot will not send** — it has to write to an absolute path
-  (`playwright-cli screenshot --filename=/tmp/page.png`) and the agent needs
-  `send_file`. The bundled skill says so; an agent doing it the other way has an
-  old copy.
+  inside its own directory (`playwright-cli screenshot
+  --filename="$AGENT_FILES_DIR/page.png"`) and the agent needs `send_file`. The
+  bundled skill says so; an agent writing to `/tmp` has an old copy, and that
+  one stops working entirely once the agents have containers of their own.
 
 ## What it costs
 

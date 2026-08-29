@@ -39,6 +39,7 @@ from crucible.skills import (
 )
 from crucible.store.sessions import SqliteSessionStore
 from impi import provisioning as prov
+from impi.agent_containers import RenderError, sync
 from impi.config import ImpiSettings, load_settings
 from impi.skill_tools import bundled_skill
 
@@ -278,6 +279,54 @@ def _cmd_agent_list(args: argparse.Namespace) -> int:
             has_token = all(settings.slack_tokens_for(spec.name))
         status = _sgr("32", "token ok") if has_token else _sgr("33", "no token")
         print(f"{_bold(spec.name):<32} {spec.role:<24} {gateway:<12} {status}")
+    return 0
+
+
+# --- impi agent render ---------------------------------------------------------
+
+
+def _cmd_agent_render(args: argparse.Namespace) -> int:
+    """Write the compose file, per-agent Dockerfiles and per-agent tokens that
+    give each agent a container of its own.
+
+    Run inside the engine, because that is what knows the profiles; the files
+    land in the mounted conf directory, where the host's `impi agent sync` picks
+    them up and builds. Only the agents in the agents DIRECTORY get containers —
+    an engine-owned agent lives in the engine's own image and has no profile out
+    there to mount.
+    """
+    settings = _settings()
+    agents_dir = args.agents_dir or settings.agents_path
+    if not agents_dir:
+        _fail("no agents directory (set AGENTS_PATH)")
+        return 2
+    try:
+        store = FsProfileStore(agents_dir)
+    except ProfileError as exc:
+        _fail(str(exc))
+        return 2
+    conf_dir = Path(args.conf_dir) if args.conf_dir else Path(settings.dotenv_path).parent
+    # Where the broker's identities are mounted in THIS container. Read from the
+    # environment rather than assumed: it is the secret tool's variable, and the
+    # engine only knows it because the same directory is mounted here.
+    certs = os.environ.get("SECRET_BROKER_CERTS_DIR", "")
+    try:
+        notes = sync(
+            store.list(),
+            dotenv_path=settings.dotenv_path,
+            conf_dir=conf_dir,
+            agents_path=Path(agents_dir),
+            with_vault=args.with_vault,
+            with_browser=args.with_browser,
+            rootless=args.rootless,
+            certs_dir=Path(certs) if certs else None,
+        )
+    except RenderError as exc:
+        _fail(str(exc))
+        return 2
+    for note in notes:
+        print(note)
+    print(f"wrote {conf_dir / 'agents.compose.yaml'}")
     return 0
 
 
@@ -839,6 +888,26 @@ def _build_parser() -> argparse.ArgumentParser:
     lst = agent_sub.add_parser("list", help="list profiles and token status")
     lst.add_argument("--agents-dir")
     lst.set_defaults(func=_cmd_agent_list)
+
+    render = agent_sub.add_parser(
+        "render",
+        help="write the compose file and Dockerfiles for per-agent containers",
+    )
+    render.add_argument("--agents-dir")
+    render.add_argument("--conf-dir", help="where to write (default: beside the .env)")
+    render.add_argument(
+        "--with-vault", action="store_true", help="this deployment runs the secret store"
+    )
+    render.add_argument(
+        "--with-browser", action="store_true", help="this deployment runs the browser"
+    )
+    render.add_argument(
+        "--rootless",
+        action="store_true",
+        help="rootless podman: map the operator's user into each agent container, "
+        "as the engine's own overlay does",
+    )
+    render.set_defaults(func=_cmd_agent_render)
 
     skill = sub.add_parser("skill", help="the shared skill library")
     skill_sub = skill.add_subparsers(dest="skill_command", required=True)

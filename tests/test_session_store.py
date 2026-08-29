@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from crucible.ports.chat.types import KIND_DM, KIND_THREAD
-from crucible.runtimes.pi.runtime import _safe_session_id
+from crucible.runtimes.pi.spawn import safe_session_id as _safe_session_id
 from crucible.store import SqliteSessionStore, derive_runtime_session_id
 from crucible.store.base import FormRecord
 

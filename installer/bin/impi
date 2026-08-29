@@ -128,6 +128,9 @@ impi — manage your impi deployment
                            the secret broker (see docs/secrets.md)
   impi ward unlock --from ~/.impi/ward-recovery.txt   open it without typing keys
   impi agent add|list ...  manage agents (runs the CLI inside the container)
+  impi agent sync          give every agent a container of its own, and start it
+  impi agent migrate AGENT move an agent's sessions/files into its own volumes
+  impi agent logs|shell AGENT   that agent's container
   impi login               interactive pi model login inside the container
   impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
   impi update [--yes]      update to the newest release tag and rebuild
@@ -258,10 +261,99 @@ cmd_ward_init() {
     printf '  impi ward cert <agent>           # an identity per agent\n'
 }
 
+# Which container runtime is under the compose command. Needed for the one
+# build compose cannot order for us — see cmd_agent_sync.
+container_runtime() {
+    case "$IMPI_COMPOSE_CMD" in
+        podman*) printf 'podman\n' ;;
+        *) printf 'docker\n' ;;
+    esac
+}
+
+agent_containers_on() { [ "${IMPI_AGENT_CONTAINERS:-0}" = 1 ]; }
+
+# Work out what each agent's container needs, build the images, and bring them
+# up. The engine writes the description (it is what reads the profiles) into the
+# mounted conf directory; everything after that is a build and an up.
+#
+# This is the step that replaces "the engine created the agent and it just
+# started answering": creating an agent now writes a profile, and a container is
+# something a person on this machine brings into being.
+cmd_agent_sync() {
+    agent_containers_on || die "per-agent containers are off — put IMPI_AGENT_CONTAINERS=1 in $IMPI_HOME/compose.env first"
+    local _args="" _runtime
+    [ "${IMPI_VAULT:-0}" = 1 ] && _args="$_args --with-vault"
+    [ "${IMPI_BROWSER:-0}" = 1 ] && _args="$_args --with-browser"
+    # Without this the agents' containers get a different user mapping from the
+    # engine's, and the volumes they share have two different owners.
+    [ "${IMPI_COMPOSE_ROOTLESS:-0}" = 1 ] && _args="$_args --rootless"
+    # shellcheck disable=SC2086  # the flags are meant to split
+    compose run --rm impi impi agent render $_args \
+        || die "could not work out what the agents need"
+    _runtime=$(container_runtime)
+    printf 'building the shared agent image (the slow one — every agent is built on it)\n'
+    "$_runtime" build -f "$REPO/deploy/Dockerfile.agent" \
+        --build-arg "IMPI_UID=${IMPI_UID:-1000}" \
+        --build-arg "IMPI_GID=${IMPI_GID:-1000}" \
+        -t localhost/impi-agent:local "$REPO" \
+        || die "the shared agent image did not build"
+    build_images
+    compose up -d
+    ok "each agent is running in a container of its own"
+    printf 'logs for one of them: impi agent logs <agent>\n'
+}
+
+# Move what an agent already has into the volumes its own container will mount.
+# Run ONCE, before the first sync: session files are the memory of every
+# conversation that agent has had, and leaving them behind looks exactly like
+# an agent that has forgotten everybody.
+cmd_agent_migrate() {
+    local _agent=${1:-} _moved=0 _project="${IMPI_PROJECT:-impi}"
+    [ -n "$_agent" ] || die "usage: impi agent migrate <agent>"
+    agent_containers_on || die "per-agent containers are off — nothing to migrate into"
+    [ -f "$IMPI_HOME/conf/agents.compose.yaml" ] \
+        || die "run 'impi agent render' or 'impi agent sync' first — the volumes are named there"
+    # stderr silenced on the PROBES only: a missing directory is the ordinary
+    # answer here, and compose reports a non-zero exit as an error of its own —
+    # which reads as a failed migration in the middle of a successful one.
+    if compose run --rm -T impi test -d "/app/data/pi-sessions/$_agent" 2>/dev/null; then
+        compose run --rm -T -v "${_project}_agent-$_agent-sessions:/migrate" impi \
+            sh -c "cp -a /app/data/pi-sessions/$_agent/. /migrate/ 2>/dev/null || true"
+        ok "$_agent: session files copied"
+        _moved=1
+    fi
+    if compose run --rm -T impi test -d "/app/data/attachments/$_agent" 2>/dev/null; then
+        compose run --rm -T -v "${_project}_agent-$_agent-files:/migrate" impi \
+            sh -c "cp -a /app/data/attachments/$_agent/. /migrate/ 2>/dev/null || true"
+        ok "$_agent: attachments copied"
+        _moved=1
+    fi
+    [ "$_moved" = 1 ] || printf '%s had nothing to move\n' "$_agent"
+    printf 'the originals are left in place; remove them once the agent answers normally\n'
+}
+
 cmd_agent() {
+    case "${1:-}" in
+        sync)    shift; cmd_agent_sync "$@"; return ;;
+        migrate) shift; cmd_agent_migrate "$@"; return ;;
+        logs)
+            shift
+            [ -n "${1:-}" ] || die "usage: impi agent logs <agent>"
+            compose logs "agent-$1"
+            return
+            ;;
+        shell)
+            shift
+            [ -n "${1:-}" ] || die "usage: impi agent shell <agent>"
+            compose exec "agent-$1" bash
+            return
+            ;;
+    esac
     compose run --rm impi impi agent "$@"
     if [ "${1:-}" = add ]; then
-        if confirm "Restart the engine now so the new agent starts?" y; then
+        if agent_containers_on; then
+            printf 'the profile is written; give it a container: impi agent sync\n'
+        elif confirm "Restart the engine now so the new agent starts?" y; then
             cmd_restart
         fi
     fi
@@ -403,7 +495,29 @@ except Exception as exc:
     sys.exit(0)
 name = info.get("Browser", "?")
 print(f"\u2714 browser: {name} at {url}")
-' || true
+'  || true
+    fi
+    # The agents' own containers, when they have them. Two things go wrong here
+    # and neither is visible from `compose ps`: an agent whose profile exists but
+    # whose container was never synced (it silently runs in the engine instead),
+    # and a compose.d override that was written for the engine service and now
+    # misses the agents entirely.
+    if agent_containers_on; then
+        if [ -f "$IMPI_HOME/conf/agents.compose.yaml" ]; then
+            _rendered=""
+            for _d in "$IMPI_HOME"/conf/agents/*/; do
+                [ -f "$_d/Dockerfile" ] && _rendered="$_rendered $(basename "$_d")"
+            done
+            ok "agent containers:${_rendered:- none rendered}"
+        else
+            bad "agent containers are on but nothing is rendered — run \`impi agent sync\`"
+        fi
+        compose run --rm -T impi impi agent list || true
+        if [ -n "$_dropins" ]; then
+            printf 'note: overrides in %s apply to the services they name. Anything\n' \
+                "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
+            printf '      you added for the engine does NOT reach the agents any more.\n'
+        fi
     fi
     return 0
 }

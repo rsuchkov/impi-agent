@@ -23,6 +23,9 @@ You run inside the engine's own process tree, so:
   `impi logs -f`); in a source checkout it is `data/logs/engine.log`.
   `impi doctor` is likewise a host command — it checks compose, file
   permissions, and whether the engine reported readiness.
+- **Where each agent has a container of its own**, that agent's log is its own
+  too: `impi agent logs <agent>`, not `impi logs`. The engine's log still has
+  the engine's half of the story (a spawn refused, a host unreachable).
 
 So: gather everything you can yourself, then ask for **one specific thing** from
 the log rather than "send me the logs".

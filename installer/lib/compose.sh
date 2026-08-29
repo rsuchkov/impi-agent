@@ -13,6 +13,10 @@ COMPOSE_ROOTLESS=0
 COMPOSE_VAULT=0
 # Whether this deployment runs a browser for the agents. Another such axis.
 COMPOSE_BROWSER=0
+# Whether each agent gets a container of its own. Another axis again, and the
+# only one whose overlay is GENERATED rather than shipped: it names one service
+# per agent, so it is written by `impi agent sync` into IMPI_HOME, not the repo.
+COMPOSE_AGENT_CONTAINERS=0
 
 has_docker_compose() { docker compose version >/dev/null 2>&1; }
 has_podman_compose() { podman compose version >/dev/null 2>&1; }
@@ -84,15 +88,23 @@ derive_compose_files() {
 
 # build_services -> the services this deployment builds from source, space
 # separated. The engine always; the broker too when the secret store is on, or
-# an update would leave it running the image of the release before it. Bare
+# an update would leave it running the image of the release before it; and every
+# agent that has a container of its own, for the same reason. Bare
 # `compose build` would also build whatever a drop-in adds, which is not this
 # script's decision to make.
 build_services() {
-    local _services="impi"
+    local _services="impi" _dir
     [ -n "${IMPI_VAULT:-}" ] && COMPOSE_VAULT=$IMPI_VAULT
     [ -n "${IMPI_BROWSER:-}" ] && COMPOSE_BROWSER=$IMPI_BROWSER
+    [ -n "${IMPI_AGENT_CONTAINERS:-}" ] && COMPOSE_AGENT_CONTAINERS=$IMPI_AGENT_CONTAINERS
     [ "${COMPOSE_VAULT:-0}" = 1 ] && _services="$_services ward"
     [ "${COMPOSE_BROWSER:-0}" = 1 ] && _services="$_services browser"
+    if [ "${COMPOSE_AGENT_CONTAINERS:-0}" = 1 ]; then
+        for _dir in "$IMPI_HOME"/conf/agents/*/; do
+            [ -f "$_dir/Dockerfile" ] || continue
+            _services="$_services agent-$(basename "$_dir")"
+        done
+    fi
     printf '%s\n' "$_services"
 }
 
@@ -118,9 +130,18 @@ compose_files() {
     # installer's own question during an install.
     [ -n "${IMPI_VAULT:-}" ] && COMPOSE_VAULT=$IMPI_VAULT
     [ -n "${IMPI_BROWSER:-}" ] && COMPOSE_BROWSER=$IMPI_BROWSER
+    [ -n "${IMPI_AGENT_CONTAINERS:-}" ] && COMPOSE_AGENT_CONTAINERS=$IMPI_AGENT_CONTAINERS
     for _f in $(derive_compose_files "$1"); do
         printf '%s\n' "$IMPI_HOME/repo/$_f"
     done
+    # The per-agent overlay: generated into IMPI_HOME rather than shipped, so it
+    # cannot come from derive_compose_files with the rest. After the engine's
+    # files, because it adds to the engine service; before the drop-ins, because
+    # a deployment's own overrides are still the last word.
+    if [ "${COMPOSE_AGENT_CONTAINERS:-0}" = 1 ] \
+        && [ -f "$IMPI_HOME/conf/agents.compose.yaml" ]; then
+        printf '%s\n' "$IMPI_HOME/conf/agents.compose.yaml"
+    fi
     for _dropin in "$IMPI_HOME/$COMPOSE_DROPIN_DIR"/*.yaml; do
         [ -f "$_dropin" ] && printf '%s\n' "$_dropin"
     done
@@ -136,6 +157,13 @@ compose_files() {
 # normally and the status is grep's own (0 found / 1 not found).
 engine_logged() {
     compose logs impi 2>/dev/null | grep -c -- "$1" >/dev/null
+}
+
+# engine_log_count MARKER -> how many lines carry it. The log is cumulative, so
+# "has it ever said X" cannot answer "has it said X since the restart" — the
+# count before and after can.
+engine_log_count() {
+    compose logs impi 2>/dev/null | grep -c -- "$1" || true
 }
 
 # compose ARGS... — run the configured compose against $IMPI_HOME's deployment.

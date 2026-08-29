@@ -9,7 +9,13 @@ subprocess (`pi --mode rpc`) and drives it over line-delimited JSON. `pi` holds
 the model connection and the agent's on-disk memory; the engine holds identity,
 routing, persistence, interactivity, and the domain tools.
 
-Four packages, in a uv workspace:
+Where that subprocess runs is a deployment choice. By default it is a child of
+the engine's own process. Turn on [agent containers](agent-containers.md) and
+the engine asks a small host in the agent's own container to start it instead,
+over the same line-delimited protocol — everything above the transport is
+unchanged and unaware.
+
+Five packages, in a uv workspace:
 
 - **`crucible`** — the reusable runtime library (gateways, the `pi` driver, tools,
   interactivity, storage, and the neutral ports). Application-agnostic.
@@ -22,8 +28,13 @@ Four packages, in a uv workspace:
   [secrets.md](secrets.md).
 - **`wardline`** — the secret tool: `secret-exec`, which an agent runs, and
   `ward-admin`, which an operator runs, plus the vocabulary they share with the
-  broker. It ships in the engine's image so agents can run it, and imports
+  broker. It ships in the image the agents run in so they can run it, and imports
   nothing else in the workspace.
+- **`runtime-relay`** — the front door of an agent's own container: it starts the
+  runtime when the engine asks and relays it, and that is all it does. Like the
+  secret tool, it imports nothing else in the workspace — it ships in the agent
+  image, and depending on the library would put the engine's whole dependency set
+  in there with it. See [agent-containers.md](agent-containers.md).
 
 Secrets are the clearest case of the boundary this repository keeps: the engine
 holds no part of them. Not the broker, not a settings block, not a table in its

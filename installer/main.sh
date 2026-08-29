@@ -205,6 +205,17 @@ dim "open and nothing when idle."
 IMPI_BROWSER=${IMPI_BROWSER:-}
 confirm IMPI_BROWSER "Give your agents a browser?" n || true
 
+title "Agent isolation"
+dim "Each agent can run in a container of its own instead of inside the engine."
+dim "It then holds only its own profile, its own conversation memory and its own"
+dim "credentials — an agent with a shell cannot read another's. It is also the"
+dim "only way to give one agent something the others do not have (a JDK, a"
+dim "toolchain): put it in that agent's Dockerfile.include."
+dim "Costs a container per agent, and creating an agent from chat then ends with"
+dim "you running 'impi agent sync' rather than the agent simply appearing."
+IMPI_AGENT_CONTAINERS=${IMPI_AGENT_CONTAINERS:-}
+confirm IMPI_AGENT_CONTAINERS "Give each agent a container of its own?" n || true
+
 title "Model backend"
 if [ -z "${IMPI_LLM_MODE:-}" ]; then
     CHOICE_LLM=""
@@ -253,6 +264,7 @@ else
     say "  Secret store      : no"
 fi
 say "  Web browsing      : ${IMPI_BROWSER:-no}"
+say "  Agent containers  : ${IMPI_AGENT_CONTAINERS:-no}"
 if [ "$IMPI_LLM_MODE" = subscription ]; then
     say "  Model backend     : subscription login (provider: ${IMPI_DEFAULT_PROVIDER:-whatever you log in with}, model: ${IMPI_DEFAULT_MODEL:-its default})"
 else
@@ -302,9 +314,11 @@ env_set IMPI_COMPOSE_ROOTLESS "$COMPOSE_ROOTLESS" "$COMPOSE_ENV"
 # that does not exist rather than an error anyone would notice.
 IMPI_VAULT=$([ "${IMPI_VAULT:-no}" = yes ] && echo 1 || echo 0)
 IMPI_BROWSER=$([ "${IMPI_BROWSER:-no}" = yes ] && echo 1 || echo 0)
-export IMPI_VAULT IMPI_BROWSER
+IMPI_AGENT_CONTAINERS=$([ "${IMPI_AGENT_CONTAINERS:-no}" = yes ] && echo 1 || echo 0)
+export IMPI_VAULT IMPI_BROWSER IMPI_AGENT_CONTAINERS
 env_set IMPI_VAULT "$IMPI_VAULT" "$COMPOSE_ENV"
 env_set IMPI_BROWSER "$IMPI_BROWSER" "$COMPOSE_ENV"
+env_set IMPI_AGENT_CONTAINERS "$IMPI_AGENT_CONTAINERS" "$COMPOSE_ENV"
 env_set IMPI_MM_PORT "${IMPI_MM_PORT:-8065}" "$COMPOSE_ENV"
 env_set IMPI_INTEGRATIONS_PORT "$IMPI_INTEGRATIONS_PORT" "$COMPOSE_ENV"
 env_set IMPI_VERSION_INSTALLED "v$VERSION" "$COMPOSE_ENV"
@@ -487,6 +501,33 @@ if [ "$IMPI_LLM_MODE" = subscription ]; then
     fi
 fi
 
+# Each agent's own container: described from the profiles that now exist, built
+# on the shared agent image, and brought up with everything else. It comes after
+# the agents are created, because there is nothing to describe before that.
+if [ "$IMPI_AGENT_CONTAINERS" = 1 ]; then
+    RENDER_ARGS=""
+    [ "$IMPI_VAULT" = 1 ] && RENDER_ARGS="$RENDER_ARGS --with-vault"
+    [ "$IMPI_BROWSER" = 1 ] && RENDER_ARGS="$RENDER_ARGS --with-browser"
+    # Same mapping the engine gets from compose.podman.yaml. Without it the two
+    # containers see different owners on every volume they share.
+    [ "$COMPOSE_ROOTLESS" = 1 ] && RENDER_ARGS="$RENDER_ARGS --rootless"
+    # shellcheck disable=SC2086  # the flags are meant to split
+    run_step "Working out what each agent's container needs" \
+        compose run --rm -T impi impi agent render $RENDER_ARGS \
+        || die "could not describe the agents' containers"
+    # The shared base is built by the runtime, not by compose: every agent image
+    # is FROM it, and compose has no way to order one build before another.
+    run_step "Building the shared agent image (a few minutes)" \
+        "$COMPOSE_RUNTIME" build -f "$REPO_DIR/deploy/Dockerfile.agent" \
+            --build-arg "IMPI_UID=$(env_get IMPI_UID "$COMPOSE_ENV")" \
+            --build-arg "IMPI_GID=$(env_get IMPI_GID "$COMPOSE_ENV")" \
+            -t localhost/impi-agent:local "$REPO_DIR" \
+        || die "the shared agent image did not build"
+    # shellcheck disable=SC2046  # a list of services is meant to split
+    run_step "Building each agent's image" compose build $(build_services) \
+        || die "an agent image did not build"
+fi
+
 run_step "Starting the engine" compose up -d || die "engine start failed"
 
 engine_ready() {
@@ -517,6 +558,9 @@ if [ "$IMPI_MM_MODE" = codeploy ]; then
     say "               (shown only once — store it now)"
 fi
 say "  Try it     : DM @$IMPI_FIRST_AGENT"
+if [ "$IMPI_AGENT_CONTAINERS" = 1 ]; then
+    say "  Agents     : one container each — after adding an agent, run \`impi agent sync\`"
+fi
 [ "${IMPI_SUPPORT:-no}" = yes ] && say "  Build more : DM @support — 'create an agent that ...'"
 if [ "$COMPOSE_RUNTIME" = podman ]; then
     say ""

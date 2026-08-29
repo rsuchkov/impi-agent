@@ -26,6 +26,10 @@ people. Keep them accurate to the code.
   empty profile and the separate network buy, what the tool's own checks do not,
   the limits (no downloads, one browser shared by every agent), and how to turn
   it on in a deployment that already runs.
+- **[agent-containers.md](agent-containers.md)** — a container per agent: what
+  the isolation buys, how to give one agent a JDK, what it costs (a container
+  each, and creating an agent from chat no longer finishing in chat), and the
+  migration that is not optional.
 - **[files.md](files.md)** — files and photos: what happens to an attachment on
   its way to the agent, where files are kept, the per-platform requirements, and
   the size/retention limits.

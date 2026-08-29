@@ -32,6 +32,8 @@ runtime:
   timeout: 180            # seconds per turn
   tools: [read, bash]     # the single capability allowlist (see "Tool gating")
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
+  packages:               # OPTIONAL, and only with agent containers (see below)
+    apt: [ffmpeg]
 ```
 
 Only `name` and `role` are required. Leave `provider`/`model` out unless the agent
@@ -42,6 +44,12 @@ provider/model are resolved.
 `.pi/SYSTEM.md` is the agent's true personality — who it is, its scope, its house
 rules. Write it in whatever language the agent should think in. `pi` loads it
 natively (the agent's profile dir is `pi`'s working directory).
+
+`runtime.packages` is read only by a deployment that gives each agent [a
+container of its own](agent-containers.md), where it becomes that agent's image.
+It is ignored otherwise — with one shared container there is no per-agent image
+to put a package in. The same goes for a `Dockerfile.include` beside
+`agent.yaml`, which is how an agent asks for something a package list cannot say.
 
 ## Tool gating
 

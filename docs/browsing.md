@@ -100,7 +100,9 @@ what not to type into it.
 - **A screenshot needs a filename.** `playwright-cli screenshot` writes into
   `.playwright-cli/` and prints a path relative to the agent's working
   directory, which is not the one `send_file` resolves against — so the skill
-  tells agents to write to an absolute path under `/tmp` instead.
+  tells agents to write to an absolute path under `$AGENT_FILES_DIR` instead,
+  which is also the only one that survives the agent having a container of its
+  own.
 - **`file://` is refused by the tool, not by Chrome.** `playwright-cli` blocks
   the scheme; an agent speaking CDP directly opens it — verified, so read it as
   a guardrail like the rest of the tool's checks. What is behind it is the

@@ -1,0 +1,21 @@
+[project]
+name = "runtime-relay"
+version = "0.14.0"
+description = "The front door of an agent's own container: starts the agent's runtime on request and relays it."
+requires-python = ">=3.13"
+# One dependency, on purpose. This ships in every agent image; anything added
+# here is added to every agent image, and the engine's dependency set staying
+# out of them is the whole reason the image is separate.
+dependencies = [
+    "aiohttp>=3.10",
+]
+
+[project.scripts]
+runtime-relay = "runtime_relay.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/runtime_relay"]

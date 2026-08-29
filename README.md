@@ -136,6 +136,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/tasks.md](docs/tasks.md) — scheduled and recurring work, and why a run didn't happen.
 - [docs/secrets.md](docs/secrets.md) — credentials an agent can use but never read.
 - [docs/browsing.md](docs/browsing.md) — a real browser the agents drive, and what isolates it.
+- [docs/agent-containers.md](docs/agent-containers.md) — a container per agent, and what that isolates.
 - [docs/files.md](docs/files.md) — files and photos, in both directions.
 - [docs/commands.md](docs/commands.md) — slash commands and shortcuts, and how to answer one privately.
 - [docs/ws-gateway.md](docs/ws-gateway.md) — plug your own service in over WebSocket.

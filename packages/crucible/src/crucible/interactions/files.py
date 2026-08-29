@@ -91,10 +91,21 @@ class ChatFileService:
         return any(resolved.is_relative_to(root) for root in roots)
 
 
-def default_roots(profile_dir: Path, attachments_dir: Path | None) -> tuple[Path, ...]:
+def default_roots(
+    profile_dir: Path, attachments_dir: Path | None, *, include_temp: bool = True
+) -> tuple[Path, ...]:
     """The directories an agent may send files from (resolved, so the membership
-    test compares like with like)."""
-    roots = [profile_dir, Path(tempfile.gettempdir())]
+    test compares like with like).
+
+    ``include_temp`` is False when the agent's runtime does not share this
+    process's filesystem. The temp directory is then not one place but two, and
+    honouring a path into it would mean sending whatever THIS side happens to
+    have there — a different file, possibly another agent's. The agent's own
+    directory is shared on purpose and is where it should write instead.
+    """
+    roots = [profile_dir]
+    if include_temp:
+        roots.append(Path(tempfile.gettempdir()))
     if attachments_dir is not None:
         roots.append(attachments_dir)
     return tuple(dict.fromkeys(root.expanduser().resolve() for root in roots))

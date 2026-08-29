@@ -52,24 +52,32 @@ The **`send_file`** tool posts a file into the conversation the turn is running
 in — the same thread, not a new message somewhere else:
 
 ```
-send_file(path="/tmp/revenue.png", caption="Q3, by region")
+send_file(path="$AGENT_FILES_DIR/revenue.png", caption="Q3, by region")
 ```
 
 Add it to the agent's `runtime.tools` like any other tool. It takes an absolute
 path and an optional caption, and the agent typically writes the file first
 (`bash`, `write`, a skill's script) and then sends it.
 
-**Where it may read from.** Three roots, checked after resolving the path so a
+**Where it may read from.** These roots, checked after resolving the path so a
 symlink can't lead out of them:
 
 - the agent's **profile directory** — its own working directory;
-- its **attachment directory** — so it can hand back something it was sent;
+- its **own directory**, named in its environment as `AGENT_FILES_DIR` — the
+  attachment directory it was sent things in, and where it should write anything
+  it means to send back;
 - the **system temp directory** — where a turn's scratch output naturally lands.
+  Dropped when the agents have [containers of their own](agent-containers.md):
+  the temp directory is then not one place but two, and honouring a path into it
+  would mean sending whatever the ENGINE happens to have there.
 
 Anything else is refused with a message the agent can act on ("outside the
 directories you may send from"), as are a missing file and one over
 `ATTACHMENT_MAX_MB`. The engine's own configuration and checkout are outside
 those roots, so "send me your .env" doesn't work.
+
+`AGENT_FILES_DIR` is the path to prefer in a skill: it is the one root that
+means the same thing wherever the agent's runtime runs.
 
 ## Per platform
 

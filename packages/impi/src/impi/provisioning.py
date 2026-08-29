@@ -62,6 +62,15 @@ class CreateAgentSettings(BaseSettings):
         validation_alias=AliasChoices("TOOL_CREATE_AGENT_GATEWAY", "GATEWAY"),
     )
     team: str = ""  # team the new bot joins; empty = first team on the server
+    # Whether this deployment gives each agent a container of its own. Read here
+    # so the tool can say what actually has to happen next: with containers, a
+    # new agent needs one built, and only a person on the host can do that.
+    agent_hosts_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "TOOL_CREATE_AGENT_AGENT_HOSTS_ENABLED", "AGENT_HOSTS_ENABLED"
+        ),
+    )
 
 
 @dataclass(frozen=True)

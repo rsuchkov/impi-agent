@@ -239,3 +239,48 @@ setup_home() {
     # A service with a userns_mode and no image is not a service.
     [ "$output" = "deploy/compose.yaml deploy/compose.podman.yaml" ]
 }
+
+# --- per-agent containers: the one overlay that is generated -------------------
+
+@test "the generated per-agent overlay is merged after the engine's files and before the drop-ins" {
+    setup_home
+    mkdir -p "$IMPI_HOME/conf"
+    : >"$IMPI_HOME/conf/agents.compose.yaml"
+    : >"$IMPI_HOME/$COMPOSE_DROPIN_DIR/zebra.yaml"
+    IMPI_AGENT_CONTAINERS=1
+    run compose_files slack
+    [ "${lines[0]}" = "$IMPI_HOME/repo/deploy/compose.yaml" ]
+    [ "${lines[1]}" = "$IMPI_HOME/conf/agents.compose.yaml" ]
+    [ "${lines[2]}" = "$IMPI_HOME/$COMPOSE_DROPIN_DIR/zebra.yaml" ]
+    [ "${#lines[@]}" -eq 3 ]
+}
+
+@test "with the axis off the generated overlay is ignored even when it exists" {
+    setup_home
+    mkdir -p "$IMPI_HOME/conf"
+    : >"$IMPI_HOME/conf/agents.compose.yaml"
+    IMPI_AGENT_CONTAINERS=0
+    run compose_files slack
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "the axis on but nothing rendered yet is not an error" {
+    setup_home
+    IMPI_AGENT_CONTAINERS=1
+    run compose_files slack
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "an update rebuilds every agent that has an image of its own" {
+    IMPI_HOME="$BATS_TEST_TMPDIR/home"
+    mkdir -p "$IMPI_HOME/conf/agents/assistant" "$IMPI_HOME/conf/agents/researcher"
+    : >"$IMPI_HOME/conf/agents/assistant/Dockerfile"
+    : >"$IMPI_HOME/conf/agents/researcher/Dockerfile"
+    mkdir -p "$IMPI_HOME/conf/agents/half-written"   # no Dockerfile yet
+    COMPOSE_VAULT=0
+    unset IMPI_VAULT
+    IMPI_AGENT_CONTAINERS=1
+    run build_services
+    [ "$output" = "impi agent-assistant agent-researcher" ]
+}

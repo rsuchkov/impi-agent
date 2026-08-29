@@ -3,8 +3,9 @@
 Instructions for AI coding agents (and humans) working in this repository.
 
 **impi** is a personal multi-agent system for chat. Each agent is a bot account on
-a chat platform (Mattermost or Slack); the engine hosts many in one process. The
-engine never calls an LLM directly — every agent turn is delegated to the external
+a chat platform (Mattermost or Slack); the engine hosts many in one process, or —
+optionally — gives each a container of its own. The engine never calls an LLM
+directly: every agent turn is delegated to the external
 [`pi`](https://github.com/earendil-works/pi) coding agent, spawned as a subprocess
 (`pi --mode rpc`) and driven over line-delimited JSON.
 
@@ -28,6 +29,7 @@ engine never calls an LLM directly — every agent turn is delegated to the exte
 | `make installer-test` | bats unit tests for the installer libraries |
 | `make e2e-install` | full throwaway compose install (Linux; slow, needs podman/docker) |
 | `make e2e-install BROWSER=1` | the same, with the browser axis installed and driven end to end |
+| `make e2e-install AGENTS=1` | the same, with each agent in a container of its own |
 
 Run `make lint` and `make test` before considering a change done; both must be
 green. Touching `install.sh`, `installer/`, or `deploy/` additionally requires a
@@ -38,7 +40,7 @@ on a machine with no Go toolchain — but not before the image is built.
 
 ## Project structure
 
-A [uv](https://docs.astral.sh/uv/) workspace of four Python packages, plus one
+A [uv](https://docs.astral.sh/uv/) workspace of five Python packages, plus one
 Go program that lives beside them because it is application code like they are:
 
 - **`packages/crucible`** — the reusable agent-runtime library (gateways, the `pi`
@@ -55,6 +57,15 @@ Go program that lives beside them because it is application code like they are:
   It ships in the engine's image (agents need it on their PATH) and imports
   nothing else in the workspace — the engine knows the protocol exists only in
   the sense that it installs the package.
+
+- **`packages/runtime-relay`** — the front door of an agent's own container, for
+  deployments that give each agent one: it starts the agent's runtime when the
+  engine asks and relays it over a WebSocket. Same shape as the browser relay,
+  which is where the name comes from. Imports nothing
+  else in the workspace — the engine's dependency set staying out of the agent
+  image is the point of the separate image — so it re-declares the handful of
+  wire constants it shares with the driver, and a contract test compares the
+  two copies.
 
 - **`packages/browser-relay`** — the browser container's front door, in Go: it
   fronts Chrome's CDP port on a routable address, starts Chrome on the first

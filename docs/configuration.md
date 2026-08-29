@@ -157,7 +157,29 @@ See [tasks.md](tasks.md) for what a task is and how a missed run is handled.
 | `PI_SESSION_DIR` | `""` | `pi` session storage; default `{DATA_DIR}/pi-sessions` (per-agent subdirs) |
 | `PI_TIMEOUT` | `180` | per-turn timeout (s) when `agent.yaml` omits `runtime.timeout` |
 | `PI_MAX_CONCURRENT_SESSIONS` | `4` | max concurrent `pi` subprocesses |
+| `PI_MAX_SESSIONS_PER_AGENT` | `0` | a second bound, per agent; `0` = only the global one |
 | `PI_SESSION_IDLE_TTL` | `1800` | reap a `pi` subprocess after this many idle seconds |
+
+## Agent containers
+
+Each agent's runtime in a container of its own — see
+[agent-containers.md](agent-containers.md). Off by default; the installer asks,
+and `impi agent sync` writes everything below except the first key.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AGENT_HOSTS_ENABLED` | `false` | ask each agent's own host for a runtime instead of forking one |
+| `AGENT_HOST_URL` | `http://agent-{agent}:8427` | where a host is; `{agent}` is the name |
+| `AGENT_HOST_TIMEOUT` | `30` | seconds to wait for a host to accept and answer a spawn |
+| `AGENTS_HOST_TOKEN__<AGENT>` | — | the secret that agent's host shares with the engine |
+| `AGENTS_HOST_URL__<AGENT>` | — | override the address for one agent |
+
+An agent with no `AGENTS_HOST_TOKEN__…` runs in the engine, whatever the URL
+would be — a host that would accept anybody is not one the engine will talk to.
+The engine names such agents in its log at boot.
+
+Note the deployment-level key `IMPI_AGENT_CONTAINERS` in `~/.impi/compose.env`,
+which is separate: it decides whether the generated overlay is merged at all.
 
 ## Tool server
 
@@ -166,6 +188,7 @@ See [tasks.md](tasks.md) for what a task is and how a missed run is handled.
 | `TOOL_ENABLED` | `true` | master switch for the typed-tool server |
 | `TOOL_SERVER_HOST` | `127.0.0.1` | tool-server bind host |
 | `TOOL_SERVER_PORT` | `8422` | tool-server port |
+| `TOOL_PUBLIC_URL` | `""` | what agents should CALL, when that is not where it binds (set with agent containers) |
 
 Individual tools read their own settings from `TOOL_<TOOL>_*` keys (loaded by the
 registry, not declared centrally), e.g. `TOOL_CREATE_CHANNEL_OWNER_USERNAME` — the

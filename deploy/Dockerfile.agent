@@ -1,0 +1,92 @@
+# syntax=docker/dockerfile:1
+# The shared agent image: everything an agent's RUNTIME needs, and nothing the
+# engine needs. Node and the `pi` CLI, the tools an agent runs (`secret-exec`,
+# `playwright-cli`), the tool-bridge extension, and the small host that starts
+# the runtime when the engine asks.
+#
+# What is deliberately absent is the engine: no gateway libraries, no store, no
+# scheduler, no chat SDK. An agent's container holds that agent's profile, that
+# agent's session files and that agent's credentials — nobody else's — and the
+# engine's dependency set is not something it should be able to import, let
+# alone the engine's `.env`.
+#
+# Per-agent images are built FROM this one: `impi agent sync` writes a small
+# Dockerfile per agent carrying whatever that agent asked for. This is the base
+# they share, so N agents cost one build of everything below.
+
+FROM docker.io/library/node:22-bookworm-slim AS node
+
+FROM docker.io/library/python:3.13-slim-bookworm
+
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /uvx /usr/local/bin/
+COPY --from=node /usr/local/bin/node /usr/local/bin/
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates procps \
+ && rm -rf /var/lib/apt/lists/*
+
+# The runtime itself. Pinned to the same version the engine pins: the two speak
+# one protocol per release, and a skew here is the kind of fault that looks like
+# a model problem.
+ARG PI_VERSION=0.80.3
+RUN npm install -g @earendil-works/pi-coding-agent@${PI_VERSION} \
+ && npm cache clean --force
+
+# The browser tool an agent runs. It only attaches to a Chrome running in
+# another container, so no browser binaries are installed here.
+ARG PLAYWRIGHT_CLI_VERSION=0.1.18
+RUN npm install -g @playwright/cli@${PLAYWRIGHT_CLI_VERSION} \
+ && npm cache clean --force
+
+ARG IMPI_UID=1000
+ARG IMPI_GID=1000
+RUN set -eu; \
+    getent group "${IMPI_GID}" >/dev/null || groupadd -g "${IMPI_GID}" impi; \
+    getent passwd "${IMPI_UID}" >/dev/null \
+      || useradd -M -u "${IMPI_UID}" -g "${IMPI_GID}" -d /home/impi -s /bin/bash impi
+
+WORKDIR /app
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON=/usr/local/bin/python3.13 \
+    UV_PYTHON_DOWNLOADS=never
+
+# Two packages only: the host, and the secret tool the agent runs. Naming them
+# is what keeps the engine and the broker out of this image — the lock covers
+# the whole workspace, so every manifest has to be here, but no other code is.
+COPY pyproject.toml uv.lock .python-version ./
+COPY packages/runtime-relay/pyproject.toml packages/runtime-relay/
+COPY packages/wardline/pyproject.toml packages/wardline/
+COPY packages/crucible/pyproject.toml packages/crucible/
+COPY packages/impi/pyproject.toml packages/impi/
+COPY packages/ward/pyproject.toml packages/ward/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace \
+        --package runtime-relay --package wardline
+COPY packages/runtime-relay/ packages/runtime-relay/
+COPY packages/wardline/ packages/wardline/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --package runtime-relay --package wardline
+
+# The engine's tool bridge: the client half of the tool-server contract, loaded
+# into every runtime this host starts. It ships with the driver rather than with
+# the agent, which is why it is copied out of the library rather than installed.
+COPY packages/crucible/src/crucible/runtimes/pi/extension/ /app/extension/
+
+# Container-fixed paths; the content arrives on volumes. The mounts that are
+# shared with the engine are at the SAME paths there — a filename means the same
+# thing on both sides, which is what lets an agent send a file it just wrote.
+ENV PATH=/app/.venv/bin:$PATH \
+    HOME=/home/impi \
+    RUNTIME_RELAY_PROFILE_DIR=/app/agents \
+    RUNTIME_RELAY_LIBRARY_DIR=/app/skills \
+    RUNTIME_RELAY_SESSION_DIR=/app/sessions \
+    RUNTIME_RELAY_EXTENSIONS=/app/extension/index.ts \
+    RUNTIME_RELAY_WORK_DIR=/tmp/runtime-relay
+RUN mkdir -p /app/agents /app/skills /app/sessions /app/files /home/impi/.pi \
+ && chown -R "${IMPI_UID}:${IMPI_GID}" /app /home/impi
+
+USER ${IMPI_UID}:${IMPI_GID}
+CMD ["runtime-relay", "serve"]

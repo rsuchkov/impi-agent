@@ -42,10 +42,15 @@ class ToolSettings(BaseModel):
     # Ceiling on "allow this tool for a while". Shorter than a secret's by
     # default: leave bash open and you have left everything open.
     max_grant_s: int
+    # What an agent should CALL, when that is not the same as what this binds.
+    # They differ as soon as the agent is not in this container: the bind may be
+    # 0.0.0.0 and the caller needs a name that resolves on its own network.
+    # Empty = they are the same thing, which is the single-container case.
+    public_url: str = ""
 
     @property
     def server_url(self) -> str:
-        return f"http://{self.server_host}:{self.server_port}"
+        return self.public_url or f"http://{self.server_host}:{self.server_port}"
 
 
 class IntegrationsSettings(BaseModel):
@@ -179,6 +184,11 @@ class Settings(BaseSettings):
     pi_session_dir: str = ""  # default: {data_dir}/pi-sessions (per-agent subdirs)
     pi_timeout: float = 180.0  # fallback when agent.yaml omits runtime.timeout
     pi_max_concurrent_sessions: int = 4
+    # A second bound, per agent. 0 = only the global one. Worth setting once the
+    # agents have hosts of their own: the global number then bounds a resource
+    # this process no longer owns, and one busy agent should not be able to take
+    # every slot from the rest.
+    pi_max_sessions_per_agent: int = 0
     pi_session_idle_ttl: float = 1800.0
 
     # Default LLM provider/model when an agent's agent.yaml omits them (empty =
@@ -195,6 +205,20 @@ class Settings(BaseSettings):
     tool_server_host: str = "127.0.0.1"
     tool_server_port: int = 8422
     tool_max_grant_s: int = 900
+    # Where agents reach the tool server, when that is not where it binds. Set
+    # when the agents run in containers of their own; empty otherwise.
+    tool_public_url: str = ""
+
+    # Agent containers. Off = every agent's runtime is a child process of this
+    # one, which is what a deployment made before this existed keeps doing.
+    # On = the engine asks each agent's own host to run it instead, over the
+    # network, and holds none of the agent's dependencies or credentials itself.
+    agent_hosts_enabled: bool = False
+    # Where an agent's host is. ``{agent}`` is the agent's name; a per-agent
+    # AGENTS_HOST_URL__<AGENT> overrides it for one agent.
+    agent_host_url: str = "http://agent-{agent}:8427"
+    # How long to wait for a host to accept a connection and answer a spawn.
+    agent_host_timeout: float = 30.0
 
     # Widget callbacks. Binds 0.0.0.0; MM calls back over
     # host.containers.internal. env: INTEGRATIONS_*
@@ -253,6 +277,22 @@ class Settings(BaseSettings):
         if agent == self.agent_name and self.slack_bot_token and self.slack_app_token:
             return self.slack_bot_token, self.slack_app_token
         return "", ""
+
+    def agent_host_for(self, agent: str) -> tuple[str, str]:
+        """(url, token) of the host that runs this agent, or ("", "") when it
+        runs here. The token is a dynamic per-agent key written when the agent's
+        container is created; without one there is no host, whatever the URL
+        says — a host that would accept anybody is not one we will talk to."""
+        if not self.agent_hosts_enabled:
+            return "", ""
+        up = agent.upper().replace("-", "_")
+        token = self._token(f"AGENTS_HOST_TOKEN__{up}")
+        if not token:
+            return "", ""
+        url = self._token(f"AGENTS_HOST_URL__{up}") or self.agent_host_url.format(
+            agent=agent
+        )
+        return url, token
 
     def gateway_for(self, agent: str) -> str:
         """The chat gateway kind for an agent: AGENTS_GATEWAY__<AGENT> (env/.env),
@@ -326,6 +366,7 @@ class Settings(BaseSettings):
             server_host=self.tool_server_host,
             server_port=self.tool_server_port,
             max_grant_s=self.tool_max_grant_s,
+            public_url=self.tool_public_url,
         )
 
     @property

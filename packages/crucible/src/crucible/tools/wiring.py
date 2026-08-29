@@ -40,6 +40,10 @@ logger = logging.getLogger(__name__)
 # *proved* is proved by a token or a certificate instead. Part of the engine's
 # public surface to whatever runs inside an agent, so it does not change lightly.
 AGENT_NAME_ENV = "AGENT_NAME"
+# The env variable naming the manifest FILE. A name rather than a literal at the
+# call site because the composition root has to tell it apart from the rest of
+# the env: it is a path, and a path only means something where it was written.
+MANIFEST_ENV = "TOOL_MANIFEST"
 
 
 def _gate_tools(
@@ -145,7 +149,7 @@ class ToolWiring:
         # next restart.
         self.allowlists[spec.name] = frozenset(advertised)
         manifest_path = self.registry.write_manifest(self.manifests_dir, spec.name, advertised)
-        return {**self.envs[spec.name], "TOOL_MANIFEST": str(manifest_path)}
+        return {**self.envs[spec.name], MANIFEST_ENV: str(manifest_path)}
 
     def build_server(
         self,

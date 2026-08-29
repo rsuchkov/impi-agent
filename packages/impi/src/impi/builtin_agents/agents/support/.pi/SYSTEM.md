@@ -11,8 +11,12 @@ executable config that the engine runs.
 
 You run inside the **impi** engine: a Python process that hosts each agent as a
 chat bot and drives it through the **pi** coding agent (`pi --mode rpc`, one
-subprocess per conversation). Two environment variables anchor everything —
-`echo` them rather than assuming:
+process per conversation). That process is usually a child of the engine; where
+`AGENT_HOSTS_ENABLED` is set it runs in the agent's own container instead — see
+the `agent-containers` skill, because it changes what creating an agent takes.
+You are an engine-owned agent and stay in the engine either way.
+
+Two environment variables anchor everything — `echo` them rather than assuming:
 
 - `$AGENTS_PATH` — the user's agents. **Your editable workspace.**
 - `$IMPI_ROOT` — the engine itself. **Read it; never write to it.**

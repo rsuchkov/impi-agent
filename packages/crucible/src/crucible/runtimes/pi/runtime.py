@@ -9,15 +9,18 @@ sessions stay in agreement because neither derives its own).
 - ``run_stateless`` — a fresh ``--no-session`` process per call, closed right
   after; no memory.
 
-A global semaphore bounds how many pi processes are alive at once; an optional
-idle reaper closes sessions that have gone quiet (files survive — the next
-message resumes the same pi session id with its memory intact).
+A global semaphore bounds how many pi processes are alive at once, and an
+optional per-agent one bounds how many of those may belong to any single agent;
+an optional idle reaper closes sessions that have gone quiet (files survive —
+the next message resumes the same pi session id with its memory intact).
+
+WHERE a process runs is not this module's business: it describes the spawn
+(:class:`SpawnRequest`) and hands it to a host. The default host starts a child
+process here, which is what always happened; another may run it elsewhere.
 """
 
 import asyncio
 import logging
-import os
-import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,9 +28,10 @@ from pathlib import Path
 from crucible.ports.agent.runtime import AgentProfile, PromptImage
 from crucible.ports.agent.ui import UiBridge
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
+from crucible.runtimes.pi.hosts import HostRouter, LocalHost
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.session import EventCallback, PiResult, PiRpcSession
-from crucible.runtimes.pi.transport import SubprocessTransport
+from crucible.runtimes.pi.spawn import SpawnRequest, safe_session_id
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,7 @@ SessionFactory = Callable[
 @dataclass
 class _ManagedSession:
     session: PiRpcSession
+    agent: str  # whose per-agent permit this session holds
     created_at: float
     last_used: float = 0.0
 
@@ -65,14 +70,15 @@ class PiRuntime:
         pi_bin: str = "pi",
         session_dir: str = "",
         max_concurrent_sessions: int = 4,
+        max_sessions_per_agent: int = 0,
         idle_ttl: float = 1800.0,
         acquire_timeout: float = 120.0,
         extra_env: dict[str, str] | None = None,
         extra_extensions: list[str] | None = None,
         session_factory: SessionFactory | None = None,
         ui_bridge: UiBridge | None = None,
+        hosts: HostRouter | None = None,
     ) -> None:
-        self._pi_bin = pi_bin
         self._session_dir = session_dir
         self._idle_ttl = idle_ttl
         # Surfaces a pi mid-turn interactive request (confirm/select) to a human;
@@ -85,7 +91,18 @@ class PiRuntime:
         # Loaded via `-e` on every spawn. Provider extensions must load early
         # (before project trust), so they go here rather than in profile settings.
         self._extra_extensions = extra_extensions or []
+        # Where each agent's processes run. The default host is a child process
+        # of this one, so a deployment that has moved nobody behaves exactly as
+        # it always did.
+        self._hosts = hosts or HostRouter(LocalHost(program=pi_bin))
         self._semaphore = asyncio.Semaphore(max_concurrent_sessions)
+        # A second, per-agent bound. The global one stops the machine being
+        # swamped; this one stops ONE agent taking every slot and leaving the
+        # others queueing behind it — which matters more once an agent's
+        # processes are somebody else's resources, not this container's.
+        # 0 = no separate bound.
+        self._per_agent = max_sessions_per_agent
+        self._agent_semaphores: dict[str, asyncio.Semaphore] = {}
         # How long a turn may wait for a free slot. A permit is held for as long
         # as its session lives — including while it idles out its TTL — so
         # without a bound a turn can wait forever, and the per-turn timeout
@@ -122,7 +139,9 @@ class PiRuntime:
                 session = await self._create_session(
                     pi_profile, session_id=session_id, on_event=on_event, cwd=cwd
                 )
-                managed = _ManagedSession(session=session, created_at=self._now())
+                managed = _ManagedSession(
+                    session=session, agent=pi_profile.name, created_at=self._now()
+                )
                 self._sessions[session_id] = managed
 
             try:
@@ -169,7 +188,7 @@ class PiRuntime:
                 message, timeout=pi_profile.timeout, images=images
             )
         finally:
-            await self._close_session(session)
+            await self._close_session(session, pi_profile.name)
 
     def start(self) -> None:
         """AgentRuntime lifecycle: begin background maintenance (the reaper)."""
@@ -185,6 +204,7 @@ class PiRuntime:
             self._reaper_task = None
         for key in list(self._sessions):
             await self._drop_session(key)
+        await self._hosts.aclose()
 
     async def drop_agent_sessions(self, agent: str) -> int:
         """Drop an agent's idle sessions so its next turn respawns pi with fresh
@@ -219,34 +239,66 @@ class PiRuntime:
         on_event: EventCallback | None,
         cwd: str | None = None,
     ) -> PiRpcSession:
-        try:
-            await asyncio.wait_for(self._semaphore.acquire(), self._acquire_timeout)
-        except TimeoutError as exc:
-            # Every slot is taken, most likely by sessions idling out their TTL.
-            # A timeout here IS an agent timeout: the caller gets the same
-            # fallback it would get from a slow turn, instead of waiting forever.
-            raise PiTimeout(
-                f"no runtime slot within {self._acquire_timeout:.0f}s "
-                f"({len(self._sessions)} session(s) alive)"
-            ) from exc
+        await self._acquire(profile.name)
         try:
             session = await self._factory(profile, session_id, on_event, cwd)
             session.start()
             return session
         except Exception:
-            self._semaphore.release()
+            self._release(profile.name)
             raise
 
-    async def _close_session(self, session: PiRpcSession) -> None:
+    async def _acquire(self, agent: str) -> None:
+        """One permit from the agent's own bound, then one from the global one.
+
+        That order, not the other way round: holding a global slot while queueing
+        for an agent slot would let a busy agent occupy the whole machine's
+        allowance with turns that have not started.
+        """
+        deadline = self._acquire_timeout
+        agent_permit = self._agent_semaphore(agent)
+        try:
+            if agent_permit is not None:
+                await asyncio.wait_for(agent_permit.acquire(), deadline)
+            await asyncio.wait_for(self._semaphore.acquire(), deadline)
+        except TimeoutError as exc:
+            if agent_permit is not None and agent_permit.locked():
+                # Only release what we actually took: the global wait is the one
+                # that timed out here, so the agent permit is ours.
+                agent_permit.release()
+            # Every slot is taken, most likely by sessions idling out their TTL.
+            # A timeout here IS an agent timeout: the caller gets the same
+            # fallback it would get from a slow turn, instead of waiting forever.
+            raise PiTimeout(
+                f"no runtime slot for {agent} within {deadline:.0f}s "
+                f"({len(self._sessions)} session(s) alive)"
+            ) from exc
+
+    def _release(self, agent: str) -> None:
+        self._semaphore.release()
+        agent_permit = self._agent_semaphore(agent)
+        if agent_permit is not None:
+            agent_permit.release()
+
+    def _agent_semaphore(self, agent: str) -> asyncio.Semaphore | None:
+        if self._per_agent <= 0:
+            return None
+        existing = self._agent_semaphores.get(agent)
+        if existing is None:
+            existing = asyncio.Semaphore(self._per_agent)
+            self._agent_semaphores[agent] = existing
+        return existing
+
+    async def _close_session(self, session: PiRpcSession, agent: str) -> None:
         try:
             await session.close()
         finally:
-            self._semaphore.release()
+            self._release(agent)
 
     async def _drop_session(self, key: str) -> None:
         managed = self._sessions.pop(key, None)
         if managed is not None:
-            await self._close_session(managed.session)
+            await self._close_session(managed.session, managed.agent)
 
     async def _spawn_session(
         self,
@@ -255,57 +307,30 @@ class PiRuntime:
         on_event: EventCallback | None,
         cwd: str | None = None,
     ) -> PiRpcSession:
-        # --approve: RPC mode shows no trust prompt and otherwise ignores the
-        # project's .pi/ resources (SYSTEM.md, permission policy). Approving
-        # for the run loads them from the agent's profile dir.
-        args = ["--mode", "rpc", "--approve"]
-        if session_id:
-            # pi requires [A-Za-z0-9._-] starting/ending alphanumeric; sanitize
-            # defensively (collisions are mitigated by the per-agent session dir
-            # and the agent prefix baked into the id by the caller).
-            args += ["--session-id", _safe_session_id(session_id)]
-        else:
-            args += ["--no-session"]
-        if self._session_dir:
-            # Per-agent subdir (sanitized ids can collide across agents), and an
-            # ABSOLUTE path — pi resolves a relative --session-dir from its own
-            # cwd (the profile dir), scattering session files into the agents dir.
-            session_dir = (Path(self._session_dir) / profile.name).resolve()
-            session_dir.mkdir(parents=True, exist_ok=True)
-            args += ["--session-dir", str(session_dir)]
-        for ext in self._extra_extensions:
-            args += ["-e", ext]
-        # Single capability gate: --tools is the allowlist over built-in,
-        # extension and typed tools alike. An empty list yields no tools at all;
-        # a built-in an agent wants (e.g. read/bash for skills) is just named in
-        # profile.tools.
-        args += ["--tools", ",".join(profile.tools)]
-        # No ambient skill discovery — each agent gets EXACTLY its declared
-        # skills (this also closes the ancestor-dir .agents/skills + context
-        # file walk-up the agents directory would otherwise leak).
-        args += ["--no-skills"]
-        for skill in profile.skills:
-            args += ["--skill", skill]
-        if profile.provider:
-            args += ["--provider", profile.provider]
-        if profile.model:
-            args += ["--model", profile.model]
-        # Extra system-prompt text (e.g. the gateway's response-formatting rules).
-        if profile.append_system_prompt:
-            args += ["--append-system-prompt", profile.append_system_prompt]
-
         # Shared env, then this agent's per-profile env (tool token), then this
         # session's id — so a tool call can be tied back to its conversation.
-        per_session = {"RUNTIME_SESSION_ID": _safe_session_id(session_id)} if session_id else {}
-        env: dict[str, str] | None = None
-        if self._extra_env or profile.env or per_session:
-            env = {**os.environ, **self._extra_env, **profile.env, **per_session}
-        # cwd override for checkout-scoped runs; else the profile dir, so pi
-        # natively loads the agent's .pi/*.
-        run_cwd = cwd or str(profile.config_dir)
-        transport = await SubprocessTransport.spawn(
-            self._pi_bin, args, cwd=run_cwd, env=env
+        # What the host's OWN environment holds is the host's business; this is
+        # only what the engine grants.
+        safe_id = safe_session_id(session_id) if session_id else None
+        env = {**self._extra_env, **profile.env}
+        if safe_id:
+            env["RUNTIME_SESSION_ID"] = safe_id
+        request = SpawnRequest(
+            agent=profile.name,
+            profile_dir=profile.config_dir,
+            session_id=safe_id,
+            tools=profile.tools,
+            skills=profile.skills,
+            provider=profile.provider,
+            model=profile.model,
+            append_system_prompt=profile.append_system_prompt,
+            env=env,
+            env_files={name: Path(value) for name, value in profile.env_files.items()},
+            session_dir=Path(self._session_dir) if self._session_dir else None,
+            extensions=tuple(self._extra_extensions),
+            cwd=Path(cwd) if cwd else None,
         )
+        transport = await self._hosts.for_agent(profile.name).open(request)
         return PiRpcSession(
             transport,
             on_event=on_event,
@@ -338,9 +363,3 @@ class PiRuntime:
     @staticmethod
     def _now() -> float:
         return asyncio.get_running_loop().time()
-
-
-def _safe_session_id(raw: str) -> str:
-    """Coerce a conversation key into a valid pi session id ([A-Za-z0-9._-])."""
-    cleaned = re.sub(r"[^A-Za-z0-9._-]", "-", raw).strip("-._")
-    return cleaned or "session"

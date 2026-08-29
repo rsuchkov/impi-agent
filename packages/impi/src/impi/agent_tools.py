@@ -37,9 +37,9 @@ class CreateAgent(Tool):
         "account, scaffold the profile under the agents directory, and store "
         "its token in the engine .env. Use this instead of asking the operator "
         "to create bots by hand; refine .pi/SYSTEM.md with the file tools "
-        "afterwards. The new agent starts only after an engine restart — tell "
-        "the operator to run `impi restart` (deployment) or restart the engine "
-        "(dev checkout)."
+        "afterwards. The new agent does not start on its own: the result says "
+        "exactly which command the operator has to run, and it differs by "
+        "deployment — pass it on verbatim rather than guessing."
     )
     parameters: ClassVar[dict[str, Any]] = {
         "type": "object",
@@ -117,12 +117,26 @@ class CreateAgent(Tool):
             # No orphan profile without a bot: undo the scaffold we just wrote.
             shutil.rmtree(profile_dir, ignore_errors=True)
             raise ToolError(str(exc)) from exc
+        if cfg.agent_hosts_enabled:
+            # Each agent runs in a container of its own here, and building one is
+            # not something this process can do — nor should be: reaching the
+            # container runtime from in here would undo the separation the
+            # containers exist to create.
+            hint = (
+                f"ask the operator to run `impi agent sync` on the host — it "
+                f"builds {name} a container of its own and starts it. Nothing "
+                f"happens until they do."
+            )
+        else:
+            hint = (
+                "ask the operator to restart the engine (`impi restart`, or "
+                "`make stop && make run-bg` in a dev checkout)"
+            )
         return {
             "created": True,
             "username": creds.username,
             "team": creds.team,
             "profile": str(profile_dir),
             "restart_required": True,
-            "hint": "ask the operator to restart the engine (`impi restart`, or "
-            "`make stop && make run-bg` in a dev checkout)",
+            "hint": hint,
         }

@@ -33,6 +33,11 @@ class PiProfile:
     # runtime's shared env). Carries per-agent secrets like the tool-server
     # token, which must NOT be shared across agents.
     env: Mapping[str, str] = field(default_factory=dict)
+    # Env entries whose value is a FILE the engine wrote and the process must be
+    # able to read — the tool manifest, today. Kept apart from ``env`` because a
+    # path is only meaningful where it was written: a host with its own
+    # filesystem is handed the content and writes its own copy.
+    env_files: Mapping[str, str] = field(default_factory=dict)
     # Extra text appended to the agent's system prompt (--append-system-prompt),
     # e.g. gateway-specific response-formatting rules. "" = nothing appended.
     append_system_prompt: str = ""

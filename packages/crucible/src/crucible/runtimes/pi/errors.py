@@ -20,3 +20,10 @@ class PiProcessError(PiError):
 
 class PiTimeout(PiError, AgentTimeout):
     """A prompt did not produce a final result within the allotted time."""
+
+
+class PiHostError(PiError):
+    """The host that was supposed to run the process could not be reached, or
+    refused the spawn. Distinct from a process that died: nothing started, and
+    the fix is a deployment one (the agent's container is down, its token is
+    wrong, its protocol version does not match)."""

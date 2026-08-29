@@ -59,3 +59,7 @@ runtime:
     # (`playwright-cli` is on this image's PATH but not in the allowlist above),
     # so it advises, assigns the bundled skill, and diagnoses.
     - browsing
+    # And what changes when each agent has a container of its own — including
+    # the part that concerns this agent directly: creating one then ends with a
+    # command the operator runs, not with an agent that starts answering.
+    - agent-containers

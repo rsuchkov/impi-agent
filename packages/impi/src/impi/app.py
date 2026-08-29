@@ -17,7 +17,7 @@ import logging
 import os
 import random
 import signal
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
@@ -54,14 +54,20 @@ from crucible.loopguard import LoopGuard
 from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
 from crucible.profiles import CompositeProfileStore, FsProfileStore, ProfileStore
 from crucible.reloader import ProfileReloader
-from crucible.runtimes.pi import EXTENSION_PATH, build_pi_profile
+from crucible.runtimes.pi import (
+    EXTENSION_PATH,
+    HostRouter,
+    LocalHost,
+    RemoteHost,
+    build_pi_profile,
+)
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
 from crucible.skills import SkillLibrary
 from crucible.store.base import SessionStore
 from crucible.store.sessions import SqliteSessionStore
-from crucible.tools import ToolServer, ToolWiring
+from crucible.tools import MANIFEST_ENV, ToolServer, ToolWiring
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
 from impi.gateways import resolve_gateway
@@ -106,6 +112,45 @@ def build_pi_extensions(settings: ImpiSettings) -> list[str]:
             str(index.resolve()) for index in ext_root.glob("*/index.ts") if index.is_file()
         )
     return paths
+
+
+def build_agent_hosts(settings: ImpiSettings, specs: Sequence[AgentSpec]) -> HostRouter:
+    """Where each agent's runtime runs.
+
+    The default is a child process of this one — what a deployment that has not
+    turned the axis on keeps doing, and what the engine falls back to for any
+    agent whose own host is not configured yet. An agent gets a host of its own
+    the moment there is a token for it, which is what `agent sync` writes when
+    it creates the container.
+    """
+    router = HostRouter(LocalHost(program=settings.pi_bin))
+    if not settings.agent_hosts_enabled:
+        return router
+    library = settings.resolved_skills_path
+    for spec in specs:
+        url, token = settings.agent_host_for(spec.name)
+        if not url:
+            logger.warning(
+                "agent %s has no container of its own yet — it runs in the engine "
+                "(run `impi agent sync` to give it one)",
+                spec.name,
+            )
+            continue
+        router.add(
+            spec.name,
+            RemoteHost(
+                url=url,
+                token=token,
+                library_root=library if library.is_dir() else None,
+                connect_timeout=settings.agent_host_timeout,
+            ),
+        )
+    if router.remote_agents:
+        logger.info(
+            "Agents running in containers of their own: %s",
+            ", ".join(router.remote_agents),
+        )
+    return router
 
 
 @dataclass
@@ -177,7 +222,16 @@ class ProfileBuilder:
         env = self._tools.profile_env(spec)
         if env is None:
             return base
-        return dataclasses.replace(base, env=env)
+        # The manifest is a PATH. Kept apart from the rest of the env so a host
+        # with its own filesystem is handed the content instead — see
+        # PiProfile.env_files.
+        values = dict(env)
+        manifest = values.pop(MANIFEST_ENV, "")
+        return dataclasses.replace(
+            base,
+            env=values,
+            env_files={MANIFEST_ENV: manifest} if manifest else {},
+        )
 
 
 def _build_unit(
@@ -344,10 +398,12 @@ def build_app(settings: ImpiSettings) -> App:
         pi_bin=settings.pi_bin,
         session_dir=str(settings.resolved_pi_session_dir),
         max_concurrent_sessions=settings.pi_max_concurrent_sessions,
+        max_sessions_per_agent=settings.pi_max_sessions_per_agent,
         idle_ttl=settings.pi_session_idle_ttl,
         extra_env=build_pi_env(settings),
         extra_extensions=build_pi_extensions(settings),
         ui_bridge=interactions.ui_bridge,
+        hosts=build_agent_hosts(settings, specs),
     )
     registry = RegistryService(sessions)
     # One shared guard makes the rate limit a GLOBAL per-conversation bound (a
@@ -374,6 +430,14 @@ def build_app(settings: ImpiSettings) -> App:
             retention_days=settings.attachment_retention_days,
         )
         attachments.sweep()
+        for spec in specs:
+            # Each agent's own directory, named in its environment. It is the one
+            # place an agent can both write and send from wherever its runtime
+            # runs — the same path on both sides when that is another container —
+            # so a skill that produces a file has somewhere to put it.
+            files_dir = attachments.dir_for(spec.name)
+            files_dir.mkdir(parents=True, exist_ok=True)
+            tools.add_env(spec.name, {"AGENT_FILES_DIR": str(files_dir)})
     # The ws hub exists only when some agent lives on the "ws" gateway; client
     # services authenticate against it with their own tokens (WS_SERVICE_TOKEN__*).
     ws_hub: WsHub | None = None
@@ -417,7 +481,11 @@ def build_app(settings: ImpiSettings) -> App:
             presence,
             sessions,
             {
-                spec.name: default_roots(spec.profile_dir, attachments.dir_for(spec.name))
+                spec.name: default_roots(
+                    spec.profile_dir,
+                    attachments.dir_for(spec.name),
+                    include_temp=not settings.agent_hosts_enabled,
+                )
                 for spec in specs
             },
             max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
@@ -431,6 +499,21 @@ def build_app(settings: ImpiSettings) -> App:
             default_timezone=settings.scheduler.timezone,
             max_per_agent=settings.scheduler.max_tasks_per_agent,
         )
+    if settings.agent_hosts_enabled and settings.tools.enabled:
+        if settings.tool_server_host in ("127.0.0.1", "localhost", "::1"):
+            logger.warning(
+                "agents run in containers of their own but the tool server binds "
+                "%s — they cannot reach it; set TOOL_SERVER_HOST=0.0.0.0 and "
+                "TOOL_PUBLIC_URL",
+                settings.tool_server_host,
+            )
+        elif not settings.tool_public_url:
+            logger.warning(
+                "TOOL_PUBLIC_URL is not set — agents in their own containers will "
+                "be told to call %s, which is this container's address, not one "
+                "they can resolve",
+                settings.tools.server_url,
+            )
     tool_server = tools.build_server(
         directory=registry,
         interaction_svc=interactions.interaction_svc,

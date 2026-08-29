@@ -3,6 +3,7 @@
 #   make e2e-install             # asserts a full zero-touch codeploy install
 #   make e2e-install KEEP=1      # keep the stack for inspection
 #   make e2e-install BROWSER=1   # also install and exercise the browser axis
+#   make e2e-install AGENTS=1    # also give each agent a container of its own
 #
 # The legs that need a real model are opt-in and take their configuration from
 # outside the tree, so nothing here has to be edited to run them:
@@ -27,6 +28,9 @@ MM_PORT=8066
 # Off by default: the browser image is Chrome, which is minutes of build and
 # about a gigabyte. Opt in when the axis is what you are changing.
 BROWSER=${BROWSER:-0}
+# Off by default too: the agent image is Node plus the runtime, which is minutes
+# of build. Opt in when the axis is what you are changing.
+AGENTS=${AGENTS:-0}
 
 PASS=0
 FAIL=0
@@ -77,6 +81,7 @@ git -C "$E2E_HOME/repo" init -q 2>/dev/null || true
 ANSWERS=$E2E_HOME/answers
 cp "$E2E_HOME/repo/installer/tests/e2e.answers" "$ANSWERS"
 if [ "$BROWSER" = 1 ]; then echo "IMPI_BROWSER=yes" >>"$ANSWERS"; fi
+if [ "$AGENTS" = 1 ]; then echo "IMPI_AGENT_CONTAINERS=yes" >>"$ANSWERS"; fi
 # Last wins, so this overrides the checked-in defaults rather than adding to
 # them — which is what lets a real model be supplied without editing a file
 # that every other run depends on.
@@ -138,6 +143,54 @@ tester_up() {
     return 1
 }
 check "engine picked up 'tester' after restart" tester_up
+
+# 4b. Per-agent containers, when they were installed (AGENTS=1).
+#
+# The claim being tested is isolation, so the checks are about what an agent
+# CANNOT see as much as what it can: its own profile at the engine's own path,
+# its own session volume, and no sight of the other agent's anything.
+if [ "$AGENTS" = 1 ]; then
+    in_agent() { compose exec -T "agent-$1" "${@:2}"; }
+
+    check "compose.env records the agent-container axis" \
+        grep -q '^IMPI_AGENT_CONTAINERS=1$' "$E2E_HOME/compose.env"
+    check "the overlay was generated" test -f "$E2E_HOME/conf/agents.compose.yaml"
+    check "the engine knows the agent's host token" \
+        grep -q '^AGENTS_HOST_TOKEN__ASSISTANT=' "$E2E_HOME/conf/.env"
+    agent_up() { compose ps 2>/dev/null | grep -q "agent-assistant"; }
+    check "the assistant's container is running" agent_up
+    check "its host answers its own health endpoint" \
+        in_agent assistant python -c \
+        'import urllib.request as u; u.urlopen("http://127.0.0.1:8427/health", timeout=5)'
+    check "the agent sees its own profile at the engine's path" \
+        in_agent assistant test -f /app/agents/agents/assistant/agent.yaml
+    check "the agent has a session volume of its own" \
+        in_agent assistant test -d /app/sessions
+    # The isolation, stated as an absence: another agent's profile is not mounted.
+    no_other_profile() { ! in_agent assistant test -e /app/agents/agents/tester; }
+    check "the agent cannot see another agent's profile" no_other_profile
+    # The property that broke when the agents' containers had no user mapping of
+    # their own: agent and engine share a volume, so a file one writes the other
+    # has to read. Nothing here asserts an owner — only that it works, which is
+    # the part an operator would notice.
+    shared_files_work() {
+        compose exec -T agent-assistant \
+            sh -c 'echo e2e-probe > /app/files/assistant/probe.txt' \
+            && compose run --rm -T impi grep -q e2e-probe /app/files/assistant/probe.txt
+    }
+    check "the agent can write a file the engine can read" shared_files_work
+
+    # And the engine really did stop forking runtimes for it.
+    remote_logged() {
+        compose logs impi 2>/dev/null \
+            | grep -c "Agents running in containers of their own" >/dev/null
+    }
+    check "the engine reports the agent as remote" remote_logged
+    # A new agent's container does not exist until somebody syncs — the whole
+    # point of the trade, so it is asserted rather than assumed.
+    tester_has_no_container() { ! compose ps 2>/dev/null | grep -q "agent-tester"; }
+    check "a newly added agent has no container until sync" tester_has_no_container
+fi
 
 # 5. The browser axis, when it was installed (BROWSER=1).
 #
@@ -249,9 +302,20 @@ if [ -n "${E2E_PI_AUTH:-}" ]; then
              chmod 600 /home/impi/.pi/agent/auth.json' <"$E2E_PI_AUTH"
     }
     check "pi subscription login seeded" seed_auth
+    built_before=$(engine_log_count "app built:")
+    ws_before=$(engine_log_count "Websocket authentication OK")
     compose restart impi >/dev/null 2>&1
-    for _ in $(seq 1 30); do
-        engine_logged "app built:" && break
+    # Two conditions, and the old code had neither. `engine_logged "app built:"`
+    # matches the line from BEFORE the restart — the log is cumulative — so it
+    # returned at once and waited for nothing. And readiness is logged before the
+    # chat gateway has authenticated its websocket, so a question asked in that
+    # gap is not answered late, it is never seen at all.
+    engine_back() {
+        [ "$(engine_log_count 'app built:')" -gt "$built_before" ] \
+            && [ "$(engine_log_count 'Websocket authentication OK')" -gt "$ws_before" ]
+    }
+    for _ in $(seq 1 45); do
+        engine_back && break
         sleep 2
     done
 fi
@@ -266,7 +330,16 @@ if [ "${E2E_LLM:-0}" = 1 ]; then
     # Both helpers take their arguments through the environment: a prompt is
     # prose, and prose in a shell argument is a quoting accident waiting to
     # rewrite the test.
-    ask() { MSG=$1 python3 -c '
+    # When the question was asked, so an answer can be told from something the
+    # bot said earlier. Mattermost posts an automatic greeting the moment a DM
+    # channel with a bot is created, and a check that accepts "any message from
+    # the assistant" accepts THAT — which is how a leg meant to prove a model
+    # answered passed on a stack whose model never answered once.
+    ASK_STAMP=0
+    ask() {
+        ASK_STAMP=$(python3 -c 'import time; print(int(time.time() * 1000))')
+        export ASK_STAMP
+        MSG=$1 python3 -c '
 import json, os, urllib.request
 body = json.dumps({"channel_id": os.environ["CHAN"], "message": os.environ["MSG"]}).encode()
 request = urllib.request.Request(os.environ["BASE"] + "/posts", data=body, method="POST")
@@ -275,16 +348,24 @@ request.add_header("Content-Type", "application/json")
 urllib.request.urlopen(request, timeout=10).read()
 '; }
 
-    # Has the agent posted anything containing $WANT? An empty WANT matches any
-    # reply at all, which is what the bare roundtrip asks.
+    # Has the agent said anything containing $WANT SINCE the question? An empty
+    # WANT matches any answer at all, which is what the bare roundtrip asks — but
+    # never something posted before we asked, and never the engine's own fallback
+    # text, which is what it posts when the turn failed.
     said() { WANT=${1:-} python3 -c '
 import json, os, sys, urllib.request
+FALLBACKS = ("temporarily unavailable", "broke on my side")
 request = urllib.request.Request(os.environ["BASE"] + "/channels/" + os.environ["CHAN"] + "/posts")
 request.add_header("Authorization", "Bearer " + os.environ["ADMIN_PAT"])
 posts = json.load(urllib.request.urlopen(request, timeout=10))["posts"].values()
-mine = [p["message"] for p in posts if p["user_id"] == os.environ["ASSISTANT_ID"]]
-sys.stderr.write(repr(mine) + chr(10))
-sys.exit(0 if any(os.environ["WANT"].lower() in m.lower() for m in mine) else 1)
+since = int(os.environ.get("ASK_STAMP") or 0)
+mine = [
+    p["message"] for p in posts
+    if p["user_id"] == os.environ["ASSISTANT_ID"] and p["create_at"] > since
+]
+answers = [m for m in mine if m.strip() and not any(f in m for f in FALLBACKS)]
+sys.stderr.write(repr(answers) + chr(10))
+sys.exit(0 if any(os.environ["WANT"].lower() in m.lower() for m in answers) else 1)
 '; }
 
     waits_for() { # WANT tries
@@ -296,8 +377,24 @@ sys.exit(0 if any(os.environ["WANT"].lower() in m.lower() for m in mine) else 1)
     }
 
     ask "ping"
-    replied() { waits_for "" 60; }
-    check "assistant replied to a DM" replied
+    answered() { waits_for "" 60; }
+    check "the assistant ANSWERED a DM (not a greeting, not a fallback)" answered
+
+    # With a live model AND containers, the two things the dummy model cannot
+    # show: a turn the engine counts as complete, and the memory of it landing in
+    # the agent's own volume rather than the engine's. The second is what
+    # `impi agent migrate` exists to move, so a deployment that got it wrong
+    # would look exactly like an agent that forgot everybody.
+    if [ "$AGENTS" = 1 ]; then
+        turn_completed() { compose logs impi 2>/dev/null | grep -c "pi turn: session=" >/dev/null; }
+        check "the engine counted a completed turn" turn_completed
+        memory_is_the_agents() {
+            compose exec -T agent-assistant sh -c 'ls -A /app/sessions | grep -q .' \
+                && ! compose run --rm -T impi \
+                    sh -c 'ls -A /app/data/pi-sessions/assistant 2>/dev/null | grep -q .'
+        }
+        check "its memory is in its own volume, not the engine's" memory_is_the_agents
+    fi
 
     # The one leg nothing else can cover: whether the MODEL, handed the skill,
     # reaches for the browser on its own. Every other browser check drives

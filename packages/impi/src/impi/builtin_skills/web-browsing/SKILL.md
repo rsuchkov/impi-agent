@@ -99,15 +99,21 @@ with a narrower scope beats dumping everything.
 ## Screenshots
 
 ```bash
-playwright-cli screenshot --filename=/tmp/page.png
+playwright-cli screenshot --filename="$AGENT_FILES_DIR/page.png"
 ```
 
-**Name the file, with an absolute path.** Plain `screenshot` writes into
-`.playwright-cli/` and prints a path RELATIVE to your working directory —
-`send_file` resolves a relative path against a different one and will not find
-it. `/tmp` is somewhere you may both write and send from.
+**Name the file, with an absolute path, and put it in `$AGENT_FILES_DIR`.** Two
+separate reasons, both of which look like the same bug when you get them wrong:
 
-Then pass `/tmp/page.png` to `send_file` — but only if `send_file` is in your
+- Plain `screenshot` writes into `.playwright-cli/` and prints a path RELATIVE
+  to your working directory — `send_file` resolves a relative path against a
+  different one and will not find it.
+- `$AGENT_FILES_DIR` is your own directory, and it is the one place that is
+  yours on both sides when your runtime has a container of its own. `/tmp` may
+  not be: the file would exist where you wrote it and nowhere the engine can
+  read, and `send_file` would refuse a path it is not allowed to reach.
+
+Then pass that path to `send_file` — but only if `send_file` is in your
 allowlist. It is not part of this skill; if you do not have it, describe what
 you saw instead.
 

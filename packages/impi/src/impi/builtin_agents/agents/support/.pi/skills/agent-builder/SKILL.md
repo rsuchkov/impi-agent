@@ -73,13 +73,20 @@ If an agent says a tool is missing, check the startup log for
 ## 3. Provision the bot + apply
 
 A **new** agent only appears after an engine **restart** (agents are enumerated
-at startup).
+at startup) — **unless this deployment gives each agent a container of its own**,
+in which case it also needs one built, and the command is different. Do not
+guess which: `create_agent` returns a `hint` that names the exact command, and
+`AGENT_HOSTS_ENABLED` in the engine `.env` is the underlying answer. Pass the
+hint on verbatim. See the `agent-containers` skill before saying anything more
+about it.
 
 **With the `create_agent` tool (Mattermost, preferred):** call it with `name`,
 `role`, and optionally `display_name`, `description`, `system_prompt`. It creates
 the bot account, writes the profile skeleton, and stores the token — the operator
 confirms via a button before it runs. Afterwards edit the generated files as
-needed and ask the operator to **restart**. If the tool reports a missing admin
+needed and ask the operator to run **what the tool's `hint` says** — a restart in
+most deployments, `impi agent sync` where each agent has a container. If the tool
+reports a missing admin
 token, ask the operator to set `TOOL_CREATE_AGENT_ADMIN_TOKEN` in the engine
 `.env` — or use the manual flow.
 
@@ -94,7 +101,8 @@ then tell the operator to:
      and `AGENTS_GATEWAY__<NAME>=slack`.
    - ws (the operator's own programs, no chat platform): `AGENTS_GATEWAY__<NAME>=ws`
      and a service token — see `$IMPI_ROOT/docs/ws-gateway.md`.
-3. **Restart** the engine.
+3. **Restart** the engine — or, where each agent has a container of its own,
+   `impi agent sync`, which builds the new one and starts it.
 
 An agent with no token is skipped at startup and logged — that, not a broken
 profile, is the usual reason a new agent "doesn't exist".
@@ -109,6 +117,11 @@ profiles are re-read and idle sessions dropped; conversation memory survives.
 
 A conversation already in flight keeps its current configuration until its
 session resets. A **new** agent still needs a restart.
+
+Two things a reload does NOT cover where agents have containers of their own:
+`runtime.packages` and `Dockerfile.include` are that agent's IMAGE, so changing
+either needs `impi agent sync`. Everything else — prompt, tools, skills — is
+mounted and reloads as usual.
 
 ## 5. Toggles the operator has
 

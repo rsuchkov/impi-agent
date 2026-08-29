@@ -6,7 +6,58 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A container per agent.** Optional, off by default, its own axis:
+  `IMPI_AGENT_CONTAINERS=1` runs each agent's runtime in a container of its own
+  and the engine asks for it over a private network instead of forking it. What
+  answers there is `runtime-relay`, a small front door in the same shape as the
+  browser relay: it starts the runtime on request and relays it. Three things
+  follow. An agent's dependencies stop being the engine image's problem —
+  `runtime.packages` in its `agent.yaml`, or a `Dockerfile.include` beside it,
+  become that agent's image and nobody else's. An agent's certificate for the
+  secret broker is mounted as two files in its own container, so telling agents
+  apart stops being a convention and becomes a boundary — until now every
+  agent's identity sat in one directory any agent with `bash` could read. And
+  session files, attachments and the working directory are one volume per agent.
+
+  What it costs is stated in [docs/agent-containers.md](docs/agent-containers.md)
+  rather than discovered: a container per agent; `compose.d/` overrides written
+  for the engine no longer reach the agents; and creating an agent from chat now
+  ends with `impi agent sync` on the host rather than an agent that starts
+  answering — the engine cannot build a container without a handle on the
+  container runtime, and having one would undo the separation. `support` says so
+  itself, and `create_agent` returns the exact command.
+
+  Turning it on needs `impi agent migrate <agent>` first, once per agent: an
+  agent's session files are the memory of every conversation it has had, they
+  live in the engine's data volume, and its container mounts its own. The copy
+  leaves the originals in place.
+
+- **A runtime in its own container no longer inherits the engine's
+  environment.** It gets its container's, plus what the engine grants for that
+  spawn: the model settings, `AGENT_NAME`, `TOOL_URL`, `TOOL_TOKEN`,
+  `AGENT_FILES_DIR` and the session id. That keeps the engine's `.env` out of
+  every agent's process, and it cuts both ways — anything an agent quietly
+  relied on from the engine's environment (a variable added to the `impi`
+  service, `BROWSER_CDP_URL`) has to be added to that agent's own service
+  instead. Nothing announces it; the agent behaves as if the thing were not
+  configured. Unchanged for agents that still run in the engine.
+
+- **`AGENT_FILES_DIR`.** Every agent is told the path of its own directory — the
+  one place it can both write and send from wherever its runtime runs. The
+  bundled `web-browsing` skill writes screenshots there instead of `/tmp`, which
+  is not shared once an agent has a container of its own; `send_file` drops
+  `/tmp` from the directories it will read in that case, rather than sending
+  whatever the engine happens to have there.
+
+- **Fixed: a stray runtime directory could be baked into a locally built
+  image.** A bundled agent's `data/` is git-ignored, so it never showed up in a
+  diff, but the build context copied it in for anyone who had run the engine
+  from a checkout.
+
+- **A per-agent limit on concurrent runtimes**, `PI_MAX_SESSIONS_PER_AGENT`
+  (default `0`, meaning only the global bound). Worth setting once the agents
+  have hosts of their own: the global number then bounds a resource the engine
+  no longer owns.
 
 ## v0.14.0 — 2026-08-26
 
