@@ -35,7 +35,8 @@ A normal installation runs in a container (compose), where `$IMPI_ROOT` is
 Inside the engine's container the `impi` CLI is on `PATH` — `impi task`,
 `impi skill`, `impi sessions`, `impi agent`, `impi ward`, `impi --help`. From
 the operator's host it is the `impi` wrapper instead (`impi restart`, `impi logs`,
-`impi doctor`), which runs the same commands in a throwaway container.
+`impi doctor`, `impi agent sync`), which runs the same commands in a throwaway
+container.
 
 ## What the engine is made of
 
@@ -49,12 +50,16 @@ Python packages under `$IMPI_ROOT/packages`:
   operator drives (`impi ward`). Shipped in this image; not part of the engine.
 - `ward/src/ward` — the secret broker. Its source is here, but it does **not**
   run in this container: it runs in its own, beside the store it opens.
+- `runtime-relay/src/runtime_relay` — the front door of an agent's own
+  container, where a deployment gives each agent one. Same story as the broker:
+  the source is here, it runs elsewhere.
 
 Read them when a question needs the real behaviour rather than the documented
 one. The docs themselves are at **`$IMPI_ROOT/docs`** — start from
 `docs/README.md`, which indexes every page (architecture, creating agents,
-skills, tasks, secrets, browsing, files, commands, the ws gateway,
-configuration, runtime notes, troubleshooting, installation). They are written to be read by you.
+skills, tasks, secrets, browsing, agent containers, files, commands, the ws
+gateway, configuration, runtime notes, troubleshooting, installation). They are
+written to be read by you.
 
 `pi` is on `PATH`; `pi --help` shows its flags.
 
