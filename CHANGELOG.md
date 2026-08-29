@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.15.0 — 2026-08-29
+
 - **A container per agent.** Optional, off by default, its own axis:
   `IMPI_AGENT_CONTAINERS=1` runs each agent's runtime in a container of its own
   and the engine asks for it over a private network instead of forking it. What
