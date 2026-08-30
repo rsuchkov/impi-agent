@@ -88,7 +88,14 @@ ENV PATH=/app/.venv/bin:$PATH \
     DATA_DIR=/app/data \
     IMPI_ROOT=/app \
     PI_BIN=pi
-RUN mkdir -p /app/data /app/conf /app/agents /app/skills /home/impi/.pi \
+# Every path a named volume lands on has to exist HERE, owned by this user. A
+# volume takes its owner from the image directory it is first mounted on, and one
+# mounted where the image made nothing belongs to root — which a process running
+# as ${IMPI_UID} cannot write. `/app/files` is the per-agent file root and
+# `/app/migrate` is where `impi agent migrate` mounts the volume it is filling;
+# both were missing, and rootless podman hid it by mapping the owner anyway.
+RUN mkdir -p /app/data /app/conf /app/agents /app/skills /app/files /app/migrate \
+      /home/impi/.pi \
  && chown -R "${IMPI_UID}:${IMPI_GID}" /app /home/impi
 USER ${IMPI_UID}:${IMPI_GID}
 

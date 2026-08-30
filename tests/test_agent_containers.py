@@ -15,6 +15,7 @@ import yaml
 
 from crucible.ports.agent import AgentSpec
 from impi.agent_containers import (
+    SERVICE_PREFIX,
     AgentBuild,
     Deployment,
     RenderError,
@@ -370,3 +371,77 @@ def test_the_engines_own_mapping_is_left_to_its_own_overlay() -> None:
     # this file deciding something that is not its to decide.
     engine = _rendered(rootless=True).split("  impi:")[1]
     assert "userns_mode" not in engine
+
+
+# --- the rule both Dockerfiles have to keep -----------------------------------
+
+
+def _dirs_the_image_creates(dockerfile: Path) -> set[str]:
+    """Absolute paths a `mkdir -p` in this image makes, continuations joined."""
+    text = dockerfile.read_text(encoding="utf-8").replace("\\\n", " ")
+    made: set[str] = set()
+    for line in text.splitlines():
+        if "mkdir -p" not in line:
+            continue
+        for token in line.split("mkdir -p", 1)[1].split():
+            if token.startswith("/"):
+                made.add(token.rstrip("/"))
+            elif token in ("&&", "\\"):
+                break
+    return made
+
+
+def _named_volume_mounts(service: dict[str, object]) -> list[str]:
+    """Where this service mounts NAMED volumes (not bind mounts, which carry
+    their own directory and their own owner)."""
+    out = []
+    for mount in service.get("volumes") or []:  # type: ignore[union-attr]
+        source, _, rest = str(mount).partition(":")
+        if source.startswith(("/", "$", ".")):
+            continue  # a bind mount
+        out.append(rest.split(":")[0])
+    return out
+
+
+def test_every_named_volume_lands_where_its_image_made_a_directory() -> None:
+    """A named volume takes its owner from the image directory it is first
+    mounted on. Mounted where the image made nothing, it belongs to root, and a
+    container running as the deployment's user cannot write it — the engine
+    crash-looped on `/app/files` for exactly this reason, and rootless podman
+    hid it by mapping the owner anyway, so only a static check catches it.
+    """
+    import yaml as yaml_module
+
+    deploy = Path(__file__).resolve().parent.parent / "deploy"
+    images = {
+        "impi": _dirs_the_image_creates(deploy / "Dockerfile"),
+        "agent": _dirs_the_image_creates(deploy / "Dockerfile.agent"),
+    }
+    rendered = yaml_module.safe_load(
+        render_compose(Deployment(
+            builds=[AgentBuild(name="assistant")],
+            with_vault=True, with_browser=True, rootless=True,
+        ))
+    )
+
+    checked = 0
+    for name, service in rendered["services"].items():
+        if name == "impi":
+            made = images["impi"]
+        elif name.startswith(SERVICE_PREFIX):
+            made = images["agent"]
+        else:
+            continue  # vault / browser: not ours to build
+        for destination in _named_volume_mounts(service):
+            # The path itself, or a parent the image made — a volume nested
+            # under an owned directory inherits a usable mount point.
+            parents = {destination}
+            while "/" in destination.rstrip("/")[1:]:
+                destination = destination.rsplit("/", 1)[0]
+                parents.add(destination)
+            assert parents & made, (
+                f"{name} mounts a named volume on {sorted(parents)[-1]}, which "
+                f"neither it nor any parent is created by its Dockerfile"
+            )
+            checked += 1
+    assert checked >= 4  # the test is worthless if it walked past everything
