@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.15.2 — 2026-08-30
+
 - **Fixed: the engine crash-looped on its first start with per-agent
   containers.** The generated compose gives it `impi-files:/app/files`, but the
   engine image never created `/app/files` — and a named volume takes its owner
