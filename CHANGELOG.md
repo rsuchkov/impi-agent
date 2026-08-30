@@ -6,6 +6,23 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: `impi agent list` and `impi agent render` failed on any agent with a
+  skill from the shared library.** They built a profile store of their own and
+  never gave it the library, so a `registry:` reference had nothing to resolve
+  against and the command died with "unknown library skill … install it first"
+  — advice to do the thing that had already been done. The engine was fine
+  throughout, which is what made it puzzling: same profiles, same skill, only
+  the CLI on top of them broke. `agent list` had this since v0.10.0; from
+  v0.15.0 it also blocked `impi agent sync`, so per-agent containers could not
+  be turned on in exactly the deployment that had followed the v0.14.0 advice
+  to install a bundled skill.
+
+  The library argument is now required rather than defaulted, because two of the
+  three places that build a store had quietly gone without it, one of them for
+  five releases. A caller that really has no library says so. And the two
+  failures are told apart: a store built without a library says that, instead of
+  sending an operator to look where nothing is wrong.
+
 - **Fixed: three fields of the secret-policy form arrived with their labels
   cut.** Mattermost caps a dialog label at 24 characters, so "Agents that may
   ask (comma separated)" reached the operator as "Agents that may ask (com" —

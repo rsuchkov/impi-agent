@@ -66,7 +66,7 @@ def _build(tmp_path: Path):
     repo = tmp_path / "agents-repo"
     _write_yaml(repo, "assistant", ASSISTANT_YAML)
 
-    profiles = FsProfileStore(str(repo), default_timeout=60.0)
+    profiles = FsProfileStore(str(repo), default_timeout=60.0, library=None)
     runtime = FakeRuntime()
     registry = FakeRegistry()
 

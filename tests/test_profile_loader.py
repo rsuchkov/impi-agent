@@ -26,7 +26,7 @@ def _write_agent(root: Path, name: str, content: str) -> None:
 
 def test_loads_valid_profile(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", GOOD_YAML)
-    store = FsProfileStore(tmp_path)
+    store = FsProfileStore(tmp_path, library=None)
 
     spec = store.get("assistant")
     assert spec.display_name == "R42 Assistant"
@@ -41,7 +41,7 @@ def test_loads_valid_profile(tmp_path: Path) -> None:
 
 def test_build_pi_profile_maps_neutral_spec(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", GOOD_YAML)
-    store = FsProfileStore(tmp_path)
+    store = FsProfileStore(tmp_path, library=None)
 
     # The pi runtime maps the neutral spec onto its own profile (not the loader).
     profile = build_pi_profile(store.get("assistant"))
@@ -60,7 +60,7 @@ def test_parses_and_resolves_skills(tmp_path: Path) -> None:
         "tools: [read, bash]\n  skills: [.pi/skills/hello, /abs/skills/greet]",
     )
     _write_agent(tmp_path, "assistant", yaml_with_skills)
-    store = FsProfileStore(tmp_path)
+    store = FsProfileStore(tmp_path, library=None)
 
     spec = store.get("assistant")
     profile_dir = tmp_path / "agents" / "assistant"
@@ -75,7 +75,7 @@ def _yaml_with_skills(value: str) -> str:
 
 def test_bare_skill_name_passes_through_store_and_runtime_resolves_it(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", _yaml_with_skills("[agent-builder]"))
-    spec = FsProfileStore(tmp_path).get("assistant")
+    spec = FsProfileStore(tmp_path, library=None).get("assistant")
     # A bare name (no separator) is NOT resolved by the neutral store.
     assert spec.skills == ("agent-builder",)
     # The pi runtime resolves it to its own .pi/skills/<name> layout.
@@ -87,19 +87,19 @@ def test_bare_skill_name_passes_through_store_and_runtime_resolves_it(tmp_path: 
 
 def test_skills_override_replaces_agent_yaml_list(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", _yaml_with_skills("[agent-builder, skill-authoring]"))
-    store = FsProfileStore(tmp_path, skills_override=lambda name: ("agent-builder",))
+    store = FsProfileStore(tmp_path, skills_override=lambda name: ("agent-builder",), library=None)
     assert store.get("assistant").skills == ("agent-builder",)
 
 
 def test_skills_override_empty_disables_all(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", _yaml_with_skills("[agent-builder]"))
-    store = FsProfileStore(tmp_path, skills_override=lambda name: ())  # set-but-empty
+    store = FsProfileStore(tmp_path, skills_override=lambda name: (), library=None)  # set-but-empty
     assert store.get("assistant").skills == ()
 
 
 def test_skills_override_none_keeps_agent_yaml(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", _yaml_with_skills("[agent-builder]"))
-    store = FsProfileStore(tmp_path, skills_override=lambda name: None)  # unset
+    store = FsProfileStore(tmp_path, skills_override=lambda name: None, library=None)  # unset
     assert store.get("assistant").skills == ("agent-builder",)
 
 
@@ -109,7 +109,7 @@ def test_bad_skills_type_raises(tmp_path: Path) -> None:
         GOOD_YAML.replace("tools: [list_agents]", "tools: []\n  skills: notalist"),
     )
     with pytest.raises(ProfileError, match="runtime.skills"):
-        FsProfileStore(tmp_path)
+        FsProfileStore(tmp_path, library=None)
 
 
 def test_minimal_profile_gets_defaults(tmp_path: Path) -> None:
@@ -118,7 +118,7 @@ def test_minimal_profile_gets_defaults(tmp_path: Path) -> None:
         "minimal",
         "name: minimal\nrole: helper\n",
     )
-    store = FsProfileStore(tmp_path, default_timeout=99.0)
+    store = FsProfileStore(tmp_path, default_timeout=99.0, library=None)
 
     spec = store.get("minimal")
     assert spec.display_name == "minimal"
@@ -130,7 +130,7 @@ def test_minimal_profile_gets_defaults(tmp_path: Path) -> None:
 
 def test_store_defaults_fill_omitted_provider_model(tmp_path: Path) -> None:
     _write_agent(tmp_path, "minimal", "name: minimal\nrole: helper\n")
-    store = FsProfileStore(tmp_path, default_provider="openai-codex", default_model="gpt-5.5")
+    store = FsProfileStore(tmp_path, default_provider="openai-codex", default_model="gpt-5.5", library=None)
 
     spec = store.get("minimal")
     assert spec.provider == "openai-codex"  # filled from the store default
@@ -139,7 +139,7 @@ def test_store_defaults_fill_omitted_provider_model(tmp_path: Path) -> None:
 
 def test_agent_yaml_overrides_store_defaults(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", GOOD_YAML)  # declares provider/model
-    store = FsProfileStore(tmp_path, default_provider="other", default_model="other-model")
+    store = FsProfileStore(tmp_path, default_provider="other", default_model="other-model", library=None)
 
     spec = store.get("assistant")
     assert spec.provider == "openai-codex"  # agent.yaml wins over the default
@@ -148,7 +148,7 @@ def test_agent_yaml_overrides_store_defaults(tmp_path: Path) -> None:
 
 def test_unknown_agent_raises_with_available_names(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", GOOD_YAML)
-    store = FsProfileStore(tmp_path)
+    store = FsProfileStore(tmp_path, library=None)
 
     with pytest.raises(ProfileError, match="assistant"):
         store.get("developer")
@@ -157,22 +157,22 @@ def test_unknown_agent_raises_with_available_names(tmp_path: Path) -> None:
 def test_name_must_match_directory(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", GOOD_YAML.replace("name: assistant", "name: other"))
     with pytest.raises(ProfileError, match="must match its directory"):
-        FsProfileStore(tmp_path)
+        FsProfileStore(tmp_path, library=None)
 
 
 
 def test_invalid_yaml_raises_with_path(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", "name: [unclosed")
     with pytest.raises(ProfileError, match="agent.yaml"):
-        FsProfileStore(tmp_path)
+        FsProfileStore(tmp_path, library=None)
 
 
 def test_empty_repo_raises(tmp_path: Path) -> None:
     (tmp_path / "agents").mkdir()
     with pytest.raises(ProfileError, match="No agent.yaml"):
-        FsProfileStore(tmp_path)
+        FsProfileStore(tmp_path, library=None)
 
 
 def test_missing_agents_dir_raises(tmp_path: Path) -> None:
     with pytest.raises(ProfileError, match="agents/"):
-        FsProfileStore(tmp_path)
+        FsProfileStore(tmp_path, library=None)

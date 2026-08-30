@@ -23,7 +23,7 @@ EXTENSION_TOOLS = frozenset({"ask_user_confirm"})
 
 
 def _spec():
-    return FsProfileStore(str(BUILTIN_AGENTS_PATH)).get("support")
+    return FsProfileStore(str(BUILTIN_AGENTS_PATH), library=None).get("support")
 
 
 def test_every_tool_support_asks_for_actually_exists() -> None:

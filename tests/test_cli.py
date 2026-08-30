@@ -343,3 +343,66 @@ def test_skill_install_bundled_refuses_a_name_that_is_a_path(capsys, tmp_path, _
     assert rc == 2
     assert "no bundled skill" in capsys.readouterr().err
     assert not (tmp_path / "skills" / "ward").exists()
+
+
+# --- the CLI reads the same profiles the engine does -------------------------
+#
+# Both commands below construct a profile store of their own, and both forgot to
+# give it the skill library. The store works perfectly until a profile happens to
+# name a `registry:` skill — so a deployment that followed the documented advice
+# (`impi skill install --bundled`, then `impi skill assign`) is exactly the one
+# that broke, and the error told the operator to install what they had installed.
+#
+# These go through the whole command rather than through the renderer, because
+# the renderer was never the part that was wrong.
+
+
+def _agent_with_library_skill(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    profiles = tmp_path / "profiles" / "agents" / "assistant"
+    profiles.mkdir(parents=True)
+    (profiles / "agent.yaml").write_text(
+        "name: assistant\nrole: probe\nruntime:\n  tools: [read]\n"
+        "  skills:\n    - registry:web-browsing\n"
+    )
+    library = tmp_path / "skills"
+    (library / "web-browsing").mkdir(parents=True)
+    (library / "web-browsing" / "SKILL.md").write_text("---\nname: web-browsing\n---\n")
+    monkeypatch.setenv("SKILLS_PATH", str(library))
+    return library
+
+
+def test_agent_list_resolves_a_library_skill(tmp_path, monkeypatch, _isolated_env, capsys):
+    _agent_with_library_skill(tmp_path, monkeypatch)
+
+    assert cli.main(["agent", "list"]) == 0
+    assert "assistant" in capsys.readouterr().out
+
+
+def test_agent_render_puts_the_library_path_into_the_compose_file(
+    tmp_path, monkeypatch, _isolated_env
+):
+    library = _agent_with_library_skill(tmp_path, monkeypatch)
+    conf = tmp_path / "conf"
+
+    assert cli.main(["agent", "render", "--conf-dir", str(conf)]) == 0
+
+    rendered = (conf / "agents.compose.yaml").read_text()
+    assert "agent-assistant" in rendered
+    # The skill has to have resolved to the library, since that is the directory
+    # the agent's container mounts; a bare `registry:` name would reach the
+    # runtime as something it cannot open.
+    assert str(library) in rendered or "/app/skills" in rendered
+
+
+def test_a_missing_library_skill_still_says_so(tmp_path, monkeypatch, _isolated_env, capsys):
+    """The other half of the same message: wiring the library back must not hide
+    a skill that genuinely is not installed."""
+    profiles = tmp_path / "profiles" / "agents" / "assistant"
+    profiles.mkdir(parents=True)
+    (profiles / "agent.yaml").write_text(
+        "name: assistant\nrole: probe\nruntime:\n  skills:\n    - registry:absent\n"
+    )
+    monkeypatch.setenv("SKILLS_PATH", str(tmp_path / "skills"))
+
+    assert cli.main(["agent", "list"]) == 2
+    assert "unknown library skill 'absent'" in capsys.readouterr().err

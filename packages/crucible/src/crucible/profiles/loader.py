@@ -32,7 +32,17 @@ def _resolve_skill(
     resolve to its own per-agent skill layout."""
     if ref.startswith(LIBRARY_PREFIX):
         name = ref[len(LIBRARY_PREFIX):].strip()
-        path = library(name) if library else None
+        # Two different failures, and they used to read as one. "Nobody wired a
+        # library" is a bug in the caller and the message has to say so; telling
+        # an operator to install a skill they already installed sends them to
+        # look in the one place where nothing is wrong.
+        if library is None:
+            raise ProfileError(
+                f"this profile store was built without a skill library, so the "
+                f"reference {ref!r} cannot be resolved — whoever constructed it "
+                f"has to pass one (library=...)"
+            )
+        path = library(name)
         if path is None:
             raise ProfileError(
                 f"unknown library skill {name!r} — install it first "
@@ -64,7 +74,12 @@ class FsProfileStore:
         default_provider: str = "",
         default_model: str = "",
         skills_override: Callable[[str], tuple[str, ...] | None] | None = None,
-        library: Callable[[str], Path | None] | None = None,
+        # REQUIRED, with no default on purpose. It had one, and two of the three
+        # places that build a store forgot to pass it — one of them for five
+        # releases, because the store works perfectly until a profile happens to
+        # name a `registry:` skill. A caller that genuinely has no library says
+        # so with library=None, out loud, where the decision is made.
+        library: Callable[[str], Path | None] | None,
     ) -> None:
         self._root = Path(profiles_path)
         self._default_timeout = default_timeout

@@ -19,7 +19,7 @@ def _store(root: Path, *names: str) -> FsProfileStore:
         d = root / "agents" / n
         d.mkdir(parents=True)
         (d / "agent.yaml").write_text(YAML.format(name=n), encoding="utf-8")
-    return FsProfileStore(root)
+    return FsProfileStore(root, library=None)
 
 
 def test_merges_and_gets_across_sources(tmp_path: Path) -> None:
