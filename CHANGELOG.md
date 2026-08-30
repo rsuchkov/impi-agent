@@ -6,6 +6,25 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: the engine crash-looped on its first start with per-agent
+  containers.** The generated compose gives it `impi-files:/app/files`, but the
+  engine image never created `/app/files` — and a named volume takes its owner
+  from the image directory it is first mounted on, so on Docker the mount point
+  belonged to root and the engine, running as the deployment's user, died on
+  `PermissionError: '/app/files/support'` before it finished booting. Rootless
+  podman maps the owner anyway, which is why the end-to-end install never saw
+  it. Both directories the engine mounts a volume on exist in its image now, and
+  a test holds every named volume in the generated compose to that rule rather
+  than to whichever runtime happened to be handy.
+
+- **Fixed: `impi agent migrate` said "copied" when it had copied nothing.** It
+  discarded the copy's stderr, forced its exit code to zero and printed success
+  regardless, so agents were reported migrated while their volumes stayed empty
+  — the exact loss the command exists to prevent, announced as a success. It
+  now reports what actually landed, says how much, and stops with an explicit
+  warning not to run `impi agent sync` yet when a copy failed, since a container
+  starting on an empty volume is an agent that has forgotten every conversation.
+
 - **The bundled `support` agent can open the engine's panels.** It has the
   `open_screen` tool now, so "show me the skills" or "what is scheduled" posts
   the live browser the slash command would, instead of a list typed out from a

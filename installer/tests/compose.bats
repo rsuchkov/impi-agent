@@ -284,3 +284,51 @@ setup_home() {
     run build_services
     [ "$output" = "impi agent-assistant agent-researcher" ]
 }
+
+# --- migrate_volume: the copy has to answer honestly ---------------------------
+#
+# The version this replaces swallowed stderr, forced the exit code to zero and
+# printed "copied" regardless, so four agents were reported migrated while every
+# destination volume stayed empty. These stub `compose` and assert the three
+# outcomes it has to tell apart.
+
+setup_migrate() {
+    ok()  { printf 'OK %s\n' "$*"; }
+    bad() { printf 'BAD %s\n' "$*" >&2; }
+}
+
+@test "a copy that fails is reported as a failure, not as success" {
+    setup_migrate
+    compose() { echo "cp: can't create '/app/migrate/x': Permission denied" >&2; return 1; }
+    run migrate_volume assistant vol /src "session files"
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"OK"* ]]
+    [[ "$output" == *"did not copy"* ]]
+    [[ "$output" == *"originals are still there"* ]]
+}
+
+@test "a copy that exits clean but moves nothing is still a failure" {
+    setup_migrate
+    # The exact shape of the bug on docker: cp says nothing, the volume is empty.
+    compose() { echo "MIGRATED=0"; return 0; }
+    run migrate_volume assistant vol /src "session files"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"copied nothing"* ]]
+}
+
+@test "a copy that lands says how much landed" {
+    setup_migrate
+    compose() { echo "MIGRATED=106"; return 0; }
+    run migrate_volume companion vol /src "session files"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"OK companion: session files copied (106 item(s))"* ]]
+}
+
+@test "noise around the count does not confuse the verdict" {
+    setup_migrate
+    # podman-compose prints its own lines around the container's output.
+    compose() { echo ">>>> Executing external compose provider"; echo "MIGRATED=2"; return 0; }
+    run migrate_volume profiler vol /src attachments
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"(2 item(s))"* ]]
+}

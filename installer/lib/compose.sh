@@ -159,6 +159,37 @@ engine_logged() {
     compose logs impi 2>/dev/null | grep -c -- "$1" >/dev/null
 }
 
+# migrate_volume AGENT VOLUME SOURCE WHAT -> 0 when the copy landed.
+#
+# Fills a per-agent volume from the engine's data volume, and answers honestly.
+# The first version swallowed stderr, forced the exit code to 0 and printed
+# "copied" unconditionally, so four agents were reported migrated while every
+# volume stayed empty — the one failure the command exists to prevent, announced
+# as a success.
+#
+# The destination is mounted at /app/migrate, which the ENGINE IMAGE creates and
+# owns. That is not cosmetic: a named volume takes its owner from the image
+# directory it is first mounted on, and one mounted where the image made nothing
+# belongs to root, which the engine's user cannot write. Mounting it at an
+# invented path is what made the copy fail in the first place.
+migrate_volume() {
+    local _agent=$1 _volume=$2 _source=$3 _what=$4 _out _count
+    _out=$(compose run --rm -T -v "$_volume:/app/migrate" impi sh -c \
+        "cp -a '$_source/.' /app/migrate/ && printf 'MIGRATED=%s\n' \"\$(ls -A /app/migrate | wc -l)\"" 2>&1) || {
+        printf '%s\n' "$_out" >&2
+        bad "$_agent: $_what did not copy — nothing was removed, the originals are still there"
+        return 1
+    }
+    _count=$(printf '%s\n' "$_out" | sed -n 's/^MIGRATED=//p' | tr -d '[:space:]')
+    if [ "${_count:-0}" -gt 0 ] 2>/dev/null; then
+        ok "$_agent: $_what copied ($_count item(s))"
+        return 0
+    fi
+    printf '%s\n' "$_out" >&2
+    bad "$_agent: $_what copied nothing — the volume is still empty"
+    return 1
+}
+
 # engine_log_count MARKER -> how many lines carry it. The log is cumulative, so
 # "has it ever said X" cannot answer "has it said X since the restart" — the
 # count before and after can.

@@ -308,7 +308,7 @@ cmd_agent_sync() {
 # conversation that agent has had, and leaving them behind looks exactly like
 # an agent that has forgotten everybody.
 cmd_agent_migrate() {
-    local _agent=${1:-} _moved=0 _project="${IMPI_PROJECT:-impi}"
+    local _agent=${1:-} _moved=0 _failed=0 _project="${IMPI_PROJECT:-impi}"
     [ -n "$_agent" ] || die "usage: impi agent migrate <agent>"
     agent_containers_on || die "per-agent containers are off — nothing to migrate into"
     [ -f "$IMPI_HOME/conf/agents.compose.yaml" ] \
@@ -316,19 +316,21 @@ cmd_agent_migrate() {
     # stderr silenced on the PROBES only: a missing directory is the ordinary
     # answer here, and compose reports a non-zero exit as an error of its own —
     # which reads as a failed migration in the middle of a successful one.
+    _failed=0
     if compose run --rm -T impi test -d "/app/data/pi-sessions/$_agent" 2>/dev/null; then
-        compose run --rm -T -v "${_project}_agent-$_agent-sessions:/migrate" impi \
-            sh -c "cp -a /app/data/pi-sessions/$_agent/. /migrate/ 2>/dev/null || true"
-        ok "$_agent: session files copied"
+        migrate_volume "$_agent" "${_project}_agent-$_agent-sessions" \
+            "/app/data/pi-sessions/$_agent" "session files" || _failed=1
         _moved=1
     fi
     if compose run --rm -T impi test -d "/app/data/attachments/$_agent" 2>/dev/null; then
-        compose run --rm -T -v "${_project}_agent-$_agent-files:/migrate" impi \
-            sh -c "cp -a /app/data/attachments/$_agent/. /migrate/ 2>/dev/null || true"
-        ok "$_agent: attachments copied"
+        migrate_volume "$_agent" "${_project}_agent-$_agent-files" \
+            "/app/data/attachments/$_agent" "attachments" || _failed=1
         _moved=1
     fi
     [ "$_moved" = 1 ] || printf '%s had nothing to move\n' "$_agent"
+    if [ "$_failed" = 1 ]; then
+        die "$_agent was NOT migrated. Do not run \`impi agent sync\` yet: its container would start on an empty volume and the agent would answer as if it had forgotten every conversation."
+    fi
     printf 'the originals are left in place; remove them once the agent answers normally\n'
 }
 
