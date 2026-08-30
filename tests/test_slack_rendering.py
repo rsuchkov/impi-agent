@@ -294,3 +294,39 @@ def test_a_card_menu_keeps_its_screen_state_on_the_block() -> None:
               "selected_option": {"value": "assign:greek-drill:tutor"}}
     screen, raw = decode_screen(picked)
     assert screen == "skills" and ScreenState.decode(raw) == state
+
+
+def test_a_prefilled_field_arrives_as_slacks_initial_value() -> None:
+    """Same promise as the Mattermost dialog's `default`, spelled Slack's way:
+    an edit form shows what is there now inside the control."""
+    from crucible.gateways.slack.rendering import _input_element
+    from crucible.ports.chat.types import FormField
+
+    text = _input_element(FormField(name="who", label="Who", value="assistant"))
+    assert text["initial_value"] == "assistant"
+
+    chosen = _input_element(
+        FormField(name="how", label="How", type="select",
+                  options=("always", "never"), value="never")
+    )
+    assert chosen["initial_option"]["value"] == "never"
+
+    picked = _input_element(
+        FormField(name="many", label="Many", type="multiselect",
+                  options=("a", "b", "c"), value="a, c")
+    )
+    assert [o["value"] for o in picked["initial_options"]] == ["a", "c"]
+
+
+def test_a_prefill_that_names_no_option_is_dropped_rather_than_sent() -> None:
+    """Slack rejects the whole view when an initial_option is not among the
+    offered ones, so a stale value must cost the prefill and not the form."""
+    from crucible.gateways.slack.rendering import _input_element
+    from crucible.ports.chat.types import FormField
+
+    element = _input_element(
+        FormField(name="how", label="How", type="select",
+                  options=("always", "never"), value="whenever")
+    )
+    assert "initial_option" not in element
+    assert [o["value"] for o in element["options"]] == ["always", "never"]

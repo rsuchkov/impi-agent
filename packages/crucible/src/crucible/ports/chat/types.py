@@ -140,6 +140,11 @@ class FormField:
     optional: bool = False
     placeholder: str = ""
     help_text: str = ""
+    # What the control starts out holding — real content, not the grey hint.
+    # A form that edits something existing needs this: a placeholder showing the
+    # current value looks pre-filled and reads as something to add to, while the
+    # submit gets an empty field and the caller has to guess what that meant.
+    value: str = ""
 
 
 @dataclass(frozen=True)

@@ -468,3 +468,42 @@ async def test_cards_become_one_attachment_each() -> None:
     assert [a["text"] for a in attachments] == ["**header**", "skill"]
     assert [a["color"] for a in attachments] == ["#7a5299", "#3db887"]
     assert "actions" not in attachments[0]  # a card without controls has none
+
+
+def test_a_prefilled_field_arrives_as_the_dialog_default() -> None:
+    """A form that edits something has to show what is there NOW, in the control
+    rather than as a grey hint. A placeholder holding the current value reads as
+    a list to add to, while the submit sees an empty field — which is how an
+    edit silently drops what it meant to keep."""
+    from crucible.gateways.mattermost.dialogs import build_dialog
+    from crucible.ports.chat.types import Form, FormField
+
+    fields = (
+        FormField(name="who", label="Who", value="assistant"),
+        FormField(name="how", label="How", type="select",
+                  options=("always", "never"), value="never"),
+        FormField(name="blank", label="Blank"),
+    )
+    elements = build_dialog(Form(title="T", fields=fields), state="s")["elements"]
+    by_name = {el["name"]: el for el in elements}
+    assert by_name["who"]["default"] == "assistant"
+    assert by_name["how"]["default"] == "never"
+    assert "default" not in by_name["blank"]
+
+
+def test_a_label_too_long_for_mattermost_is_cut_but_said_out_loud(caplog) -> None:
+    """The cut has to stay: over the cap, the dialog API rejects the whole
+    payload, so it is a shortened label or no form at all. But silence turns a
+    platform limit into what looks like a typo, and only the author can fix it."""
+    from crucible.gateways.mattermost.dialogs import _DISPLAY_NAME_MAX, build_dialog
+    from crucible.ports.chat.types import Form, FormField
+
+    long_label = "Agents that may ask (comma separated)"
+    assert len(long_label) > _DISPLAY_NAME_MAX
+    with caplog.at_level("WARNING"):
+        elements = build_dialog(
+            Form(title="T", fields=(FormField(name="a", label=long_label),)), state="s"
+        )["elements"]
+
+    assert elements[0]["display_name"] == long_label[:_DISPLAY_NAME_MAX]
+    assert any(long_label in record.getMessage() for record in caplog.records)

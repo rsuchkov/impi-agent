@@ -297,7 +297,30 @@ def _input_element(field: FormField) -> dict[str, Any]:
         element["options"] = [_option(_BOOL_OPTION_VALUE, field.placeholder or "Yes")]
     if field.placeholder and field.type not in ("bool", "radio", "date", "datetime", "time"):
         element["placeholder"] = {"type": "plain_text", "text": field.placeholder[:_LABEL_MAX * 2]}
+    _prefill(element, field)
     return element
+
+
+def _prefill(element: dict[str, Any], field: FormField) -> None:
+    """What the control starts out holding. Slack spells it a different way per
+    element, and an option that is not among the offered ones fails the view
+    schema — so a value that names no option is dropped rather than sent."""
+    if not field.value:
+        return
+    if field.type in ("select", "radio"):
+        if field.value in field.options:
+            element["initial_option"] = _option(field.value)
+    elif field.type == "multiselect":
+        # Symmetric with how a multi-pick comes BACK from Slack: ", "-joined.
+        picked = [v.strip() for v in field.value.split(",") if v.strip() in field.options]
+        if picked:
+            element["initial_options"] = [_option(v) for v in picked]
+    elif field.type in ("date", "datetime"):
+        element["initial_date"] = field.value
+    elif field.type == "time":
+        element["initial_time"] = field.value
+    elif field.type != "bool":
+        element["initial_value"] = field.value
 
 
 def _option(value: str, text: str = "") -> dict[str, Any]:
