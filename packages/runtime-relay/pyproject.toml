@@ -1,6 +1,6 @@
 [project]
 name = "runtime-relay"
-version = "0.15.0"
+version = "0.15.1"
 description = "The front door of an agent's own container: starts the agent's runtime on request and relays it."
 requires-python = ">=3.13"
 # One dependency, on purpose. This ships in every agent image; anything added

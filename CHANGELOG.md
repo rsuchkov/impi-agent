@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.15.1 — 2026-08-30
+
 - **Fixed: `impi agent list` and `impi agent render` failed on any agent with a
   skill from the shared library.** They built a profile store of their own and
   never gave it the library, so a `registry:` reference had nothing to resolve
