@@ -14,6 +14,11 @@ Your own `schedule_task` / `list_tasks` / `cancel_task` / `pause_task` tools act
 on **your** tasks only. Another agent's schedule is reached with the `impi task`
 CLI through `bash` — that is the tool for almost everything in this skill.
 
+When somebody wants to SEE the tasks rather than have them described, use
+`open_screen` with `tasks`: the engine posts its own browser and answers every
+button on it, so what they get is the live list rather than a paraphrase of one.
+Post it and say one short sentence — do not recite what it already shows.
+
 ## 1. Writing a schedule
 
 | Form | Example | Notes |

@@ -35,6 +35,12 @@ runtime:
     - list_agents
     # A blocking yes/no, for the steps that deserve one.
     - ask_user_confirm
+    # The engine's own panels (/skills, /tasks) without the slash command. It
+    # described this tool in two of its skills while not holding it, and so
+    # answered "show me the skills" by reciting a list — which is the one thing
+    # the panel exists to avoid. Nothing is written by opening one: the engine
+    # renders the view and answers every click on it.
+    - open_screen
     # Its own scheduled work. Note the scope: these act on THIS agent's tasks —
     # another agent's schedule is reached with `impi task` (see scheduled-tasks).
     - schedule_task

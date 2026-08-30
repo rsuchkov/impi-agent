@@ -6,7 +6,12 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The bundled `support` agent can open the engine's panels.** It has the
+  `open_screen` tool now, so "show me the skills" or "what is scheduled" posts
+  the live browser the slash command would, instead of a list typed out from a
+  turn that is stale by the time it is read. Two of its own skills already
+  described this tool while it did not hold it, so it could explain the feature
+  and not use it; they now say it is its own to reach for.
 
 ## v0.15.1 — 2026-08-30
 

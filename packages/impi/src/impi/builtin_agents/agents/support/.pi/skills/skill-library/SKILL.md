@@ -87,5 +87,7 @@ They may prefer doing this themselves; these surfaces do the same thing:
 - `impi skill list|show|install|update|remove|assign` from a terminal;
 - `/skills` in chat — a browser with the same install/assign actions, answered
   by the engine with no agent turn involved;
-- asking an agent that has the `open_screen` tool to show the skills, which
-  opens that same browser where the conversation is.
+- **you**, with `open_screen` — it opens that same browser right where the
+  conversation is. Reach for it whenever somebody asks what skills there are:
+  the panel is live and its buttons work, while a list you type out is a
+  snapshot that stops being true the moment somebody installs something.
