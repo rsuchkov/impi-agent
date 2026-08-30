@@ -6,7 +6,27 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: three fields of the secret-policy form arrived with their labels
+  cut.** Mattermost caps a dialog label at 24 characters, so "Agents that may
+  ask (comma separated)" reached the operator as "Agents that may ask (com" —
+  taking with it the only instruction on how to name more than one agent. The
+  labels are short now and the rest is in the hint under each field. The cut
+  itself stays (over the cap the dialog API rejects the whole payload, so it is
+  a shortened label or no form at all) but it is logged rather than silent,
+  because to the person reading it a truncated label looks like a typo and only
+  the author can fix it.
+
+- **The policy form now shows what the policy says now, in the fields.** It
+  showed the current value as a grey placeholder while the submit replaced that
+  value whole, so adding one agent to a policy quietly dropped the others and
+  answered "saved". Fields start on the current value, the form says plainly
+  that a change replaces rather than adds to it, and clearing a field still
+  leaves the value alone.
+
+- **A form field can start on a value** — `FormField.value`, rendered as
+  Mattermost's `default` and Slack's `initial_value` / `initial_option`. Any
+  form that edits something that already exists needs it; a placeholder holding
+  the current value reads as something to add to.
 
 ## v0.15.0 — 2026-08-29
 

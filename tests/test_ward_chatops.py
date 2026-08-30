@@ -649,7 +649,10 @@ async def test_the_modal_says_which_of_the_two_it_is(tmp_path: Path) -> None:
         assert next(f for f in first.fields if f.name == "subjects").optional is False
 
         again = await _spec(store, await _policy_form(screen, store, "github-token"))
-        assert "left as they are" in again.intro
+        # Editing has to say BOTH halves: a change replaces, an empty field does
+        # not. Saying only the second is what made the form read as add-to-list.
+        assert "replaces that value whole" in again.intro
+        assert "clearing a field leaves the current value" in again.intro
         assert again.submit_label == "Save"
         assert next(f for f in again.fields if f.name == "subjects").optional is True
     finally:
@@ -705,3 +708,72 @@ async def test_a_stranger_cannot_edit_a_policy(tmp_path: Path) -> None:
         assert saved is not None and saved.subjects == "assistant"
     finally:
         await store.close()
+
+
+def test_every_policy_label_fits_what_mattermost_will_show() -> None:
+    """The regression this guards was visible and silent at once: three labels
+    arrived as "Agents that may ask (com", "Longest window a human m" and
+    "Automatic for these comm" — each cut at Mattermost's 24-character cap,
+    each reading like a typo. Whatever a label cannot hold belongs in help_text,
+    which gets 150."""
+    from crucible.gateways.mattermost.dialogs import _DISPLAY_NAME_MAX, _HELP_TEXT_MAX
+    from ward.chatops import _policy_form
+
+    for policy in ({}, {"subjects": "assistant", "auto_commands": ["git *"]}):
+        form = _policy_form("github-token", policy)
+        assert len(form.title) <= _DISPLAY_NAME_MAX
+        for field in form.fields:
+            assert len(field.label) <= _DISPLAY_NAME_MAX, field.label
+            assert len(field.help_text) <= _HELP_TEXT_MAX, field.label
+
+
+def test_editing_a_policy_starts_from_what_it_says_now() -> None:
+    """Prefilled, not hinted. The submit replaces a field whole, so showing the
+    current value only as a grey placeholder invited the opposite reading: type
+    the one agent you are adding, lose the ones already there."""
+    from ward.chatops import _policy_form
+
+    form = _policy_form("github-token", {
+        "subjects": "assistant, researcher",
+        "approval": "always",
+        "max_grant_s": 900,
+        "auto_commands": ["git push *", "ls"],
+    })
+    values = {f.name: f.value for f in form.fields}
+    assert values["subjects"] == "assistant, researcher"
+    assert values["approval"] == "always"
+    assert values["auto_commands"] == "git push *\nls"
+    assert "replaces the whole list" in next(
+        f.help_text for f in form.fields if f.name == "subjects"
+    )
+
+
+def test_creating_a_policy_prefills_nothing() -> None:
+    """There is nothing to edit yet, so an empty control is the honest one; the
+    placeholder still shows the default an empty field would take."""
+    from ward.chatops import _policy_form
+
+    form = _policy_form("fresh", {})
+    assert all(f.value == "" for f in form.fields)
+    assert any(f.placeholder for f in form.fields)
+
+
+def test_the_form_says_how_to_name_more_than_one_agent() -> None:
+    """The separator used to live in the label's tail, `(comma separated)` —
+    which is the half Mattermost cut, so the one instruction that mattered was
+    the one that never arrived. It belongs in help_text, and on a new policy the
+    placeholder shows the shape too: a required field cannot spend its
+    placeholder on a default it will never take."""
+    from ward.chatops import _policy_form
+
+    fresh = next(f for f in _policy_form("fresh", {}).fields if f.name == "subjects")
+    assert "Comma separated" in fresh.help_text
+    assert "," in fresh.placeholder
+
+    existing = next(
+        f for f in _policy_form("t", {"subjects": "assistant"}).fields
+        if f.name == "subjects"
+    )
+    assert "Comma separated" in existing.help_text
+    # Editing spends the placeholder on what stays if the box is cleared.
+    assert existing.placeholder == "assistant"

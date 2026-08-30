@@ -395,41 +395,71 @@ def _policy_form(name: str, policy: dict[str, Any]) -> Form:
             "No policy yet, so no agent can reach this. Name the agents that "
             "may ask; anything left empty takes the value shown."
             if creating else
-            "Empty fields are left as they are."
+            # Both halves, because only one of them used to be said. A field
+            # showing the current value reads as something to add to, and the
+            # submit replaces it whole — that difference decides whether an
+            # agent keeps its access or silently loses it.
+            "Each field starts on what the policy says now. A change replaces "
+            "that value whole rather than adding to it, and clearing a field "
+            "leaves the current value in place."
         ),
         submit_label="Create" if creating else "Save",
         fields=(
+            # Labels are short on purpose: Mattermost caps a dialog label at 24
+            # characters and cuts the rest, so anything that reads like part of
+            # the sentence belongs in help_text, which gets 150.
             FormField(
-                name=_F_SUBJECTS, label="Agents that may ask (comma separated)",
+                name=_F_SUBJECTS, label="Agents that may ask",
                 type="text",
                 # Required when there is nothing to leave alone: a policy naming
                 # nobody is exactly as unreachable as no policy, so asking for it
                 # here beats accepting it and refusing after the submit.
                 optional=not creating,
-                placeholder=str(policy.get("subjects") or "nobody yet"),
+                value="" if creating else str(policy.get("subjects") or ""),
+                # On a new policy this field is required, so the placeholder
+                # cannot mean "the default an empty field takes" the way the
+                # others do. Spend it on showing the shape instead: one name is
+                # what somebody types when nothing told them a second was
+                # allowed. On an edit it goes back to naming what is there, so
+                # clearing the box still says what would be kept.
+                placeholder=(
+                    "assistant, researcher" if creating
+                    else str(policy.get("subjects") or "nobody yet")
+                ),
+                help_text=(
+                    "Comma separated. What you submit replaces the whole list."
+                ),
             ),
             FormField(
                 name=_F_APPROVAL, label="Approval", type="select", optional=True,
                 options=APPROVALS,
+                value="" if creating else str(policy.get("approval") or ""),
                 placeholder=str(policy.get("approval") or APPROVAL_ALWAYS),
             ),
             FormField(
-                name=_F_GRANT, label="Longest window a human may open",
+                name=_F_GRANT, label="Longest approval window",
                 type="select", optional=True,
                 # Seconds as the operator reads them; parsed back on submit. A
                 # select spares them the "is 900 minutes or seconds" question
                 # that a free-text duration always raises.
                 options=("none", *(humanize(s) for s in GRANT_LADDER)),
+                value="" if creating else (humanize(grant) if grant else "none"),
                 placeholder=humanize(grant) if grant else "none",
+                help_text="The longest a human may leave this open for.",
             ),
             FormField(
                 name=_F_RULES,
-                label="Automatic for these commands (one per line)",
+                label="Automatic commands",
                 type="textarea", optional=True,
+                value=(
+                    "" if creating
+                    else "\n".join(policy.get("auto_commands") or [])
+                ),
                 placeholder="\n".join(policy.get("auto_commands") or []) or "none",
                 help_text=(
-                    "A trailing * means 'and any arguments'. This is what the "
-                    "caller SAYS it will run — see docs/secrets.md."
+                    "One per line, replacing the whole list. A trailing * "
+                    "means 'and any arguments' — what the caller SAYS it will "
+                    "run. See docs/secrets.md."
                 ),
             ),
         ),
