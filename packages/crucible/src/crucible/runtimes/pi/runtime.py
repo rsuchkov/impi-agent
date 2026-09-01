@@ -27,7 +27,7 @@ from pathlib import Path
 
 from crucible.ports.agent.runtime import AgentProfile, PromptImage
 from crucible.ports.agent.ui import UiBridge
-from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
+from crucible.runtimes.pi.errors import PiBusy, PiProcessError, PiTimeout
 from crucible.runtimes.pi.hosts import HostRouter, LocalHost
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.session import EventCallback, PiResult, PiRpcSession
@@ -267,9 +267,10 @@ class PiRuntime:
                 # that timed out here, so the agent permit is ours.
                 agent_permit.release()
             # Every slot is taken, most likely by sessions idling out their TTL.
-            # A timeout here IS an agent timeout: the caller gets the same
-            # fallback it would get from a slow turn, instead of waiting forever.
-            raise PiTimeout(
+            # Still a timeout to the caller — nothing ran, try later — but its
+            # own kind, because "the engine is full" and "the model is
+            # unavailable" send a person to look in different places.
+            raise PiBusy(
                 f"no runtime slot for {agent} within {deadline:.0f}s "
                 f"({len(self._sessions)} session(s) alive)"
             ) from exc

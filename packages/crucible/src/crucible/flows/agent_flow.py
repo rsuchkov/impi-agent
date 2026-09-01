@@ -12,13 +12,12 @@ from pathlib import Path
 
 from crucible.attachments import sniff_image
 from crucible.ports.agent import (
-    INTERNAL_ERROR_MESSAGE,
-    LLM_FALLBACK_MESSAGE,
     AgentError,
     AgentProfile,
     AgentRuntime,
     AgentTimeout,
     PromptImage,
+    message_for,
 )
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import TurnOutcome
@@ -170,14 +169,19 @@ class AgentFlow:
             result = await self._runtime.run_stateful(
                 self._profile, record.runtime_session_id, prompt, images=images
             )
-        except AgentTimeout:
-            logger.warning("agent turn timed out for %s", record.runtime_session_id)
-            await chat.post_notice(anchor.ref, LLM_FALLBACK_MESSAGE)
+        except AgentTimeout as exc:
+            logger.warning(
+                "agent turn timed out for %s: %s", record.runtime_session_id, exc
+            )
+            await chat.post_notice(anchor.ref, message_for(exc))
             return TurnOutcome.TIMEOUT
         except AgentError as exc:
+            # The cause goes to the log in full; what reaches the conversation is
+            # which KIND of failure it was, because a notice is an ordinary
+            # message everyone present can read.
             logger.exception("agent run failed for %s", record.runtime_session_id)
             self._warn_if_picture_rejected(exc, record)
-            await chat.post_notice(anchor.ref, INTERNAL_ERROR_MESSAGE)
+            await chat.post_notice(anchor.ref, message_for(exc))
             return TurnOutcome.ERROR
         finally:
             if acknowledge:

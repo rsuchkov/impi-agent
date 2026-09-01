@@ -3,8 +3,11 @@
 from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
     LLM_FALLBACK_MESSAGE,
+    AgentBusy,
     AgentError,
     AgentTimeout,
+    AgentUnavailable,
+    message_for,
 )
 from crucible.ports.agent.runtime import (
     AgentEvent,
@@ -18,8 +21,11 @@ from crucible.ports.agent.spec import AgentSpec
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 
 __all__ = [
+    "AgentBusy",
     "AgentError",
     "AgentTimeout",
+    "AgentUnavailable",
+    "message_for",
     "AgentEvent",
     "AgentProfile",
     "AgentResult",

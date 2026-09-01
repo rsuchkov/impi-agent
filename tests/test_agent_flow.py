@@ -682,3 +682,67 @@ async def test_a_replayed_message_reports_duplicate(tmp_path: Path) -> None:
     assert await flow.handle(_dm(), chat) is TurnOutcome.REPLIED
     assert await flow.handle(_dm(), chat) is TurnOutcome.DUPLICATE  # same message id
     await store.close()
+
+
+async def test_a_spent_quota_says_so_instead_of_blaming_itself(tmp_path: Path) -> None:
+    """The failure this was reported for. The engine knew exactly what happened
+    — pi hands it "Codex error: The usage limit has been reached" — and threw
+    the sentence away at the last step, leaving somebody to wonder what broke on
+    our side when nothing had."""
+    from crucible.ports.agent.errors import QUOTA_MESSAGE
+
+    flow, store = _flow(tmp_path, FakeRuntime(
+        error=PiProcessError("pi LLM error: Codex error: The usage limit has been reached")
+    ))
+    chat = FakeChat()
+
+    await flow.handle(_dm(), chat)
+
+    assert chat.notices == [(_dm().ref, QUOTA_MESSAGE)]
+    await store.close()
+
+
+async def test_a_full_engine_does_not_blame_the_model(tmp_path: Path) -> None:
+    """Running out of runtime slots used to answer "the model is temporarily
+    unavailable". The model is fine; the engine is full, and the two send a
+    person to look in different places."""
+    from crucible.ports.agent.errors import BUSY_MESSAGE
+    from crucible.runtimes.pi.errors import PiBusy
+
+    flow, store = _flow(tmp_path, FakeRuntime(error=PiBusy("no runtime slot for x within 120s")))
+    chat = FakeChat()
+
+    await flow.handle(_dm(), chat)
+
+    assert chat.notices == [(_dm().ref, BUSY_MESSAGE)]
+    await store.close()
+
+
+async def test_an_unreachable_runtime_names_the_deployment(tmp_path: Path) -> None:
+    from crucible.ports.agent.errors import UNAVAILABLE_MESSAGE
+    from crucible.runtimes.pi.errors import PiHostError
+
+    flow, store = _flow(tmp_path, FakeRuntime(
+        error=PiHostError("assistant's runtime host is not reachable")
+    ))
+    chat = FakeChat()
+
+    await flow.handle(_dm(), chat)
+
+    assert chat.notices == [(_dm().ref, UNAVAILABLE_MESSAGE)]
+    await store.close()
+
+
+def test_the_cause_itself_never_reaches_the_conversation() -> None:
+    """A notice is an ordinary message everyone in the channel reads, and a
+    provider's error carries model names, account ids and whatever the runtime
+    left on stderr. Only the KIND of failure crosses; the detail is logged."""
+    from crucible.ports.agent.errors import message_for
+
+    leaky = PiProcessError(
+        "pi LLM error: 429 for account acct_9fA2 on model gpt-5.5 via "
+        "/home/impi/.pi/agent/auth.json"
+    )
+    said = message_for(leaky)
+    for secret in ("acct_9fA2", "gpt-5.5", "/home/impi", "429"):
+        assert secret not in said

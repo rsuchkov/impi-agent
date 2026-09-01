@@ -6,7 +6,20 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A failed turn now says what kind of failure it was.** One sentence covered
+  everything: a spent quota, an expired login, a conversation past the model's
+  context, a runtime that never started — all of them "something broke on my
+  side", which is untrue for most of them and useful for none. The engine knew
+  all along: `pi` reports "Codex error: The usage limit has been reached" and it
+  was dropped one line before the reply. Five outcomes are told apart now, each
+  naming who can do something about it, and running out of runtime slots stopped
+  claiming the model is unavailable when it is the engine that is full.
+
+  The cause itself still does not reach the conversation. A notice is an
+  ordinary message everyone in the channel reads, and a provider's error carries
+  model names, account identifiers and whatever the runtime left on stderr — so
+  the detail stays in the log, where the operator is, and only the kind of
+  failure is said out loud.
 
 ## v0.15.3 — 2026-09-01
 
