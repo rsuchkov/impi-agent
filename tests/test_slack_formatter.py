@@ -130,3 +130,33 @@ def test_conversion_error_returns_original(monkeypatch) -> None:
     monkeypatch.setattr(formatter, "_tables_to_lists", boom)
     text = "**anything** at all"
     assert markdown_to_mrkdwn(text) == text
+
+
+def test_a_bracketed_title_before_a_link_is_not_swallowed_into_it() -> None:
+    """`.` matches `]`, so a lazy label still ran from the FIRST bracket in the
+    line to the real link: a Confluence result whose page title carries a tag —
+    and they routinely do — came out as one link labelled with the whole line."""
+    out = markdown_to_mrkdwn(
+        "[IPA] Team (space Information Technology) — [ссылка](https://x/y)"
+    )
+    assert out == "[IPA] Team (space Information Technology) — <https://x/y|ссылка>"
+
+
+def test_two_links_on_one_line_stay_two_links() -> None:
+    assert markdown_to_mrkdwn("см. [a](http://a) и [b](http://b)") == (
+        "см. <http://a|a> и <http://b|b>"
+    )
+
+
+def test_brackets_without_a_link_are_left_alone() -> None:
+    assert markdown_to_mrkdwn("просто [скобки] без ссылки") == "просто [скобки] без ссылки"
+
+
+def test_a_bracketed_title_before_an_image_is_not_swallowed_either() -> None:
+    assert markdown_to_mrkdwn("[IPA] ![shot](http://i/p.png)") == "[IPA] <http://i/p.png>"
+
+
+def test_a_url_may_not_contain_spaces() -> None:
+    """A space inside the parentheses means it was never a link — matching it
+    would eat the rest of the line looking for a closing bracket."""
+    assert markdown_to_mrkdwn("[not](a link) here") == "[not](a link) here"

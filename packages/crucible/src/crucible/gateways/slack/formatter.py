@@ -30,12 +30,17 @@ _RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^(\s*)- \[ \] (.+)$"), r"\1• ☐ \2"),  # task list, unchecked
     (re.compile(r"^(\s*)- \[[xX]\] (.+)$"), r"\1• ☑ \2"),  # task list, checked
     (re.compile(r"^(\s*)- (.+)$"), r"\1• \2"),  # bullet list
-    (re.compile(r"!\[.*?\]\((.+?)\)"), r"<\1>"),  # image -> bare URL
+    # A label may not contain brackets and a URL may not contain spaces or
+    # parentheses. With `.` on both sides these matched from the FIRST bracket in
+    # the line, so "[IPA] Team — [link](url)" became one link labelled
+    # "IPA] Team — [link" — and page titles that carry a tag in brackets are
+    # exactly what a search result is full of.
+    (re.compile(r"!\[[^\][]*\]\(([^()\s]+)\)"), r"<\1>"),  # image -> bare URL
     (re.compile(r"(?<!\*)\*([^*\n]+?)\*(?!\*)"), r"_\1_"),  # *italic* -> _italic_
     (re.compile(r"^#{1,6} (.+)$"), r"*\1*"),  # heading -> bold line
     (re.compile(r"(?<!\*)\*\*(.+?)\*\*(?!\*)"), r"*\1*"),  # **bold** -> *bold*
     (re.compile(r"__(.+?)__"), r"*\1*"),  # __underline__ -> bold
-    (re.compile(r"\[(.+?)\]\((.+?)\)"), r"<\2|\1>"),  # [text](url) -> <url|text>
+    (re.compile(r"\[([^\][]*)\]\(([^()\s]+)\)"), r"<\2|\1>"),  # [text](url) -> <url|text>
     (re.compile(r"~~(.+?)~~"), r"~\1~"),  # ~~strike~~ -> ~strike~
 ]
 
