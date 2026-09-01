@@ -269,7 +269,7 @@ wheels = [
 
 [[package]]
 name = "crucible"
-version = "0.15.2"
+version = "0.15.3"
 source = { editable = "packages/crucible" }
 dependencies = [
     { name = "aiohttp" },
@@ -519,7 +519,7 @@ wheels = [
 
 [[package]]
 name = "impi"
-version = "0.15.2"
+version = "0.15.3"
 source = { editable = "packages/impi" }
 dependencies = [
     { name = "crucible" },
@@ -1021,7 +1021,7 @@ wheels = [
 
 [[package]]
 name = "runtime-relay"
-version = "0.15.2"
+version = "0.15.3"
 source = { editable = "packages/runtime-relay" }
 dependencies = [
     { name = "aiohttp" },
@@ -1092,7 +1092,7 @@ wheels = [
 
 [[package]]
 name = "ward"
-version = "0.15.2"
+version = "0.15.3"
 source = { editable = "packages/ward" }
 dependencies = [
     { name = "crucible" },
@@ -1109,7 +1109,7 @@ requires-dist = [
 
 [[package]]
 name = "wardline"
-version = "0.15.2"
+version = "0.15.3"
 source = { editable = "packages/wardline" }
 dependencies = [
     { name = "httpx" },

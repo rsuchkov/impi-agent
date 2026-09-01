@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.15.3 — 2026-09-01
+
 - **Fixed: a link in a Slack message swallowed everything before it.** The
   pattern let a label run across `]`, so it began at the first bracket on the
   line: "[IPA] Team … — [link](url)" arrived as one link labelled with the whole
