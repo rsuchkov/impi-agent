@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.15.4 — 2026-09-01
+
 - **A failed turn now says what kind of failure it was.** One sentence covered
   everything: a spent quota, an expired login, a conversation past the model's
   context, a runtime that never started — all of them "something broke on my
