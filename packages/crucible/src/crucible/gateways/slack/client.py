@@ -183,7 +183,10 @@ class SlackChatClient:
         return f"{resp.get('channel', ref.channel_id)}{MESSAGE_ID_SEP}{resp.get('ts', '')}"
 
     async def retract(self, post_id: str, text: str) -> None:
-        await self._rewrite(post_id, text, [])
+        # Converted HERE rather than inside _rewrite: the other caller passes
+        # text that has already been through the formatter, and running it twice
+        # would send `*bold*` back through the italic rule as `_bold_`.
+        await self._rewrite(post_id, markdown_to_mrkdwn(text), [])
 
     async def post_cards(
         self, ref: ConversationRef, cards: list[Card], *, callback_url: str
@@ -338,4 +341,5 @@ def _slug(name: str) -> str:
 
 def _fallback_text(cards: list[Card]) -> str:
     """The notification line for clients that don't render blocks."""
-    return next((c.text.splitlines()[0] for c in cards if c.text.strip()), " ")
+    line = next((c.text.splitlines()[0] for c in cards if c.text.strip()), " ")
+    return markdown_to_mrkdwn(line)

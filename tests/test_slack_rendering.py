@@ -330,3 +330,40 @@ def test_a_prefill_that_names_no_option_is_dropped_rather_than_sent() -> None:
     )
     assert "initial_option" not in element
     assert [o["value"] for o in element["options"]] == ["always", "never"]
+
+
+def test_card_text_is_converted_like_every_other_string_that_reaches_slack() -> None:
+    """A card's text is Markdown, the same as a reply's. It went into the mrkdwn
+    section verbatim, so the tool gate's `**agent**` showed its asterisks while
+    the `tool` beside it looked right — backticks mean the same in both
+    languages, which is what let this sit unnoticed."""
+    from crucible.gateways.slack.rendering import build_card_blocks
+    from crucible.ports.chat.types import Card
+
+    blocks = build_card_blocks(
+        [Card(text="⚙️ Allowed once — **omni** running `jira_create_issue`.")]
+    )
+    rendered = blocks[0]["text"]["text"]
+    assert "*omni*" in rendered
+    assert "**" not in rendered
+    assert "`jira_create_issue`" in rendered
+
+
+def test_the_notification_line_is_converted_too() -> None:
+    """It is what a client that cannot render blocks shows, and what a phone
+    puts in the notification."""
+    from crucible.gateways.slack.client import _fallback_text
+    from crucible.ports.chat.types import Card
+
+    assert _fallback_text([Card(text="**omni** wants in")]) == "*omni* wants in"
+
+
+def test_converting_is_not_done_twice_on_the_same_string() -> None:
+    """The guard behind converting at each caller rather than inside _rewrite:
+    mrkdwn `*bold*` fed back through the formatter would come out `_bold_`,
+    because that is the italic rule doing its job."""
+    from crucible.gateways.slack.formatter import markdown_to_mrkdwn
+
+    once = markdown_to_mrkdwn("**omni**")
+    assert once == "*omni*"
+    assert markdown_to_mrkdwn(once) == "_omni_"  # exactly what must not happen

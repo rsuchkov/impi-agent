@@ -15,6 +15,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from crucible.gateways.slack.formatter import markdown_to_mrkdwn
 from crucible.ports.chat.types import (
     ACTION_CHANNEL_SELECT,
     ACTION_SELECT,
@@ -111,7 +112,15 @@ def build_card_blocks(cards: list[Card]) -> list[dict[str, Any]]:
         if blocks and card.text:
             blocks.append({"type": "divider"})
         if card.text:
-            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": card.text}})
+            # Card text is Markdown, like every other model- and engine-authored
+            # string that reaches this gateway. It used to go into the mrkdwn
+            # section verbatim, so `**name**` arrived with its asterisks showing
+            # while `code` looked right — backticks happen to mean the same
+            # thing in both, which is what made the gap easy to miss.
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": markdown_to_mrkdwn(card.text)},
+            })
         if card.actions:
             # action_ids must be unique across the WHOLE message, not the card.
             blocks.append(_actions_block(list(card.actions), offset=index))

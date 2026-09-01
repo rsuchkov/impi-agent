@@ -6,7 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a link in a Slack message swallowed everything before it.** The
+  pattern let a label run across `]`, so it began at the first bracket on the
+  line: "[IPA] Team … — [link](url)" arrived as one link labelled with the whole
+  line. Page titles that carry a tag in brackets are what a search result is
+  full of, so this landed on every one of them. A label may not contain
+  brackets now and a URL may not contain spaces or parentheses.
+
+- **Fixed: Markdown in a Slack card was sent through unconverted.** Card text
+  went into the block verbatim, so the tool gate's `**agent**` showed its
+  asterisks — while the `tool` next to it looked right, because backticks mean
+  the same in Markdown and mrkdwn, which is what kept this quiet. Cards are
+  converted where they become blocks, and the notification line with them, so
+  both the first card and every redraw read properly.
 
 ## v0.15.2 — 2026-08-30
 
