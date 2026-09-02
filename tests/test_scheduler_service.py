@@ -39,6 +39,7 @@ from crucible.store.base import (
     STATE_PAUSED,
     STATE_RUNNING,
     TRIGGERED_CATCHUP,
+    TRIGGERED_SCHEDULE,
     TaskRecord,
     TaskRunRecord,
 )
@@ -554,3 +555,129 @@ async def test_only_so_many_runs_are_started_in_one_tick(store) -> None:
     assert len(dispatcher.requests) == 2  # the rest keep their due_at for next tick
     dispatcher.gate.set()
     await _settle()
+
+
+# --- waking to the moment, not on the grid ------------------------------------
+#
+# The tick is a ceiling now, not a step: the pass reads one tick ahead and
+# reports when the soonest occurrence falls, so the loop can sleep to it. What
+# these pin is the line between the two — everything inside the horizon is
+# LOOKED at, only what is due is RUN.
+
+
+async def test_a_pass_reports_when_the_next_occurrence_falls(store) -> None:
+    clock = Clock()
+    soon = START + timedelta(seconds=3)
+    await store.create_task(_task(clock, next_run_at=iso(soon), due_at=iso(soon)))
+    sched, kw = _scheduler(store, clock)
+
+    upcoming = await sched.tick()
+
+    assert upcoming == soon
+    assert kw["dispatcher"].requests == []  # inside the horizon, but not its time
+
+
+async def test_a_pass_with_nothing_coming_reports_nothing(store) -> None:
+    # Beyond the horizon is the same answer as an empty store: sleep a full tick.
+    clock = Clock()
+    later = START + timedelta(minutes=15)
+    await store.create_task(_task(clock, next_run_at=iso(later), due_at=iso(later)))
+    sched, _ = _scheduler(store, clock)
+
+    assert await sched.tick() is None
+
+
+async def test_an_empty_store_reports_nothing(store) -> None:
+    sched, _ = _scheduler(store, Clock())
+    assert await sched.tick() is None
+
+
+async def test_the_soonest_occurrence_is_the_one_reported(store) -> None:
+    # due_tasks orders by due_at, so the first future row IS the soonest — the
+    # pass stops there rather than reading the rest of the horizon.
+    clock = Clock()
+    for seconds, name in ((11, "late"), (4, "early")):
+        moment = iso(START + timedelta(seconds=seconds))
+        await store.create_task(
+            _task(clock, id=f"tsk_{name}", name=name, next_run_at=moment, due_at=moment)
+        )
+    sched, _ = _scheduler(store, clock)
+
+    assert await sched.tick() == START + timedelta(seconds=4)
+
+
+async def test_due_work_still_runs_and_the_rest_of_the_horizon_is_reported(store) -> None:
+    clock = Clock()
+    await store.create_task(_task(clock, id="tsk_now", name="now"))
+    soon = START + timedelta(seconds=5)
+    await store.create_task(
+        _task(clock, id="tsk_soon", name="soon", next_run_at=iso(soon), due_at=iso(soon))
+    )
+    sched, kw = _scheduler(store, clock)
+
+    upcoming = await sched.tick()
+    await _settle()
+
+    assert len(kw["dispatcher"].requests) == 1  # only the one whose time it is
+    assert upcoming == soon
+
+
+async def test_a_punctual_claim_still_advances_the_schedule(store) -> None:
+    """Firing exactly on the second must move the task to its NEXT occurrence.
+
+    `advance_past` picks the successor by the moment it is given, so a claim made
+    against a reading before the occurrence would compute the occurrence itself
+    as the next one — the schedule would stand still and the unique index on
+    (task, occurrence) would refuse every retry after that.
+    """
+    clock = Clock()
+    await store.create_task(_task(clock))  # due exactly now, lateness zero
+    sched, kw = _scheduler(store, clock)
+
+    await sched.tick()
+    await _settle()
+
+    task = await store.get_task("tsk_1")
+    assert task is not None
+    assert task.next_run_at == iso(START + timedelta(minutes=15))
+    run = (await store.list_runs("tsk_1"))[0]
+    assert (run.status, run.trigger) == (RUN_OK, TRIGGERED_SCHEDULE)
+
+
+async def test_the_next_wake_is_re_read_every_pass(store) -> None:
+    """The moment is never carried over: `run-now` moves due_at from another
+    process, and a loop holding yesterday's answer would sleep through it."""
+    clock = Clock()
+    later = START + timedelta(seconds=15)
+    await store.create_task(_task(clock, next_run_at=iso(later), due_at=iso(later)))
+    sched, kw = _scheduler(store, clock)
+
+    assert await sched.tick() == later
+
+    assert await store.request_run_now("tsk_1", now=iso(clock.now))
+    upcoming = await sched.tick()
+    await _settle()
+
+    assert upcoming is None  # nothing left ahead — it was run, not scheduled
+    assert len(kw["dispatcher"].requests) == 1
+
+
+def test_the_sleep_is_bounded_by_the_tick_and_by_a_floor() -> None:
+    clock = Clock()
+    sched, _ = _scheduler(None, clock, tick_s=20.0)  # no store: pure arithmetic
+
+    assert sched._sleep_for(None) == 20.0  # nothing coming: a full tick
+    assert sched._sleep_for(START + timedelta(seconds=3)) == 3.0
+    # Further off than a tick is capped: the heartbeat's freshness, and the
+    # liveness verdict that reads it, are both sized in ticks.
+    assert sched._sleep_for(START + timedelta(minutes=5)) == 20.0
+    # Already overdue would otherwise spin the loop against the store.
+    assert sched._sleep_for(START - timedelta(seconds=30)) == 0.5
+    assert sched._sleep_for(START + timedelta(milliseconds=1)) == 0.5
+
+
+def test_a_tick_shorter_than_the_floor_still_wins() -> None:
+    # The cap is the outer bound, so a deliberately tiny tick (tests do this)
+    # is never lengthened by the floor.
+    sched, _ = _scheduler(None, Clock(), tick_s=0.01)
+    assert sched._sleep_for(START + timedelta(seconds=5)) == 0.01

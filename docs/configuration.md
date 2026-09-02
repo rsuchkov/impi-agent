@@ -145,7 +145,7 @@ See [tasks.md](tasks.md) for what a task is and how a missed run is handled.
 | Variable | Default | Purpose |
 |---|---|---|
 | `SCHEDULER_ENABLED` | `true` | master switch: off = no ticker, and no agent is offered the scheduling tools |
-| `SCHEDULER_TICK_S` | `20` | how often the engine looks for due work |
+| `SCHEDULER_TICK_S` | `20` | the longest the ticker waits between passes; it wakes sooner for work falling due sooner (see [tasks.md](tasks.md)) |
 | `SCHEDULER_TIMEZONE` | `UTC` | the zone a task's schedule is read in when it names none (the container runs in UTC) |
 | `SCHEDULER_MAX_CONCURRENT` | `2` | scheduled runs at once; the runtime allows `PI_MAX_CONCURRENT_SESSIONS` in total |
 | `SCHEDULER_RUN_DEADLINE_S` | `900` | stop waiting on a run (the turn is not cancelled) |
