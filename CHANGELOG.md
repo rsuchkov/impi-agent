@@ -6,6 +6,21 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A scheduled task now starts in the second it was set for.** The ticker woke
+  on a fixed 20-second grid and ran whatever had already come due, so a task due
+  at 09:00:03 waited until 09:00:20 — the schedule was accurate, the firing was
+  not. Each pass now reads one tick ahead and sleeps until the next occurrence
+  instead, which makes `SCHEDULER_TICK_S` the longest the ticker ever waits
+  rather than the resolution of a schedule. Nothing polls more often: an engine
+  with nothing scheduled sleeps exactly as before.
+
+  Only the timing moved. A task is still claimed at the moment it runs, against
+  a fresh reading of the clock and of the row — so a schedule changed from
+  elsewhere (`impi task run-now`, a pause, a second engine) is still seen, and
+  an occurrence still cannot fire twice. Two things this does not change: an
+  interval still cannot be shorter than 60 seconds, and what the run itself
+  costs — starting the runtime, waiting for the model — is unaffected.
+
 _Nothing yet._
 
 ## v0.15.4 — 2026-09-01

@@ -71,6 +71,12 @@ from crucible.store.base import (
 
 logger = logging.getLogger(__name__)
 
+# The shortest the loop will wait. Only reached when work is already overdue —
+# a backlog the concurrency cap held back, or a run outlasting its own period —
+# where the honest answer to "when is the next occurrence" is "now" and sleeping
+# on it would be a busy loop against the store.
+_MIN_SLEEP_S = 0.5
+
 # TurnOutcome -> what the run is recorded as. The three the flow already told the
 # user about keep their own statuses so the notifier can stay quiet about them.
 _STATUS_BY_OUTCOME = {
@@ -144,15 +150,16 @@ class Scheduler:
             self._id, self._tick_s, self._run_deadline_s, self._max_concurrent,
         )
         while True:
+            upcoming: datetime | None = None
             try:
-                await self.tick()
+                upcoming = await self.tick()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 self._note_error(exc)
                 logger.exception("scheduler tick failed")
                 await self._write_heartbeat()
-            await asyncio.sleep(self._tick_s)
+            await asyncio.sleep(self._sleep_for(upcoming))
 
     async def stop(self) -> None:
         """Cancel whatever is in flight. Best-effort ``cancelled`` rows; the
@@ -176,10 +183,30 @@ class Scheduler:
             before=self._iso(self._now() - timedelta(days=self._retention_days)),
         )
 
-    async def tick(self) -> None:
+    async def tick(self) -> datetime | None:
+        """Fire what is due; answer when the soonest occurrence falls after that.
+
+        The read reaches one tick INTO THE FUTURE, but only what is due right now
+        is dispatched. The rest is not remembered — it is read again at its own
+        moment, with a fresh ``now``. That distinction is the whole safety of
+        this: every decision below (how late the occurrence is, which one comes
+        next, whether it still belongs to us) is computed against ``now``, and
+        one taken against a stale reading would advance the schedule past the
+        very occurrence it is claiming.
+
+        The returned moment is what lets the loop sleep to a time rather than on
+        a grid; None means nothing is coming within the tick.
+        """
         now = self._now()
         self._tick_seq += 1
-        for task in await self._store.due_tasks(self._iso(now)):
+        upcoming: datetime | None = None
+        for task in await self._store.due_tasks(self._iso(now + timedelta(seconds=self._tick_s))):
+            due = from_iso(task.due_at)
+            if due is not None and due > now:
+                # Ordered by due_at, so the first one still in the future is the
+                # soonest — and so is everything after it.
+                upcoming = due
+                break
             if len(self._inflight) >= self._max_concurrent:
                 # The rest keep their due_at and are picked up next tick; better
                 # late than piling subprocesses onto a busy engine.
@@ -187,6 +214,7 @@ class Scheduler:
             await self._dispatch(task, now)
         await self._deliver_notices()
         await self._write_heartbeat()
+        return upcoming
 
     # -- deciding what to do with a due task ---------------------------------
 
@@ -403,6 +431,25 @@ class Scheduler:
 
     def _iso(self, moment: datetime | None = None) -> str:
         return to_iso(moment or self._now()) or ""
+
+    def _sleep_for(self, upcoming: datetime | None) -> float:
+        """How long to wait before the next pass.
+
+        A tick is a CEILING, not a step: when something falls due sooner the loop
+        wakes for it instead, which is what makes a task run in its own second
+        rather than on the next multiple of the tick.
+
+        Both bounds carry weight. Never longer than a tick, because the heartbeat
+        is written per pass and the liveness verdict that reads it is sized in
+        ticks — a longer sleep would make an alive scheduler look stale. Never
+        shorter than the floor, because an occurrence that is already overdue (a
+        backlog past ``max_concurrent``, a task whose turn outlasts its period)
+        would otherwise spin this loop as fast as the store can answer.
+        """
+        if upcoming is None:
+            return self._tick_s
+        remaining = (upcoming - self._now()).total_seconds()
+        return min(self._tick_s, max(_MIN_SLEEP_S, remaining))
 
     def _fresh_slack(self) -> float:
         """How late an occurrence may be and still count as punctual: one tick

@@ -72,6 +72,13 @@ Tasks are spread out by a small per-task offset derived from the task's id, so a
 dozen tasks written `0 9 * * *` don't all spawn a subprocess on the same second.
 The listing shows the honest time, not the offset one.
 
+**A task starts in its own second.** Each pass reads one tick ahead and then
+sleeps until the next occurrence rather than on a fixed grid, so `SCHEDULER_TICK_S`
+is the longest the ticker ever waits, not the resolution of a schedule. Two
+things it does not buy: an interval still cannot be shorter than 60 seconds, and
+what the task then costs — starting the runtime and waiting for the model — is
+seconds to tens of seconds of its own. The scheduler decides when a run BEGINS.
+
 ## When something goes wrong
 
 A failure is never silent, and never said twice. In `turn` mode the agent's own
@@ -134,7 +141,7 @@ list. `never` means no tick was ever recorded, `stale` that the loop stopped,
 | Variable | Default | What it does |
 |---|---|---|
 | `SCHEDULER_ENABLED` | `true` | off = no ticker, and no agent gets the scheduling tools |
-| `SCHEDULER_TICK_S` | `20` | how often due work is looked for |
+| `SCHEDULER_TICK_S` | `20` | the LONGEST the ticker waits between passes; it wakes sooner when something falls due sooner |
 | `SCHEDULER_TIMEZONE` | `UTC` | the zone a task's schedule is read in unless it names one |
 | `SCHEDULER_MAX_CONCURRENT` | `2` | scheduled runs at once (the runtime allows 4 sessions in total) |
 | `SCHEDULER_RUN_DEADLINE_S` | `900` | stop waiting on a run after this |
