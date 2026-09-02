@@ -39,6 +39,9 @@ conversations between people and agents — and between agents.
   → [browsing.md](docs/browsing.md)
 - **A container per agent.** Optional: its own image, its own volumes, its own
   broker certificate. → [agent-containers.md](docs/agent-containers.md)
+- **State that need not live with the engine.** Conversations, schedules and
+  approvals in a SQLite file by default, or on a database of their own when the
+  engine should be replaceable. → [storage.md](docs/storage.md)
 - **Files in both directions.** Attachments people send, files and screenshots
   agents send back. → [files.md](docs/files.md)
 - **Your own services.** Plug a program in over WebSocket as if it were another
@@ -183,6 +186,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/files.md](docs/files.md) — files and photos, in both directions.
 - [docs/commands.md](docs/commands.md) — slash commands and shortcuts, and how to answer one privately.
 - [docs/ws-gateway.md](docs/ws-gateway.md) — plug your own service in over WebSocket.
+- [docs/storage.md](docs/storage.md) — where the engine's state lives, and what a backend does not move.
 - [docs/configuration.md](docs/configuration.md) — every `.env` / config knob.
 - [docs/runtime-notes.md](docs/runtime-notes.md) — the `pi` flags and facts the engine relies on.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — common issues and how to diagnose them.

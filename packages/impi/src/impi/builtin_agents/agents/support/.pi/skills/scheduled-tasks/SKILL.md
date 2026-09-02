@@ -60,6 +60,13 @@ Pass `--yes` to `rm`: with no terminal to ask on it refuses rather than deleting
 `run-now` only moves the schedule; the **engine** fires it, within one tick. A
 CLI container has no gateways and can never run a turn itself.
 
+A task starts in the second it was set for: the ticker sleeps until the next
+occurrence rather than on a fixed grid, so `SCHEDULER_TICK_S` is the longest it
+ever waits, not the resolution of a schedule. Treat tens of seconds of lateness
+as something to explain, not as normal — the run row says how late it was and
+why. What comes after the start (the runtime spawning, the model answering) is
+the run's own cost and is not lateness.
+
 Pausing clears the next run; resuming recomputes it on the task's original
 phase, not from now.
 
