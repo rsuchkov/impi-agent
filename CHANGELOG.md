@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.16.0 — 2026-09-02
+
 - **The inventory can live on MongoDB.** The engine's state — conversations,
   scheduled tasks and their history, approvals, pending forms, the agent
   registry — was a SQLite file next to the process, which tied the deployment to
