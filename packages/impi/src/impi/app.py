@@ -65,8 +65,8 @@ from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
 from crucible.skills import SkillLibrary
+from crucible.store import open_store
 from crucible.store.base import SessionStore
-from crucible.store.sessions import SqliteSessionStore
 from crucible.tools import MANIFEST_ENV, ToolServer, ToolWiring
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
@@ -327,7 +327,9 @@ def build_app(settings: ImpiSettings) -> App:
     )
     engine_names = {spec.name for spec in engine_store.list()}
     profiles = CompositeProfileStore([user_store, engine_store])  # rejects duplicate names
-    sessions = SqliteSessionStore(settings.resolved_db_path)
+    sessions = open_store(
+        settings.store_backend, name=settings.resolved_db_name, url=settings.db_url
+    )
 
     # Resolve each agent's gateway config once, up front: it tells us which agents
     # are runnable and whether any needs the HTTP receiver — so the interaction

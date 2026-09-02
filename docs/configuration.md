@@ -117,8 +117,13 @@ An agent is present only if its token is set; a tokenless profile is skipped.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATA_DIR` | `data` | base dir for the SQLite inventory, `pi` session dirs, logs |
-| `DB_PATH` | `""` | SQLite path; default `{DATA_DIR}/impi.db` |
+| `DATA_DIR` | `data` | base dir for the inventory file, `pi` session dirs, logs |
+| `STORE_BACKEND` | `sqlite` | what kind of database holds the inventory: `sqlite` or `mongo` — see [storage.md](storage.md) |
+| `DB_NAME` | `""` | which one: a file path on `sqlite` (default `{DATA_DIR}/impi.db`), a database name on `mongo` (default `impi`) |
+| `DB_URL` | `""` | where the server is; required on `mongo`, unused on `sqlite`. Connection options (replica set, TLS, credentials) go in this URL |
+
+`DB_PATH` is the name `DB_NAME` had when SQLite was the only option and still
+works, so a deployment that set it keeps opening the same file.
 | `DOTENV_PATH` | `.env` | where the `.env` file itself lives — containers mount the config directory and point this at `/app/conf/.env` |
 
 ## Files and photos

@@ -7,6 +7,13 @@ dependencies = [
     "crucible",
 ]
 
+[project.optional-dependencies]
+# Passed through from crucible. The engine IMAGE installs this unconditionally
+# (deploy/Dockerfile) so switching the inventory to MongoDB is a config change
+# and not a rebuild; it stays an extra so a source install of the engine costs
+# nothing for the deployments that stay on SQLite.
+mongo = ["crucible[mongo]"]
+
 [project.scripts]
 impi = "impi.cli:main"
 

@@ -126,11 +126,13 @@ reads the mode back out of it once, and if you had added files of your own there
 it prints exactly where to move them. Everything else you put in `compose.env`
 stays: only the keys impi writes are ever rewritten.
 
-Your data survives an update untouched: the SQLite inventory lives in a volume,
-and the engine applies any schema change itself at startup (columns are added,
-never rewritten). That also makes the rollback safe — an older engine ignores
-columns it doesn't know, so it keeps running on a database a newer one has
-already migrated.
+Your data survives an update untouched: the inventory lives in a volume — its
+own SQLite file, or the database container when the deployment keeps it on
+MongoDB ([storage.md](storage.md)) — and the engine brings it up to date itself
+at startup, adding what a release needs (a column on SQLite, an index on Mongo)
+and rewriting nothing. That also makes the rollback safe: both backends read by
+an explicit field list, so an older engine ignores what it doesn't know and
+keeps running on a database a newer one has already touched.
 
 ## Non-interactive installs (CI / e2e)
 

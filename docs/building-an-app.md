@@ -79,7 +79,8 @@ from crucible.tools import ToolWiring
 
 def build_app(settings, registry, loop_guard):  # registry implements AgentDirectory
     profiles = FsProfileStore(settings.agents_path)
-    sessions = SqliteSessionStore(settings.db_path)
+    sessions = open_store(settings.store_backend,
+                          name=settings.resolved_db_name, url=settings.db_url)
 
     specs = profiles.list()
     # Resolve gateway configs up front → know which agents run and whether the HTTP

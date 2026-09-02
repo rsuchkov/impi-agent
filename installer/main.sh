@@ -205,6 +205,15 @@ dim "open and nothing when idle."
 IMPI_BROWSER=${IMPI_BROWSER:-}
 confirm IMPI_BROWSER "Give your agents a browser?" n || true
 
+title "Where state lives"
+dim "By default the engine keeps its inventory — conversations, scheduled tasks,"
+dim "approvals — in a SQLite file next to itself. On MongoDB instead, the engine"
+dim "stops owning that: it can be replaced or moved and the deployment carries on."
+dim "Worth it if you plan to run this somewhere it gets rescheduled. Note it does"
+dim "NOT move what the agents remember — that stays in their own volumes."
+IMPI_MONGO=${IMPI_MONGO:-}
+confirm IMPI_MONGO "Keep the inventory in MongoDB?" n || true
+
 title "Agent isolation"
 dim "Each agent can run in a container of its own instead of inside the engine."
 dim "It then holds only its own profile, its own conversation memory and its own"
@@ -264,6 +273,7 @@ else
     say "  Secret store      : no"
 fi
 say "  Web browsing      : ${IMPI_BROWSER:-no}"
+say "  Inventory         : $([ "${IMPI_MONGO:-no}" = yes ] && echo MongoDB || echo "SQLite file")"
 say "  Agent containers  : ${IMPI_AGENT_CONTAINERS:-no}"
 if [ "$IMPI_LLM_MODE" = subscription ]; then
     say "  Model backend     : subscription login (provider: ${IMPI_DEFAULT_PROVIDER:-whatever you log in with}, model: ${IMPI_DEFAULT_MODEL:-its default})"
@@ -314,10 +324,12 @@ env_set IMPI_COMPOSE_ROOTLESS "$COMPOSE_ROOTLESS" "$COMPOSE_ENV"
 # that does not exist rather than an error anyone would notice.
 IMPI_VAULT=$([ "${IMPI_VAULT:-no}" = yes ] && echo 1 || echo 0)
 IMPI_BROWSER=$([ "${IMPI_BROWSER:-no}" = yes ] && echo 1 || echo 0)
+IMPI_MONGO=$([ "${IMPI_MONGO:-no}" = yes ] && echo 1 || echo 0)
 IMPI_AGENT_CONTAINERS=$([ "${IMPI_AGENT_CONTAINERS:-no}" = yes ] && echo 1 || echo 0)
-export IMPI_VAULT IMPI_BROWSER IMPI_AGENT_CONTAINERS
+export IMPI_VAULT IMPI_BROWSER IMPI_MONGO IMPI_AGENT_CONTAINERS
 env_set IMPI_VAULT "$IMPI_VAULT" "$COMPOSE_ENV"
 env_set IMPI_BROWSER "$IMPI_BROWSER" "$COMPOSE_ENV"
+env_set IMPI_MONGO "$IMPI_MONGO" "$COMPOSE_ENV"
 env_set IMPI_AGENT_CONTAINERS "$IMPI_AGENT_CONTAINERS" "$COMPOSE_ENV"
 env_set IMPI_MM_PORT "${IMPI_MM_PORT:-8065}" "$COMPOSE_ENV"
 env_set IMPI_INTEGRATIONS_PORT "$IMPI_INTEGRATIONS_PORT" "$COMPOSE_ENV"

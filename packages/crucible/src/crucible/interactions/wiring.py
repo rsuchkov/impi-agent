@@ -28,7 +28,7 @@ from crucible.interactions.service import InteractionService
 from crucible.interactions.toolgate import ToolGate
 from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.chat.types import IncomingMessage
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.base import Store
 
 
 class InteractionWiring:
@@ -39,7 +39,7 @@ class InteractionWiring:
     def __init__(
         self,
         integrations: IntegrationsSettings,
-        sessions: SqliteSessionStore,
+        sessions: Store,
         presence: AgentPresence,
         *,
         codec: CallbackCodec,

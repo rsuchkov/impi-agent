@@ -16,6 +16,13 @@ from typing import Protocol
 
 from crucible.ports.chat.directory import AgentInfo
 
+# Which implementation holds the inventory. A closed set, like the run statuses
+# below: the name comes from configuration a person typed, so an unknown one has
+# to be caught and said out loud rather than falling through to a default.
+SQLITE = "sqlite"
+MONGO = "mongo"
+STORE_BACKENDS = (SQLITE, MONGO)
+
 
 def derive_runtime_session_id(agent: str, conversation_id: str) -> str:
     """Deterministic, filesystem-safe session key from (agent, conversation).
@@ -334,6 +341,15 @@ class TaskStore(Protocol):
 
     async def prune_runs(self, *, keep_per_task: int, before: str) -> int: ...
 
+    async def reschedule(
+        self, task_id: str, *, next_run_at: str | None, due_at: str | None, now: str
+    ) -> None:
+        """Move the schedule without touching the claim. Unlike the state
+        machines above this takes no CAS token, so it is for a caller that
+        already knows nothing is running — repairing a schedule after its
+        trigger was edited, or putting one back after a test moved it."""
+        ...
+
 
 class SchedulerStateStore(Protocol):
     async def write_heartbeat(self, beat: SchedulerHeartbeat) -> None: ...
@@ -486,3 +502,22 @@ class SessionStore(Protocol):
         ...
 
     async def close(self) -> None: ...
+
+
+class Store(
+    SessionStore,
+    InteractionStore,
+    FormStore,
+    TaskStore,
+    SchedulerStateStore,
+    ApprovalStore,
+    AgentStore,
+    Protocol,
+):
+    """Every question the inventory answers, in one type.
+
+    The protocols above split it by subject so a caller can ask for the slice it
+    needs — a flow that only touches conversations should not be handed the
+    scheduler. A BACKEND, though, owes all of them: this is the name for that
+    obligation, and what a store factory returns.
+    """

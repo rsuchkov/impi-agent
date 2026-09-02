@@ -1,6 +1,6 @@
 """Manual session cleanup: the ONLY way conversation memory gets deleted.
 
-Deletes both halves in one motion — the SQLite inventory row and pi's on-disk
+Deletes both halves in one motion — the inventory row and the runtime's on-disk
 session files (`{pi_session_dir}/{agent}/*_{runtime_session_id}.*`). Deleting only
 one side silently resets or orphans memory, so don't.
 
@@ -16,12 +16,13 @@ never writes and reports an empty stand.
 """
 
 import argparse
+import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from crucible.config import Settings, load_settings
-from crucible.store.base import SessionRecord
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store import open_store
+from crucible.store.base import SessionRecord, Store
 
 
 def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
@@ -29,8 +30,8 @@ def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
     return sorted(agent_dir.glob(f"*_{record.runtime_session_id}.*"))
 
 
-def _delete_record(settings: Settings, store: SqliteSessionStore, record: SessionRecord) -> None:
-    store.delete_sync(record.agent, record.conversation_id)
+async def _delete_record(settings: Settings, store: Store, record: SessionRecord) -> None:
+    await store.delete(record.agent, record.conversation_id)
     removed = 0
     for path in _session_files(settings, record):
         path.unlink(missing_ok=True)
@@ -38,8 +39,8 @@ def _delete_record(settings: Settings, store: SqliteSessionStore, record: Sessio
     print(f"deleted {record.agent}/{record.conversation_id} (pi files removed: {removed})")
 
 
-def cmd_list(settings: Settings, store: SqliteSessionStore, args: argparse.Namespace) -> None:
-    records = store.list_sync(args.agent)
+async def cmd_list(settings: Settings, store: Store, args: argparse.Namespace) -> None:
+    records = await store.list(args.agent)
     if not records:
         print("no sessions")
         return
@@ -51,12 +52,12 @@ def cmd_list(settings: Settings, store: SqliteSessionStore, args: argparse.Names
         )
 
 
-def cmd_delete(settings: Settings, store: SqliteSessionStore, args: argparse.Namespace) -> None:
-    record = store.delete_sync(args.agent, args.conversation_id)
+async def cmd_delete(settings: Settings, store: Store, args: argparse.Namespace) -> None:
+    record = await store.delete(args.agent, args.conversation_id)
     if record is None:
         print(f"not found: {args.agent}/{args.conversation_id}")
         return
-    # delete_sync already removed the row; reuse the file cleanup.
+    # delete() already removed the row; reuse the file cleanup.
     removed = 0
     for path in _session_files(settings, record):
         path.unlink(missing_ok=True)
@@ -64,25 +65,27 @@ def cmd_delete(settings: Settings, store: SqliteSessionStore, args: argparse.Nam
     print(f"deleted {record.agent}/{record.conversation_id} (pi files removed: {removed})")
 
 
-def cmd_purge_idle(settings: Settings, store: SqliteSessionStore, args: argparse.Namespace) -> None:
+async def cmd_purge_idle(settings: Settings, store: Store, args: argparse.Namespace) -> None:
     cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
     victims = [
         r
-        for r in store.list_sync(args.agent)
+        for r in await store.list(args.agent)
         if datetime.fromisoformat(r.last_active) < cutoff
     ]
     if not victims:
         print(f"nothing idle for {args.days}+ days")
         return
     for record in victims:
-        _delete_record(settings, store, record)
+        await _delete_record(settings, store, record)
     print(f"purged {len(victims)} session(s)")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="crucible.sessions_cli", description=__doc__)
     parser.add_argument(
-        "--db", default="", help="inventory path (default: this library's DB_PATH)"
+        "--db", default="",
+        help="which inventory to open — a file path on sqlite, a database name "
+             "on mongo (default: DB_NAME, or this library's own)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -101,12 +104,23 @@ def main() -> None:
     p_purge.set_defaults(func=cmd_purge_idle)
 
     args = parser.parse_args()
+    asyncio.run(_run(args))
+
+
+async def _run(args: argparse.Namespace) -> None:
     settings = load_settings()
-    store = SqliteSessionStore(Path(args.db) if args.db else settings.resolved_db_path)
+    # --db overrides the name, whatever the backend reads it as: a file path on
+    # SQLite, a database name on MongoDB. Where the server is stays a setting —
+    # a URL carries credentials and does not belong on a command line.
+    store: Store = open_store(
+        settings.store_backend,
+        name=args.db or settings.resolved_db_name,
+        url=settings.db_url,
+    )
     try:
-        args.func(settings, store, args)
+        await args.func(settings, store, args)
     finally:
-        store.close_sync()
+        await store.close()
 
 
 if __name__ == "__main__":

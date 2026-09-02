@@ -37,7 +37,8 @@ from crucible.skills import (
     stage,
     unassign_skill,
 )
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store import open_store
+from crucible.store.base import Store
 from impi import provisioning as prov
 from impi.agent_containers import RenderError, sync
 from impi.config import ImpiSettings, load_settings
@@ -635,8 +636,11 @@ def _cmd_health(args: argparse.Namespace) -> int:
 # --- tasks -------------------------------------------------------------------
 
 
-def _store():
-    return SqliteSessionStore(_settings().resolved_db_path)
+def _store() -> Store:
+    settings = _settings()
+    return open_store(
+        settings.store_backend, name=settings.resolved_db_name, url=settings.db_url
+    )
 
 
 def _admin(store):
@@ -649,21 +653,29 @@ def _admin(store):
 
 
 def _with_store(work) -> int:
-    """Open the engine's database, do one thing, close it. The CLI runs in its
+    """Open the engine's inventory, do one thing, close it. The CLI runs in its
     own container: it may read and edit rows, but it never fires a run — it has
-    no gateways to answer through."""
-    store = _store()
-    try:
-        return asyncio.run(work(store))
-    finally:
-        store.close_sync()
+    no gateways to answer through.
+
+    Everything goes through this, so every command speaks to the store through
+    the port. A command that reached for a concrete class instead would open a
+    SQLite file on a deployment that keeps its inventory elsewhere, and report
+    an empty stand with a zero exit code."""
+    async def run() -> int:
+        store = _store()
+        try:
+            return await work(store)
+        finally:
+            await store.close()
+
+    return asyncio.run(run())
 
 
-def _find_task(store, wanted: str):
-    found = store.get_task_sync(wanted)
+async def _find_task(store: Store, wanted: str):
+    found = await store.get_task(wanted)
     if found is not None:
         return found
-    matches = [t for t in store.list_tasks_sync() if t.name == wanted]
+    matches = [t for t in await store.list_tasks() if t.name == wanted]
     if len(matches) > 1:
         raise TaskError(
             f"{wanted!r} is the name of {len(matches)} tasks — use the id: "
@@ -696,9 +708,8 @@ def _print_table(header: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
 
 
 def _cmd_task_list(args: argparse.Namespace) -> int:
-    store = _store()
-    try:
-        tasks = store.list_tasks_sync(getattr(args, "agent", None))
+    async def work(store: Store) -> int:
+        tasks = await store.list_tasks(getattr(args, "agent", None))
         if not tasks:
             print("no scheduled tasks")
             return 0
@@ -707,14 +718,13 @@ def _cmd_task_list(args: argparse.Namespace) -> int:
             _task_rows(tasks),
         )
         return 0
-    finally:
-        store.close_sync()
+
+    return _with_store(work)
 
 
 def _cmd_task_show(args: argparse.Namespace) -> int:
-    store = _store()
-    try:
-        task = _find_task(store, args.task)
+    async def work(store: Store) -> int:
+        task = await _find_task(store, args.task)
         print(f"{_bold(task.name)}  {_dim(task.id)}")
         print(f"  agent        {task.agent}")
         print(f"  schedule     {task.trigger_spec}  ({task.timezone or 'UTC'})")
@@ -729,15 +739,14 @@ def _cmd_task_show(args: argparse.Namespace) -> int:
         print(f"  conversation {task.conversation_id} ({task.kind})")
         print(f"  prompt       {task.prompt}")
         return 0
-    finally:
-        store.close_sync()
+
+    return _with_store(work)
 
 
 def _cmd_task_runs(args: argparse.Namespace) -> int:
-    store = _store()
-    try:
-        task = _find_task(store, args.task)
-        runs = store.list_runs_sync(task.id, limit=args.limit)
+    async def work(store: Store) -> int:
+        task = await _find_task(store, args.task)
+        runs = await store.list_runs(task.id, limit=args.limit)
         if not runs:
             print(f"{task.name} has not run yet")
             return 0
@@ -756,13 +765,13 @@ def _cmd_task_runs(args: argparse.Namespace) -> int:
             ],
         )
         return 0
-    finally:
-        store.close_sync()
+
+    return _with_store(work)
 
 
 def _cmd_task_add(args: argparse.Namespace) -> int:
     async def work(store) -> int:
-        sessions = store.list_sync(args.agent)
+        sessions = await store.list(args.agent)
         chosen = next(
             (s for s in sessions if s.conversation_id == args.conversation), None
         )
@@ -793,7 +802,7 @@ def _cmd_task_add(args: argparse.Namespace) -> int:
 
 def _cmd_task_rm(args: argparse.Namespace) -> int:
     async def work(store) -> int:
-        task = _find_task(store, args.task)
+        task = await _find_task(store, args.task)
         if not args.yes and not _confirm(f"Delete task {task.name} ({task.id})?"):
             return 1
         await _admin(store).cancel(task.agent, task.id)
@@ -807,7 +816,7 @@ def _cmd_task_pause(args: argparse.Namespace) -> int:
     paused = args.task_command == "pause"
 
     async def work(store) -> int:
-        task = _find_task(store, args.task)
+        task = await _find_task(store, args.task)
         view = await _admin(store).set_paused(task.agent, task.id, paused)
         print(f"✔ {view.name} {'paused' if paused else 'resumed'}"
               + (f" — next: {view.next_run}" if not paused else ""))
@@ -817,33 +826,32 @@ def _cmd_task_pause(args: argparse.Namespace) -> int:
 
 
 def _cmd_task_run_now(args: argparse.Namespace) -> int:
-    store = _store()
-    try:
-        task = _find_task(store, args.task)
+    async def work(store: Store) -> int:
+        task = await _find_task(store, args.task)
         # Only ever a request: the engine owns the gateways, so it does the
         # running. This just brings the next occurrence forward.
-        if not store.request_run_now_sync(task.id, now=to_iso(utc_now()) or ""):
+        if not await store.request_run_now(task.id, now=to_iso(utc_now()) or ""):
             print(f"✘ {task.name} is paused or already running", file=sys.stderr)
             return 1
         print(f"✔ {task.name} is due now — the engine picks it up within a tick")
         return 0
-    finally:
-        store.close_sync()
+
+    return _with_store(work)
 
 
 def _cmd_task_status(args: argparse.Namespace) -> int:
     settings = _settings()
-    store = _store()
-    try:
+
+    async def work(store: Store) -> int:
         verdict, detail = liveness(
-            store.read_heartbeat_sync(), now=utc_now(),
+            await store.read_heartbeat(), now=utc_now(),
             enabled=settings.scheduler.enabled,
         )
         mark = "✔" if verdict == ALIVE else "✘"
         print(f"{mark} scheduler {verdict}: {detail}")
         return 0 if verdict in (ALIVE, "absent") else 1
-    finally:
-        store.close_sync()
+
+    return _with_store(work)
 
 
 # --- impi sessions ------------------------------------------------------------
@@ -857,12 +865,11 @@ def _cmd_sessions(args: argparse.Namespace) -> int:
     filename — pointed at an impi deployment it opens a file nobody writes and
     reports an empty stand. Here the path comes from impi's settings, the same
     ones the engine boots with."""
-    store = _store()
-    try:
-        args.run(_settings(), store, args)
+    async def work(store: Store) -> int:
+        await args.run(_settings(), store, args)
         return 0
-    finally:
-        store.close_sync()
+
+    return _with_store(work)
 
 
 def _build_parser() -> argparse.ArgumentParser:

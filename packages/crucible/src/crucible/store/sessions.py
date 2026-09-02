@@ -10,10 +10,10 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import threading
-from datetime import datetime, timezone
 from pathlib import Path
 
 from crucible.ports.chat.directory import AgentInfo
+from crucible.store import clock
 from crucible.store.approvals import ApprovalStoreMixin
 from crucible.store.base import (
     FormRecord,
@@ -81,10 +81,6 @@ _COLUMNS = (
     "agent, channel_id, conversation_id, kind, runtime_session_id, "
     "created_at, last_active, last_user_id"
 )
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin):
@@ -191,7 +187,7 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin):
         self, agent: str, channel_id: str, conversation_id: str, kind: str,
         user_id: str = "",
     ) -> tuple[SessionRecord, bool]:
-        now = _now_iso()
+        now = clock.now_iso()
         runtime_session_id = derive_runtime_session_id(agent, conversation_id)
         with self._lock:
             cursor = self._conn.execute(
@@ -222,13 +218,13 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin):
                 self._conn.execute(
                     "UPDATE sessions SET last_active = ?, last_user_id = ? "
                     "WHERE agent = ? AND conversation_id = ?",
-                    (_now_iso(), user_id, agent, conversation_id),
+                    (clock.now_iso(), user_id, agent, conversation_id),
                 )
             else:
                 self._conn.execute(
                     "UPDATE sessions SET last_active = ? "
                     "WHERE agent = ? AND conversation_id = ?",
-                    (_now_iso(), agent, conversation_id),
+                    (clock.now_iso(), agent, conversation_id),
                 )
             self._conn.commit()
 
@@ -328,7 +324,7 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin):
                 "ON CONFLICT (name) DO UPDATE SET role = excluded.role, "
                 "description = excluded.description, username = excluded.username, "
                 "user_id = excluded.user_id, updated_at = excluded.updated_at",
-                (info.name, info.role, info.description, info.username, info.user_id, _now_iso()),
+                (info.name, info.role, info.description, info.username, info.user_id, clock.now_iso()),
             )
             self._conn.commit()
 

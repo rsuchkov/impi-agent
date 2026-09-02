@@ -30,6 +30,10 @@ people. Keep them accurate to the code.
   the isolation buys, how to give one agent a JDK, what it costs (a container
   each, and creating an agent from chat no longer finishing in chat), and the
   migration that is not optional.
+- **[storage.md](storage.md)** — where the engine's state lives: the inventory
+  (SQLite by default, MongoDB optionally) versus conversation memory, which is
+  the runtime's own files and does not move; how to switch, and what a switch
+  does not carry across.
 - **[files.md](files.md)** — files and photos: what happens to an attachment on
   its way to the agent, where files are kept, the per-platform requirements, and
   the size/retention limits.

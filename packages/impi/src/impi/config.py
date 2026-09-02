@@ -15,8 +15,9 @@ class ImpiSettings(Settings):
     """Base Settings + impi-specific fields. Reads the same .env; inherited env
     binding covers the added fields."""
 
-    # Keep impi's historical inventory filename ({data_dir}/impi.db).
-    DB_FILENAME: ClassVar[str] = "impi.db"
+    # What this engine calls its inventory: {data_dir}/impi.db on SQLite, the
+    # `impi` database on MongoDB.
+    STORE_NAME: ClassVar[str] = "impi"
 
     # The engine's own `support` agent (bundled with impi) — override its
     # provider/model separately; each falls back to default_provider/default_model.
