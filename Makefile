@@ -1,10 +1,32 @@
-.PHONY: install test run run-bg stop reload lint relay-lint relay-test installer-lint installer-test e2e-install
+.PHONY: install test test-mongo run run-bg stop reload lint relay-lint relay-test installer-lint installer-test e2e-install
 
 install:
 	uv sync
 
 test:
 	uv run pytest -v
+
+# The store conformance suite against a real Mongo. `make test` covers SQLite
+# only, on purpose: the tests here are offline, and the claim protocol rests on
+# atomicity a fake would agree with for the wrong reason. Needs the `mongo`
+# extra installed (`uv sync --extra mongo`).
+MONGO_TEST_PORT ?= 27077
+MONGO_RUNTIME ?= $(shell command -v podman >/dev/null 2>&1 && echo podman || echo docker)
+test-mongo:
+	@$(MONGO_RUNTIME) rm -f impi-test-mongo >/dev/null 2>&1 || true
+	$(MONGO_RUNTIME) run -d --rm --name impi-test-mongo \
+		-p $(MONGO_TEST_PORT):27017 docker.io/library/mongo:7
+	@for i in $$(seq 1 60); do \
+		$(MONGO_RUNTIME) exec impi-test-mongo \
+			mongosh --quiet --eval 'db.runCommand({ping:1})' >/dev/null 2>&1 && break; \
+		[ $$i = 60 ] && { echo "mongo did not come up"; \
+			$(MONGO_RUNTIME) rm -f impi-test-mongo; exit 1; }; \
+		sleep 1; \
+	done
+	@MONGO_TEST_URL=mongodb://localhost:$(MONGO_TEST_PORT) \
+		uv run pytest tests/test_session_store.py tests/test_scheduler_store.py \
+		tests/test_approval_store.py -v; \
+		status=$$?; $(MONGO_RUNTIME) rm -f impi-test-mongo >/dev/null; exit $$status
 
 run:
 	uv run python -m impi.main
@@ -81,5 +103,6 @@ installer-test:
 
 # Full local install into a throwaway IMPI_HOME (Linux + podman/docker; slow).
 # KEEP=1 leaves the stack running for inspection; E2E_LLM=1 adds a live DM check.
+# STORE=mongo installs the inventory on MongoDB instead of a SQLite file.
 e2e-install:
 	bash installer/tests/e2e.sh

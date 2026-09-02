@@ -474,6 +474,40 @@ cmd_doctor() {
     # from outside, so it is asked rather than guessed at.
     compose run --rm -T impi impi task status || true
     compose run --rm -T impi impi health || true
+    # Which inventory the engine actually reached. Worth asking rather than
+    # reading back from compose.env: a settings key that did not arrive leaves
+    # the engine on SQLite, and a SQLite file it can open is indistinguishable
+    # from a working deployment until somebody notices the tasks are missing.
+    # shellcheck disable=SC2016  # the body is Python, not shell.
+    compose run --rm -T impi python3 -c '
+import asyncio
+from crucible.store import open_store
+from impi.config import load_settings
+
+settings = load_settings()
+backend = settings.store_backend
+name = settings.resolved_db_name
+# Kept as two things rather than glued into one URI: a connection string may
+# already carry a query, and appending a database name after it prints
+# something that is not an address anybody could use.
+where = f"{name} at {settings.db_url}" if settings.db_url else name
+
+
+async def main():
+    store = open_store(backend, name=name, url=settings.db_url)
+    try:
+        await store.list_agents()
+    finally:
+        await store.close()
+
+
+try:
+    asyncio.run(main())
+except Exception as exc:
+    print(f"\u2718 inventory: {backend} \u2014 {where} did not answer: {exc}")
+else:
+    print(f"\u2714 inventory: {backend} \u2014 {where}")
+' || true
     # The store, when there is one: locked and open look identical from outside,
     # and a locked store refuses every agent until somebody unlocks it.
     [ "${IMPI_VAULT:-0}" = 1 ] && { compose run --rm -T ward-admin ward-admin status || true; }

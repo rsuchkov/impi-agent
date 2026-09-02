@@ -4,6 +4,7 @@
 #   make e2e-install KEEP=1      # keep the stack for inspection
 #   make e2e-install BROWSER=1   # also install and exercise the browser axis
 #   make e2e-install AGENTS=1    # also give each agent a container of its own
+#   make e2e-install STORE=mongo # keep the inventory in MongoDB instead of SQLite
 #
 # The legs that need a real model are opt-in and take their configuration from
 # outside the tree, so nothing here has to be edited to run them:
@@ -31,6 +32,9 @@ BROWSER=${BROWSER:-0}
 # Off by default too: the agent image is Node plus the runtime, which is minutes
 # of build. Opt in when the axis is what you are changing.
 AGENTS=${AGENTS:-0}
+# Which inventory backend to install. `sqlite` is what every other run uses;
+# `mongo` adds a database container and moves the engine's state onto it.
+STORE=${STORE:-sqlite}
 
 PASS=0
 FAIL=0
@@ -82,6 +86,7 @@ ANSWERS=$E2E_HOME/answers
 cp "$E2E_HOME/repo/installer/tests/e2e.answers" "$ANSWERS"
 if [ "$BROWSER" = 1 ]; then echo "IMPI_BROWSER=yes" >>"$ANSWERS"; fi
 if [ "$AGENTS" = 1 ]; then echo "IMPI_AGENT_CONTAINERS=yes" >>"$ANSWERS"; fi
+if [ "$STORE" = mongo ]; then echo "IMPI_MONGO=yes" >>"$ANSWERS"; fi
 # Last wins, so this overrides the checked-in defaults rather than adding to
 # them — which is what lets a real model be supplied without editing a file
 # that every other run depends on.
@@ -190,6 +195,37 @@ if [ "$AGENTS" = 1 ]; then
     # point of the trade, so it is asserted rather than assumed.
     tester_has_no_container() { ! compose ps 2>/dev/null | grep -q "agent-tester"; }
     check "a newly added agent has no container until sync" tester_has_no_container
+fi
+
+# 4c. The inventory axis, when it was installed (STORE=mongo).
+#
+# The engine boots and registers bots whatever the backend, so a stack that
+# comes up proves nothing here. What has to be shown is that the state really
+# moved: the collections fill, and the CLI — a SEPARATE process, the one that
+# used to open a SQLite file and report an empty stand — reads the same data
+# back.
+if [ "$STORE" = mongo ]; then
+    check "compose.env records the inventory axis" \
+        grep -q '^IMPI_MONGO=1$' "$E2E_HOME/compose.env"
+    mongo_up() { compose ps 2>/dev/null | grep -q "${IMPI_PROJECT}_mongo"; }
+    check "the mongo container is running" mongo_up
+    check "the engine is pointed at it" \
+        compose run --rm -T impi sh -c 'test "$STORE_BACKEND" = mongo'
+
+    # The engine registers its agents at boot, so this collection is the first
+    # thing it writes. An empty one means the engine wrote its inventory
+    # somewhere else — which is exactly the failure this axis has to rule out.
+    agents_recorded() {
+        compose exec -T mongo mongosh --quiet impi \
+            --eval 'db.agents.countDocuments({}) > 0' | grep -q true
+    }
+    check "the engine wrote its agents to mongo" agents_recorded
+    check "no SQLite inventory was created" \
+        sh -c '! compose run --rm -T impi test -f /app/data/impi.db'
+    # The CLI is another container with its own connection: this is the case
+    # that used to answer "no sessions" from a file nobody wrote.
+    check "the CLI reads the same inventory" \
+        sh -c 'compose run --rm -T impi impi task list 2>&1 | grep -qv "^✘"'
 fi
 
 # 5. The browser axis, when it was installed (BROWSER=1).

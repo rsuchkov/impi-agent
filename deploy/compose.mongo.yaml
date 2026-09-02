@@ -1,0 +1,53 @@
+# Overlay: the inventory on MongoDB instead of a SQLite file. An axis of its
+# own, independent of the chat platform, the secret store and the browser.
+#
+# What this actually buys, stated plainly so nobody expects more: the ENGINE
+# stops owning the state it cannot afford to lose. Conversations, scheduled
+# tasks and their history, approvals and pending forms move off the engine's
+# disk, so the container can be replaced, moved or run from a fresh volume and
+# the deployment picks up where it left off.
+#
+# What it does NOT move is conversation memory. That lives in the runtime's own
+# session files under the agents' volumes, and no database setting reaches it —
+# a deployment that wants an agent to remember across a move still has to keep
+# those. See docs/storage.md.
+#
+# The database is on `default` and publishes nothing to the host: it holds every
+# conversation this deployment has had, and the engine reaches it by service
+# name. An operator who wants a shell can `compose exec mongo mongosh`.
+
+services:
+  mongo:
+    image: docker.io/library/mongo:7
+    restart: unless-stopped
+    # Nothing published: see above. Adding a ports: line here puts the whole
+    # inventory on the host's network interface.
+    volumes:
+      - mongo-data:/data/db
+    # Fails fast and loudly if the volume is unwritable, rather than the engine
+    # timing out on connect with nothing in its log to say why.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1})"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  impi:
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      # What this overlay creates, and nothing else: the kind of database and
+      # where it is. DB_NAME is an ordinary engine setting — leave it and the
+      # engine uses its own name, or set it in conf/.env like any other.
+      STORE_BACKEND: mongo
+      DB_URL: "mongodb://mongo:27017"
+
+volumes:
+  mongo-data:

@@ -6,7 +6,47 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The inventory can live on MongoDB.** The engine's state — conversations,
+  scheduled tasks and their history, approvals, pending forms, the agent
+  registry — was a SQLite file next to the process, which tied the deployment to
+  the host holding it. It is a port with two implementations now: SQLite stays
+  the default and needs nothing installed, and `IMPI_MONGO=1` moves the same
+  data onto a database container, so the engine can be replaced or moved without
+  losing what it knew.
+
+  Said plainly, because it is the part that matters: this does NOT make a
+  deployment stateless. Conversation memory belongs to the runtime, which keeps
+  it as files, and no setting here reaches it — an agent whose volume is gone
+  still starts from nothing. See [docs/storage.md](docs/storage.md).
+
+  Both backends answer the same test suite, including a claim raced by eight
+  callers at once, because a scheduler that fires an occurrence twice is the
+  failure a second implementation would otherwise reach quietly.
+
+- **The inventory is configured the way a database usually is: what kind, which
+  one, where.** `STORE_BACKEND` says `sqlite` or `mongo`, `DB_NAME` names the
+  one to open — a file path on SQLite, a database name on MongoDB — and `DB_URL`
+  says where the server is. Anything else a backend wants goes in that URL,
+  which already carries replica sets, TLS and credentials.
+
+  **Rename `DB_PATH` to `DB_NAME` in your `conf/.env`.** The old name still
+  works and opens the same file, so nothing breaks if you leave it — but it only
+  ever made sense while SQLite was the only option. On a server backend a key
+  called `DB_PATH` names a database, which reads like a mistake to whoever
+  inherits the file. One line, and it is the same value:
+
+  ```sh
+  # was
+  DB_PATH=/srv/impi/impi.db
+  # now
+  DB_NAME=/srv/impi/impi.db
+  ```
+
+- **Fixed: `impi task list` and `impi sessions list` would have reported an
+  empty stand on a deployment that keeps its inventory elsewhere.** Both
+  commands built a SQLite store directly instead of asking for the configured
+  one, so they opened a file nobody writes and said, with a zero exit code, that
+  there was nothing there. They go through the port now, like the engine does.
 
 ## v0.15.4 — 2026-09-01
 

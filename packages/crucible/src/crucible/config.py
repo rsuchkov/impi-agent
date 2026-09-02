@@ -13,8 +13,14 @@ from pathlib import Path
 from typing import ClassVar
 
 from dotenv import dotenv_values
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The backend names, spelled out rather than imported. `crucible.store` owns the
+# vocabulary and is the thing that rejects an unknown one; configuration sits
+# BELOW the store — a tool reads settings, and a tool may not reach the store —
+# so the literal is repeated here instead of the layering being bent to save it.
+_SQLITE = "sqlite"
 
 
 def _detect_lan_ip() -> str:
@@ -107,9 +113,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Basename of the SQLite inventory under data_dir. Neutral default; an app
-    # subclass may override it to keep its own filename.
-    DB_FILENAME: ClassVar[str] = "agent.db"
+    # What this application calls its inventory when the deployment does not
+    # name one. ONE name, not one per backend: the `.db` suffix and the data_dir
+    # it sits in are SQLite's business, not the application's, so a subclass
+    # names itself once and gets `{data_dir}/<name>.db` on a file backend and a
+    # database of the same name on a server one.
+    STORE_NAME: ClassVar[str] = "agent"
 
     # LLM via a custom OpenAI-compatible endpoint (optional provider extension).
     # Empty when the ChatGPT subscription is used — pi authenticates itself
@@ -167,7 +176,25 @@ class Settings(BaseSettings):
 
     # Bot-side state.
     data_dir: str = "data"
-    db_path: str = ""  # default: {data_dir}/<DB_FILENAME>
+
+    # The inventory, said the way a database is usually said: what KIND, which
+    # ONE, and WHERE. What `db_name` means follows from the kind — a file path
+    # on SQLite, a database name on MongoDB — and `db_url` is where the server
+    # is, so it is empty for the backend that has none. Anything else a backend
+    # needs goes in the URL, which is where a connection string already carries
+    # replica sets, TLS and credentials.
+    #
+    # "sqlite" is a file under data_dir and needs nothing installed; "mongo"
+    # puts the inventory on a server instead, which is what a deployment wants
+    # when the process should not own state it cannot lose — several replicas,
+    # or a pod that can be rescheduled. Note what this does NOT externalise:
+    # conversation memory is the runtime's own session files, so a stateless
+    # engine still needs those to live somewhere. See docs/storage.md.
+    store_backend: str = _SQLITE
+    # DB_PATH is the name this had when SQLite was the only option; it still
+    # works, so a deployment that set it keeps opening the same file.
+    db_name: str = Field(default="", validation_alias=AliasChoices("DB_NAME", "DB_PATH"))
+    db_url: str = ""
 
     # Files people attach in chat, and files agents send back. Off = attachments
     # are ignored on the way in and no agent gets the send-a-file tool.
@@ -391,8 +418,17 @@ class Settings(BaseSettings):
         )
 
     @property
-    def resolved_db_path(self) -> Path:
-        return Path(self.db_path) if self.db_path else Path(self.data_dir) / self.DB_FILENAME
+    def resolved_db_name(self) -> str | Path:
+        """Which inventory to open: a path on SQLite, a database name on Mongo.
+
+        Unset, the application's own STORE_NAME answers for both — under
+        data_dir and with a suffix for the file, bare for the database.
+        """
+        if self.db_name:
+            return Path(self.db_name) if self.store_backend == _SQLITE else self.db_name
+        if self.store_backend == _SQLITE:
+            return Path(self.data_dir) / f"{self.STORE_NAME}.db"
+        return self.STORE_NAME
 
     @property
     def resolved_pi_session_dir(self) -> Path:

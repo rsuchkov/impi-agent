@@ -13,6 +13,9 @@ COMPOSE_ROOTLESS=0
 COMPOSE_VAULT=0
 # Whether this deployment runs a browser for the agents. Another such axis.
 COMPOSE_BROWSER=0
+# Whether the inventory lives on MongoDB rather than in a SQLite file. Another
+# axis again — it changes where the engine keeps state, not what it talks to.
+COMPOSE_MONGO=0
 # Whether each agent gets a container of its own. Another axis again, and the
 # only one whose overlay is GENERATED rather than shipped: it names one service
 # per agent, so it is written by `impi agent sync` into IMPI_HOME, not the repo.
@@ -76,6 +79,7 @@ derive_compose_files() {
         slack) : ;;
         *) die "derive_compose_files: unknown mode $1" ;;
     esac
+    [ "${COMPOSE_MONGO:-0}" = 1 ] && files="$files deploy/compose.mongo.yaml"
     [ "${COMPOSE_VAULT:-0}" = 1 ] && files="$files deploy/compose.ward.yaml"
     [ "${COMPOSE_BROWSER:-0}" = 1 ] && files="$files deploy/compose.browser.yaml"
     [ "$COMPOSE_ROOTLESS" = 1 ] && files="$files deploy/compose.podman.yaml"
@@ -130,6 +134,7 @@ compose_files() {
     # installer's own question during an install.
     [ -n "${IMPI_VAULT:-}" ] && COMPOSE_VAULT=$IMPI_VAULT
     [ -n "${IMPI_BROWSER:-}" ] && COMPOSE_BROWSER=$IMPI_BROWSER
+    [ -n "${IMPI_MONGO:-}" ] && COMPOSE_MONGO=$IMPI_MONGO
     [ -n "${IMPI_AGENT_CONTAINERS:-}" ] && COMPOSE_AGENT_CONTAINERS=$IMPI_AGENT_CONTAINERS
     for _f in $(derive_compose_files "$1"); do
         printf '%s\n' "$IMPI_HOME/repo/$_f"

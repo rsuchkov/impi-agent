@@ -22,7 +22,7 @@ receiver and a store, and no runtime at all.
 | Tools | `crucible.tools` | The typed-tool framework: `@tool` registry, capability gating, an HTTP tool-server. |
 | Interactions | `crucible.interactions` | The widget/form callback machinery (dispatcher, receiver, UI bridge). Stateless: reads an `AgentPresence` the app owns. |
 | Approvals | `crucible.approvals` | Asking a human: who may answer, once / for a window / deny, and the containment that keeps a card's content from forging its structure. A leaf — it imports nothing else here. |
-| Store | `crucible.store` | SQLite persistence for sessions, interactions, forms, scheduled tasks, approval windows and the decision ledger. |
+| Store | `crucible.store` | Persistence for sessions, interactions, forms, scheduled tasks, approval windows and the decision ledger. A port with two backends — SQLite in a file, or MongoDB on a server — chosen with `open_store`. |
 | Scheduler | `crucible.scheduler` | One ticker over the task tables: cron and one-shot runs, through ports. |
 | Skills | `crucible.skills` | The shared skill library as a plain file store. |
 | Attachments | `crucible.attachments` | Incoming and outgoing files as a plain file store. |
@@ -90,7 +90,7 @@ An application wires the concretes together in one place (its composition root).
 Sketch:
 
 ```python
-sessions = SqliteSessionStore(db_path)
+sessions = open_store(backend, name=db_name, url=db_url)  # sqlite | mongo
 runtime  = PiRuntime(pi_bin=..., extra_extensions=[EXTENSION_PATH, ...], ui_bridge=...)
 store    = CompositeProfileStore([FsProfileStore(agents_dir), FsProfileStore(builtin_dir)])
 for spec in store.list():

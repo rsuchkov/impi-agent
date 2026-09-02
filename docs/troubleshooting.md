@@ -178,8 +178,10 @@ sweeps any orphaned `pi` processes left by a previous hard kill.
 
 ## Inspecting or clearing session state
 
-The SQLite inventory maps conversations to `pi` session ids (it is inventory, not
-the source of truth — `pi`'s on-disk memory is). To list or clean up sessions:
+The inventory maps conversations to `pi` session ids (it is inventory, not the
+source of truth — `pi`'s on-disk memory is). The commands below read whichever
+backend the deployment configured, so they answer the same either way; see
+[storage.md](storage.md). To list or clean up sessions:
 
 ```bash
 impi sessions list                       # every conversation, with its file count

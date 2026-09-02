@@ -59,6 +59,9 @@ ENV UV_COMPILE_BYTECODE=1 \
 COPY pyproject.toml uv.lock .python-version ./
 COPY packages/crucible/pyproject.toml packages/crucible/
 COPY packages/impi/pyproject.toml packages/impi/
+# `--extra mongo` brings the second inventory backend. A few hundred kilobytes,
+# paid once here so that choosing MongoDB is a setting an operator flips rather
+# than an image they rebuild.
 # The secret tool ships here because agents run it — `secret-exec` has to be on
 # their PATH, and `ward-admin` is how an operator drives the broker from this
 # side. The BROKER is deliberately not installed: naming the packages is what
@@ -67,12 +70,12 @@ COPY packages/wardline/pyproject.toml packages/wardline/
 COPY packages/ward/pyproject.toml packages/ward/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-workspace \
-        --package impi --package wardline
+        --package impi --extra mongo --package wardline
 COPY packages/crucible/ packages/crucible/
 COPY packages/impi/ packages/impi/
 COPY packages/wardline/ packages/wardline/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --package impi --package wardline
+    uv sync --frozen --no-dev --package impi --extra mongo --package wardline
 # The engine's own support agent reads these at runtime ($IMPI_ROOT/docs) — they
 # are part of what it knows, so they ship with it.
 COPY docs/ docs/

@@ -263,7 +263,7 @@ model in the loop would only add latency and a chance to name a skill that isn't
 there. See [skills.md](skills.md).
 
 **Scheduled task.** `crucible.scheduler` is one ticker over the task tables in
-the same SQLite file. Each pass reads what is due and decides one of four things
+the same store. Each pass reads what is due and decides one of four things
 — the previous run is still going (`overlap`), the process only just started
 (defer), it is later than its grace window (`missed`), or it runs — and every
 decision writes a row, so "why didn't it run" always has an answer. An occurrence
@@ -307,8 +307,11 @@ back the same way.
   pinned git commit, remove. Which agent gets which skill lives in that agent's
   `agent.yaml` (`registry:<name>`), edited round-trip so the comments a person
   wrote survive. One source of truth, visible in a diff.
-- **State is inventory, not truth.** The SQLite store maps conversations to
-  deterministic session ids; the source of truth is `pi`'s on-disk memory.
+- **State is inventory, not truth.** The store maps conversations to
+  deterministic session ids; the source of truth is `pi`'s on-disk memory. Which
+  is why the store is a port with two implementations — SQLite in a file by
+  default, MongoDB on a server when the engine should be replaceable — and why
+  neither choice moves what an agent remembers. See [storage.md](storage.md).
 - **Schema changes are additive, applied on open.** There is no migration tool:
   `SqliteSessionStore` runs its `CREATE TABLE IF NOT EXISTS` script and then
   `_migrate()`, which reads `PRAGMA table_info` and `ALTER TABLE … ADD COLUMN`s
