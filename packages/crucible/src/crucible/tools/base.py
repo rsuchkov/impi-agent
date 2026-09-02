@@ -27,6 +27,25 @@ CAP_EPHEMERAL = "ephemeral"  # messages visible only to one user (Mattermost + S
 CAP_FILES = "files"  # sending a file into the conversation
 CAP_SCHEDULER = "scheduler"  # scheduling work for later
 
+# What a tool that speaks for itself tells the model, appended to its advertised
+# description and returned beside its result. ONE wording for every such tool:
+# it used to be written by hand in each description, in three different phrasings,
+# and the fourth tool was simply never told — which is how an agent came to post a
+# widget and then say the same thing again in a message of its own.
+#
+# The middle sentence is the mechanism, stated plainly rather than as a rule:
+# a turn's own text is delivered when the turn ends, so a lead-in written before
+# the call lands AFTER the message the call posts, describing something already
+# on screen. Knowing that is what stops the model writing one.
+SPEAKS_TO_USER_NOTE = (
+    "This tool posts into the conversation itself, and what it posts is what the "
+    "user sees from you — so put what you want to say in its own text. Your own "
+    "reply is delivered only when the turn ends, which is after the message this "
+    "tool posts. Your turn can end here. Write something afterwards only if it "
+    "adds what the posted message does not say; never repeat or summarise it, and "
+    "never answer as if the user had already replied."
+)
+
 
 class ToolError(Exception):
     """A tool failed in an expected, user-reportable way (bad args, not found).
@@ -110,6 +129,17 @@ class Tool(Protocol):
     # manifest so marking a tool needs no app.py edit; the runtime is responsible
     # for gating the call on that confirmation.
     requires_confirmation: ClassVar[bool] = False
+    # When True, this tool puts a message in front of the user itself, so what it
+    # posts IS the agent's reply and the turn may end on the call. Declared rather
+    # than described: the registry appends SPEAKS_TO_USER_NOTE to the advertised
+    # description and the server returns it beside the result, so every such tool
+    # says the same thing and a new one cannot be forgotten. A description that
+    # spells this out by hand is a bug — it is what let the wording drift.
+    #
+    # It is about speaking, not about posting: a tool that hands over a file or a
+    # notice still leaves the agent something worth saying, and telling it not to
+    # repeat itself there would be wrong advice.
+    speaks_to_user: ClassVar[bool] = False
     # Capabilities this tool needs from the agent's gateway/config (CAP_*). The
     # composition root only advertises the tool to agents that provide them all, so
     # execute() can assume they're present (ctx.require_* enforces it defensively).

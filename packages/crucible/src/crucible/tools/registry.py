@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from crucible.tools.base import Tool
+from crucible.tools.base import SPEAKS_TO_USER_NOTE, Tool
 
 _registered: list[Tool] = []
 
@@ -53,12 +53,19 @@ class ToolRegistry:
         for name in allowed:
             t = self._tools.get(name)
             if t is not None:
+                description = t.description
+                if t.speaks_to_user:
+                    # Generated, never hand-written: one wording for every such
+                    # tool, and a new one cannot be forgotten. A description that
+                    # says this itself is the drift this replaces.
+                    description = f"{description} {SPEAKS_TO_USER_NOTE}"
                 entries.append(
                     {
                         "name": t.name,
-                        "description": t.description,
+                        "description": description,
                         "parameters": t.parameters,
                         "requires_confirmation": t.requires_confirmation,
+                        "speaks_to_user": t.speaks_to_user,
                     }
                 )
         return entries

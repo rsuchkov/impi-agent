@@ -25,6 +25,10 @@ interface ManifestEntry {
   description: string;
   parameters: Record<string, unknown>;
   requires_confirmation?: boolean;
+  // Declared by the tool; the engine has already appended the matching sentence
+  // to `description`, so nothing here has to act on it. Named so the shape of
+  // the manifest stays readable next to what the engine writes.
+  speaks_to_user?: boolean;
 }
 
 async function callTool(name: string, params: Record<string, unknown>): Promise<string> {
@@ -45,9 +49,13 @@ async function callTool(name: string, params: Record<string, unknown>): Promise<
       },
       body: JSON.stringify(args),
     });
-    const body = (await resp.json()) as { result?: unknown; error?: string };
+    const body = (await resp.json()) as { result?: unknown; error?: string; note?: string };
     if (!resp.ok) return `tool error: ${body.error || resp.statusText}`;
-    return JSON.stringify(body.result ?? null);
+    // A tool that speaks to the user for itself sends a note beside its result,
+    // saying so. It goes to the model as part of what it reads back, because
+    // this is the moment it decides whether to write anything more.
+    const out = JSON.stringify(body.result ?? null);
+    return body.note ? `${out}\n\n${body.note}` : out;
   } catch (e) {
     return `tool error: ${(e as Error).message}`;
   }

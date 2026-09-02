@@ -197,10 +197,10 @@ class AgentFlow:
         if result.tool_calls:
             return TurnOutcome.ACTED
         # No text AND no tool call: the turn produced nothing at all — nudge the
-        # user to rephrase. When the agent DID call a tool (e.g. a fire-and-forget
-        # widget like ask_user_buttons, whose posted buttons ARE the reply), the
-        # silence is deliberate and a fallback here would just double up on the
-        # already-visible action.
+        # user to rephrase. When the agent DID call a tool, the silence is
+        # deliberate: a tool that declares it speaks to the user has already put
+        # the message there (buttons, a form, a panel), and a fallback here would
+        # double up on the already-visible action.
         await chat.post_notice(anchor.ref, EMPTY_ANSWER_MESSAGE)
         return TurnOutcome.EMPTY
 

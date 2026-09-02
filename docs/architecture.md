@@ -157,6 +157,20 @@ through the same approval primitive the secret broker uses, so a human can
 answer "once" or "for the next 15 minutes" (`TOOL_MAX_GRANT_S` caps the window).
 Where there is no way to ask, the call is refused rather than allowed.
 
+**Speaking tools:** a tool may declare `speaks_to_user` — it puts a message in
+front of the person itself, so what it posts IS the agent's reply and the turn
+may end on the call. The flag travels in the manifest, and the sentence telling
+the model so is **generated from it**: appended to the advertised description,
+and returned beside the result (`{"result": …, "note": …}`) so it also arrives at
+the moment the model is deciding whether to write anything more. The wording used
+to be typed by hand into each description, which is how three tools said it three
+ways and the fourth never said it at all. The flag marks a tool that carries the
+REPLY, not merely one that posts: `send_file` and `send_ephemeral` are
+deliberately unflagged, because "here is the report, look at section 2" is an
+addition rather than a repetition. Nothing is suppressed — the engine posts
+whatever the agent writes, and `TurnOutcome.ACTED` already covers a turn that
+ends silently on a tool call.
+
 **Capability gating:** a tool declares `requires` (e.g. `CAP_CHAT_ADMIN`,
 `CAP_WIDGETS`, `CAP_FORMS`). At composition, each agent's capability set is
 assembled from its environment (which gateway it runs on, whether interactivity is

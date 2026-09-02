@@ -50,9 +50,9 @@ class AgentResult(Protocol):
 
     text: str
     # Names of the tools invoked this turn. A turn with no text but a non-empty
-    # ``tool_calls`` acted deliberately (e.g. a fire-and-forget widget whose
-    # buttons ARE the reply) — flows use this to tell that apart from a genuinely
-    # empty turn.
+    # ``tool_calls`` acted deliberately — a tool that speaks to the user posts the
+    # agent's message itself, so the silence after it is the answer. Flows use
+    # this to tell that apart from a genuinely empty turn.
     tool_calls: list[str]
 
 
