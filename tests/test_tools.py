@@ -5,7 +5,7 @@ import crucible.builtin_tools  # noqa: F401  # registers the generic ask/form to
 from crucible.ports.chat.admin import ChannelMember
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.types import PostSnippet
-from crucible.tools.base import ToolContext, ToolError
+from crucible.tools.base import SPEAKS_TO_USER_NOTE, ToolContext, ToolError
 from crucible.tools.registry import build_registry
 from crucible.tools.server import ToolServer
 from impi.agent_tools import CreateAgent
@@ -946,3 +946,134 @@ async def test_send_file_needs_the_files_capability() -> None:
     with pytest.raises(ToolError, match="turned off"):
         await SendFile().execute(_ctx_files(None), {"path": "/tmp/a.png"})
     assert SendFile.requires == frozenset({CAP_FILES})
+
+
+# --- tools that speak for themselves ------------------------------------------
+#
+# The rule these pin: a tool whose posted message IS the agent's reply says so by
+# DECLARING it, and the sentence the model reads is generated from that
+# declaration. It used to be written by hand in each description, in three
+# different phrasings, with the fourth tool never told at all — which is how an
+# agent came to post a widget and then repeat itself in a message of its own.
+
+
+def test_manifest_carries_speaks_to_user() -> None:
+    from typing import ClassVar
+
+    from crucible.tools.base import Tool
+    from crucible.tools.registry import ToolRegistry
+
+    class _Speaks(Tool):
+        name: ClassVar[str] = "speaks"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {}
+        speaks_to_user: ClassVar[bool] = True
+
+        async def execute(self, ctx, args):
+            return None
+
+    class _Plain(Tool):
+        name: ClassVar[str] = "plain"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {}
+
+        async def execute(self, ctx, args):
+            return None
+
+    reg = ToolRegistry((_Speaks, _Plain))  # type: ignore[arg-type]  # structural doubles
+    entries = {e["name"]: e for e in reg.manifest(("speaks", "plain"))}
+    assert entries["speaks"]["speaks_to_user"] is True
+    assert entries["plain"]["speaks_to_user"] is False
+
+
+def test_the_speech_note_is_generated_not_written_by_hand() -> None:
+    # Exactly once in what the model is shown, and nowhere in the tool's own
+    # description — the moment someone pastes it in by hand, the wordings can
+    # drift apart again, which is the whole thing this replaces.
+    reg = build_registry()
+    speaking = ("ask_user_buttons", "ask_user_select", "open_form", "open_screen")
+    for entry in reg.manifest(speaking):
+        declared = reg.get(entry["name"])
+        assert declared is not None
+        assert entry["description"].count(SPEAKS_TO_USER_NOTE) == 1
+        assert entry["description"].endswith(SPEAKS_TO_USER_NOTE)
+        assert SPEAKS_TO_USER_NOTE not in declared.description
+    plain = reg.manifest(("send_file", "send_ephemeral", "list_agents"))
+    assert all(SPEAKS_TO_USER_NOTE not in e["description"] for e in plain)
+
+
+def test_no_tool_description_repeats_the_turn_ending_prose() -> None:
+    # The anti-drift pin. A description says WHAT the tool does and where the
+    # answer arrives; how to speak around it comes from the flag, once.
+    reg = build_registry()
+    for name in reg.names():
+        declared = reg.get(name)
+        assert declared is not None
+        described = declared.description.lower()
+        assert "fire-and-forget" not in described, name
+        assert "turn ends" not in described, name
+
+
+def test_exactly_the_interaction_tools_speak_to_the_user() -> None:
+    # send_file and send_ephemeral are deliberately absent: both post something,
+    # but neither is the whole of what the agent has to say, and "do not repeat
+    # what was posted" would be wrong advice beside a file.
+    reg = build_registry()
+    tools = {name: reg.get(name) for name in reg.names()}
+    assert all(t is not None for t in tools.values())
+    speaking = {name for name, t in tools.items() if t is not None and t.speaks_to_user}
+    assert speaking == {"ask_user_buttons", "ask_user_select", "open_form", "open_screen"}
+
+
+async def test_the_server_returns_the_speech_note_beside_a_speaking_tools_result() -> None:
+    # Beside, not inside: a tool's result keeps its own shape, so nothing that
+    # reads `result` has to know this exists.
+    from typing import ClassVar
+
+    from crucible.tools.base import Tool
+    from crucible.tools.registry import ToolRegistry
+
+    class _Speaks(Tool):
+        name: ClassVar[str] = "speaks"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {}
+        speaks_to_user: ClassVar[bool] = True
+
+        async def execute(self, ctx, args):
+            return {"status": "posted"}
+
+    class _Plain(Tool):
+        name: ClassVar[str] = "plain"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {}
+
+        async def execute(self, ctx, args):
+            return {"status": "posted"}
+
+    server = ToolServer(
+        ToolRegistry((_Speaks(), _Plain())),  # type: ignore[arg-type]
+        directory=FakeDirectory(AGENTS),
+        admins={},
+        tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"speaks", "plain"})},
+        port=8471,
+    )
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8471/tool/speaks", json={},
+                headers={"X-Tool-Token": "tok"},
+            ) as resp:
+                spoken = await resp.json()
+            async with s.post(
+                "http://127.0.0.1:8471/tool/plain", json={},
+                headers={"X-Tool-Token": "tok"},
+            ) as resp:
+                plain = await resp.json()
+    finally:
+        await server.stop()
+
+    assert spoken["result"] == {"status": "posted"}  # untouched
+    assert spoken["note"] == SPEAKS_TO_USER_NOTE
+    assert "note" not in plain

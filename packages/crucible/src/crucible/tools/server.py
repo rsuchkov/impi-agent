@@ -24,7 +24,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.tasks import TaskService
-from crucible.tools.base import ToolContext, ToolError
+from crucible.tools.base import SPEAKS_TO_USER_NOTE, ToolContext, ToolError
 from crucible.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -168,4 +168,12 @@ class ToolServer:
             return web.json_response({"error": "internal tool error"}, status=500)
 
         logger.info("tool %s ran for agent %s", tool.name, agent)
-        return web.json_response({"result": result})
+        # Beside the result, never merged into it: a tool's own result stays its
+        # own shape (open_screen already returns keys of its own), and callers
+        # that read `result` are unaffected. The description carries the same
+        # sentence, but it is read once at registration — this one arrives at the
+        # moment the model is deciding whether to write anything else.
+        body: dict[str, Any] = {"result": result}
+        if tool.speaks_to_user:
+            body["note"] = SPEAKS_TO_USER_NOTE
+        return web.json_response(body)

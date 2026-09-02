@@ -6,6 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **An agent that asks with buttons, a menu, a form or a panel no longer says the
+  same thing twice.** It would post the control — with wording it had chosen
+  itself — and then add a message repeating it. Three of those four tools told
+  the model their posted control was the reply; `open_form` never did, because
+  the instruction was prose retyped in each tool's description rather than
+  something a tool could declare.
+
+  A tool now declares that it speaks to the user, and the engine generates that
+  sentence from the declaration — one wording for all of them, in the tool's
+  description and again beside its result, where the model is deciding whether to
+  write anything more. Nothing is suppressed: the agent may still add a message,
+  and should when it says something the posted control does not.
+
 - **The inventory can live on MongoDB.** The engine's state — conversations,
   scheduled tasks and their history, approvals, pending forms, the agent
   registry — was a SQLite file next to the process, which tied the deployment to

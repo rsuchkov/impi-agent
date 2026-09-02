@@ -1,5 +1,8 @@
-"""crucible's built-in generic typed tools: fire-and-forget widgets and modal
-forms. This is content, not framework — it lives beside the tools package (which
+"""crucible's built-in generic typed tools: the ones that ask with real controls
+— buttons, a menu, a modal form, an engine panel. Each declares `speaks_to_user`,
+so what it posts IS the agent's reply and the turn may end on the call; the note
+telling the model that is generated from the flag, never written out here. This
+is content, not framework — it lives beside the tools package (which
 holds only base/registry/server). Importing it runs the @tool decorators, so the
 composition root imports it to include these tools, exactly like an app imports
 its own tool modules. Tools depend only on ports (the interaction service)."""
@@ -48,11 +51,11 @@ def _require_str(args: dict[str, Any], key: str) -> str:
 class AskUserButtons(Tool):
     name: ClassVar[str] = "ask_user_buttons"
     requires: ClassVar[frozenset[str]] = frozenset({CAP_WIDGETS})
+    speaks_to_user: ClassVar[bool] = True
     description: ClassVar[str] = (
-        "Ask the user a question in THIS conversation with clickable buttons. "
-        "Fire-and-forget: the buttons are posted and your turn ends; the click "
-        "arrives later as a new message with the chosen option. Use for quick "
-        "choices/confirmations instead of asking in free text."
+        "Ask the user a question in THIS conversation with clickable buttons. The "
+        "click arrives later as a new message with the chosen option. Use for "
+        "quick choices/confirmations instead of asking in free text."
     )
     parameters: ClassVar[dict[str, Any]] = {
         "type": "object",
@@ -83,13 +86,13 @@ class AskUserButtons(Tool):
 class AskUserSelect(Tool):
     name: ClassVar[str] = "ask_user_select"
     requires: ClassVar[frozenset[str]] = frozenset({CAP_WIDGETS})
+    speaks_to_user: ClassVar[bool] = True
     description: ClassVar[str] = (
         "Ask the user a question in THIS conversation with a dropdown menu. Like "
         "ask_user_buttons but for longer option lists (up to 20). Set `source` to "
         "'users' or 'channels' to let them pick a person or a channel from the "
         "workspace instead of your own options — the answer comes back as a name "
-        "with its id. Fire-and-forget: the menu is posted and your turn ends; the "
-        "pick arrives later as a new message."
+        "with its id. The pick arrives later as a new message."
     )
     parameters: ClassVar[dict[str, Any]] = {
         "type": "object",
@@ -136,11 +139,15 @@ class AskUserSelect(Tool):
 class OpenForm(Tool):
     name: ClassVar[str] = "open_form"
     requires: ClassVar[frozenset[str]] = frozenset({CAP_FORMS})
+    speaks_to_user: ClassVar[bool] = True
     description: ClassVar[str] = (
         "Collect several fields from the user in ONE modal form. Posts a button "
         "(label it with `open_label`); the user clicks it, fills the modal, and the "
         "submitted values come back as a message. Use for structured input (a few "
-        "related fields at once) rather than asking field-by-field. Field types: "
+        "related fields at once) rather than asking field-by-field. `intro` is the "
+        "message the user reads in the conversation — say there what you would "
+        "have said in a reply; `title` only heads the modal, which nobody sees "
+        "until they click. Field types: "
         "text, textarea, number, "
         "email, url, tel; select, multiselect, radio (these need options); bool; "
         "user, users, channel, channels (pick from the workspace — the answer is a "
@@ -331,14 +338,13 @@ class SendFile(Tool):
 class OpenScreen(Tool):
     name: ClassVar[str] = "open_screen"
     requires: ClassVar[frozenset[str]] = frozenset({CAP_WIDGETS})
+    speaks_to_user: ClassVar[bool] = True
     description: ClassVar[str] = (
         "Post one of the engine's own interactive panels into THIS conversation "
         "— the same one its slash command opens. Use it when the user asks to "
         "see or manage what the panel is for, instead of describing it yourself: "
         "the engine renders the panel and answers every click on it, so what the "
-        "user sees is always the live state. Post it and say nothing more than "
-        "one short sentence; do not summarise or repeat its contents, and do not "
-        "claim to have done anything the user has not clicked yet."
+        "user sees is always the live state, and nothing is done until they click."
     )
     parameters: ClassVar[dict[str, Any]] = {
         "type": "object",
@@ -369,4 +375,4 @@ class OpenScreen(Tool):
                     + (", ".join(available) or "none")
                 )
             raise ToolError("could not post the panel (conversation not resolved)")
-        return {"opened": name, "note": "the engine owns this panel and its buttons"}
+        return {"opened": name}

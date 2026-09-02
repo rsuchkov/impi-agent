@@ -95,9 +95,9 @@ no tools at all**. Two rules to remember:
 
 ## Asking with controls (widgets and forms)
 
-Three tools let an agent ask with real controls instead of prose, and all three
-are **fire-and-forget**: the widget is posted, the turn ends, and the answer
-arrives later as a new message.
+Four tools let an agent ask with real controls instead of prose. Each **declares
+that it speaks to the user**: what it posts IS the agent's message, so the turn
+can end on the call, and the answer arrives later as a new message.
 
 - **`ask_user_buttons`** — 2–5 buttons.
 - **`ask_user_select`** — a dropdown of 2–20 options, or, with
@@ -107,6 +107,23 @@ arrives later as a new message.
   the default is "📝 Fill in…"). The button survives a closed modal (so it can be
   reopened) and is struck off its message once the form is submitted — the same
   on both platforms.
+- **`open_screen`** — one of the engine's own panels (the same one its slash
+  command opens). The engine renders it and answers every click, so what the
+  user sees is always live.
+
+The agent is told this once, in wording the engine generates from the
+declaration rather than each tool describing it in its own words — which is what
+let one of them go untold and answer with the widget *and* a message repeating
+it. Two things follow, and they are worth knowing when writing a `SYSTEM.md`:
+
+- **Say it in the tool's own text.** What the person reads is `open_form`'s
+  `intro` and the `prompt` of `ask_user_buttons` / `ask_user_select`
+  (`open_screen` has none — the engine renders the panel). A turn's own reply is
+  delivered when the turn ends — that is, *after* the message the tool posted —
+  so a lead-in written before the call lands underneath the thing it announces.
+- **A message afterwards is allowed, and is the agent's call.** It should add
+  what the posted message does not say. The engine posts whatever the agent
+  writes; nothing is dropped.
 
 ### Form field types
 
