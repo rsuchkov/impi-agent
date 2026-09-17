@@ -8,12 +8,13 @@ structure to the card, rather than only content?
 
 import pytest
 
-from crucible.approvals.card import (
+from crucible.approvals.card import render_card
+from crucible.containment import (
     code_block,
     code_span,
     command_line,
     one_line,
-    render_card,
+    preformatted,
 )
 from crucible.gateways.slack.formatter import markdown_to_mrkdwn
 
@@ -171,3 +172,45 @@ def test_the_engine_still_owns_the_labels() -> None:
     assert card.splitlines()[0] == "Title"
     assert "**Field:** `value`" in card
     assert "**Block:**" in card
+
+
+
+# --- a block that keeps its lines -------------------------------------------
+
+
+def test_preformatted_keeps_line_breaks_that_code_block_drops() -> None:
+    pretty = '{\n  "command": "make test",\n  "timeout": 120\n}'
+    block = preformatted(pretty, lang="json")
+    assert block.splitlines() == [
+        "```json",
+        "{",
+        '  "command": "make test",',
+        '  "timeout": 120',
+        "}",
+        "```",
+    ]
+    # And it is precisely what the one-line block refuses to do.
+    assert "\n" not in code_block(pretty).splitlines()[1]
+
+
+def test_preformatted_still_strips_what_carries_structure() -> None:
+    # A bidi override could make a value read as another; a carriage return is
+    # a line in one renderer and nothing in another. Both go; tabs stay.
+    block = preformatted("a\u202eb\r\nc\td")
+    assert block.splitlines() == ["```", "ab", "c\td", "```"]
+
+
+def test_preformatted_cannot_be_closed_from_within() -> None:
+    block = preformatted("x\n```\n**escaped**\n```\ny")
+    lines = block.splitlines()
+    assert lines[0] == "```" and lines[-1] == "```"
+    # Only the fence lines are a bare run of three backticks.
+    assert [line for line in lines if line == "```"] == ["```", "```"]
+
+
+def test_preformatted_survives_the_slack_converter() -> None:
+    # Slack recognises a fence line by a pattern that a longer backtick run
+    # would not match — the block has to arrive as three, and pass through
+    # the converter as itself.
+    block = preformatted('{\n  "a": "**not bold**"\n}', lang="json")
+    assert markdown_to_mrkdwn(block) == block

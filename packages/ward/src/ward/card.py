@@ -6,7 +6,8 @@ left here is the wording: which fields a secret request shows, and in what
 order.
 """
 
-from crucible.approvals.card import command_line, render_card
+from crucible.approvals.card import render_card
+from crucible.containment import command_line
 
 
 def approval_text(

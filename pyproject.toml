@@ -280,6 +280,28 @@ source_modules = [
 forbidden_modules = ["crucible.gateways", "mattermostautodriver", "slack_bolt"]
 
 [[tool.importlinter.contracts]]
+name = "Containment is pure text — it knows nothing of the engine"
+type = "forbidden"
+source_modules = ["crucible.containment"]
+forbidden_modules = [
+    "crucible.approvals",
+    "crucible.attachments",
+    "crucible.config",
+    "crucible.flows",
+    "crucible.gateways",
+    "crucible.interactions",
+    "crucible.ports",
+    "crucible.profiles",
+    "crucible.runtimes.pi",
+    "crucible.scheduler",
+    "crucible.skills",
+    "crucible.store",
+    "crucible.tools",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
 name = "The skill library is a plain file store — no runtime, chat or engine machinery"
 type = "forbidden"
 source_modules = ["crucible.skills"]

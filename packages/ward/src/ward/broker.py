@@ -26,7 +26,7 @@ from crucible.approvals import (
     humanize,
     windows,
 )
-from crucible.approvals.card import command_line
+from crucible.containment import command_line
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.types import ConversationRef
 from crucible.store.base import (

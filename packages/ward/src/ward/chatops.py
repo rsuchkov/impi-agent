@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from crucible.approvals import GRANT_LADDER, humanize
-from crucible.approvals.card import one_line
+from crucible.containment import one_line
 from crucible.interactions.screens import ScreenState, View, screen_action
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.client import ChatClient
