@@ -2,8 +2,10 @@ import asyncio
 
 import pytest
 
+from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.ports.agent.ui import UiOutcome, UiRequest
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
+from crucible.runtimes.pi.protocol import PiEvent
 from crucible.runtimes.pi.session import PiRpcSession
 from tests.fakes.fake_transport import FakeTransport
 
@@ -23,9 +25,16 @@ def _normal_turn_reactor(transport: FakeTransport, *, text: str = "Answer", tool
         if command.get("type") not in ("prompt", "follow_up"):
             return
         transport.emit({"type": "agent_start"})
-        for tool in tools:
-            transport.emit({"type": "tool_execution_start", "toolName": tool})
-            transport.emit({"type": "tool_execution_end", "toolName": tool})
+        for n, tool in enumerate(tools):
+            transport.emit({
+                "type": "tool_execution_start", "toolCallId": f"call_{n}",
+                "toolName": tool, "args": {"q": tool},
+            })
+            transport.emit({
+                "type": "tool_execution_end", "toolCallId": f"call_{n}",
+                "toolName": tool, "isError": False,
+                "result": {"content": [{"type": "text", "text": "done"}], "details": {}},
+            })
         if text is not None:
             transport.emit(
                 {"type": "message_update", "assistantMessageEvent": {"type": "text_start"}}
@@ -423,5 +432,58 @@ async def test_on_event_callback_receives_events() -> None:
     await session.prompt("hi", timeout=1.0)
 
     assert "agent_start" in seen
-    assert "tool_execution_start" in seen
+    assert "tool_started" in seen  # translated, not the wire's own name
     assert "agent_end" in seen
+
+
+async def test_tool_activity_crosses_the_port_in_its_neutral_shape() -> None:
+    """A listener sees what ran, with what, and how long it took — without
+    knowing what this runtime calls its events or where it keeps the fields."""
+    transport = FakeTransport()
+
+    async def react(command: dict) -> None:
+        if command.get("type") != "prompt":
+            return
+        transport.emit({"type": "agent_start"})
+        transport.emit({
+            "type": "tool_execution_start", "toolCallId": "c1", "toolName": "bash",
+            "args": {"command": "make test"},
+        })
+        await asyncio.sleep(0.03)  # the tool running
+        transport.emit({
+            "type": "tool_execution_end", "toolCallId": "c1", "toolName": "bash",
+            "isError": True, "result": {"content": [{"type": "text", "text": "boom"}]},
+        })
+        transport.emit({"type": "agent_end", "messages": []})
+
+    transport._reactor = react
+    seen: list[object] = []
+    session = PiRpcSession(transport)
+    session.start()
+    await session.prompt("hi", timeout=1.0, on_event=seen.append)
+
+    started = next(e for e in seen if isinstance(e, ToolStarted))
+    finished = next(e for e in seen if isinstance(e, ToolFinished))
+    assert (started.call_id, started.tool, started.args) == ("c1", "bash", {"command": "make test"})
+    assert (finished.call_id, finished.tool, finished.is_error) == ("c1", "bash", True)
+    assert finished.duration_s >= 0.03
+    # Everything that is not tool activity is still the driver's own event.
+    raw = [e for e in seen if isinstance(e, PiEvent)]
+    assert {e.type for e in raw} >= {"agent_start", "agent_end"}
+    assert not any(isinstance(e, PiEvent) and e.type.startswith("tool_execution") for e in seen)
+
+
+async def test_a_turns_own_listener_wins_over_the_sessions() -> None:
+    # The session-wide callback is an observer for whoever built the session;
+    # a turn that brought its own must be the one that hears the turn.
+    transport = FakeTransport()
+    transport._reactor = _normal_turn_reactor(transport, text="ok", tools=("list_agents",))
+    session_saw: list[str] = []
+    turn_saw: list[str] = []
+
+    session = PiRpcSession(transport, on_event=lambda ev: session_saw.append(ev.type))
+    session.start()
+    await session.prompt("hi", timeout=1.0, on_event=lambda ev: turn_saw.append(ev.type))
+
+    assert "tool_started" in turn_saw
+    assert session_saw == []

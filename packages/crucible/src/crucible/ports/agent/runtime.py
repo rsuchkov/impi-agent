@@ -70,8 +70,11 @@ class AgentRuntime(Protocol):
     - ``run_stateful``  — keeps memory across turns under ``session_id``.
     - ``run_stateless`` — a fresh, memoryless run per call.
 
-    ``on_event`` streams runtime events (basis for status/streaming UX); for
-    stateful runs it is bound when the underlying session is first created.
+    ``on_event`` streams this call's runtime events (basis for status and
+    streaming UX). It is bound per call, not per conversation: a later turn on
+    the same session gets the callback it passed, not the first one's. Tool
+    activity arrives as the neutral ``ToolStarted``/``ToolFinished`` events;
+    the rest is the runtime's own vocabulary and promises only a ``type``.
     """
 
     async def run_stateful(

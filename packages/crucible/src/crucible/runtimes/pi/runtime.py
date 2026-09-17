@@ -35,10 +35,9 @@ from crucible.runtimes.pi.spawn import SpawnRequest, safe_session_id
 
 logger = logging.getLogger(__name__)
 
-# (profile, session_id_or_None, on_event, cwd_or_None) -> a started session
-SessionFactory = Callable[
-    [PiProfile, str | None, EventCallback | None, str | None], Awaitable[PiRpcSession]
-]
+# (profile, session_id_or_None, cwd_or_None) -> a started session. No listener
+# here on purpose: events are a per-turn concern and travel with each prompt.
+SessionFactory = Callable[[PiProfile, str | None, str | None], Awaitable[PiRpcSession]]
 
 
 @dataclass
@@ -134,10 +133,8 @@ class PiRuntime:
         async with lock:
             managed = self._sessions.get(session_id)
             if managed is None:
-                # on_event binds at session creation and lives as long as the
-                # session (one conversation = one stable callback).
                 session = await self._create_session(
-                    pi_profile, session_id=session_id, on_event=on_event, cwd=cwd
+                    pi_profile, session_id=session_id, cwd=cwd
                 )
                 managed = _ManagedSession(
                     session=session, agent=pi_profile.name, created_at=self._now()
@@ -150,7 +147,7 @@ class PiRuntime:
                 # the agent is running; sent to an idle agent it never starts a
                 # turn and hangs until timeout.)
                 result = await managed.session.prompt(
-                    message, timeout=pi_profile.timeout, images=images
+                    message, timeout=pi_profile.timeout, images=images, on_event=on_event
                 )
             except (PiTimeout, PiProcessError):
                 # A dead/stuck/poisoned session can't be reused; drop it so the
@@ -180,12 +177,10 @@ class PiRuntime:
         images: Sequence[PromptImage] = (),
     ) -> PiResult:
         pi_profile = _require_pi_profile(profile)
-        session = await self._create_session(
-            pi_profile, session_id=None, on_event=on_event, cwd=None
-        )
+        session = await self._create_session(pi_profile, session_id=None, cwd=None)
         try:
             return await session.prompt(
-                message, timeout=pi_profile.timeout, images=images
+                message, timeout=pi_profile.timeout, images=images, on_event=on_event
             )
         finally:
             await self._close_session(session, pi_profile.name)
@@ -236,12 +231,11 @@ class PiRuntime:
         profile: PiProfile,
         *,
         session_id: str | None,
-        on_event: EventCallback | None,
         cwd: str | None = None,
     ) -> PiRpcSession:
         await self._acquire(profile.name)
         try:
-            session = await self._factory(profile, session_id, on_event, cwd)
+            session = await self._factory(profile, session_id, cwd)
             session.start()
             return session
         except Exception:
@@ -305,7 +299,6 @@ class PiRuntime:
         self,
         profile: PiProfile,
         session_id: str | None,
-        on_event: EventCallback | None,
         cwd: str | None = None,
     ) -> PiRpcSession:
         # Shared env, then this agent's per-profile env (tool token), then this
@@ -334,7 +327,6 @@ class PiRuntime:
         transport = await self._hosts.for_agent(profile.name).open(request)
         return PiRpcSession(
             transport,
-            on_event=on_event,
             ui_bridge=self._ui_bridge,
             session_id=session_id or "",
         )

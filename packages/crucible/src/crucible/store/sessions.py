@@ -22,6 +22,7 @@ from crucible.store.base import (
     derive_runtime_session_id,
 )
 from crucible.store.tasks import TaskStoreMixin
+from crucible.store.traces import TraceStoreMixin
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -83,7 +84,7 @@ _COLUMNS = (
 )
 
 
-class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin):
+class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin):
     def __init__(self, db_path: str | Path) -> None:
         path = Path(db_path)
         if path.parent and str(path.parent) != ".":
@@ -102,6 +103,7 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin):
             self._conn.executescript(_SCHEMA)
             self._create_task_tables()  # the scheduler facet owns its own schema
             self._create_approval_tables()  # windows and the ledger
+            self._create_trace_tables()  # one turn's tool calls, for the widget
             self._create_app_tables()  # whatever the application keeps here too
             self._migrate()
             self._conn.commit()

@@ -115,6 +115,41 @@ class FormStore(Protocol):
     async def delete_form(self, token: str) -> None: ...
 
 
+@dataclass(frozen=True)
+class TraceRecord:
+    """What one turn's tool calls were, kept so the widget under the reply can
+    be opened long after the turn — minutes or a restart later.
+
+    ``calls`` is opaque JSON, like a form's ``spec``: the widget owns its shape
+    and the store only keeps it. It holds names, arguments, outcomes and
+    timings; never results, which is where a value the agent was granted could
+    surface. ``post_id`` names the widget message the trace is drawn in.
+    """
+
+    token: str
+    agent: str
+    channel_id: str
+    conversation_id: str
+    kind: str
+    created_at: str
+    finished_at: str
+    calls: str
+    post_id: str = ""
+
+
+class TraceStore(Protocol):
+    """One trace per turn that called tools, written once when the turn ends and
+    read on every click. Pruned by age, since nobody opens last month's."""
+
+    async def create_trace(self, record: TraceRecord) -> None: ...
+
+    async def get_trace(self, token: str) -> TraceRecord | None: ...
+
+    async def prune_traces(self, *, before: str) -> int:
+        """Delete traces that finished before ``before``; return how many."""
+        ...
+
+
 # -- scheduled work -----------------------------------------------------------
 
 # How a due task runs: as an ordinary turn in its own conversation (memory, the
@@ -512,6 +547,7 @@ class Store(
     SchedulerStateStore,
     ApprovalStore,
     AgentStore,
+    TraceStore,
     Protocol,
 ):
     """Every question the inventory answers, in one type.

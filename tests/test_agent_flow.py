@@ -2,10 +2,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from crucible.flows.agent_flow import EMPTY_ANSWER_MESSAGE, AgentFlow
+from crucible.interactions.tooltrace import ToolTrace
 from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
     LLM_FALLBACK_MESSAGE,
 )
+from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
@@ -746,3 +748,111 @@ def test_the_cause_itself_never_reaches_the_conversation() -> None:
     said = message_for(leaky)
     for secret in ("acct_9fA2", "gpt-5.5", "/home/impi", "429"):
         assert secret not in said
+
+
+# --- the tool trace under a reply --------------------------------------------
+#
+# The flow hands each turn a trace and feeds it the runtime's events. What is
+# pinned here is the flow's side of that: nothing appears for a turn without
+# tools, the widget exists before the reply does, and a turn that dies mid-tool
+# still settles its widget.
+
+
+class _StreamingRuntime(FakeRuntime):
+    """A runtime that fires a scripted event sequence at the turn's listener."""
+
+    def __init__(self, events, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._events = list(events)
+        self.listeners: list[object] = []
+
+    async def run_stateful(
+        self, profile, session_id, message, *, on_event=None, cwd=None, images=()
+    ):
+        self.listeners.append(on_event)
+        if on_event is not None:
+            for event in self._events:
+                on_event(event)
+        return await super().run_stateful(
+            profile, session_id, message, on_event=on_event, cwd=cwd, images=images
+        )
+
+
+class _OrderedChat(FakeChat):
+    """FakeChat that also remembers in what order things were posted."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.order: list[str] = []
+
+    async def post_cards(self, ref, cards, *, callback_url):
+        self.order.append("widget")
+        return await super().post_cards(ref, cards, callback_url=callback_url)
+
+    async def update_cards(self, post_id, cards, *, callback_url):
+        self.order.append("widget")
+        await super().update_cards(post_id, cards, callback_url=callback_url)
+
+    async def post_reply(self, ref, text, *, hop_depth=0):
+        self.order.append("reply")
+        await super().post_reply(ref, text, hop_depth=hop_depth)
+
+
+def _traced_flow(tmp_path: Path, runtime) -> tuple[AgentFlow, SqliteSessionStore]:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    tracer = ToolTrace(store, callback_url="http://x/interact")
+    return AgentFlow(runtime, PROFILE, store, agent_name="assistant", tracer=tracer), store
+
+
+_TOOL_EVENTS = (
+    ToolStarted(call_id="c1", tool="bash", args={"command": "ls"}),
+    ToolFinished(call_id="c1", tool="bash", duration_s=0.2),
+)
+
+
+async def test_a_turn_without_tools_posts_no_widget(tmp_path: Path) -> None:
+    runtime = _StreamingRuntime(events=())
+    flow, _ = _traced_flow(tmp_path, runtime)
+    chat = _OrderedChat()
+
+    await flow.handle(_dm(), chat)
+
+    assert chat.posted_cards == []
+    assert chat.order == ["reply"]
+    assert runtime.listeners and runtime.listeners[0] is not None  # it was listening
+
+
+async def test_the_widget_is_settled_before_the_reply_is_posted(tmp_path: Path) -> None:
+    runtime = _StreamingRuntime(events=_TOOL_EVENTS)
+    flow, _ = _traced_flow(tmp_path, runtime)
+    chat = _OrderedChat()
+
+    assert await flow.handle(_dm(), chat) is TurnOutcome.REPLIED
+
+    assert chat.order[-1] == "reply" and "widget" in chat.order
+    button = chat.posted_cards[-1][1][0].actions[0] if not chat.updated else chat.updated[-1][1][0].actions[0]
+    assert button.label == "Running 1 tool →"
+
+
+async def test_a_turn_that_dies_mid_tool_still_settles_its_widget(tmp_path: Path) -> None:
+    started_only = (ToolStarted(call_id="c1", tool="bash", args={"command": "sleep 999"}),)
+    runtime = _StreamingRuntime(events=started_only, error=PiTimeout("slow"))
+    flow, _ = _traced_flow(tmp_path, runtime)
+    chat = _OrderedChat()
+
+    assert await flow.handle(_dm(), chat) is TurnOutcome.TIMEOUT
+
+    labels = [a.label for _, cards in chat.updated for c in cards for a in c.actions]
+    labels += [a.label for _, cards, _ in chat.posted_cards for c in cards for a in c.actions]
+    assert "Running 1 tool · interrupted →" in labels
+
+
+async def test_a_flow_without_a_tracer_listens_to_nothing(tmp_path: Path) -> None:
+    runtime = _StreamingRuntime(events=_TOOL_EVENTS)
+    flow, _ = _flow(tmp_path, runtime)
+    chat = _OrderedChat()
+
+    await flow.handle(_dm(), chat)
+
+    assert runtime.listeners == [None]
+    assert chat.posted_cards == []

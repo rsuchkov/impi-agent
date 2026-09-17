@@ -28,7 +28,10 @@ Worth reading before you rely on it.
 **It protects** the value from ever reaching the model: not in the context
 window, not in the pi session history, not in the engine's logs, not at the
 model provider. Every use leaves a ledger row, including the refused ones, and
-every use is either approved by a human or reported to one.
+every use is either approved by a human or reported to one. The one surface
+that shows what a turn ran — the [tool trace](tool-trace.md) — shows the
+arguments of each call and never its result, for the same reason: a reference
+is safe to print and a result is where the value it resolved to could appear.
 
 **It limits, but does not undo,** a compromised engine. The broker runs in its
 own container with the store's credential, and the engine has none — so taking

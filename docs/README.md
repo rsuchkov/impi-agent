@@ -34,6 +34,9 @@ people. Keep them accurate to the code.
   (SQLite by default, MongoDB optionally) versus conversation memory, which is
   the runtime's own files and does not move; how to switch, and what a switch
   does not carry across.
+- **[tool-trace.md](tool-trace.md)** — the message above a reply that lists
+  the tools the turn ran: what it shows (arguments and outcomes), what it never
+  shows (results), and why.
 - **[files.md](files.md)** — files and photos: what happens to an attachment on
   its way to the agent, where files are kept, the per-platform requirements, and
   the size/retention limits.

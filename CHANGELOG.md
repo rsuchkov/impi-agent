@@ -6,7 +6,29 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A reply now says what tools it took.** When a turn calls tools, one message
+  appears above the reply: a live counter — `Running 2 tools…` — while the turn
+  runs, settling into a button, `Running 3 tools · 1 failed →`, when it ends.
+  Clicking it redraws the same message into the list of calls, one row each
+  with the tool, how it ended and how long it took; a row opens to show its
+  arguments; `Close` puts the button back. A turn without tools leaves no
+  message. Arguments are shown and results never are — a result is the one
+  place a value an agent was granted could surface, and this is not a place
+  one may. `TOOL_TRACE_ENABLED` turns it off; traces are kept for
+  `TOOL_TRACE_RETENTION_DAYS`. See [docs/tool-trace.md](docs/tool-trace.md).
+
+  Under it, the runtime now reports its tool activity to the flow per turn, in
+  a neutral shape. It used to bind that listener when a conversation's session
+  was created and keep it for the session's life, so every later turn reported
+  to whoever started the first one.
+
+- **Fixed: buttons were dead on every Slack install.** The installer wrote
+  `INTEGRATIONS_ENABLED=false` for Slack because one condition decided two
+  things — whether interactivity is on, and whether the click receiver needs a
+  port and a public URL — and only the second is Mattermost's. Slack delivers
+  clicks on its own socket and needs no receiver. New installs get it right;
+  **an existing Slack install: delete `INTEGRATIONS_ENABLED=false` from
+  `conf/.env` and restart.**
 
 ## v0.16.0 — 2026-09-02
 

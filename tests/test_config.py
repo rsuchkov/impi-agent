@@ -81,3 +81,9 @@ def test_a_per_agent_command_token_wins_over_the_unsuffixed_one(monkeypatch) -> 
     settings = _settings(agent_name="assistant", dotenv_path="/dev/null")
 
     assert settings.command_tokens_for("assistant") == ("own",)
+
+
+def test_the_tool_trace_is_on_by_default_and_kept_two_weeks() -> None:
+    settings = _settings()
+    assert settings.tool_trace_enabled is True
+    assert settings.tool_trace_retention_days == 14

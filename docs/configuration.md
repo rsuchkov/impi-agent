@@ -218,6 +218,8 @@ human owner auto-added to private channels an agent creates.
 | `INTEGRATIONS_PORT` | `8423` | receiver port |
 | `INTEGRATIONS_PUBLIC_URL` | `""` | URL a containerized Mattermost calls back to; default `http://host.containers.internal:{port}`; `auto` = detect the host LAN IP at startup |
 | `INTEGRATIONS_UI_TIMEOUT` | `90` | seconds to await a human on a blocking confirm/select before default-reject |
+| `TOOL_TRACE_ENABLED` | `true` | the message above a reply listing the tools the turn ran — see [tool-trace.md](tool-trace.md); needs interactivity |
+| `TOOL_TRACE_RETENTION_DAYS` | `14` | drop traces older than this at startup; `0` keeps them all |
 
 Commands (slash commands) reach the same receiver at
 `POST {INTEGRATIONS_PUBLIC_URL}/command/<agent>` — register that URL with the

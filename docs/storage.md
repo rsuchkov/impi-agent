@@ -119,6 +119,7 @@ One per subject, named the way the SQLite tables are:
 | `scheduler_heartbeat` | one document; the scheduler's own liveness |
 | `approval_grants` | windows a human left open |
 | `approval_audit` | the ledger of what was asked and how it came out |
+| `tool_traces` | one turn's tool calls, for the widget under its reply — arguments and outcomes, never results |
 
 The indexes are created on first use and are load-bearing rather than an
 optimisation: they are what makes a claimed occurrence unable to fire twice and

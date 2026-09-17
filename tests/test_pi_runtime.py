@@ -23,21 +23,27 @@ class FakeSession:
         self.busy = False
         self._result = result or PiResult(text="ok")
         self._prompt_error = prompt_error
+        # The listener each turn handed over — one entry per prompt, None when
+        # the caller passed none, so a test can see WHICH turn got WHICH.
+        self.callbacks: list[object] = []
 
     def start(self) -> None:
         self.started = True
 
     async def prompt(
-        self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+        self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
+        on_event: object = None,
     ) -> PiResult:
         self.calls.append(("prompt", message))
         self.images = list(images)
+        self.callbacks.append(on_event)
         if self._prompt_error is not None:
             raise self._prompt_error
         return self._result
 
     async def follow_up(
-        self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+        self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
+        on_event: object = None,
     ) -> PiResult:
         self.calls.append(("follow_up", message))
         return self._result
@@ -53,7 +59,7 @@ def _profile(name: str = "assistant") -> PiProfile:
 def _runtime_with(sessions: list[FakeSession], **kwargs) -> PiRuntime:
     created: list[FakeSession] = []
 
-    async def factory(profile, session_id, on_event, cwd=None):
+    async def factory(profile, session_id, cwd=None):
         session = sessions[len(created)]
         created.append(session)
         return session
@@ -76,6 +82,25 @@ async def test_stateful_reuses_session_with_prompt_each_turn() -> None:
     # an idle agent, so it must NOT be used for new turns.
     assert session.calls == [("prompt", "first"), ("prompt", "second")]
     assert len(rt._created) == 1  # type: ignore[attr-defined]
+
+
+async def test_each_turn_hands_the_session_its_own_listener() -> None:
+    """A conversation has many turns and each caller wants its own events. The
+    listener used to bind when the session was created and stay for its life,
+    so every later turn reported to whoever happened to start the first one."""
+    session = FakeSession()
+    rt = _runtime_with([session])
+    profile = _profile()
+
+    def first(event) -> None: ...
+    def second(event) -> None: ...
+
+    await rt.run_stateful(profile, "assistant--T1", "a", on_event=first)
+    await rt.run_stateful(profile, "assistant--T1", "b", on_event=second)
+    await rt.run_stateful(profile, "assistant--T1", "c")
+
+    assert len(rt._created) == 1  # type: ignore[attr-defined]  # one session, three turns
+    assert session.callbacks == [first, second, None]
 
 
 async def test_stateful_different_sessions_get_different_processes() -> None:
@@ -127,7 +152,8 @@ async def test_per_session_lock_serializes_turns() -> None:
 
     class SlowSession(FakeSession):
         async def prompt(
-            self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+            self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
+            on_event: object = None,
         ) -> PiResult:
             order.append(f"start:{message}")
             await asyncio.sleep(0.02)
@@ -256,7 +282,7 @@ async def _capture_spawn(
 
     monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", fake_spawn)
     rt = PiRuntime(**runtime_kwargs)
-    await rt._spawn_session(profile, session_id, None, cwd=cwd)
+    await rt._spawn_session(profile, session_id, cwd=cwd)
     return captured
 
 
@@ -367,7 +393,7 @@ async def test_session_id_is_injected_into_env(monkeypatch) -> None:
 
     monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", fake_spawn)
     rt = PiRuntime()
-    await rt._spawn_session(_profile(), "assistant--conv1", None)
+    await rt._spawn_session(_profile(), "assistant--conv1")
     assert captured["env"]["RUNTIME_SESSION_ID"] == "assistant--conv1"
 
 

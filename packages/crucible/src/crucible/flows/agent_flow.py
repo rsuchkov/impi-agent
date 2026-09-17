@@ -9,10 +9,12 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol
 
 from crucible.attachments import sniff_image
 from crucible.ports.agent import (
     AgentError,
+    AgentEvent,
     AgentProfile,
     AgentRuntime,
     AgentTimeout,
@@ -85,6 +87,25 @@ def _parse_iso(value: str) -> datetime | None:
         return None
 
 
+class ActiveTrace(Protocol):
+    """One turn's tool activity, as far as the flow is concerned: it is fed the
+    runtime's events and told when the turn is over. What it draws, and where,
+    is its own business."""
+
+    def on_event(self, event: AgentEvent) -> None: ...
+
+    async def end(self, *, interrupted: bool = False) -> None: ...
+
+
+class TurnTracer(Protocol):
+    """Hands the flow a trace for each turn. Optional: a flow without one runs
+    exactly as before. Declared here rather than imported so this module keeps
+    its one rule — it depends on ports and the store, not on the machinery that
+    posts widgets."""
+
+    def begin(self, record: SessionRecord, chat: ChatClient) -> ActiveTrace: ...
+
+
 class AgentFlow:
     def __init__(
         self,
@@ -95,11 +116,13 @@ class AgentFlow:
         agent_name: str,
         inline_image_max_bytes: int = DEFAULT_INLINE_IMAGE_MAX_BYTES,
         max_inline_images: int = DEFAULT_MAX_INLINE_IMAGES,
+        tracer: TurnTracer | None = None,
     ) -> None:
         self._runtime = runtime
         self._profile = profile
         self._sessions = sessions
         self._agent_name = agent_name
+        self._tracer = tracer
         self._own_user_id = ""
         self._inline_image_max_bytes = inline_image_max_bytes
         self._max_inline_images = max_inline_images
@@ -165,10 +188,16 @@ class AgentFlow:
         acknowledge = not anchor.synthetic
         if acknowledge:
             await chat.add_reaction(anchor.ref, LOADING_REACTION)
+        # The trace posts nothing until the first tool runs, so a turn that
+        # only talks leaves no extra message.
+        trace = self._tracer.begin(record, chat) if self._tracer is not None else None
+        interrupted = True  # until the runtime hands back a result
         try:
             result = await self._runtime.run_stateful(
-                self._profile, record.runtime_session_id, prompt, images=images
+                self._profile, record.runtime_session_id, prompt, images=images,
+                on_event=trace.on_event if trace is not None else None,
             )
+            interrupted = False
         except AgentTimeout as exc:
             logger.warning(
                 "agent turn timed out for %s: %s", record.runtime_session_id, exc
@@ -186,6 +215,11 @@ class AgentFlow:
         finally:
             if acknowledge:
                 await chat.remove_reaction(anchor.ref, LOADING_REACTION)
+            if trace is not None:
+                # Settled before the reply is posted, so the widget sits above
+                # it — and on the timeout and error paths too, so a turn that
+                # broke mid-tool still says which tool it was in.
+                await trace.end(interrupted=interrupted)
 
         await self._sessions.touch(self._agent_name, anchor.conversation_id)
         if result.text:

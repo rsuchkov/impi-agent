@@ -5,7 +5,8 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 
-from crucible.ports.agent.runtime import PromptImage
+from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.agent.runtime import AgentEvent, PromptImage
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 from crucible.runtimes.pi import protocol
 from crucible.runtimes.pi.errors import PiProcessError, PiProtocolError, PiTimeout
@@ -14,7 +15,9 @@ from crucible.runtimes.pi.transport import PiTransport
 
 logger = logging.getLogger(__name__)
 
-EventCallback = Callable[[PiEvent], Awaitable[None] | None]
+# What a listener receives: the driver's own events as they are, and tool
+# activity translated into the port's neutral shape.
+EventCallback = Callable[[AgentEvent], Awaitable[None] | None]
 
 # extension_ui_request methods that expect a response; the rest are fire-and-forget.
 _INTERACTIVE_UI_METHODS = frozenset({"select", "confirm", "input", "editor"})
@@ -36,11 +39,19 @@ class PiResult:
 class _Turn:
     """Mutable accumulator for one in-flight prompt turn."""
 
-    def __init__(self, command_id: str) -> None:
+    def __init__(self, command_id: str, on_event: EventCallback | None = None) -> None:
         self.command_id = command_id
         self.future: asyncio.Future[PiResult] = asyncio.get_running_loop().create_future()
         self.text_parts: list[str] = []
         self.tool_calls: list[str] = []
+        # This turn's listener. Bound here, not on the session: a conversation
+        # has many turns and each caller wants its own events, so a callback
+        # that lived as long as the process would go on reporting to whoever
+        # started the first turn.
+        self.on_event = on_event
+        # When each in-flight tool call began, by its id — the driver measures
+        # duration itself because the wire carries none.
+        self.tool_started: dict[str, float] = {}
 
 
 class PiRpcSession:
@@ -93,17 +104,21 @@ class PiRpcSession:
             self._reader_task = asyncio.ensure_future(self._read_loop())
 
     async def prompt(
-        self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+        self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
+        on_event: EventCallback | None = None,
     ) -> PiResult:
         return await self._run_turn(
-            protocol.encode_prompt, message, timeout=timeout, images=images
+            protocol.encode_prompt, message, timeout=timeout, images=images,
+            on_event=on_event,
         )
 
     async def follow_up(
-        self, message: str, *, timeout: float, images: Sequence[PromptImage] = ()
+        self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
+        on_event: EventCallback | None = None,
     ) -> PiResult:
         return await self._run_turn(
-            protocol.encode_follow_up, message, timeout=timeout, images=images
+            protocol.encode_follow_up, message, timeout=timeout, images=images,
+            on_event=on_event,
         )
 
     async def abort(self) -> None:
@@ -134,6 +149,7 @@ class PiRpcSession:
         *,
         timeout: float,
         images: Sequence[PromptImage] = (),
+        on_event: EventCallback | None = None,
     ) -> PiResult:
         if self._closed:
             raise PiProcessError("Session is closed")
@@ -147,7 +163,7 @@ class PiRpcSession:
             self.start()
 
         command_id = protocol.new_command_id()
-        turn = _Turn(command_id)
+        turn = _Turn(command_id, on_event)
         self._turn = turn
         self._ui_wait_started = None
         self._ui_wait_total = 0.0
@@ -241,7 +257,7 @@ class PiRpcSession:
             turn.future.set_exception(exc)
 
     async def _dispatch(self, event: PiEvent) -> None:
-        await self._notify(event)
+        await self._notify(self._translate(event))
 
         if event.type == protocol.EV_EXTENSION_UI_REQUEST:
             await self._handle_ui_request(event)
@@ -362,11 +378,47 @@ class PiRpcSession:
             request_id, value="Allow" if allow else "Block", confirmed=allow
         )
 
-    async def _notify(self, event: PiEvent) -> None:
-        if self._on_event is None:
+    def _translate(self, event: PiEvent) -> AgentEvent:
+        """Tool activity crosses the port in its neutral shape; everything else
+        is handed over as the driver received it.
+
+        Duration is measured here, between the two lines, because the wire
+        carries no timing. An end without a start (a build that sends no call
+        id, or a start that arrived before this turn) reports zero rather than
+        guessing.
+        """
+        if event.type not in (
+            protocol.EV_TOOL_EXECUTION_START,
+            protocol.EV_TOOL_EXECUTION_END,
+        ):
+            return event
+        turn = self._turn
+        name = protocol.tool_name(event) or ""
+        # Older builds send no id; pairing by name is right for them, since
+        # they run tools one at a time.
+        call_id = protocol.tool_call_id(event) or name
+        now = asyncio.get_running_loop().time()
+        if event.type == protocol.EV_TOOL_EXECUTION_START:
+            if turn is not None:
+                turn.tool_started[call_id] = now
+            return ToolStarted(call_id=call_id, tool=name, args=protocol.tool_args(event))
+        began = turn.tool_started.pop(call_id, None) if turn is not None else None
+        return ToolFinished(
+            call_id=call_id,
+            tool=name,
+            is_error=protocol.tool_is_error(event),
+            duration_s=0.0 if began is None else now - began,
+        )
+
+    async def _notify(self, event: AgentEvent) -> None:
+        # The turn's own listener first; the session-wide one is an observer
+        # for whoever built the session and only answers when no turn asked.
+        turn = self._turn
+        callback = turn.on_event if turn is not None and turn.on_event else self._on_event
+        if callback is None:
             return
         try:
-            result = self._on_event(event)
+            result = callback(event)
             if asyncio.iscoroutine(result):
                 await result
         except Exception:

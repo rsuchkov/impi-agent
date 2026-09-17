@@ -255,6 +255,13 @@ class Settings(BaseSettings):
     integrations_public_url: str = ""  # default: http://host.containers.internal:{port}
     integrations_ui_timeout: float = 90.0  # blocking confirm/select: human-answer window
 
+    # The widget under a reply that lists the tools the turn ran (env:
+    # TOOL_TRACE_*). It shows arguments and outcomes, never results, and needs
+    # interactivity — with it off there is nothing to route the click to.
+    # Retention is in days of the trace's own age; 0 keeps every one.
+    tool_trace_enabled: bool = True
+    tool_trace_retention_days: int = 14
+
     # Scheduled and recurring work (env: SCHEDULER_*) — read grouped via
     # `.scheduler`. Off means the ticker never starts and no agent is offered
     # the scheduling tools; a health check then says "off", not "broken".

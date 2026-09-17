@@ -369,16 +369,8 @@ else
     [ -n "${IMPI_DEFAULT_PROVIDER:-}" ] && env_set DEFAULT_PROVIDER "$IMPI_DEFAULT_PROVIDER" "$ENV_FILE"
     [ -n "${IMPI_DEFAULT_MODEL:-}" ] && env_set DEFAULT_MODEL "$IMPI_DEFAULT_MODEL" "$ENV_FILE"
 fi
-if [ "${IMPI_WIDGETS:-no}" = yes ] && [ "$IMPI_GATEWAY" = mattermost ]; then
-    env_set INTEGRATIONS_PORT 8423 "$ENV_FILE"
-    if [ "$IMPI_MM_MODE" = codeploy ]; then
-        env_set INTEGRATIONS_PUBLIC_URL "http://impi:8423" "$ENV_FILE"
-    else
-        env_set INTEGRATIONS_PUBLIC_URL "$IMPI_PUBLIC_URL" "$ENV_FILE"
-    fi
-else
-    env_set INTEGRATIONS_ENABLED false "$ENV_FILE"
-fi
+write_interactivity_env "$IMPI_GATEWAY" "${IMPI_WIDGETS:-no}" "$IMPI_MM_MODE" \
+    "${IMPI_PUBLIC_URL:-}" "$ENV_FILE"
 if [ "$IMPI_VAULT" = 1 ]; then
     # Nothing goes in the engine's .env: the engine knows nothing about secrets.
     # Where to ask and where the identities are mounted are declared by the

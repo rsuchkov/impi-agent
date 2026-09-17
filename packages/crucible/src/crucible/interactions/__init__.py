@@ -16,6 +16,7 @@ from crucible.interactions.dispatcher import (
 )
 from crucible.interactions.presence import AgentPresence, MappingPresence
 from crucible.interactions.server import InteractionsServer
+from crucible.interactions.tooltrace import TRACE_SCREEN, ToolTrace, TraceScreen
 from crucible.interactions.wiring import InteractionWiring
 
 __all__ = [
@@ -27,4 +28,7 @@ __all__ = [
     "InteractionsServer",
     "InteractionWiring",
     "MappingPresence",
+    "TRACE_SCREEN",
+    "ToolTrace",
+    "TraceScreen",
 ]

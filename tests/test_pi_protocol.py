@@ -139,3 +139,41 @@ def test_prompt_carries_images_as_base64_content_blocks() -> None:
 def test_a_turn_without_images_carries_no_images_field() -> None:
     assert "images" not in json.loads(protocol.encode_prompt("hi", command_id="r"))
     assert "images" not in json.loads(protocol.encode_follow_up("hi", command_id="r"))
+
+
+# --- what a tool event carries beyond its name ---------------------------------
+
+
+def _event(**raw) -> protocol.PiEvent:
+    return protocol.parse_line(json.dumps(raw))
+
+
+def test_tool_parsers_read_the_wires_real_shape() -> None:
+    start = _event(type="tool_execution_start", toolCallId="c1", toolName="bash",
+                   args={"command": "make test", "timeout": 120})
+    end = _event(type="tool_execution_end", toolCallId="c1", toolName="bash",
+                 isError=True, result={"content": [{"type": "text", "text": "boom"}]})
+
+    assert protocol.tool_call_id(start) == "c1"
+    assert protocol.tool_args(start) == {"command": "make test", "timeout": 120}
+    assert protocol.tool_is_error(start) is False  # a start never reports failure
+    assert protocol.tool_call_id(end) == "c1"
+    assert protocol.tool_is_error(end) is True
+
+
+def test_tool_parsers_tolerate_a_build_that_sends_only_the_name() -> None:
+    # Older fixtures (and older builds) carry nothing but toolName; every field
+    # then has a quiet default rather than a KeyError in the reader loop.
+    bare = _event(type="tool_execution_end", toolName="read")
+
+    assert protocol.tool_call_id(bare) == ""
+    assert protocol.tool_args(bare) == {}
+    assert protocol.tool_is_error(bare) is False
+
+
+def test_tool_args_is_the_object_not_a_string_and_never_something_else() -> None:
+    # A string here would mean parsing the model's JSON twice; anything that is
+    # not a mapping is treated as no arguments at all.
+    assert protocol.tool_args(_event(type="tool_execution_start", args='{"a": 1}')) == {}
+    assert protocol.tool_args(_event(type="tool_execution_start", args=[1, 2])) == {}
+    assert protocol.tool_is_error(_event(type="tool_execution_end", isError="yes")) is False

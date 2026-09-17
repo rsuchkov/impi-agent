@@ -70,3 +70,27 @@ setup() {
     [ -z "$(env_get MISSING "$WORK/.env")" ]
     [ -z "$(env_get A "$WORK/nonexistent")" ]
 }
+
+@test "interactivity: Slack with widgets writes neither the off switch nor a receiver" {
+    write_interactivity_env slack yes slack "" "$WORK/.env"
+    # Nothing at all: the engine's default is on, and Slack needs no receiver.
+    [ ! -e "$WORK/.env" ]
+}
+
+@test "interactivity: Mattermost codeploy with widgets gets the port and the compose-internal URL" {
+    write_interactivity_env mattermost yes codeploy "" "$WORK/.env"
+    [ "$(env_get INTEGRATIONS_PORT "$WORK/.env")" = 8423 ]
+    [ "$(env_get INTEGRATIONS_PUBLIC_URL "$WORK/.env")" = "http://impi:8423" ]
+    ! grep -q '^INTEGRATIONS_ENABLED=' "$WORK/.env"
+}
+
+@test "interactivity: Mattermost external with widgets gets the operator's URL" {
+    write_interactivity_env mattermost yes external "http://10.0.0.9:8423" "$WORK/.env"
+    [ "$(env_get INTEGRATIONS_PUBLIC_URL "$WORK/.env")" = "http://10.0.0.9:8423" ]
+}
+
+@test "interactivity: any gateway without widgets is switched off, and nothing else is written" {
+    write_interactivity_env slack no slack "" "$WORK/.env"
+    [ "$(env_get INTEGRATIONS_ENABLED "$WORK/.env")" = false ]
+    ! grep -q '^INTEGRATIONS_PORT=' "$WORK/.env"
+}

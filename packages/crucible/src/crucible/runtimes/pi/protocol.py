@@ -202,3 +202,23 @@ def tool_name(event: PiEvent) -> str | None:
         if isinstance(name, str):
             return name
     return None
+
+
+def tool_call_id(event: PiEvent) -> str:
+    """The id pairing a tool_execution_start with its _end; "" when the build
+    sends none (older fixtures do), in which case callers pair by name."""
+    value = event.raw.get("toolCallId")
+    return value if isinstance(value, str) else ""
+
+
+def tool_args(event: PiEvent) -> dict[str, Any]:
+    """The call's arguments, on tool_execution_start only. The parsed object as
+    the model wrote it — never a string to be parsed again here."""
+    value = event.raw.get("args")
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def tool_is_error(event: PiEvent) -> bool:
+    """Whether a tool_execution_end reports failure. Absent means it succeeded:
+    the runtime sets the flag only when it means it."""
+    return event.raw.get("isError") is True

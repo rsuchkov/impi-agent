@@ -47,6 +47,8 @@ from crucible.interactions import (
     InteractionsServer,
     InteractionWiring,
     MappingPresence,
+    ToolTrace,
+    TraceScreen,
 )
 from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
@@ -169,6 +171,9 @@ class App:
     screens: ScreenRegistry
     ws_hub: WsHub | None = None
     scheduler: Scheduler | None = None
+    # The tool widget under a reply. None when interactivity or the widget is
+    # off; the screen that answers its clicks is registered either way.
+    tracer: ToolTrace | None = None
 
 
 def _engine_version() -> str:
@@ -244,12 +249,14 @@ def _build_unit(
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
     inline_image_max_bytes: int,
+    tracer: ToolTrace | None,
 ) -> AgentUnit:
     profile = profiles.build(spec)
     flow = AgentFlow(
         runtime, profile, sessions,
         agent_name=spec.name,
         inline_image_max_bytes=inline_image_max_bytes,
+        tracer=tracer,
     )
     coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
     # Record the agent's live presence in the app-owned registry; interactions read
@@ -271,6 +278,7 @@ def _build_units(
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
+    tracer: ToolTrace | None,
 ) -> list[AgentUnit]:
     units: list[AgentUnit] = []
     for spec in specs:
@@ -298,6 +306,7 @@ def _build_units(
                 runtime=runtime, sessions=sessions, profiles=profiles,
                 interactions=interactions, sinks_by_agent=sinks_by_agent,
                 inline_image_max_bytes=int(settings.inline_image_max_mb * 1024 * 1024),
+                tracer=tracer,
             )
         )
     return units
@@ -374,6 +383,10 @@ def build_app(settings: ImpiSettings) -> App:
             scheduler_enabled=settings.scheduler.enabled,
         )
     )
+    # The panel under a reply that lists the turn's tool calls. Registered
+    # whenever interactivity is on, whether or not new ones are being drawn:
+    # a button posted before the widget was turned off must still open.
+    screens.register(TraceScreen(sessions))
     # Which agents this engine actually runs — a profile with no token is not one
     # of them. It answers /command/default, so a deployment can register a slash
     # command without naming an agent in its URL.
@@ -459,11 +472,23 @@ def build_app(settings: ImpiSettings) -> App:
         ws_hub=ws_hub, attachments=attachments,
     )
 
+    # Only with a dispatcher to route the click to: with interactivity off the
+    # button would be dead, and a dead control is worse than no widget.
+    tracer = (
+        ToolTrace(
+            sessions,
+            callback_url=settings.integrations.interact_url,
+            retention_days=settings.tool_trace_retention_days,
+        )
+        if settings.integrations.enabled and settings.tool_trace_enabled
+        else None
+    )
     units = _build_units(
         specs, configs, engine_names,
         settings=settings, runtime=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools,
         profiles=profile_builder, interactions=interactions, sinks_by_agent=sinks_by_agent,
+        tracer=tracer,
     )
     if not units:
         raise RuntimeError("No agents with a gateway token — nothing to run")
@@ -581,6 +606,7 @@ def build_app(settings: ImpiSettings) -> App:
         screens=screens,
         ws_hub=ws_hub,
         scheduler=scheduler,
+        tracer=tracer,
     )
 
 
@@ -608,6 +634,9 @@ async def _supervise(
 
 async def run(settings: ImpiSettings) -> None:
     app = build_app(settings)
+    if app.tracer is not None:
+        # Like the attachment sweep: old traces go at boot, not on a timer.
+        await app.tracer.sweep()
     app.runtime.start()
     if app.tool_server is not None:
         # Up before the gateways: a pi turn may call a tool the moment it starts.

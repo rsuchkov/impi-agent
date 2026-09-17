@@ -28,6 +28,7 @@ RUNS = "task_runs"
 HEARTBEAT = "scheduler_heartbeat"
 GRANTS = "approval_grants"
 AUDIT = "approval_audit"
+TRACES = "tool_traces"
 
 # The heartbeat is one document by construction, the way it is one row in
 # SQLite: a reader asks for THE beat, so there is nothing to choose between.
@@ -72,6 +73,7 @@ async def create_indexes(db: AsyncDatabase) -> None:
     await db[RUNS].create_index([("notified", 1), ("status", 1), ("finished_at", 1)])
     await db[GRANTS].create_index([("kind", 1), ("principal", 1), ("scope", 1)])
     await db[AUDIT].create_index([("at", -1)])
+    await db[TRACES].create_index([("finished_at", 1)])
 
 
 class MongoBase:

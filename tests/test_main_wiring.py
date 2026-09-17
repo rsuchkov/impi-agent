@@ -313,3 +313,53 @@ def test_an_engine_agent_is_told_where_the_engine_is_even_with_tools_off(
     assert wiring.profile_env(
         dataclasses.replace(spec, name="assistant")
     ) is None  # an ordinary agent still gets nothing
+
+
+# --- the tool widget under a reply --------------------------------------------
+
+
+async def _closed(app) -> None:
+    for unit in app.units:
+        stop = getattr(unit.gateway, "stop", None)
+        if stop is not None:
+            await stop()
+    await app.sessions.close()
+
+
+async def test_the_tool_trace_is_wired_in_by_default_and_its_screen_is_unlisted(
+    tmp_path: Path,
+) -> None:
+    from crucible.interactions import TRACE_SCREEN, ToolTrace
+
+    app = build_app(_settings(tmp_path))
+    try:
+        assert isinstance(app.tracer, ToolTrace)
+        assert app.units[0].flow._tracer is app.tracer
+        # Clicks route to the screen; nobody is offered it as a panel.
+        assert app.screens.get(TRACE_SCREEN) is not None
+        assert TRACE_SCREEN not in app.screens.names()
+    finally:
+        await _closed(app)
+
+
+async def test_the_tool_trace_can_be_switched_off(tmp_path: Path) -> None:
+    from crucible.interactions import TRACE_SCREEN
+
+    app = build_app(_settings(tmp_path).model_copy(update={"tool_trace_enabled": False}))
+    try:
+        assert app.tracer is None
+        assert app.units[0].flow._tracer is None
+        # The screen stays: a button posted before the switch must still open.
+        assert app.screens.get(TRACE_SCREEN) is not None
+    finally:
+        await _closed(app)
+
+
+async def test_no_interactivity_means_no_tool_trace(tmp_path: Path) -> None:
+    # Without a dispatcher the button would be dead, and a dead control is
+    # worse than no widget at all.
+    app = build_app(_settings(tmp_path).model_copy(update={"integrations_enabled": False}))
+    try:
+        assert app.tracer is None
+    finally:
+        await _closed(app)

@@ -125,6 +125,11 @@ it. Two things follow, and they are worth knowing when writing a `SYSTEM.md`:
   what the posted message does not say. The engine posts whatever the agent
   writes; nothing is dropped.
 
+Separately from what an agent asks, the engine itself posts a message above
+every reply whose turn ran tools — a live counter that settles into a button
+listing the calls. Nothing in a profile turns it on; see
+[tool-trace.md](tool-trace.md).
+
 ### Form field types
 
 One neutral vocabulary; each platform renders its own control. Nothing in an

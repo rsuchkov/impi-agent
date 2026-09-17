@@ -97,6 +97,11 @@ class Screen(Protocol):
     async def render(self, state: ScreenState, *, user_id: str) -> View: ...
 
 
+# A screen may also declare ``listed = False``: registered, so its clicks route
+# to it, but not among the names a caller is offered — for a screen that only
+# ever appears because the engine posted it, and would open empty by hand.
+
+
 class Admitting(Protocol):
     """A screen that decides who may open it, and where.
 
@@ -157,8 +162,13 @@ class ScreenRegistry:
 
     def names(self) -> tuple[str, ...]:
         """The words this engine answers itself — what a caller may ask for, and
-        what to name back when it asks for something else."""
-        return tuple(sorted(self._screens))
+        what to name back when it asks for something else. A screen that is
+        registered only to route its own clicks (``listed = False``) is not one
+        of them."""
+        return tuple(sorted(
+            name for name, screen in self._screens.items()
+            if getattr(screen, "listed", True)
+        ))
 
     def __bool__(self) -> bool:
         return bool(self._screens)

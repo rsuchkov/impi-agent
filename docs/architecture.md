@@ -216,6 +216,14 @@ in `MappingPresence`) and fills it as it builds each agent. So `InteractionWirin
 builds everything up front from the presence — no per-agent `register`, no
 post-loop `finalize`.
 
+**The tool trace** is the third kind of screen, and the one the engine posts on
+its own: `crucible.interactions.tooltrace`. The flow hands each turn a trace and
+feeds it the runtime's neutral tool events (`ToolStarted`/`ToolFinished`, from
+`ports/agent/events.py`); the trace draws a live counter through the agent's own
+`ChatClient`, writes the calls to the store when the turn ends, and settles the
+message into a button. Its screen is registered but not listed — clicks route to
+it, nobody is offered it by name. See [tool-trace.md](tool-trace.md).
+
 ## The composition root
 
 `impi/app.py` is the one place concrete adapters meet. `build_app(settings)`

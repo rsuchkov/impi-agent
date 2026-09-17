@@ -46,3 +46,27 @@ env_get() {
     esac
     printf '%s\n' "$value"
 }
+
+# write_interactivity_env GATEWAY WIDGETS MM_MODE PUBLIC_URL ENV_FILE — the
+# engine's interactivity keys. Two decisions that used to share one condition,
+# kept apart here: whether interactivity is ON (the widgets answer), and
+# whether the click RECEIVER needs a port and a public URL (only Mattermost
+# calls back over HTTP; Slack delivers clicks on its own socket).
+#
+# So Slack with widgets gets neither key: the engine's default is on, and its
+# gateway builds no receiver. Writing INTEGRATIONS_ENABLED=false there — which
+# is what the fused condition did — left every button dead on a Slack install.
+write_interactivity_env() {
+    local gateway=$1 widgets=$2 mm_mode=$3 public_url=$4 env_file=$5
+    if [ "$widgets" != yes ]; then
+        env_set INTEGRATIONS_ENABLED false "$env_file"
+        return 0
+    fi
+    [ "$gateway" = mattermost ] || return 0
+    env_set INTEGRATIONS_PORT 8423 "$env_file"
+    if [ "$mm_mode" = codeploy ]; then
+        env_set INTEGRATIONS_PUBLIC_URL "http://impi:8423" "$env_file"
+    else
+        env_set INTEGRATIONS_PUBLIC_URL "$public_url" "$env_file"
+    fi
+}

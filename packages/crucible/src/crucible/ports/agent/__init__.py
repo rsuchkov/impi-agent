@@ -9,6 +9,12 @@ from crucible.ports.agent.errors import (
     AgentUnavailable,
     message_for,
 )
+from crucible.ports.agent.events import (
+    TOOL_FINISHED,
+    TOOL_STARTED,
+    ToolFinished,
+    ToolStarted,
+)
 from crucible.ports.agent.runtime import (
     AgentEvent,
     AgentProfile,
@@ -32,6 +38,10 @@ __all__ = [
     "AgentRuntime",
     "AgentSpec",
     "EventCallback",
+    "TOOL_FINISHED",
+    "TOOL_STARTED",
+    "ToolFinished",
+    "ToolStarted",
     "LLM_FALLBACK_MESSAGE",
     "INTERNAL_ERROR_MESSAGE",
     "PromptImage",
