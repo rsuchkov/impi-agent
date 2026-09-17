@@ -8,7 +8,7 @@ on what terms.
 
 from pathlib import Path
 
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from ward.store import SecretPolicyRecord, WardStore
 from wardline.wire import APPROVAL_ALWAYS, APPROVAL_NEVER
 

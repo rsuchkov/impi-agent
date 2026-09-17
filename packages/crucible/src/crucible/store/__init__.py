@@ -34,7 +34,7 @@ from crucible.store.base import (
     TraceStore,
     derive_runtime_session_id,
 )
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 
 
 def open_store(backend: str = SQLITE, *, name: str | Path = "", url: str = "") -> Store:

@@ -43,7 +43,7 @@ from crucible.store.base import (
     TaskRecord,
     TaskRunRecord,
 )
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 
 START = datetime(2026, 8, 8, 9, 0, tzinfo=timezone.utc)
 

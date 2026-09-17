@@ -2,9 +2,9 @@
 dedup and agent facets, composed with the task and approval mixins into the one
 class an application constructs.
 
-Mirrors ``store/sessions.py`` method for method on purpose — the two are meant
-to be readable side by side, because the conformance suite holds them to the
-same answers.
+One method per port method, in the port's own order — the same order the
+SQLite package keeps — so the two backends read side by side; the conformance
+suite holds both to the same answers.
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ from crucible.store.mongo.traces import MongoTraceMixin
 class MongoSessionStore(MongoTaskMixin, MongoApprovalMixin, MongoTraceMixin):
     """The whole inventory on MongoDB — every facet of the ``Store`` port.
 
-    Async all the way down: ``pymongo`` ships its own async client, so unlike
-    the SQLite backend there is no thread to hop to and no sync core underneath.
+    Async all the way down: ``pymongo`` ships its own async client, so there is
+    no thread to hop to and no sync core underneath.
     """
 
     def __init__(self, url: str, database: str) -> None:

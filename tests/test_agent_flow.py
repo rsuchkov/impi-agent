@@ -21,7 +21,7 @@ from crucible.ports.chat.types import (
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.session import PiResult
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
 
 

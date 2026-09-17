@@ -10,7 +10,7 @@ from crucible.ports.tasks import TaskError
 from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.triggers import JITTER_CAP_S, from_iso
 from crucible.store.base import MODE_PROMPT, STATE_IDLE, STATE_PAUSED
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from crucible.tools.base import CAP_SCHEDULER, ToolContext, ToolError
 from impi.task_tools import CancelTask, ListTasks, PauseTask, ScheduleTask
 

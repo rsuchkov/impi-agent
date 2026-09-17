@@ -2,7 +2,7 @@ from pathlib import Path
 
 from crucible.ports.agent import AgentSpec
 from crucible.ports.chat.gateway import AgentIdentity
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from impi.registry import RegistryService
 
 

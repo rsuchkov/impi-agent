@@ -1,9 +1,9 @@
 """The TaskStore / SchedulerStateStore facets of the MongoDB backend.
 
-The claim protocol is the whole reason this file needs care. SQLite advances the
-schedule and opens the run row inside one transaction; a standalone mongod has
-no transaction to offer, so the same guarantee is bought a different way — see
-``claim_due``.
+The claim protocol is the whole reason this file needs care. The port promises
+that advancing the schedule and opening the run row happen together; a
+standalone mongod has no transaction to offer, so that guarantee is bought by
+ordering instead — see ``claim_due``.
 """
 
 from __future__ import annotations
@@ -55,9 +55,9 @@ class MongoTaskMixin(MongoBase):
             query["agent"] = agent
         if conversation_id:
             query["conversation_id"] = conversation_id
-        # _id IS the task id, so this is the same tiebreaker SQLite uses:
-        # created_at has second resolution and two tasks made in one second
-        # would otherwise come back in whatever order the sorter felt like.
+        # _id IS the task id, so it breaks the tie: created_at has second
+        # resolution, and two tasks made in one second would otherwise come
+        # back in whatever order the sorter felt like.
         cursor = db[TASKS].find(query).sort([("created_at", 1), ("_id", 1)])
         return [from_doc(TaskRecord, doc) async for doc in cursor]
 
@@ -156,16 +156,16 @@ class MongoTaskMixin(MongoBase):
     ) -> TaskRunRecord | None:
         """Take the lease on one occurrence and open its run row.
 
-        SQLite does both inside one transaction. Here the run row goes FIRST and
-        the claim second, which gets the same guarantee out of two single-document
-        operations:
+        The port asks for both as one step. Without a transaction to make them
+        one, the run row goes FIRST and the claim second, which gets the same
+        guarantee out of two single-document operations:
 
         * The run insert is the occurrence lock. `(task_id, scheduled_at)` is
           unique, so a second caller for the same occurrence is refused here,
-          before anything has been mutated — the belt-and-braces case in SQLite
-          becomes the first line of defence.
+          before anything has been mutated — the unique index is the first line
+          of defence, not the belt and braces.
         * The claim is the compare-and-swap, with `due_at = seen_due_at` as the
-          token, exactly as in SQLite.
+          token.
 
         Doing it the other way round would leave the loser of a race having
         advanced somebody else's schedule. In this order the only thing to undo
@@ -296,11 +296,10 @@ class MongoTaskMixin(MongoBase):
         """Drop finished history older than ``before``, keeping the newest
         ``keep_per_task`` of every task whatever their age.
 
-        SQLite says this in one statement with a window function. Here the
-        "newest N per task" set is worked out first and then excluded, which is
-        the same rule spelled out rather than a different one: the keep set is
-        computed over ALL of a task's runs, not only the ones being considered
-        for deletion.
+        The "newest N per task" set is worked out first and then excluded. The
+        keep set is computed over ALL of a task's runs, not only the ones being
+        considered for deletion — that is the rule, and it is the same rule
+        whatever holds the rows.
         """
         db = await self._ready()
         keep: list[str] = []

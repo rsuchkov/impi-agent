@@ -2,10 +2,10 @@
 names, and the lazy index build.
 
 Records go in as their own fields — the dataclasses are already flat documents,
-which is why this backend needed no reshaping of the port. What differs from
-SQLite is written down where it happens, not smoothed over: two places (the
-claim and the skip) buy atomicity with an ordering trick instead of a
-transaction, and both say so.
+which is why this backend needed no reshaping of the port. Where the port's
+promise costs something particular here it is written down where it happens,
+not smoothed over: two places (the claim and the skip) buy atomicity with an
+ordering trick instead of a transaction, and both say so.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ GRANTS = "approval_grants"
 AUDIT = "approval_audit"
 TRACES = "tool_traces"
 
-# The heartbeat is one document by construction, the way it is one row in
-# SQLite: a reader asks for THE beat, so there is nothing to choose between.
+# The heartbeat is one document by construction: a reader asks for THE beat,
+# so there is nothing to choose between.
 HEARTBEAT_ID = 1
 
 
@@ -46,13 +46,12 @@ def to_doc(record: object, **extra: Any) -> dict[str, Any]:
 def from_doc(cls: type[T], doc: dict[str, Any]) -> T:
     """A document back as a record, ignoring whatever else the document carries
     (`_id`, and any field a newer engine added). Reading by an explicit field
-    list is what lets an older engine keep working against a newer collection —
-    the same promise the SQLite backend makes by naming its columns."""
+    list is what lets an older engine keep working against a newer collection."""
     return cls(**{f.name: doc[f.name] for f in fields(cls)})  # type: ignore[arg-type,call-arg]
 
 
 async def create_indexes(db: AsyncDatabase) -> None:
-    """Every uniqueness the SQLite schema states as a constraint.
+    """Every uniqueness the port relies on, as an index.
 
     These are not an optimisation. Each one is load-bearing: they are what makes
     `get_or_create` idempotent, a replayed post a no-op, and an occurrence
@@ -67,8 +66,8 @@ async def create_indexes(db: AsyncDatabase) -> None:
     await db[TASKS].create_index([("state", 1), ("due_at", 1)])
     await db[TASKS].create_index([("state", 1), ("next_run_at", 1)])
     await db[RUNS].create_index([("run_id", 1)], unique=True)
-    # Belt and braces behind the claim's compare-and-swap, exactly as in SQLite:
-    # one occurrence of one task gets one run, whatever the callers do.
+    # Belt and braces behind the claim's compare-and-swap: one occurrence of
+    # one task gets one run, whatever the callers do.
     await db[RUNS].create_index([("task_id", 1), ("scheduled_at", 1)], unique=True)
     await db[RUNS].create_index([("notified", 1), ("status", 1), ("finished_at", 1)])
     await db[GRANTS].create_index([("kind", 1), ("principal", 1), ("scope", 1)])

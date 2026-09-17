@@ -14,7 +14,6 @@ the write lock until someone else commits.
 
 import asyncio
 import sqlite3
-import threading
 from dataclasses import fields
 
 from crucible.store.base import (
@@ -27,6 +26,7 @@ from crucible.store.base import (
     TaskRecord,
     TaskRunRecord,
 )
+from crucible.store.sqlite.base import SqliteBase
 
 _TASK_SCHEMA = """
 -- Scheduled work. Timestamps are UTC ISO8601 (seconds), so string order is time
@@ -142,14 +142,8 @@ def _values(record: object, names: tuple[str, ...]) -> tuple:
     return tuple(getattr(record, name) for name in names)
 
 
-class TaskStoreMixin:
+class TaskStoreMixin(SqliteBase):
     """The TaskStore/SchedulerStateStore facets of the SQLite store."""
-
-    # Declared, not created: both belong to the store this is mixed into. The
-    # annotations exist so the type checker knows the methods below may use
-    # them — without them every `self._conn` here is an unknown attribute.
-    _conn: sqlite3.Connection
-    _lock: threading.Lock
 
     def _create_task_tables(self) -> None:
         """Create this facet's tables. The composing store calls it while it

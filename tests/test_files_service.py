@@ -7,7 +7,7 @@ import pytest
 from crucible.interactions.files import ChatFileService, default_roots
 from crucible.ports.chat.files import FileError
 from crucible.ports.chat.types import KIND_DM, KIND_THREAD
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.presence import presence_of
 

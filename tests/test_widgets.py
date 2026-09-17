@@ -14,7 +14,7 @@ from crucible.interactions import (
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.service import InteractionService
 from crucible.ports.chat.types import KIND_DM, KIND_THREAD, Action, ConversationRef
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.presence import presence_of
 

@@ -15,7 +15,7 @@ from crucible.interactions.screens import (
     state_from_context,
 )
 from crucible.skills import SkillLibrary
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from impi.skill_screen import PAGE_SIZE, SkillScreen
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.presence import presence_of

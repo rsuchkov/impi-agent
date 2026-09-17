@@ -7,11 +7,10 @@ see ``TraceRecord`` — so nothing here is a place a granted value could land.
 """
 
 import asyncio
-import sqlite3
-import threading
 from dataclasses import fields
 
 from crucible.store.base import TraceRecord
+from crucible.store.sqlite.base import SqliteBase
 
 _TRACES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS tool_traces (
@@ -35,12 +34,8 @@ _TRACE_COLUMNS = ", ".join(_TRACE_FIELDS)
 _TRACE_PLACEHOLDERS = ", ".join("?" * len(_TRACE_FIELDS))
 
 
-class TraceStoreMixin:
+class TraceStoreMixin(SqliteBase):
     """The TraceStore facet of the SQLite store."""
-
-    # Declared, not created: both belong to the store this is mixed into.
-    _conn: sqlite3.Connection
-    _lock: threading.Lock
 
     def _create_trace_tables(self) -> None:
         """Create this facet's table. The composing store calls it while it

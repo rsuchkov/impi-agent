@@ -7,7 +7,7 @@ from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.agent.ui import UiRequest
 from crucible.ports.chat.types import KIND_DM, Action, ConversationRef
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.presence import presence_of
 
 

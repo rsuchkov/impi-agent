@@ -1,5 +1,5 @@
 """The TraceStore facet of the MongoDB backend: one turn's tool calls, kept for
-the widget that shows them. Mirrors ``store/traces.py`` method for method."""
+the widget that shows them."""
 
 from __future__ import annotations
 

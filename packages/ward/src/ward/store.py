@@ -16,7 +16,7 @@ import threading
 from dataclasses import dataclass, fields
 from typing import Protocol
 
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from ward.autorules import decode
 
 

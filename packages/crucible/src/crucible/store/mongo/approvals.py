@@ -39,7 +39,8 @@ class MongoApprovalMixin(MongoBase):
         if not include_dead:
             query["revoked_at"] = ""
             query["expires_at"] = {"$gt": now}
-        # _id IS the grant id, so this is SQLite's `granted_at DESC, id DESC`.
+        # _id IS the grant id, so it breaks the tie between windows opened in
+        # the same second — newest first, then by id.
         cursor = db[GRANTS].find(query).sort([("granted_at", -1), ("_id", -1)])
         return [from_doc(ApprovalGrant, doc) async for doc in cursor]
 

@@ -73,7 +73,7 @@ from crucible.interactions import AgentSink, InteractionWiring, MappingPresence
 from crucible.profiles import FsProfileStore
 from crucible.runtimes.pi import build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from crucible.tools import ToolWiring
 
 

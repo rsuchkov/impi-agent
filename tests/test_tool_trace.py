@@ -38,7 +38,7 @@ from crucible.interactions.tooltrace import (
 )
 from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.store.base import SessionRecord, TraceRecord
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.presence import presence_of
 

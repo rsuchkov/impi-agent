@@ -8,7 +8,7 @@ import pytest
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways.mattermost import MattermostChatClient, MattermostGateway
 from crucible.runtimes.pi.profiles import PiProfile
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from impi.app import App, build_app, build_pi_env, build_pi_extensions
 from impi.config import ImpiSettings as Settings
 

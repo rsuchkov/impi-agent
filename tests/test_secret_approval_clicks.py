@@ -32,7 +32,7 @@ from crucible.interactions import (
 )
 from crucible.interactions.pending_ui import CONFIRM_YES, PendingUiRequests
 from crucible.ports.chat.types import ACTION_SELECT
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.presence import presence_of
 
 APPROVER = "uid-roman"

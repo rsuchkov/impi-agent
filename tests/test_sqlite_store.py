@@ -11,7 +11,7 @@ import sqlite3
 from pathlib import Path
 
 from crucible.store.base import FormRecord, SchedulerHeartbeat
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from tests.test_approval_store import _audit, _grant
 from tests.test_scheduler_store import T0, T1, T2, _run, _task
 

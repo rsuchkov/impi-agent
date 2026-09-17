@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from crucible.store.base import Store
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 
 # A Mongo backend needs a real server: the claim protocol rests on atomicity
 # that only a server provides, and a fake would agree with us for the wrong

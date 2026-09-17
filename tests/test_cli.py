@@ -170,7 +170,7 @@ def test_ws_add_service_rejects_bad_names(_isolated_env):
 def _task_db(tmp_path, monkeypatch):
     """A throwaway engine database with one conversation the CLI can schedule in."""
     from crucible.ports.chat.types import KIND_DM
-    from crucible.store.sessions import SqliteSessionStore
+    from crucible.store.sqlite import SqliteSessionStore
 
     monkeypatch.setenv("DOTENV_PATH", "/dev/null")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
@@ -222,7 +222,7 @@ def test_a_schedule_that_does_not_parse_is_a_message_not_a_traceback(
 
 def test_task_run_now_only_asks_the_engine(tmp_path, monkeypatch, capsys) -> None:
     # The CLI container has no gateways: it moves the schedule, the engine runs it.
-    from crucible.store.sessions import SqliteSessionStore
+    from crucible.store.sqlite import SqliteSessionStore
 
     _task_db(tmp_path, monkeypatch)
     cli.main([

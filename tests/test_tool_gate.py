@@ -23,7 +23,7 @@ from crucible.interactions.toolgate import ToolGate
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.types import ACTION_SELECT, KIND_DM
 from crucible.store.base import KIND_TOOL
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from crucible.tools.base import Tool, ToolContext
 from crucible.tools.registry import ToolRegistry
 from crucible.tools.server import ToolServer

@@ -12,7 +12,7 @@ from crucible.interactions.ports import FormHandlers
 from crucible.interactions.service import InteractionService
 from crucible.ports.chat.interactions import form_from_json, form_to_json
 from crucible.ports.chat.types import KIND_DM, Action, ConversationRef, Form, FormField
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.presence import presence_of
 

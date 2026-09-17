@@ -22,6 +22,15 @@ when a release is cut, and `impi update` shows the target version's section.
   was created and keep it for the session's life, so every later turn reported
   to whoever started the first one.
 
+- **For applications built on `crucible`: two import paths moved.** The SQLite
+  backend is a package of its own — `from crucible.store.sqlite import
+  SqliteSessionStore`, where it was `crucible.store.sessions` — laid out the
+  way `store/mongo/` already was, so the two backends read alike and neither is
+  the other's reference. And the helpers that make caller-written text safe to
+  render — `one_line`, `code_span`, `code_block`, `command_line`, and the new
+  `preformatted` — are `crucible.containment` now, where they were
+  `crucible.approvals.card`. A deployment notices nothing.
+
 - **Fixed: buttons were dead on every Slack install.** The installer wrote
   `INTEGRATIONS_ENABLED=false` for Slack because one condition decided two
   things — whether interactivity is on, and whether the click receiver needs a

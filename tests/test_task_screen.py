@@ -9,7 +9,7 @@ from crucible.interactions.screens import ScreenState, state_from_context
 from crucible.ports.chat.types import KIND_DM
 from crucible.scheduler.admin import TaskAdmin
 from crucible.store.base import STATE_PAUSED, SchedulerHeartbeat
-from crucible.store.sessions import SqliteSessionStore
+from crucible.store.sqlite import SqliteSessionStore
 from impi.task_screen import PAGE_SIZE, TaskScreen
 
 NOW = datetime(2026, 8, 7, 10, 0, tzinfo=timezone.utc)

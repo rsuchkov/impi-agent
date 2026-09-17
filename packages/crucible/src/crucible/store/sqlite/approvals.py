@@ -12,11 +12,10 @@ Nothing here holds a value or a capability — only a permission and a record.
 """
 
 import asyncio
-import sqlite3
-import threading
 from dataclasses import fields
 
 from crucible.store.base import ApprovalAudit, ApprovalGrant
+from crucible.store.sqlite.base import SqliteBase
 
 _APPROVALS_SCHEMA = """
 -- A window, not a capability. revoked_at is '' while live: '' sorts before
@@ -76,12 +75,8 @@ def _values(record: object, names: tuple[str, ...]) -> tuple:
     return tuple(getattr(record, name) for name in names)
 
 
-class ApprovalStoreMixin:
+class ApprovalStoreMixin(SqliteBase):
     """The ApprovalStore facet of the SQLite store."""
-
-    # Declared, not created: both belong to the store this is mixed into.
-    _conn: sqlite3.Connection
-    _lock: threading.Lock
 
     def _create_approval_tables(self) -> None:
         """Create this facet's tables. The composing store calls it while it

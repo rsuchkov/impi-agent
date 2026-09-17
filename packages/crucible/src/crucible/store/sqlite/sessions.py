@@ -14,15 +14,15 @@ from pathlib import Path
 
 from crucible.ports.chat.directory import AgentInfo
 from crucible.store import clock
-from crucible.store.approvals import ApprovalStoreMixin
 from crucible.store.base import (
     FormRecord,
     InteractionRecord,
     SessionRecord,
     derive_runtime_session_id,
 )
-from crucible.store.tasks import TaskStoreMixin
-from crucible.store.traces import TraceStoreMixin
+from crucible.store.sqlite.approvals import ApprovalStoreMixin
+from crucible.store.sqlite.tasks import TaskStoreMixin
+from crucible.store.sqlite.traces import TraceStoreMixin
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
