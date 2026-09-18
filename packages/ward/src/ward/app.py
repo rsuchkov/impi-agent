@@ -32,7 +32,7 @@ from ward.operations import Operations
 from ward.ports import UnlockMaterial
 from ward.server import WardServer, mutual_tls
 from ward.store import WardStore
-from ward.vault import VaultBackend
+from ward.vault import VaultBackend, wait_for_store
 
 logger = logging.getLogger(__name__)
 
@@ -181,11 +181,24 @@ async def _sign_in(ward: Ward) -> None:
     logger.info("posting approval cards as @%s", me.get("username", "?"))
 
 
+# How long the broker waits for the store before opening it with material kept
+# on disk, and how often it looks. Longer than the ceremony's wait: this runs
+# unattended after a reboot, where the store's container can be well behind the
+# broker's, and nobody is sitting at a prompt for it to be quick.
+_STORE_WAIT_S = 120.0
+_STORE_POLL_S = 1.0
+
+
 async def _unlock(ward: Ward) -> None:
     """Open the store at startup, if the deployment keeps the material on disk.
 
     Nothing here is fatal: without the files ward starts locked, every request
     is refused, and the log says which state it is in.
+
+    With the files, the store is waited for first. Compose brings the broker up
+    only once the store is healthy, but a daemon restoring containers after a
+    reboot does not — and one attempt made before the store answers would leave
+    a deployment that chose to run unattended locked all the same.
     """
     material = UnlockMaterial(
         unseal_key=_read(ward.settings.unseal_key_file),
@@ -194,6 +207,15 @@ async def _unlock(ward: Ward) -> None:
     if not material:
         logger.info("secrets: locked — waiting to be unlocked")
         return
+    if not await wait_for_store(
+        ward.broker.backend,
+        timeout_s=_STORE_WAIT_S,
+        poll_s=_STORE_POLL_S,
+        on_wait=lambda: logger.info("secrets: waiting for the store to come up"),
+    ):
+        logger.warning(
+            "secrets: the store did not come up in %.0fs — trying anyway", _STORE_WAIT_S
+        )
     try:
         state = await ward.broker.unlock(material)
     except Exception:

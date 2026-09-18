@@ -202,6 +202,106 @@ engine_log_count() {
     compose logs impi 2>/dev/null | grep -c -- "$1" || true
 }
 
+# container_runtime -> docker | podman: what is under the compose command.
+# For the one build compose cannot order (see cmd_agent_sync in the wrapper),
+# and for the questions compose itself cannot answer — see stopped_containers.
+container_runtime() {
+    case "${IMPI_COMPOSE_CMD:-}" in
+        podman*) printf 'podman\n' ;;
+        *) printf 'docker\n' ;;
+    esac
+}
+
+# runtime_version -> "docker 28.3.2" / "podman 5.8.2"; empty when the runtime
+# does not answer. Docker's is the DAEMON's version, not the client's: the
+# daemon is what restores the stack after a reboot, and the two can differ.
+runtime_version() {
+    local _rt _v=""
+    _rt=$(container_runtime)
+    case "$_rt" in
+        docker) _v=$(docker version --format '{{.Server.Version}}' 2>/dev/null || true) ;;
+        podman) _v=$(podman version --format '{{.Client.Version}}' 2>/dev/null || true) ;;
+    esac
+    [ -n "$_v" ] && printf '%s %s\n' "$_rt" "$_v"
+    return 0
+}
+
+# restore_is_ordered "RUNTIME VERSION" -> 0 when that runtime brings a container
+# that lives in another's network namespace back AFTER its owner.
+#
+# The broker lives in the store's namespace, and a daemon that restores the two
+# in no particular order fails the broker for good when it reaches it first:
+# the failure is at creation, before any process a restart policy could watch,
+# so nothing retries. Docker Engine 29.0 waits for the owner (moby #50326);
+# older daemons do not. podman starts a container's dependencies itself. An
+# unknown runtime is given the benefit of the doubt — the container probe says
+# what actually happened.
+restore_is_ordered() {
+    local _major
+    case "$1" in
+        docker\ *)
+            _major=${1#docker }
+            _major=${_major%%.*}
+            [ "$_major" -ge 29 ] 2>/dev/null
+            ;;
+        *) return 0 ;;
+    esac
+}
+
+# stopped_containers -> one line per container of this project that exists but
+# is not running: SERVICE|STATUS|ERROR.
+#
+# The runtime is asked directly rather than compose: `docker compose ps` hides
+# stopped containers unless told `-a`, and podman-compose's `ps` shows them
+# always but refuses `-a` — one flag, two opposite meanings. Both runtimes
+# label every container they create with its compose service, and both answer
+# the same `inspect` template, so the runtime is the one interface they share.
+#
+# A container nothing expects to be running is skipped: a one-off (`compose
+# run`, which docker labels as such), and any container with no restart policy
+# — the operator's ward-admin, which `compose up` starts once and which exits
+# at once. Every service that matters carries `restart: unless-stopped`.
+stopped_containers() {
+    local _rt _id _line _svc _oneoff _policy _rest
+    _rt=$(container_runtime)
+    for _id in $("$_rt" ps -a --filter "label=com.docker.compose.project=${IMPI_PROJECT:-impi}" \
+            --format '{{.ID}}' 2>/dev/null); do
+        _line=$("$_rt" inspect --format \
+            '{{index .Config.Labels "com.docker.compose.service"}}|{{index .Config.Labels "com.docker.compose.oneoff"}}|{{.HostConfig.RestartPolicy.Name}}|{{.State.Status}}|{{.State.Error}}' \
+            "$_id" 2>/dev/null) || continue
+        _svc=${_line%%|*}; _rest=${_line#*|}
+        _oneoff=${_rest%%|*}; _rest=${_rest#*|}
+        _policy=${_rest%%|*}; _rest=${_rest#*|}
+        case "$_oneoff" in True|true) continue ;; esac
+        case "$_policy" in ""|no) continue ;; esac
+        case "$_rest" in running\|*) continue ;; esac
+        printf '%s|%s\n' "$_svc" "$_rest"
+    done
+    return 0
+}
+
+# explain_stopped SERVICE STATUS ERROR — say why a container of this project is
+# not running, in words that name the fix. Everything goes where `bad` goes.
+#
+# The one failure recognised by its text is the daemon's own — see
+# restore_is_ordered. It reads as "some containers came back and some did not"
+# and is diagnosed as a broken broker unless something names the order.
+explain_stopped() {
+    local _svc=$1 _status=$2 _error=$3
+    case "$_error" in
+        *"cannot join network"*)
+            bad "$_svc: $_status — $_error"
+            printf '  the daemon restored it before the container whose network it lives in.\n' >&2
+            # shellcheck disable=SC2016  # the backticks are message text
+            printf '  Docker older than 29.0 does not order that; `impi start` does. Upgrading\n' >&2
+            printf '  Docker removes the step.\n' >&2
+            ;;
+        *)
+            bad "$_svc: $_status — ${_error:-not running}; \`impi start\` brings it back"
+            ;;
+    esac
+}
+
 # compose ARGS... — run the configured compose against $IMPI_HOME's deployment.
 # Reads IMPI_COMPOSE_CMD / IMPI_MM_MODE / IMPI_HOME from the environment (main.sh
 # exports them; the wrapper sources compose.env).

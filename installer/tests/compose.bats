@@ -332,3 +332,113 @@ setup_migrate() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"(2 item(s))"* ]]
 }
+
+# --- what doctor asks the runtime ---------------------------------------------
+
+# A fake docker that answers the three questions doctor asks: its version, the
+# project's containers, and what state each is in. Five containers: the engine
+# running, the broker refused at creation, a one-off from `compose run`, the
+# store created but never started, and the operator's tool — a service with no
+# restart policy that `compose up` starts once and that exits at once.
+_stub_docker_state() {
+    STUBS="$BATS_TEST_TMPDIR/stubs"
+    mkdir -p "$STUBS"
+    cat > "$STUBS/docker" <<'STUB'
+#!/bin/sh
+case "$1" in
+    version) echo "${STUB_DOCKER_VERSION:-28.3.2}" ;;
+    ps) printf 'aaa\nbbb\nccc\nddd\neee\n' ;;
+    inspect)
+        case "$4" in
+            aaa) echo 'impi|False|unless-stopped|running|' ;;
+            bbb) echo 'ward|False|unless-stopped|exited|cannot join network namespace of a non running container: container impi-vault-1 is exited' ;;
+            ccc) echo 'impi|True|no|exited|' ;;
+            ddd) echo 'vault|False|unless-stopped|created|' ;;
+            eee) echo 'ward-admin||no|exited|' ;;
+        esac ;;
+esac
+STUB
+    chmod +x "$STUBS/docker"
+    PATH="$STUBS:$PATH"
+    IMPI_COMPOSE_CMD="docker compose"
+}
+
+@test "stopped_containers names what exists and is not running, and nothing else" {
+    _stub_docker_state
+    run stopped_containers
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "ward|exited|cannot join network namespace of a non running container: container impi-vault-1 is exited" ]
+    [ "${lines[1]}" = "vault|created|" ]
+    [ "${#lines[@]}" -eq 2 ]          # the engine, the one-off and ward-admin are not news
+}
+
+# A docker whose daemon is down: every call fails with nothing on stdout.
+_stub_docker_down() {
+    STUBS="$BATS_TEST_TMPDIR/stubs"
+    mkdir -p "$STUBS"
+    printf '#!/bin/sh\necho "Cannot connect to the Docker daemon" >&2\nexit 1\n' > "$STUBS/docker"
+    chmod +x "$STUBS/docker"
+    PATH="$STUBS:$PATH"
+    IMPI_COMPOSE_CMD="docker compose"
+}
+
+@test "stopped_containers is quiet when the runtime does not answer" {
+    _stub_docker_down
+    run stopped_containers
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "a container refused its namespace is explained as the daemon's order, with the fix" {
+    run explain_stopped ward exited "cannot join network namespace of a non running container: container impi-vault-1 is exited"
+    [[ "$output" == *"ward: exited"* ]]
+    [[ "$output" == *"cannot join network namespace"* ]]
+    [[ "$output" == *"before the container whose network it lives in"* ]]
+    [[ "$output" == *"29.0"* ]]
+    [[ "$output" == *"impi start"* ]]
+}
+
+@test "any other stopped container gets the plain fix and no story about namespaces" {
+    run explain_stopped impi created ""
+    [[ "$output" == *"impi: created — not running"* ]]
+    [[ "$output" == *"impi start"* ]]
+    [[ "$output" != *"namespace"* ]]
+}
+
+@test "runtime_version reports the daemon's version under its name" {
+    _stub_docker_state
+    run runtime_version
+    [ "$output" = "docker 28.3.2" ]
+}
+
+@test "runtime_version asks podman when podman is the runtime" {
+    _stub_docker_state
+    cat > "$STUBS/podman" <<'STUB'
+#!/bin/sh
+[ "$1" = version ] && echo "5.8.2"
+STUB
+    chmod +x "$STUBS/podman"
+    IMPI_COMPOSE_CMD="podman compose"
+    run runtime_version
+    [ "$output" = "podman 5.8.2" ]
+}
+
+@test "runtime_version is empty when the runtime does not answer" {
+    _stub_docker_down
+    run runtime_version
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+# `run` + $status rather than `! …`: under bats' `set -e` a negated command
+# never fails a test, so `! restore_is_ordered` would pass whatever it answered.
+_not_ordered() { run restore_is_ordered "$1"; [ "$status" -ne 0 ]; }
+
+@test "a Docker daemon before 29.0 restores in no order; 29.0 and podman do" {
+    _not_ordered "docker 28.3.2"
+    _not_ordered "docker 26.1.5"
+    restore_is_ordered "docker 29.0.1"
+    restore_is_ordered "docker 30.2.0"
+    restore_is_ordered "podman 5.8.2"
+    restore_is_ordered ""               # unknown: the container probe has the last word
+}

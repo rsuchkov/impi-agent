@@ -14,14 +14,13 @@ import argparse
 import asyncio
 import logging
 import sys
-import time
 from typing import TextIO
 
 from ward.app import run
 from ward.ca import OPERATOR_CN, CertificateAuthority, Issued
 from ward.config import WardSettings, load_settings
 from ward.ports import SecretBackendError
-from ward.vault import VaultBackend, VaultBootstrap
+from ward.vault import VaultBackend, VaultBootstrap, wait_for_store
 
 # How long the ceremony waits for the store's listener, and how often it looks.
 # Generous: the cost of waiting too long is a slow first install, and the cost of
@@ -44,17 +43,16 @@ async def _initialise(backend: VaultBackend, *, out: TextIO) -> VaultBootstrap:
     applies a dependency condition to the one-off container `run` creates.
     Waiting here is what makes the ceremony safe on all of them.
 
-    On the deadline this returns anyway rather than reporting its own failure —
+    On the deadline this goes on anyway rather than reporting its own failure —
     the ceremony below produces the message that says what is wrong, and two
     spellings of "unreachable" is one too many.
     """
-    deadline = time.monotonic() + _STORE_WAIT_S
-    announced = False
-    while not (await backend.status()).reachable and time.monotonic() < deadline:
-        if not announced:
-            print("waiting for the store to come up...", file=out)
-            announced = True
-        await asyncio.sleep(_STORE_POLL_S)
+    await wait_for_store(
+        backend,
+        timeout_s=_STORE_WAIT_S,
+        poll_s=_STORE_POLL_S,
+        on_wait=lambda: print("waiting for the store to come up...", file=out),
+    )
     return await backend.bootstrap()
 
 

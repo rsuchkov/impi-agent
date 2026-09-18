@@ -13,12 +13,20 @@ curl -fsSL https://raw.githubusercontent.com/rsuchkov/impi-agent/main/install.sh
 Prerequisites: **Linux or macOS**, **git**, and a compose runtime — Docker with
 compose v2, or podman (rootless is fine). `docker-compose` v1 is not supported.
 
-**Docker vs podman:** with Docker the stack comes back automatically after a
-machine reboot (the daemon restores `restart: unless-stopped` containers);
-podman is daemonless, so after a reboot you run `impi start` yourself — data
-survives either way (volumes + bind mounts). If you want auto-start, use
-Docker. When both are installed the installer asks which one to use
-(Docker recommended; pre-seed with `IMPI_RUNTIME=docker|podman`).
+**Docker vs podman:** with Docker the stack comes back after a machine reboot
+on its own — the daemon restores `restart: unless-stopped` containers — with
+one exception worth knowing. A Docker Engine older than 29.0 restores them in
+no particular order, and the secret broker lives inside the store's network
+namespace: a daemon that reaches the broker first fails it for good, so the
+store comes back and the broker does not. `impi doctor` names that state, and
+`impi start` — idempotent, it applies the order the daemon lacks — brings the
+broker back; Docker 29.0 fixed the order. podman is daemonless, so after a
+reboot you run `impi start` yourself, or enable its own boot-time restart
+(`systemctl --user enable --now podman-restart.service` and
+`loginctl enable-linger "$USER"`), which starts the store before the broker.
+Data survives either way (volumes + bind mounts). When both are installed the
+installer asks which one to use (Docker recommended; pre-seed with
+`IMPI_RUNTIME=docker|podman`).
 
 The bootstrap clones the repository at the **latest release tag** into the
 install directory (default `~/.impi`) and hands over to the versioned installer

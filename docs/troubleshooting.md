@@ -171,6 +171,27 @@ runs in UTC, so a schedule written without a zone means UTC — set
   memory survives.
 - Adding a **new** agent requires a **restart** — agents are enumerated at startup.
 
+## After a reboot, some containers are up and `ward` (or the engine) is not
+
+Only on Docker, and only with a daemon older than 29.0. It restores
+`restart: unless-stopped` containers in no particular order, and the secret
+broker lives inside the store's network namespace: reached first, it is refused
+at creation — `cannot join network namespace of a non running container` — and
+nothing retries, because no process ever ran for the restart policy to watch.
+From the outside it looks like a broker that broke: `impi ward status` says
+`cannot reach the secret broker`, and every agent that needs a secret is
+refused.
+
+`impi doctor` names it — the container that exists and is not running, with
+that error — and the fix is `impi start`: it applies the order the daemon does
+not know and is safe to run on a stack that is already up. Then unlock the
+store, as after any restart. Docker Engine 29.0 waits for the namespace's
+owner, so upgrading removes the step.
+
+An engine container that did not come back either shows up on the same line of
+`impi doctor`, with whatever the daemon recorded, and `impi start` brings it
+back too.
+
 ## Stopping / stray subprocesses
 
 `make stop` signals the engine (SIGTERM) so it can close its `pi` children, then

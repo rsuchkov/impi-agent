@@ -439,11 +439,14 @@ async def _start_late(stub: StubVault, port: int, *, after: float) -> None:
     await stub.start(port)
 
 
-async def test_the_ceremony_waits_for_a_store_that_is_still_starting() -> None:
+async def test_the_ceremony_waits_for_a_store_that_is_still_starting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """On a first install the store and the container running `ward init` are
     brought up together, so the ceremony can reach for a listener that does not
     exist yet. Losing that race used to end the install with "unreachable" and
     nothing saying that the same command would work on a second try."""
+    monkeypatch.setattr(ward_cli, "_STORE_POLL_S", 0.05)  # several misses, not one
     stub = StubVault(initialized=False, sealed=True)
     backend = VaultBackend("http://127.0.0.1:8495", mount=MOUNT)
     late = asyncio.create_task(_start_late(stub, 8495, after=0.3))
@@ -452,8 +455,8 @@ async def test_the_ceremony_waits_for_a_store_that_is_still_starting() -> None:
         material = await ward_cli._initialise(backend, out=said)
         assert material.unseal_key == UNSEAL_KEY
         # And says so, because a command that sits there silently for a minute
-        # is one an operator interrupts.
-        assert "waiting" in said.getvalue()
+        # is one an operator interrupts — once, not once per look.
+        assert said.getvalue().count("waiting") == 1
     finally:
         await late
         await backend.close()
