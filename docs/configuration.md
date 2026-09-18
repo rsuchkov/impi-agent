@@ -275,7 +275,7 @@ are `WARD_*` and live in its container's environment, not here.
 |---|---|---|
 | `WARD_VAULT_ADDR` | `http://127.0.0.1:8200` | the store, on the loopback it shares with the broker |
 | `WARD_ROLE_ID` | — | the broker's AppRole; written by `ward init` |
-| `WARD_UNSEAL_KEY_FILE` / `WARD_SECRET_ID_FILE` | — | unattended unlock, mounted as files |
+| `WARD_UNSEAL_KEY_FILE` / `WARD_SECRET_ID_FILE` | — | unattended unlock, mounted as files; the broker waits up to two minutes for the store before using them |
 | `WARD_MATTERMOST_TOKEN` | — | the bot approval cards are posted as |
 | `WARD_APPROVERS` | — | CSV of usernames or ids that may answer |
 | `WARD_APPROVAL_CHANNEL` | — | where cards go (empty = a DM to the first approver) |

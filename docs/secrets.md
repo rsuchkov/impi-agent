@@ -164,11 +164,39 @@ impi ward unlock --from ~/.impi/ward-recovery.txt
 Without `--from` it asks for the two values instead, which means typing a key at
 a prompt; prefer the file. `impi doctor` says whether the store is open.
 
+After a **reboot** there is one step before that: make sure the broker is
+running at all. A Docker daemon older than 29.0 can restore the broker before
+the store it lives in and lose it — `impi doctor` names the state and `impi
+start` repairs it; see
+[troubleshooting.md](troubleshooting.md#after-a-reboot-some-containers-are-up-and-ward-or-the-engine-is-not).
+
 Until then the store is locked and every request is refused. If you would rather
 not be in the loop — a scheduled task runs while you are asleep — write the two
 values to files, mount them, and point `WARD_UNSEAL_KEY_FILE` and
 `WARD_SECRET_ID_FILE` at them; the broker then opens the store itself at
-startup. Re-read the threat model above before you do.
+startup, after waiting up to two minutes for the store to answer (a daemon
+restoring containers after a reboot does not order the two). Re-read the threat
+model above before you do. The two files hold the bare values, one each:
+
+```bash
+sed -n 's/^WARD_UNSEAL_KEY=//p' ~/.impi/ward-recovery.txt > ~/.impi/ward-unseal-key
+sed -n 's/^WARD_SECRET_ID=//p' ~/.impi/ward-recovery.txt > ~/.impi/ward-secret-id
+chmod 600 ~/.impi/ward-unseal-key ~/.impi/ward-secret-id
+```
+
+and a drop-in mounts them into the broker and nothing else:
+
+```yaml
+# ~/.impi/compose.d/ward-unattended.yaml
+services:
+  ward:
+    environment:
+      WARD_UNSEAL_KEY_FILE: /run/ward/unseal-key
+      WARD_SECRET_ID_FILE: /run/ward/secret-id
+    volumes:
+      - ${IMPI_HOME}/ward-unseal-key:/run/ward/unseal-key:ro,z
+      - ${IMPI_HOME}/ward-secret-id:/run/ward/secret-id:ro,z
+```
 
 ## Storing a secret, and saying who may use it
 
@@ -464,6 +492,10 @@ or simply unopened, how many policies exist, and when the last request was.
 
 - **Everything is refused right after a restart** — the store is sealed, as it
   is after every restart. `impi ward unlock --from ~/.impi/ward-recovery.txt`.
+- **`cannot reach the secret broker`, right after a reboot** — the broker's
+  container is not running at all, not sealed: a Docker daemon older than 29.0
+  can restore it before the store and lose it. `impi doctor` names it,
+  `impi start` brings it back; then unlock.
 - **`impi ward init` says the store is already initialised** — it is, and no
   flag here rotates its keys (`--force` only replaces the certificate
   authority). Use `impi ward rotate` for the credential, or remove the store's

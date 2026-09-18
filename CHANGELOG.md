@@ -38,6 +38,26 @@ when a release is cut, and `impi update` shows the target version's section.
   clicks on its own socket and needs no receiver. New installs get it right;
   **an existing Slack install: delete `INTEGRATIONS_ENABLED=false` from
   `conf/.env` and restart.**
+- **Fixed: after a reboot on Docker, the secret broker could stay down and
+  nothing said why.** A Docker daemon older than 29.0 restores containers in no
+  particular order, and the broker lives inside the store's network namespace:
+  reached first it is refused at creation (`cannot join network namespace of a
+  non running container`), and no restart policy retries a container that
+  never ran (moby #50326, fixed in Docker Engine 29.0). That order is the
+  daemon's to keep and `impi` cannot impose it; what it does now is name it.
+  `impi doctor` reports the runtime's version, says when it is a Docker before
+  29.0 with the store on, and lists every container of the deployment that
+  exists but is not running — with the daemon's own error and the fix, `impi
+  start`, which applies the order the daemon lacks and is safe on a stack that
+  is already up. An engine container that did not come back gets the same line.
+- **Fixed: the unattended unlock lost the same race.** A broker with
+  `WARD_UNSEAL_KEY_FILE` / `WARD_SECRET_ID_FILE` made one attempt at startup,
+  so a store not yet answering left it locked with the key beside it. It now
+  waits for the store — up to two minutes — before opening it, the way the
+  ceremony already waited. `docs/secrets.md` gains the drop-in for that mode.
+- Docs: what to expect after a reboot, per runtime — Docker restores the stack,
+  a Docker before 29.0 may need `impi start` when the store is on, podman needs
+  `impi start` or its own `podman-restart.service`.
 
 ## v0.16.0 — 2026-09-02
 

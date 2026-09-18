@@ -25,7 +25,7 @@ Everything below is something you either **tell the operator to run** or
 
 ## Is it even on?
 
-Ask the operator for `impi ward status`. Three answers matter:
+Ask the operator for `impi ward status`. Four answers matter:
 
 - **no broker in this deployment** — the store was never enabled, so there is no
   address to ask at. Turning it on in a deployment that already runs takes
@@ -37,6 +37,12 @@ Ask the operator for `impi ward status`. Three answers matter:
   one of them. `impi ward unlock --from ~/.impi/ward-recovery.txt` (that file is
   what the ceremony wrote; without `--from` it prompts, which means a key typed
   into a terminal). Until then every request is refused.
+- **cannot reach the secret broker** — the broker's container is not answering
+  at all, which right after a reboot usually means it is not running: a Docker
+  daemon older than 29.0 restores containers in no order and loses the broker
+  when it reaches it before the store. That is repaired on the host, not from
+  here: `impi doctor` names the container, `impi start` brings it back, then
+  unlock as above.
 - **"secrets: open"** — working; move on to the policy.
 
 ## Giving an agent a credential

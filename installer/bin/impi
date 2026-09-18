@@ -261,15 +261,6 @@ cmd_ward_init() {
     printf '  impi ward cert <agent>           # an identity per agent\n'
 }
 
-# Which container runtime is under the compose command. Needed for the one
-# build compose cannot order for us — see cmd_agent_sync.
-container_runtime() {
-    case "$IMPI_COMPOSE_CMD" in
-        podman*) printf 'podman\n' ;;
-        *) printf 'docker\n' ;;
-    esac
-}
-
 agent_containers_on() { [ "${IMPI_AGENT_CONTAINERS:-0}" = 1 ]; }
 
 # Work out what each agent's container needs, build the images, and bring them
@@ -447,6 +438,24 @@ cmd_update() {
 
 cmd_doctor() {
     compose ps || true
+    # What restores the stack after a reboot, and whether it can be trusted to:
+    # a Docker daemon before 29.0 brings containers back in no order, and the
+    # broker lives inside the store's network namespace — restored first, it
+    # fails at creation and nothing retries. See restore_is_ordered.
+    _rtv=$(runtime_version)
+    ok "runtime: ${_rtv:-$(container_runtime) (not answering)}"
+    if [ "${IMPI_VAULT:-0}" = 1 ] && ! restore_is_ordered "$_rtv"; then
+        printf '  after a reboot it may bring the broker up before the store and leave it down;\n'
+        # shellcheck disable=SC2016  # the backticks are message text
+        printf '  `impi start` puts it back. Docker Engine 29.0 restores in order.\n'
+    fi
+    # A container that exists but is not running: `compose ps` above does not
+    # show it, and from the outside it looks like a service that is broken
+    # rather than one that was never started.
+    stopped_containers | while IFS= read -r _line; do
+        _svc=${_line%%|*}; _rest=${_line#*|}
+        explain_stopped "$_svc" "${_rest%%|*}" "${_rest#*|}"
+    done || true
     # What is layered on top of the engine's own files — the first thing to know
     # when a deployment behaves unlike a stock one.
     _dropins=$(ls "$IMPI_HOME/$COMPOSE_DROPIN_DIR"/*.yaml 2>/dev/null || true)

@@ -18,14 +18,16 @@ Two behaviours are worth knowing before reading the code:
   permission problem and is raised.
 """
 
+import asyncio
 import logging
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
-from ward.ports import BackendStatus, SecretBackendError, UnlockMaterial
+from ward.ports import BackendStatus, SecretBackend, SecretBackendError, UnlockMaterial
 from wardline.wire import SecretRef
 
 logger = logging.getLogger(__name__)
@@ -376,3 +378,35 @@ class VaultBackend:
         if self._session is not None and not self._session.closed:
             await self._session.close()
         self._session = None
+
+
+async def wait_for_store(
+    backend: SecretBackend,
+    *,
+    timeout_s: float,
+    poll_s: float,
+    on_wait: Callable[[], None] | None = None,
+) -> bool:
+    """Wait until the store answers, or until ``timeout_s`` has passed.
+
+    Two callers, one reason. The broker's container is brought up beside the
+    store's, and whether the store's listener is open when the broker's process
+    starts is a race: compose orders the two for `up`, not every runtime orders
+    the one-off `run` the ceremony uses, and a daemon restoring containers after
+    a reboot orders nothing at all.
+
+    ``on_wait`` is called once, at the first miss, so the caller can say that it
+    is waiting rather than sit there silently. Returns whether the store came
+    up; a caller that goes on regardless gets the store's own error for its
+    trouble, which is the message that says what is wrong.
+    """
+    deadline = time.monotonic() + timeout_s
+    announced = False
+    while not (await backend.status()).reachable:
+        if time.monotonic() >= deadline:
+            return False
+        if not announced and on_wait is not None:
+            on_wait()
+            announced = True
+        await asyncio.sleep(poll_s)
+    return True

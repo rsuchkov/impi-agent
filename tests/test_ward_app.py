@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from ward import app as ward_app
 from ward.app import OneBot, _sign_in, _unlock, build
 from ward.ca import OPERATOR_CN as OPERATOR
 from ward.ca import CertificateAuthority
@@ -52,13 +53,33 @@ def _authority(settings: WardSettings) -> None:
     ca.issue_server(settings.names).write(settings.server_cert, settings.server_key)
 
 
+class StubBackend:
+    """A store that is not up yet: unreachable for the first ``misses`` looks,
+    then answering (sealed, as every store is after a restart)."""
+
+    def __init__(self, *, misses: int = 0) -> None:
+        self.misses = misses
+        self.asked = 0
+
+    async def status(self) -> BackendStatus:
+        self.asked += 1
+        if self.asked <= self.misses:
+            return BackendStatus(reachable=False, detail="connection refused")
+        return BackendStatus(reachable=True, sealed=True)
+
+
 class StubBroker:
-    def __init__(self, *, opens: bool = True) -> None:
+    def __init__(self, *, opens: bool = True, backend: StubBackend | None = None) -> None:
         self.material: UnlockMaterial | None = None
         self._opens = opens
+        self.backend = backend or StubBackend()
+        # How many times the store had been looked at when the unlock came —
+        # the fact that says whether the broker waited for it.
+        self.unlocked_after: int | None = None
 
     async def unlock(self, material: UnlockMaterial) -> BackendStatus:
         self.material = material
+        self.unlocked_after = self.backend.asked
         return BackendStatus(
             reachable=True, sealed=not self._opens, authenticated=self._opens
         )
@@ -135,7 +156,8 @@ async def test_without_the_files_it_starts_locked_rather_than_failing(
     tmp_path: Path,
 ) -> None:
     """A deployment that unlocks by hand is the normal case, not an error: ward
-    comes up, refuses every request, and says which state it is in."""
+    comes up, refuses every request, and says which state it is in. It does not
+    wait for the store either — there is nothing it would do once it answered."""
     settings = _settings(tmp_path, unseal_key_file=str(tmp_path / "missing"))
     _authority(settings)
 
@@ -147,6 +169,61 @@ async def test_without_the_files_it_starts_locked_rather_than_failing(
     finally:
         await ward.store.close()
     assert broker.material is None
+    assert broker.backend.asked == 0
+
+
+def _material(root: Path) -> dict[str, str]:
+    unseal, secret_id = root / "unseal", root / "secret-id"
+    unseal.write_text("key-1\n")
+    secret_id.write_text("sid-1\n")
+    return {"unseal_key_file": str(unseal), "secret_id_file": str(secret_id)}
+
+
+async def test_with_the_files_it_waits_for_the_store_before_opening_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Compose starts the broker after the store is healthy; a daemon restoring
+    containers after a reboot starts them in whatever order it likes. An unlock
+    attempted before the store answers fails, and a deployment that chose to run
+    unattended is then locked with the key sitting right beside it."""
+    monkeypatch.setattr(ward_app, "_STORE_POLL_S", 0.01)
+    settings = _settings(tmp_path, **_material(tmp_path))
+    _authority(settings)
+
+    ward = build(settings)
+    broker = StubBroker(backend=StubBackend(misses=3))
+    ward.broker = broker  # type: ignore[assignment]
+    try:
+        await _unlock(ward)
+    finally:
+        await ward.store.close()
+    assert broker.material == UnlockMaterial(unseal_key="key-1", auth_secret="sid-1")
+    # Three refusals, then an answer, THEN the unlock — not the other way round.
+    assert broker.unlocked_after == 4
+
+
+async def test_a_store_that_never_comes_up_gets_one_try_and_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The wait has an end, and the process outlives it: a locked broker with a
+    warning in the log is what an operator can act on, a container that waits
+    for ever is not. The attempt is still made — the store's own answer is the
+    message that says what is wrong."""
+    monkeypatch.setattr(ward_app, "_STORE_WAIT_S", 0.05)
+    monkeypatch.setattr(ward_app, "_STORE_POLL_S", 0.01)
+    settings = _settings(tmp_path, **_material(tmp_path))
+    _authority(settings)
+
+    ward = build(settings)
+    broker = StubBroker(opens=False, backend=StubBackend(misses=10_000))
+    ward.broker = broker  # type: ignore[assignment]
+    try:
+        with caplog.at_level("WARNING"):
+            await _unlock(ward)  # must not raise, must not hang
+    finally:
+        await ward.store.close()
+    assert broker.material is not None
+    assert "did not come up" in caplog.text
 
 
 async def test_material_that_does_not_open_the_store_does_not_stop_the_process(
