@@ -35,6 +35,13 @@ pi --mode rpc --approve
 `pi`'s working directory is the agent's profile dir, so it natively loads that
 agent's `.pi/*`.
 
+`impi escape <agent>` starts the same profile for a person in a terminal: the
+flags from `--tools` down are built by the same code (`interactive_args`
+beside `command_args` in `hosts/local.py`), without `--mode rpc`, the session
+id and the tool bridge; `--approve` stays. The one difference in content: the
+allowlist loses the tools only the engine could serve (its typed tools and the
+bridge's `ask_user_confirm`), since nothing is there to answer them.
+
 ## Provider / model resolution
 
 For each agent, provider and model are resolved in order:

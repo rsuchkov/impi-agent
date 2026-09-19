@@ -237,6 +237,9 @@ steps:
    - **Editing** an existing agent (`agent.yaml`, `SYSTEM.md`, skills) applies with
      a **reload** — `make reload` (re-reads profiles, drops idle sessions;
      conversation memory survives).
+   - To try a prompt or a skill from a terminal, without the chat round-trip:
+     `impi escape <agent>` starts the same profile on the host — the engine's
+     own tools excepted (see [installation.md](installation.md#impi-escape-an-agents-pi-in-your-terminal)).
 
 An agent is present only if its token is set; a tokenless profile is skipped.
 

@@ -93,7 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/rsuchkov/impi-agent/main/install.sh
 
 Needs Linux or macOS, git, and Docker (compose v2) or podman. Afterwards manage
 the deployment with the `impi` wrapper (`impi status|logs|restart|reload|agent
-add|agent sync|update|doctor|uninstall`). Full guide: [docs/installation.md](docs/installation.md).
+add|agent sync|escape|update|doctor|uninstall`). Full guide: [docs/installation.md](docs/installation.md).
 
 The rest of this README is the **development** setup — running the engine from
 a checkout.

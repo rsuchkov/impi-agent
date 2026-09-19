@@ -19,7 +19,11 @@ from aiohttp import web
 
 from crucible.runtimes.pi.errors import PiHostError
 from crucible.runtimes.pi.hosts import wire as engine_wire
-from crucible.runtimes.pi.hosts.local import _environment, command_args
+from crucible.runtimes.pi.hosts.local import (
+    _environment,
+    command_args,
+    interactive_args,
+)
 from crucible.runtimes.pi.hosts.remote import RemoteHost, RemoteTransport
 from crucible.runtimes.pi.spawn import SpawnRequest, safe_session_id
 from runtime_relay import wire as host_wire
@@ -107,6 +111,28 @@ def test_the_command_line_is_the_same_wherever_the_agent_runs(tmp_path: Path) ->
     assert local == remote
     # And it really is the whole command line, not two empty lists agreeing.
     assert "--tools" in local and "--skill" in local
+
+
+def test_a_terminal_gets_the_same_profile_without_the_engine(tmp_path: Path) -> None:
+    """`impi escape` starts the agent's pi for a person. What the PROFILE says —
+    tools, skills, model, the system-prompt suffix — must be exactly what the
+    engine would say, or an agent would behave differently for being watched;
+    what the engine adds for itself (RPC mode, its session, its tool bridge) is
+    all that goes."""
+    profile, library = _dirs(tmp_path)
+    sessions = tmp_path / "sessions"
+    request = _request(profile, library, extensions=(str(tmp_path / "bridge" / "index.ts"),))
+    rpc = command_args(request, session_dir=sessions)
+    terminal = interactive_args(request, session_dir=sessions)
+
+    stripped = list(rpc)
+    for flag, value in (("--mode", "rpc"), ("--session-id", request.session_id),
+                        ("-e", str(tmp_path / "bridge" / "index.ts"))):
+        at = stripped.index(flag)
+        assert stripped[at + 1] == value
+        del stripped[at:at + 2]
+    assert terminal == stripped
+    assert "--approve" in terminal and "--tools" in terminal and "--skill" in terminal
 
 
 def test_a_skill_outside_the_mounted_roots_is_refused(tmp_path: Path) -> None:

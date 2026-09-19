@@ -59,7 +59,9 @@ Two homes, and the choice is about reuse, not about content:
 
 **For yourself (support):** `$IMPI_ROOT` is read-only, so you cannot add your own
 bundled skills at runtime — propose the `SKILL.md` to the operator to add under
-the engine package. You can freely author skills for the user's agents.
+the engine package. You can freely author skills for the user's agents. On the
+operator's host `$IMPI_ROOT` is the checkout and nothing stops a write there —
+it is still not the place: the next `impi update` replaces it.
 
 ## 3. Wire it up
 
@@ -73,7 +75,8 @@ runtime:
 
 Editing the profile is one way; `assign_skill` does the same edit for library
 skills and reloads for you. Apply a hand edit with a reload
-(`pkill -HUP -n -f '[i]mpi\.main'`, or ask for `impi reload`).
+(`pkill -HUP -n -f '[i]mpi\.main'`, or ask for `impi reload` — on the
+operator's host, run `impi reload` yourself).
 
 The profile is the single source of truth — removing the line is how a skill is
 turned off. `AGENTS_SKILLS__<AGENT>` in `.env` **replaces** the whole list and

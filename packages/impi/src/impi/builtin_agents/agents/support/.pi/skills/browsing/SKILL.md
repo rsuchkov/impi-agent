@@ -18,7 +18,9 @@ procedure, not the whole story.
 You have no browser yourself. `playwright-cli` is on this image's PATH, but it
 is not in your allowlist and the axis may not even be on. You **advise** and
 **diagnose**; the operator runs the commands, and the browsing is another
-agent's to do.
+agent's to do. On the operator's host (`impi escape`) the commands below —
+the `compose.env` check, `impi start`, `impi doctor`, `impi logs browser` —
+are yours to run.
 
 ## Is it even on?
 

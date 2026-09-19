@@ -94,11 +94,50 @@ The installer drops a small CLI into `~/.local/bin/impi`:
 | `impi ward …` | the secret store and who may reach it (see [secrets.md](secrets.md)) |
 | `impi agent add` | interactive agent creation (bot + profile + `.env`) |
 | `impi agent list` | profiles with token status |
+| `impi escape <agent> [-- "prompt"]` | that agent's pi on this host, in your terminal (see below) |
 | `impi login` | pi subscription login inside the container |
 | `impi login --copy-auth [file]` | import `~/.pi/agent/auth.json` from a logged-in machine |
 | `impi update [--yes]` | update to the newest release tag, rebuild, restart |
 | `impi doctor` | quick health checks, and the compose overlays it merged |
 | `impi uninstall` | remove containers (volumes only after a second confirmation; `~/.impi` is kept) |
+
+### `impi escape`: an agent's pi in your terminal
+
+`impi escape support` starts `pi` on this host — not in a container — with the
+support agent's system prompt, model, tool allowlist and skills, exactly as the
+engine would start it, and you at the keyboard. It is for the things an agent
+cannot do from inside its container: the `impi` wrapper is on its PATH, so the
+support agent runs `impi doctor`, `impi start`, `impi agent sync` or
+`impi ward unlock --from …` itself instead of asking you to, and you watch every
+call. Any agent works, not only `support`; add `-- "a prompt"` for a one-shot
+answer instead of a session.
+
+What carries over: the profile directory (`.pi/SYSTEM.md`, its own skills, any
+pi permission policy it ships), the shared skill library, the model and the
+`LLM_*` settings from `conf/.env`. What does not: the engine's tools
+(`create_agent`, the skill tools, `open_screen`, `ask_user_confirm`,
+`schedule_task`, `send_file`) — they live in the engine's tool server and there
+is no engine here, so they are dropped from the allowlist and the agent is told
+so. Nor any credential of the deployment:
+chat tokens, tool tokens and the secret broker's variables stay in the
+container, so `secret-exec` on the host answers "not available" whoever asks.
+The agent on your host is *you*, with whatever `bash` can do as your user, and
+nothing gates its commands but your eyes — a per-command policy is pi's own
+`.pi/agent/pi-permissions.jsonc` in the profile, which works in a terminal.
+
+The session is ephemeral: pi writes it under `~/.impi/escape/`, and the
+directory is removed when pi exits, however it exits. `--keep` leaves it and
+prints how to continue it (`--session-dir <path>`); a directory you name with
+`--session-dir` is yours and is never removed. The deployment's own
+conversations are not touched. If the session changed a profile or a drop-in,
+the wrapper says which command applies it (`impi reload` / `impi start`) — it
+does not undo the agent's work.
+
+`pi` has to be installed on the host: the wrapper offers pi's own installer
+(`curl -fsSL https://pi.dev/install.sh | sh`) when it is missing, and notes when
+its version differs from the one the engine pins. `--dry-run` prints the working
+directory, environment and command line without starting anything; it needs
+the engine's image, because the engine is what builds them.
 
 ## Updates and versioning
 

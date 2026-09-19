@@ -42,6 +42,8 @@ from crucible.store.base import Store
 from impi import provisioning as prov
 from impi.agent_containers import RenderError, sync
 from impi.config import ImpiSettings, load_settings
+from impi.escape import EscapeError, build_plan, parse_map, render_nul, render_text
+from impi.profiles import open_profile_stores
 from impi.skill_tools import bundled_skill
 
 # --- tiny ANSI helpers -------------------------------------------------------
@@ -334,6 +336,57 @@ def _cmd_agent_render(args: argparse.Namespace) -> int:
     for note in notes:
         print(note)
     print(f"wrote {conf_dir / 'agents.compose.yaml'}")
+    return 0
+
+
+# --- impi agent argv -------------------------------------------------------------
+
+
+def _cmd_agent_argv(args: argparse.Namespace) -> int:
+    """How to start this agent's pi by hand, on the operator's host: the
+    working directory, the environment and the arguments — built by the same
+    code that spawns it here, with this container's paths rewritten into the
+    host's through --map. `impi escape` is the caller; `--format nul` is for it,
+    `text` for a person."""
+    settings = _settings()
+    try:
+        user_store, engine_store = open_profile_stores(
+            settings, _library(args), agents_path=args.agents_dir
+        )
+        maps = [parse_map(spec) for spec in args.map]
+    except (ProfileError, EscapeError) as exc:
+        _fail(str(exc))
+        return 2
+    # The engine's own agents are found too: `support` is the one this exists for.
+    spec, engine_owned = None, False
+    for store, owned in ((user_store, False), (engine_store, True)):
+        found = [candidate for candidate in store.list() if candidate.name == args.agent]
+        if found:
+            spec, engine_owned = found[0], owned
+            break
+    if spec is None:
+        known = [candidate.name for store in (user_store, engine_store) for candidate in store.list()]
+        _fail(f"unknown agent {args.agent!r}; available: {', '.join(known)}")
+        return 2
+    tools = None if args.tools is None else [t for t in args.tools.split(",") if t]
+    try:
+        plan = build_plan(
+            spec,
+            settings,
+            engine_owned=engine_owned,
+            agents_path=args.agents_dir or settings.agents_path,
+            maps=maps,
+            tools=tools,
+            extra_note=args.append,
+        )
+    except EscapeError as exc:
+        _fail(str(exc))
+        return 2
+    if args.format == "nul":
+        sys.stdout.buffer.write(render_nul(plan))
+        sys.stdout.buffer.flush()
+    else:
+        sys.stdout.write(render_text(plan))
     return 0
 
 
@@ -921,6 +974,25 @@ def _build_parser() -> argparse.ArgumentParser:
         "as the engine's own overlay does",
     )
     render.set_defaults(func=_cmd_agent_render)
+
+    argv = agent_sub.add_parser(
+        "argv",
+        help="how to start this agent's pi by hand: working directory, env, arguments",
+    )
+    argv.add_argument("agent")
+    argv.add_argument(
+        "--map",
+        action="append",
+        default=[],
+        metavar="FROM=TO",
+        help="rewrite a path prefix of this container into the host's; repeatable",
+    )
+    argv.add_argument("--tools", help="replace the profile's allowlist for this run (CSV; empty = none)")
+    argv.add_argument("--append", default="", help="extra system-prompt text")
+    argv.add_argument("--format", choices=("text", "nul"), default="text")
+    argv.add_argument("--agents-dir")
+    argv.add_argument("--skills-dir")
+    argv.set_defaults(func=_cmd_agent_argv)
 
     skill = sub.add_parser("skill", help="the shared skill library")
     skill_sub = skill.add_subparsers(dest="skill_command", required=True)

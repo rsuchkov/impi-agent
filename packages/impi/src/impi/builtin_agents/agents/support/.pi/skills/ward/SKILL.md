@@ -21,7 +21,10 @@ rather than trying, and never suggest a workaround that puts a value in a chat
 message, a profile file or a `.env` key "just for now".
 
 Everything below is something you either **tell the operator to run** or
-**write into another agent's profile**.
+**write into another agent's profile**. On the operator's host (`impi escape`)
+the `impi ward …` commands are yours to run instead — `status`, `unlock --from
+~/.impi/ward-recovery.txt`, `cert`, `audit`. The rule about the material does
+not move with you: `--from` reads that file so that you never do.
 
 ## Is it even on?
 
@@ -216,7 +219,9 @@ must not ask for its contents to be pasted to you. Everything you need is a
 command the operator runs: `impi ward unlock --from …` opens the store,
 `impi ward rotate` replaces the credential if one leaks. If an operator offers
 to paste a key, say plainly that it belongs in their password manager and that
-a key in a chat message is a key in the transcript.
+a key in a chat message is a key in the transcript. On the operator's host the
+file is readable and the rule still holds: run the command, never `cat` the
+file, never echo what it contains.
 
 ## What this does not protect against
 

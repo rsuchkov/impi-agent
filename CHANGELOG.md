@@ -6,6 +6,20 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **`impi escape <agent>`: an agent's pi on the host, in your terminal.** The
+  same system prompt, model, tool allowlist and skills the engine would start it
+  with — built by the engine itself (`impi agent argv`, one command-line builder
+  for both), with the container's paths rewritten into the host's — and you at
+  the keyboard. Made for the things an agent cannot do from inside its
+  container: the `impi` wrapper is on its PATH, so `support` runs `impi doctor`,
+  `impi start`, `impi agent sync` or `impi ward unlock --from …` itself rather
+  than asking. Its instructions know the three places it can run. What does not
+  carry over: the engine's tools (there is no engine there) and every credential
+  of the deployment — the agent on the host is the operator, and presents no
+  identity to the secret broker. The session is ephemeral and removed when pi
+  exits (`--keep` to keep it, `--session-dir` to bring one back); `--dry-run`
+  shows the plan; a missing `pi` is offered its own installer, a differing
+  version is noted against the engine's pin.
 - **A reply now says what tools it took.** When a turn calls tools, one message
   appears above the reply: a live counter — `Running 2 tools…` — while the turn
   runs, settling into a button, `Running 3 tools · 1 failed →`, when it ends.

@@ -32,6 +32,8 @@ die() { bad "$*"; exit 1; }
 . "$REPO/installer/lib/compose.sh"
 # shellcheck source=../lib/files.sh
 . "$REPO/installer/lib/files.sh"
+# shellcheck source=../lib/escape.sh
+. "$REPO/installer/lib/escape.sh"
 
 env_set() { # KEY VALUE FILE — truncate-in-place (inode survives mounts)
     local key=$1 value=$2 file=$3 tmp="${3}.tmp.$$"
@@ -131,6 +133,7 @@ impi — manage your impi deployment
   impi agent sync          give every agent a container of its own, and start it
   impi agent migrate AGENT move an agent's sessions/files into its own volumes
   impi agent logs|shell AGENT   that agent's container
+  impi escape AGENT [-- "prompt"]   that agent's pi on this host, your hands on the keys
   impi login               interactive pi model login inside the container
   impi login --copy-auth [FILE]   import pi credentials (default ~/.pi/agent/auth.json)
   impi update [--yes]      update to the newest release tag and rebuild
@@ -597,6 +600,7 @@ case "${1:-}" in
     # should say what the operator actually typed.
     ward)      shift; cmd_ward "$@" ;;
     agent)     shift; cmd_agent "$@" ;;
+    escape)    shift; cmd_escape "$@" ;;
     login)     shift; cmd_login "$@" ;;
     update)    shift; cmd_update "$@" ;;
     doctor)    shift; cmd_doctor ;;

@@ -57,6 +57,9 @@ one deployment choice:
   is what the per-agent certificate was for from the start.
 
 Either way, nothing *outside* those containers can present one at all.
+`impi escape`, which starts an agent's pi on the operator's host, keeps it so:
+the process is handed nothing of the broker's, so `secret-exec` there answers
+"not available" — the agent on the host is the operator, not an identity.
 
 Three consequences worth stating plainly:
 

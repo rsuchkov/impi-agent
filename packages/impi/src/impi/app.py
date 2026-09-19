@@ -54,7 +54,7 @@ from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.loopguard import LoopGuard
 from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
-from crucible.profiles import CompositeProfileStore, FsProfileStore, ProfileStore
+from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.reloader import ProfileReloader
 from crucible.runtimes.pi import (
     EXTENSION_PATH,
@@ -73,30 +73,17 @@ from crucible.tools import MANIFEST_ENV, ToolServer, ToolWiring
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
 from impi.gateways import resolve_gateway
+from impi.profiles import (
+    IMPI_ROOT,
+    build_pi_env,
+    open_profile_stores,
+)
 from impi.registry import RegistryService
 from impi.scheduling import PresenceNotifier, RuntimePromptRunner, SinkTurnDispatcher
 from impi.skill_screen import SkillScreen
 from impi.task_screen import TaskScreen
 
 logger = logging.getLogger(__name__)
-
-
-def build_pi_env(settings: ImpiSettings) -> dict[str, str]:
-    """Env forwarded into every pi subprocess.
-
-    Empty when the ChatGPT subscription is used — pi then authenticates via its
-    own OAuth store; LLM_* only feed the optional custom provider extension.
-    """
-    env: dict[str, str] = {}
-    if settings.llm_base_url:
-        env["LLM_BASE_URL"] = settings.llm_base_url
-    if settings.llm_api_key:
-        env["LLM_API_KEY"] = settings.llm_api_key
-    if settings.llm_model:
-        env["LLM_MODEL"] = settings.llm_model
-    if not settings.llm_verify_ssl:
-        env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
-    return env
 
 
 def build_pi_extensions(settings: ImpiSettings) -> list[str]:
@@ -190,12 +177,6 @@ def _signal_reload() -> None:
     reload` does, raised from inside the process that installs the handler."""
     os.kill(os.getpid(), signal.SIGHUP)
 
-
-# Engine-owned agent profiles (e.g. `support`) ship WITH impi, under the package.
-BUILTIN_AGENTS_PATH = Path(__file__).parent / "builtin_agents"
-# The engine's own checkout root (packages/impi/src/impi/app.py -> repo root):
-# forwarded to engine agents so support can read the engine source/docs to diagnose.
-IMPI_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _select_specs(settings: ImpiSettings, profiles: ProfileStore) -> list[AgentSpec]:
@@ -315,25 +296,7 @@ def _build_units(
 def build_app(settings: ImpiSettings) -> App:
     # The shared skill library: profiles resolve `registry:<name>` through it.
     library = SkillLibrary(settings.resolved_skills_path)
-    user_store = FsProfileStore(
-        settings.agents_path,
-        default_timeout=settings.pi_timeout,
-        default_provider=settings.default_provider,
-        default_model=settings.default_model,
-        skills_override=settings.skills_for,
-        library=library.path_if_present,
-    )
-    # Engine-owned agents (support) are always enumerated (not subject to the user
-    # AGENTS_ENABLED list); the token gate still skips them without a token. Their
-    # provider/model override the global default so a public checkout still runs.
-    engine_store = FsProfileStore(
-        str(BUILTIN_AGENTS_PATH),
-        default_timeout=settings.pi_timeout,
-        default_provider=settings.support_provider or settings.default_provider,
-        default_model=settings.support_model or settings.default_model,
-        skills_override=settings.skills_for,
-        library=library.path_if_present,
-    )
+    user_store, engine_store = open_profile_stores(settings, library)
     engine_names = {spec.name for spec in engine_store.list()}
     profiles = CompositeProfileStore([user_store, engine_store])  # rejects duplicate names
     sessions = open_store(

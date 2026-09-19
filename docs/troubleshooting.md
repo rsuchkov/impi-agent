@@ -47,7 +47,9 @@ the last stderr lines** — read them, they name the actual cause. Typical ones:
   the same env shows what pi actually sees);
 - a missing `models.json` when the setup expects a custom provider.
 
-To reproduce outside the engine: run
+To reproduce outside the engine: in an installed deployment,
+`impi escape <agent> -- "ping"` starts that agent's pi on the host with the
+same model settings; in a checkout, run
 `pi --provider <p> --model <m> -p "ping"` by hand with the same environment.
 
 ## "runtime host is not reachable" / "refused the spawn"

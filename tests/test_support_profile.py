@@ -12,7 +12,7 @@ import yaml
 
 from crucible.profiles import FsProfileStore
 from crucible.tools import build_registry
-from impi.app import BUILTIN_AGENTS_PATH
+from impi.profiles import BUILTIN_AGENTS_PATH
 
 SUPPORT = BUILTIN_AGENTS_PATH / "agents" / "support"
 

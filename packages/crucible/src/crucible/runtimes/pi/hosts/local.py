@@ -59,10 +59,29 @@ def command_args(request: SpawnRequest, *, session_dir: Path | None) -> list[str
         args += ["--session-dir", str(session_dir)]
     for ext in request.extensions:
         args += ["-e", ext]
+    return args + _profile_args(request)
+
+
+def interactive_args(request: SpawnRequest, *, session_dir: Path | None) -> list[str]:
+    """The same agent on a terminal, for a person: the profile's flags without
+    the engine's. No RPC mode, no tool-bridge extension (there is no engine to
+    bridge to), and no session id — the runtime keeps and continues its own
+    sessions under ``session_dir``. --approve stays: the profile is the
+    operator's own, and a trust prompt on every start would only teach them to
+    answer yes."""
+    args = ["--approve"]
+    if session_dir is not None:
+        args += ["--session-dir", str(session_dir)]
+    return args + _profile_args(request)
+
+
+def _profile_args(request: SpawnRequest) -> list[str]:
+    """What the PROFILE says, however the process is driven. One place, so the
+    engine's runtime and a person's terminal cannot drift apart."""
     # Single capability gate: --tools is the allowlist over built-in, extension
     # and typed tools alike. An empty list yields no tools at all; a built-in an
     # agent wants (e.g. read/bash for skills) is just named in its profile.
-    args += ["--tools", ",".join(request.tools)]
+    args = ["--tools", ",".join(request.tools)]
     # No ambient skill discovery — each agent gets EXACTLY its declared skills
     # (this also closes the ancestor-dir walk-up the agents directory would leak).
     args += ["--no-skills"]

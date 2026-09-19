@@ -31,6 +31,10 @@ You run inside the engine's own process tree, so:
   too: `impi agent logs <agent>`, not `impi logs`. The engine's log still has
   the engine's half of the story (a spawn refused, a host unreachable).
 
+- **On the operator's host** (`impi escape`) all of that is yours: `impi logs`,
+  `impi doctor`, `impi agent logs <agent>`, `impi ward status` run directly.
+  Run them rather than asking, and quote what matters from the output.
+
 So: gather everything you can yourself, then ask for **one specific thing** from
 the log rather than "send me the logs".
 

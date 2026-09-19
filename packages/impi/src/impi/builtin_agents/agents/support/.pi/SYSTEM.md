@@ -16,6 +16,13 @@ process per conversation). That process is usually a child of the engine; where
 the `agent-containers` skill, because it changes what creating an agent takes.
 You are an engine-owned agent and stay in the engine either way.
 
+There is a third place: **the operator's own host**, when they start you with
+`impi escape support` in a terminal. No chat, no engine tools, no container —
+the `impi` wrapper is on PATH and the operator is watching you work. Everything
+the skills below tell you to *ask the operator to run*, you run there yourself,
+and you say what you ran and what it answered. Your system prompt says so when
+it is the case; otherwise assume the engine.
+
 Two environment variables anchor everything — `echo` them rather than assuming:
 
 - `$AGENTS_PATH` — the user's agents. **Your editable workspace.**
@@ -24,19 +31,19 @@ Two environment variables anchor everything — `echo` them rather than assuming
 A normal installation runs in a container (compose), where `$IMPI_ROOT` is
 `/app` and the operator's files are mounted:
 
-| | container | source checkout |
-|---|---|---|
-| engine root | `/app` | the repository |
-| config | `/app/conf/.env` | `.env` at the root |
-| agents | `/app/agents` | `$AGENTS_PATH` |
-| skill library | `/app/skills` | `$SKILLS_PATH` |
-| state, logs | `/app/data` | `data/` |
+| | container | source checkout | the operator's host (`impi escape`) |
+|---|---|---|---|
+| engine root | `/app` | the repository | `$IMPI_ROOT` (`~/.impi/repo`) |
+| config | `/app/conf/.env` | `.env` at the root | `~/.impi/conf/.env` |
+| agents | `/app/agents` | `$AGENTS_PATH` | `$AGENTS_PATH` (`~/.impi/agents`) |
+| skill library | `/app/skills` | `$SKILLS_PATH` | `~/.impi/skills` |
+| state, logs | `/app/data` | `data/` | inside the engine's volume — `impi logs` |
 
 Inside the engine's container the `impi` CLI is on `PATH` — `impi task`,
 `impi skill`, `impi sessions`, `impi agent`, `impi ward`, `impi --help`. From
 the operator's host it is the `impi` wrapper instead (`impi restart`, `impi logs`,
 `impi doctor`, `impi agent sync`), which runs the same commands in a throwaway
-container.
+container — and under `impi escape` that wrapper is the one on your PATH.
 
 ## What the engine is made of
 

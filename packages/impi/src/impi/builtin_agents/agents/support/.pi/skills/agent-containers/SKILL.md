@@ -120,3 +120,8 @@ Turn the axis on, run `impi agent sync`, or build anything. Those are the
 operator's, on the host, and deliberately: reaching a container runtime from in
 here would undo the separation the containers exist to create. You advise, you
 write profiles, and you say which command to run.
+
+The one exception is the operator's host, under `impi escape`: the wrapper is
+on your PATH there, and `impi agent sync` is yours to run. Say what you are
+about to run first — it builds images and restarts containers — then run it
+and report what it printed.

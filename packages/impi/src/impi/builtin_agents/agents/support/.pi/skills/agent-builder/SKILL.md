@@ -78,7 +78,8 @@ in which case it also needs one built, and the command is different. Do not
 guess which: `create_agent` returns a `hint` that names the exact command, and
 `AGENT_HOSTS_ENABLED` in the engine `.env` is the underlying answer. Pass the
 hint on verbatim. See the `agent-containers` skill before saying anything more
-about it.
+about it. On the operator's host (`impi escape`) the hint names the command
+**you** run — say so, then run it.
 
 **With the `create_agent` tool (Mattermost, preferred):** call it with `name`,
 `role`, and optionally `display_name`, `description`, `system_prompt`. It creates
@@ -114,6 +115,8 @@ profiles are re-read and idle sessions dropped; conversation memory survives.
 
 - The operator, on the host: `impi reload` (deployment) or `make reload` (checkout).
 - You, from inside the engine: `pkill -HUP -n -f '[i]mpi\.main'`.
+- You, on the operator's host (`impi escape`): `impi reload` — `pkill` would
+  find no engine there.
 
 A conversation already in flight keeps its current configuration until its
 session resets. A **new** agent still needs a restart.
