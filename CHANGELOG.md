@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.17.0 — 2026-10-01
+
 - **The secret broker works on Slack.** `WARD_GATEWAY=slack` with the broker's
   own Slack app (Socket Mode; `WARD_SLACK_BOT_TOKEN`, `WARD_SLACK_APP_TOKEN`):
   approval cards in the approver's direct message, `/ward` as the app's slash
