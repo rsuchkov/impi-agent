@@ -77,6 +77,8 @@ broker's door, and it requires a client certificate. Their state lives in the
 `vault-data` and `ward-data` volumes, the broker's own settings in
 `conf/ward.env`, and the agents' certificates in `certs/`. The store starts
 sealed and stays that way until you unlock it (see [secrets.md](secrets.md)).
+The broker asks its approvers on whichever chat platform the deployment uses —
+a bot on Mattermost, an app of its own on Slack.
 
 ## The `impi` wrapper
 

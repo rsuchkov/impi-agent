@@ -8,13 +8,9 @@ agent's conversation as a new message. ``InteractionsServer`` is the HTTP-callba
 receiver for gateways that deliver callbacks over HTTP.
 """
 
-from crucible.interactions.dispatcher import (
-    ActionResult,
-    AgentSink,
-    FormOpen,
-    InteractionDispatcher,
-)
+from crucible.interactions.dispatcher import AgentSink, FormOpen, InteractionDispatcher
 from crucible.interactions.presence import AgentPresence, MappingPresence
+from crucible.interactions.results import ActionResult
 from crucible.interactions.server import InteractionsServer
 from crucible.interactions.tooltrace import TRACE_SCREEN, ToolTrace, TraceScreen
 from crucible.interactions.wiring import InteractionWiring

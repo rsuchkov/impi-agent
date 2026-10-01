@@ -192,8 +192,13 @@ dim "restart. The engine never holds the credential to it."
 IMPI_VAULT=${IMPI_VAULT:-}
 confirm IMPI_VAULT "Run a secret store?" n || true
 if [ "$IMPI_VAULT" = yes ]; then
-    dim "Who may approve a request? Your chat username, or several, comma-separated."
-    ask IMPI_SECRET_APPROVERS "Approvers" "${IMPI_MM_ADMIN_USER:-}"
+    if [ "$IMPI_GATEWAY" = slack ]; then
+        dim "Who may approve a request? Slack member IDs (U…), or handles; comma-separated."
+        ask IMPI_SECRET_APPROVERS "Approvers" ""
+    else
+        dim "Who may approve a request? Your chat username, or several, comma-separated."
+        ask IMPI_SECRET_APPROVERS "Approvers" "${IMPI_MM_ADMIN_USER:-}"
+    fi
 fi
 
 title "Web browsing"
@@ -381,16 +386,19 @@ if [ "$IMPI_VAULT" = 1 ]; then
     mkdir -p "$IMPI_HOME/certs" "$IMPI_HOME/operator"
     # The broker's own file, which the engine does not read.
     WARD_ENV="$IMPI_HOME/conf/ward.env"
-    env_set WARD_APPROVERS "$IMPI_SECRET_APPROVERS" "$WARD_ENV"
-    env_set WARD_MATTERMOST_URL "$(env_get MATTERMOST_URL "$ENV_FILE")" "$WARD_ENV"
-    # Written empty on purpose: the broker posts as its OWN account, and until
-    # that token is here it can decide nothing — every request needing a human
-    # is refused. An empty key in the file is the reminder.
-    env_set WARD_MATTERMOST_TOKEN "" "$WARD_ENV"
+    write_ward_env "$IMPI_GATEWAY" "$IMPI_SECRET_APPROVERS" \
+        "$(env_get MATTERMOST_URL "$ENV_FILE")" "$WARD_ENV"
     ok "conf/ward.env written"
     dim "  Two things left before secrets work, in this order:"
-    dim "    1. create a bot named 'ward' and put its token in conf/ward.env"
-    dim "       (WARD_MATTERMOST_TOKEN) — the cards are posted as that account"
+    if [ "$IMPI_GATEWAY" = slack ]; then
+        dim "    1. create a Slack app for the broker (Socket Mode; bot scopes chat:write,"
+        dim "       im:write, users:read, commands; a slash command /ward; interactivity on)"
+        dim "       and put its two tokens in conf/ward.env (WARD_SLACK_BOT_TOKEN,"
+        dim "       WARD_SLACK_APP_TOKEN) — the cards are posted as that app"
+    else
+        dim "    1. create a bot named 'ward' and put its token in conf/ward.env"
+        dim "       (WARD_MATTERMOST_TOKEN) — the cards are posted as that account"
+    fi
     dim "    2. \`impi ward init\` — BEFORE the first start. It writes the role id"
     dim "       into conf/ward.env and the recovery material to ward-recovery.txt"
     dim "  Then: impi start, impi ward unlock --from ~/.impi/ward-recovery.txt,"

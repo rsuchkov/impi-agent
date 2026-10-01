@@ -6,6 +6,24 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The secret broker works on Slack.** `WARD_GATEWAY=slack` with the broker's
+  own Slack app (Socket Mode; `WARD_SLACK_BOT_TOKEN`, `WARD_SLACK_APP_TOKEN`):
+  approval cards in the approver's direct message, `/ward` as the app's slash
+  command with its modals, auto-rules and the ledger — the same surface, over
+  the socket instead of an HTTP receiver, so no callback URL, no command token
+  and no `AllowedUntrustedInternalConnections`. The installer writes the
+  Slack-shaped `conf/ward.env` on a Slack install and says which app to create.
+  The broker itself never learned which platform it is on: only its
+  composition did.
+- **Slash commands on Slack.** The interactive half of the Slack gateway —
+  clicks, modals, shortcuts — is now its own piece (`SlackInteractions`), which
+  the broker drives without an agent behind it, and it answers slash commands
+  the app declares: `/skills` and `/tasks` open their panels, anything else is
+  a turn of the agent, all outside threads (Slack's rule); the `crux_*` message
+  shortcuts remain the entry inside a thread.
+- **Fixed: on Slack, a stranger clicking a request for a credential got no
+  answer.** They are now told, privately, that only an approver can answer it —
+  as on Mattermost — and the card stays live for the person it is for.
 - **`impi escape <agent>`: an agent's pi on the host, in your terminal.** The
   same system prompt, model, tool allowlist and skills the engine would start it
   with — built by the engine itself (`impi agent argv`, one command-line builder

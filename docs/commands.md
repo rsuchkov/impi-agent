@@ -53,11 +53,11 @@ Grant it like any other tool (`open_screen` in `runtime.tools`); it needs
 
 |  | Mattermost | Slack |
 |---|---|---|
-| Entry point | slash command (works inside threads) | **message shortcut** (`crux_*`) |
+| Entry point | slash command (works inside threads) | slash command outside threads; **message shortcut** (`crux_*`) inside them |
 | Slash command in a thread | ✅ | ❌ [not allowed for custom commands](https://docs.slack.dev/interactivity/implementing-slash-commands/) — only built-ins and Giphy |
 | Thread root comes from | `root_id` in the payload | `message.thread_ts` (else `message.ts`) |
 | Transport | HTTP `POST /command/{agent}` (or `/command/default`) on the interactions receiver | Socket Mode (no HTTP, no public URL) |
-| Verification | per-command token, checked against config | the socket is already authenticated |
+| Verification | per-command token, checked against config | the socket is already authenticated; a command exists only if the app declares it |
 
 ## Setting up Mattermost
 
@@ -113,8 +113,14 @@ message and its thread:
    delivers it.
 
 Users invoke it from the message's **“More actions” (…) menu** inside the
-thread. A slash command may still be registered for channel-level use, but it
-will never carry thread context.
+thread.
+
+Outside a thread — in a channel, or in a direct message with the bot — a
+**slash command** works as on Mattermost: declare it in the app (*Slash
+Commands* → *Create New Command*, any name, no request URL — Socket Mode
+delivers it), and the engine answers `/skills` and `/tasks` with their panels
+and anything else as a turn of the agent. It never carries thread context,
+which is why the shortcut exists.
 
 ## Teaching the agent the command
 

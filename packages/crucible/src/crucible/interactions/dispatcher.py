@@ -9,7 +9,6 @@ message. It knows nothing about HTTP or any platform's payload shape.
 
 import logging
 from dataclasses import dataclass
-from enum import Enum, auto
 from uuid import uuid4
 
 from crucible.approvals import ApprovalOutcome, PendingApprovals
@@ -17,6 +16,7 @@ from crucible.interactions.labels import humanize
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.ports import FormHandlers
 from crucible.interactions.presence import AgentPresence
+from crucible.interactions.results import ActionResult
 from crucible.interactions.screens import (
     ScreenOpened,
     ScreenRegistry,
@@ -49,12 +49,6 @@ class AgentSink:
 
     sink: MessageSink
     chat: ChatClient
-
-
-class ActionResult(Enum):
-    FED = auto()  # the value was fed back into the conversation as a new turn
-    UNKNOWN = auto()  # no live interaction for this token (retire the buttons)
-    UNAVAILABLE = auto()  # the agent has no sink to route to
 
 
 @dataclass(frozen=True)

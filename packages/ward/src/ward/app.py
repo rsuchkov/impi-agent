@@ -11,12 +11,16 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from mattermostautodriver import AsyncTypedDriver
+from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
+from slack_bolt.async_app import AsyncApp
 
 from crucible.approvals import PendingApprovals
 from crucible.gateways.mattermost import MattermostCallbackCodec, MattermostChatClient
 from crucible.gateways.mattermost.options import driver_options
+from crucible.gateways.slack import SlackChatClient, SlackInteractions
 from crucible.interactions import InteractionDispatcher, InteractionsServer
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.ports import FormHandlers
@@ -25,8 +29,8 @@ from crucible.ports.chat.client import ChatClient
 from ward.approvers import Approvers
 from ward.broker import SecretBroker
 from ward.ca import CertificateAuthority
+from ward.chatops import COMMAND, OperatorForms, PendingOperatorForms, WardScreen
 from ward.chatops import HANDLER as WARD_HANDLER
-from ward.chatops import OperatorForms, PendingOperatorForms, WardScreen
 from ward.config import WardSettings
 from ward.operations import Operations
 from ward.ports import UnlockMaterial
@@ -62,16 +66,114 @@ class OneBot:
         return self._chat
 
 
+class Listener(Protocol):
+    """What brings the clicks back: the HTTP receiver on Mattermost, the socket
+    on Slack. Started after the broker is built, stopped when it goes."""
+
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+
+
+class ChatSide(Protocol):
+    """The chat platform as ward needs it, and nothing more: one account that
+    posts the cards and opens the direct messages, a sign-in, and a listener
+    for the answers. Which platform it is stays behind this."""
+
+    @property
+    def chat(self) -> ChatClient: ...  # and the ChatAdmin — both adapters implement both
+
+    @property
+    def callback_url(self) -> str: ...  # "" where clicks come over the platform's socket
+
+    @property
+    def variables(self) -> str: ...  # named in the log when signing in fails
+
+    async def sign_in(self) -> str: ...
+    def listener(self, dispatcher: InteractionDispatcher, presence: OneBot) -> Listener: ...
+
+
+class _Mattermost:
+    variables = "WARD_MATTERMOST_TOKEN and _URL"
+
+    def __init__(self, settings: WardSettings) -> None:
+        self._settings = settings
+        # Kept because it has to be signed in before anything can be posted —
+        # a token in the driver's options is not a session.
+        self.driver = AsyncTypedDriver(
+            driver_options(settings.mattermost_url, settings.mattermost_token)
+        )
+        self.chat = MattermostChatClient(self.driver)
+        self.callback_url = settings.interact_url
+
+    async def sign_in(self) -> str:
+        me = await self.driver.login()
+        return me.get("username", "?")
+
+    def listener(self, dispatcher: InteractionDispatcher, presence: OneBot) -> Listener:
+        # Mattermost calls back over HTTP: clicks, dialog submits and the slash
+        # command, each verified by the codec and the command token.
+        return InteractionsServer(
+            dispatcher,
+            MattermostCallbackCodec(),
+            presence,  # type: ignore[arg-type]
+            host=self._settings.callback_host,
+            port=self._settings.callback_port,
+            dialog_submit_url=self._settings.dialog_url,
+            command_tokens=lambda _agent: self._settings.tokens,
+        )
+
+
+class _Socket:
+    """The Socket Mode connection as a listener. Opened, not driven: the process
+    has other things to serve, and the handler runs on the loop by itself."""
+
+    def __init__(self, handler: AsyncSocketModeHandler) -> None:
+        self._handler = handler
+
+    async def start(self) -> None:
+        await self._handler.connect_async()
+
+    async def stop(self) -> None:
+        await self._handler.close_async()
+
+
+class _Slack:
+    variables = "WARD_SLACK_BOT_TOKEN and _APP_TOKEN"
+
+    def __init__(self, settings: WardSettings) -> None:
+        self._app_token = settings.slack_app_token
+        self.app = AsyncApp(token=settings.slack_bot_token)
+        self.chat = SlackChatClient(self.app.client)
+        # Clicks come down the socket, routed by action id; a card carries no
+        # address to call back to.
+        self.callback_url = ""
+
+    async def sign_in(self) -> str:
+        auth = await self.app.client.auth_test()
+        return auth.get("user", "?")
+
+    def listener(self, dispatcher: InteractionDispatcher, presence: OneBot) -> Listener:
+        # The interactive half of a Slack app, and only that: ward runs no
+        # agents, so there is no message handler beside it. `/ward` arrives as
+        # a slash command of ward's own app — declared there, no token here.
+        SlackInteractions(self.app, dispatcher, self.chat, agent=COMMAND).register()
+        return _Socket(AsyncSocketModeHandler(self.app, self._app_token))
+
+
+_CHAT_SIDES: dict[str, type[_Mattermost] | type[_Slack]] = {
+    "mattermost": _Mattermost,
+    "slack": _Slack,
+}
+
+
 @dataclass
 class Ward:
     settings: WardSettings
     store: WardStore
     broker: SecretBroker
     door: WardServer
-    callbacks: InteractionsServer
-    # The driver behind the chat client, kept because it has to be signed in
-    # before anything can be posted — see `_sign_in`.
-    driver: AsyncTypedDriver
+    listener: Listener
+    chat: ChatSide
 
 
 def build(settings: WardSettings) -> Ward:
@@ -79,14 +181,18 @@ def build(settings: WardSettings) -> Ward:
         raise SystemExit(
             f"no certificate authority at {settings.tls} — run `ward init` first"
         )
+    side_cls = _CHAT_SIDES.get(settings.gateway)
+    if side_cls is None:
+        raise SystemExit(
+            f"WARD_GATEWAY={settings.gateway!r} is not a chat platform ward knows; "
+            f"one of: {', '.join(_CHAT_SIDES)}"
+        )
     Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
     store = WardStore(settings.db_path)
     approvals = PendingApprovals()
 
-    driver = AsyncTypedDriver(
-        driver_options(settings.mattermost_url, settings.mattermost_token)
-    )
-    chat = MattermostChatClient(driver)
+    side = side_cls(settings)
+    chat = side.chat
     presence = OneBot(chat)
 
     # Who may answer, and — the same trust — who may administer from chat.
@@ -107,7 +213,7 @@ def build(settings: WardSettings) -> Ward:
         approval_timeout_s=settings.approval_timeout_s,
         max_grant_s=settings.max_grant_s,
         notice_fold_s=settings.notice_fold_s,
-        callback_url=settings.interact_url,
+        callback_url=side.callback_url,
     )
 
     operations = Operations(broker.backend, store, store)
@@ -123,8 +229,9 @@ def build(settings: WardSettings) -> Ward:
         ),
     )
     # The operator surface in chat. Registered whatever the settings say — what
-    # gates it is the command token (no token, no route) and the approver list
-    # (nobody named, nobody allowed), both checked on every call.
+    # gates it is the platform's own entry (a command token on Mattermost, the
+    # app's slash command on Slack) and the approver list (nobody named, nobody
+    # allowed), both checked on every call.
     pending_forms = PendingOperatorForms()
     handlers = FormHandlers()
     handlers.register(
@@ -135,50 +242,39 @@ def build(settings: WardSettings) -> Ward:
     screens.register(
         WardScreen(broker, operations, approvers, chat, store, store, pending_forms)
     )
-    callbacks = InteractionsServer(
-        InteractionDispatcher(
-            store, presence, PendingUiRequests(), store,
-            screens=screens,
-            approvals=approvals,
-            handlers=handlers,
-            callback_url=settings.interact_url,
-        ),  # type: ignore[arg-type]
-        MattermostCallbackCodec(),
-        presence,  # type: ignore[arg-type]
-        host=settings.callback_host,
-        port=settings.callback_port,
-        dialog_submit_url=settings.dialog_url,
-        command_tokens=lambda _agent: settings.tokens,
-    )
+    dispatcher = InteractionDispatcher(
+        store, presence, PendingUiRequests(), store,
+        screens=screens,
+        approvals=approvals,
+        handlers=handlers,
+        callback_url=side.callback_url,
+    )  # type: ignore[arg-type]
+    listener = side.listener(dispatcher, presence)
     logger.info(
-        "ward built: store=%s, vault=%s, approvers=%s",
-        settings.db_path, settings.vault_addr, settings.approvers or "(nobody)",
+        "ward built: store=%s, vault=%s, chat=%s, approvers=%s",
+        settings.db_path, settings.vault_addr, settings.gateway,
+        settings.approvers or "(nobody)",
     )
-    return Ward(settings, store, broker, door, callbacks, driver)
+    return Ward(settings, store, broker, door, listener, side)
 
 
 async def _sign_in(ward: Ward) -> None:
-    """Authenticate the account the cards are posted as.
+    """Sign the chat account in before anything is posted as it.
 
-    A token in the driver's options is not a session: without this the first
-    thing a request for a credential does is fail to post its card, and the
-    ledger fills with `no_approver` for a broker that looks configured. The
-    engine's gateway does the same call before it serves.
-
-    Not fatal. A broker that cannot ask can still serve what needs no human, and
-    can still be driven by an operator — including to find out why, which is
-    what the log line is for.
+    Not fatal: without a session every request that needs a human is refused
+    with no_approver, but the broker can still serve what needs none, and can
+    still be driven by an operator — including to find out why.
     """
     try:
-        me = await ward.driver.login()
+        username = await ward.chat.sign_in()
     except Exception as exc:
         logger.error(
             "cannot sign in to chat (%s) — every request that needs a human will "
-            "be refused with no_approver. Check WARD_MATTERMOST_TOKEN and _URL.",
-            exc,
+            "be refused with no_approver. Check %s.",
+            exc, ward.chat.variables,
         )
         return
-    logger.info("posting approval cards as @%s", me.get("username", "?"))
+    logger.info("posting approval cards as @%s", username)
 
 
 # How long the broker waits for the store before opening it with material kept
@@ -237,14 +333,15 @@ def _read(path: str) -> str:
 
 async def run(settings: WardSettings) -> None:
     ward = build(settings)
-    await ward.callbacks.start()
+    await ward.listener.start()
     await ward.door.start()
     await _sign_in(ward)
     await _unlock(ward)
     try:
-        # Nothing to drive: both listeners are servers. Sleep until told to stop.
+        # Nothing to drive: the door is a server and the listener runs on the
+        # loop by itself. Sleep until told to stop.
         await asyncio.Event().wait()
     finally:
         await ward.door.stop()
-        await ward.callbacks.stop()
+        await ward.listener.stop()
         await ward.store.close()

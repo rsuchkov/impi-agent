@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from crucible.gateways.slack import SlackChatClient
+from crucible.interactions import InteractionsServer
 from ward import app as ward_app
 from ward.app import OneBot, _sign_in, _unlock, build
 from ward.ca import OPERATOR_CN as OPERATOR
@@ -303,16 +305,16 @@ def test_an_unmounted_directory_says_what_to_copy(
 # -- signing in -------------------------------------------------------------------
 
 
-class StubDriver:
+class StubSignIn:
     def __init__(self, fails: bool = False) -> None:
         self.calls = 0
         self._fails = fails
 
-    async def login(self) -> dict:
+    async def __call__(self) -> str:
         self.calls += 1
         if self._fails:
             raise RuntimeError("Invalid or expired session, please login again")
-        return {"id": "bot-1", "username": "ward"}
+        return "ward"
 
 
 async def test_the_chat_account_is_signed_in_before_serving(tmp_path: Path) -> None:
@@ -322,30 +324,42 @@ async def test_the_chat_account_is_signed_in_before_serving(tmp_path: Path) -> N
     settings = _settings(tmp_path)
     _authority(settings)
     ward = build(settings)
-    driver = StubDriver()
-    ward.driver = driver  # type: ignore[assignment]
+    stub = StubSignIn()
+    ward.chat.sign_in = stub  # type: ignore[method-assign]
     try:
         await _sign_in(ward)
     finally:
         await ward.store.close()
-    assert driver.calls == 1
+    assert stub.calls == 1
 
 
 async def test_a_chat_account_that_will_not_sign_in_does_not_stop_the_broker(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """It can still serve what needs no human, and still be driven by an
-    operator — including to find out why."""
+    operator — including to find out why. The log names the knobs of the
+    platform this deployment is on, not the other one's."""
     settings = _settings(tmp_path)
     _authority(settings)
     ward = build(settings)
-    ward.driver = StubDriver(fails=True)  # type: ignore[assignment]
+    ward.chat.sign_in = StubSignIn(fails=True)  # type: ignore[method-assign]
     try:
         with caplog.at_level("ERROR"):
             await _sign_in(ward)  # must not raise
     finally:
         await ward.store.close()
     assert "WARD_MATTERMOST_TOKEN" in caplog.text
+
+    slack = build(_slack_settings(tmp_path))
+    slack.chat.sign_in = StubSignIn(fails=True)  # type: ignore[method-assign]
+    caplog.clear()
+    try:
+        with caplog.at_level("ERROR"):
+            await _sign_in(slack)
+    finally:
+        await slack.listener.stop()
+        await slack.store.close()
+    assert "WARD_SLACK_BOT_TOKEN" in caplog.text and "MATTERMOST" not in caplog.text
 
 
 def test_the_receiver_knows_where_a_modal_submits(tmp_path: Path) -> None:
@@ -355,5 +369,39 @@ def test_the_receiver_knows_where_a_modal_submits(tmp_path: Path) -> None:
     _authority(settings)
     ward = build(settings)
     assert settings.dialog_url == "http://ward:8426/dialog"
-    assert ward.callbacks._dialog_submit_url == settings.dialog_url
+    assert isinstance(ward.listener, InteractionsServer)
+    assert ward.listener._dialog_submit_url == settings.dialog_url
     ward.store._conn.close()
+
+
+# -- the other platform -------------------------------------------------------------
+
+
+def _slack_settings(root: Path) -> WardSettings:
+    settings = _settings(
+        root, gateway="slack", slack_bot_token="xoxb-fake", slack_app_token="xapp-fake"
+    )
+    _authority(settings)
+    return settings
+
+
+async def test_on_slack_the_socket_is_the_receiver_and_no_port_is_bound(tmp_path: Path) -> None:
+    """Socket Mode delivers clicks, modal submits and the slash command down the
+    connection the app already holds: no HTTP receiver, no callback URL baked
+    into a card, no command token. The one account still posts and opens DMs."""
+    ward = build(_slack_settings(tmp_path))
+    try:
+        assert isinstance(ward.chat.chat, SlackChatClient)
+        assert not isinstance(ward.listener, InteractionsServer)
+        assert ward.chat.callback_url == ""
+        assert ward.broker._callback_url == ""
+    finally:
+        await ward.listener.stop()  # the socket handler's own aiohttp session
+        await ward.store.close()
+
+
+def test_a_platform_ward_does_not_know_is_refused_by_name(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, gateway="irc")
+    _authority(settings)
+    with pytest.raises(SystemExit, match="mattermost, slack"):
+        build(settings)

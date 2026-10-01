@@ -266,9 +266,12 @@ forbidden_modules = ["wardline.exec_cli", "wardline.admin_cli", "wardline.consol
 name = "The broker asks through the chat ports, never through a platform library"
 type = "forbidden"
 source_modules = [
+    "ward.approvers",
+    "ward.autorules",
     "ward.broker",
     "ward.ca",
     "ward.card",
+    "ward.chatops",
     "ward.decisions",
     "ward.operations",
     "ward.policy",

@@ -16,21 +16,24 @@ from aiohttp import web
 
 from crucible.approvals import ApprovalOutcome
 from crucible.interactions.callbacks import CallbackCodec
-from crucible.interactions.dispatcher import ActionResult, InteractionDispatcher
+from crucible.interactions.dispatcher import InteractionDispatcher
 from crucible.interactions.presence import AgentPresence
-from crucible.ports.chat.types import KIND_CHANNEL, KIND_THREAD
+from crucible.interactions.results import ActionResult
+from crucible.ports.chat.types import (
+    AGENT_UNAVAILABLE_TEXT,
+    BUTTONS_RETIRED_TEXT,
+    COMMAND_ACK_TEXT,
+    KIND_CHANNEL,
+    KIND_THREAD,
+    NOT_AN_APPROVER_TEXT,
+)
 
 logger = logging.getLogger(__name__)
 
 # User-facing chrome for the button message (engine text, not agent persona) —
-# English per project convention.
-_BUTTONS_RETIRED_MESSAGE = "These buttons are no longer active."
-_AGENT_UNAVAILABLE_MESSAGE = "The agent is currently unavailable."
+# English per project convention. The rest of the wording a click or a command
+# is answered with is shared with the socket gateways: ports.chat.types.
 _CHOSE_PREFIX = "Selected: "
-# Shown to whoever clicked a request they are not an approver for.
-# Ephemeral: the card stays live for the person it was actually addressed to.
-_NOT_AN_APPROVER_MESSAGE = "Only an approver can answer that request."
-_COMMAND_ACK_MESSAGE = "Working on it — the answer will appear in this conversation."
 
 # Which command tokens an agent accepts; empty tuple = commands are off for it.
 CommandTokens = Callable[[str], tuple[str, ...]]
@@ -138,10 +141,10 @@ class InteractionsServer:
                 cb.approval, cb.value, cb.user_id
             )
             if outcome is ApprovalOutcome.NOT_ALLOWED:
-                return web.json_response(self._codec.reply_notice(_NOT_AN_APPROVER_MESSAGE))
+                return web.json_response(self._codec.reply_notice(NOT_AN_APPROVER_TEXT))
             if outcome is ApprovalOutcome.RESOLVED:
                 return web.json_response(self._codec.reply_none())
-            return web.json_response(self._codec.reply_replace(_BUTTONS_RETIRED_MESSAGE))
+            return web.json_response(self._codec.reply_replace(BUTTONS_RETIRED_TEXT))
 
         # A screen redraws itself in place: no turn, and the message it came from
         # is rewritten rather than replaced by a response body.
@@ -167,18 +170,18 @@ class InteractionsServer:
             cb.token, cb.value, cb.user_id, pick=cb.pick
         )
         if result is ActionResult.UNKNOWN:
-            return web.json_response(self._codec.reply_replace(_BUTTONS_RETIRED_MESSAGE))
+            return web.json_response(self._codec.reply_replace(BUTTONS_RETIRED_TEXT))
         if result is ActionResult.UNAVAILABLE:
-            return web.json_response(self._codec.reply_notice(_AGENT_UNAVAILABLE_MESSAGE))
+            return web.json_response(self._codec.reply_notice(AGENT_UNAVAILABLE_TEXT))
         return web.json_response(self._codec.reply_replace(f"{_CHOSE_PREFIX}{cb.value}"))
 
     async def _open_form_dialog(self, cb) -> web.Response:
         form = await self._dispatcher.load_form(cb.form_token)
         if form is None:
-            return web.json_response(self._codec.reply_replace(_BUTTONS_RETIRED_MESSAGE))
+            return web.json_response(self._codec.reply_replace(BUTTONS_RETIRED_TEXT))
         poster = self._presence.poster(form.agent)
         if poster is None or not cb.trigger:
-            return web.json_response(self._codec.reply_notice(_AGENT_UNAVAILABLE_MESSAGE))
+            return web.json_response(self._codec.reply_notice(AGENT_UNAVAILABLE_TEXT))
         try:
             # state=form_token round-trips to the submit callback; keep the button
             # so a cancelled modal can be re-opened (the token lives until submit).
@@ -187,7 +190,7 @@ class InteractionsServer:
             )
         except Exception:
             logger.exception("form %s: failed to open dialog", cb.form_token[:8])
-            return web.json_response(self._codec.reply_notice(_AGENT_UNAVAILABLE_MESSAGE))
+            return web.json_response(self._codec.reply_notice(AGENT_UNAVAILABLE_TEXT))
         logger.info("form %s: dialog opened", cb.form_token[:8])
         return web.json_response(self._codec.reply_none())  # no message change; modal is up
 
@@ -266,5 +269,5 @@ class InteractionsServer:
         )
         if result is ActionResult.UNAVAILABLE:
             logger.warning("command %s: agent %s has no live presence", cb.command, agent)
-            return web.json_response(self._codec.reply_ack(_AGENT_UNAVAILABLE_MESSAGE))
-        return web.json_response(self._codec.reply_ack(_COMMAND_ACK_MESSAGE))
+            return web.json_response(self._codec.reply_ack(AGENT_UNAVAILABLE_TEXT))
+        return web.json_response(self._codec.reply_ack(COMMAND_ACK_TEXT))

@@ -276,13 +276,17 @@ are `WARD_*` and live in its container's environment, not here.
 | `WARD_VAULT_ADDR` | `http://127.0.0.1:8200` | the store, on the loopback it shares with the broker |
 | `WARD_ROLE_ID` | — | the broker's AppRole; written by `ward init` |
 | `WARD_UNSEAL_KEY_FILE` / `WARD_SECRET_ID_FILE` | — | unattended unlock, mounted as files; the broker waits up to two minutes for the store before using them |
-| `WARD_MATTERMOST_TOKEN` | — | the bot approval cards are posted as |
+| `WARD_GATEWAY` | `mattermost` | which chat platform the broker's account lives on: `mattermost` or `slack` |
+| `WARD_MATTERMOST_URL` | `http://mattermost:8065` | Mattermost only: the server |
+| `WARD_MATTERMOST_TOKEN` | — | Mattermost only: the bot approval cards are posted as |
+| `WARD_SLACK_BOT_TOKEN` / `WARD_SLACK_APP_TOKEN` | — | Slack only: the app the cards are posted as, and the app-level token its socket is opened with |
 | `WARD_APPROVERS` | — | CSV of usernames or ids that may answer |
 | `WARD_APPROVAL_CHANNEL` | — | where cards go (empty = a DM to the first approver) |
 | `WARD_APPROVAL_TIMEOUT_S` | `120` | how long a request waits before it is refused |
 | `WARD_MAX_GRANT_S` | `3600` | ceiling over every policy's own window ceiling |
 | `WARD_NOTICE_FOLD_S` | `900` | how long a run of automatic grants folds into one notice rather than posting again |
-| `WARD_COMMAND_TOKENS` | — | the `/ward` slash command's tokens (CSV). Empty = no operator surface in chat. Operator-grade: anything reaching the receiver with one of these can claim to be any user, and only the approver check that follows decides |
+| `WARD_COMMAND_TOKENS` | — | Mattermost only: the `/ward` slash command's tokens (CSV). Empty = no operator surface in chat. Operator-grade: anything reaching the receiver with one of these can claim to be any user, and only the approver check that follows decides. On Slack the command is the app's own and needs no token |
+| `WARD_CALLBACK_PUBLIC_URL` | `http://ward:8426` | Mattermost only: where its clicks, dialog submissions and the slash command are posted back to |
 | `WARD_OPERATOR_DIR` | `/var/lib/ward/operator` | where `ward init` puts the operator's identity — a different directory from the agents', because that one is mounted where the agents run |
 
 ## Tool confirmations

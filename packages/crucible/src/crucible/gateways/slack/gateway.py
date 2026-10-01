@@ -2,55 +2,35 @@
 
 One gateway = one bot account (its own AsyncApp). Inbound messages become neutral
 IncomingMessages fed to the agent's sink; interactive callbacks (button clicks,
-modal submits) are routed to the transport-neutral InteractionDispatcher — the
-same brain the Mattermost HTTP receiver uses, here over the WebSocket instead.
+modal submits, shortcuts, slash commands) are SlackInteractions' — the same
+class an application without agents drives on its own — and reach the
+transport-neutral InteractionDispatcher over the WebSocket instead of HTTP.
 """
 
 import logging
-import re
 from dataclasses import replace
 
 from aiohttp import ClientSession
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
-from crucible.approvals import ApprovalOutcome
 from crucible.attachments import AttachmentStore, IncomingFile
 from crucible.gateways.dispatch import GatewayDispatcher
-from crucible.gateways.slack.client import MESSAGE_ID_SEP
 from crucible.gateways.slack.events import FileHandle, event_to_incoming, parse_files
-from crucible.gateways.slack.rendering import (
-    FORM_CALLBACK,
-    WIDGET_ACTION_PREFIX,
-    decode_action,
-    decode_approval,
-    decode_screen,
-    extract_submission,
-    picked_kind,
+from crucible.gateways.slack.interactions import (
+    DEFAULT_COMMAND_SHORTCUT_PREFIX,
+    SlackInteractions,
 )
 from crucible.loopguard import LoopGuard
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.gateway import AgentIdentity
-from crucible.ports.chat.types import KIND_DM, KIND_THREAD, IncomingMessage
+from crucible.ports.chat.types import IncomingMessage
 
 logger = logging.getLogger(__name__)
 
-# Shown on the clicked message once its buttons are stripped. Slack doesn't retire
-# interactive elements via the ack (unlike Mattermost's callback response), so the
-# gateway updates the message itself.
-_CHOSE_PREFIX = "Selected: "
-# Shown in place of a "fill in" button whose form is gone (already answered, or
-# expired) — the same wording the HTTP receiver uses for a stale widget.
-_BUTTONS_RETIRED = "These buttons are no longer active."
-
-# Default prefix for message shortcuts an agent answers as commands: the callback
-# id starts with it and the rest is the command name (crux_summarize ->
-# "summarize"). Slack forbids custom slash commands inside threads, so a shortcut
-# is the thread-aware entry. Configurable per deployment (SLACK_COMMAND_PREFIX) —
-# a workspace may already have its own naming convention.
-DEFAULT_COMMAND_SHORTCUT_PREFIX = "crux_"
+__all__ = ["DEFAULT_COMMAND_SHORTCUT_PREFIX", "SlackGateway"]
 
 
 class SlackGateway:
@@ -73,19 +53,22 @@ class SlackGateway:
         self._app = app
         self._handler = AsyncSocketModeHandler(app, app_token)
         self._agent = agent  # our own name; a command names the agent to run
-        # Which message shortcuts are commands, and where the command name starts.
-        # Empty = every shortcut is a command and its callback id IS the name.
-        self._command_prefix = command_prefix
         self._sink = sink
         self._chat = chat
-        self._poster = poster  # opens modals on a form-open click (same agent)
-        self._dispatcher = dispatcher
         self._directory = directory
         self._loop_guard = loop_guard
         self._reply_to_agents = reply_to_agents
         self._attachments = attachments
         self._own_user_id = ""
         self._own_bot_id = ""
+        # The interactive half, kept apart: clicks, modals, shortcuts and slash
+        # commands go to the dispatcher and never near the sink. Without a
+        # dispatcher there is nobody to route them to, and they stay unhandled.
+        self.interactions: SlackInteractions | None = None
+        if dispatcher is not None:
+            self.interactions = SlackInteractions(
+                app, dispatcher, poster or chat, agent=agent, command_prefix=command_prefix
+            )
         self._register()
 
     async def login(self) -> AgentIdentity:
@@ -106,40 +89,14 @@ class SlackGateway:
 
     def _register(self) -> None:
         self._app.event("message")(self._on_message)
-        # One handler for every engine widget (action ids share a prefix).
-        self._app.action(re.compile(f"^{WIDGET_ACTION_PREFIX}"))(self._on_action)
-        self._app.view(FORM_CALLBACK)(self._on_view)
-        # Message shortcuts are the thread-aware command entry (Slack forbids
-        # custom slash commands in threads); one handler for the whole family.
-        # escape(): the prefix is configuration, not a pattern.
-        self._app.shortcut(re.compile(f"^{re.escape(self._command_prefix)}"))(self._on_shortcut)
+        if self.interactions is not None:
+            self.interactions.register()
 
     async def _on_message(self, event: dict) -> None:
         try:
             await self._handle_message(event)
         except Exception:
             logger.exception("failed to handle Slack message event")
-
-    async def _on_action(self, ack, body: dict) -> None:
-        await ack()
-        try:
-            await self._handle_action(body)
-        except Exception:
-            logger.exception("failed to handle Slack block action")
-
-    async def _on_view(self, ack, body: dict) -> None:
-        await ack()
-        try:
-            await self._handle_view(body)
-        except Exception:
-            logger.exception("failed to handle Slack view submission")
-
-    async def _on_shortcut(self, ack, body: dict) -> None:
-        await ack()  # Slack demands an ack within 3s; the turn runs after it
-        try:
-            self._handle_shortcut(body)
-        except Exception:
-            logger.exception("failed to handle Slack shortcut")
 
     # -- inbound messages ---------------------------------------------------
 
@@ -226,136 +183,3 @@ class SlackGateway:
                 logger.info("loop guard dropped agent turn in %s: %s", msg.conversation_id, decision.reason)
                 return None
         return msg
-
-    # -- interactive callbacks (routed to the neutral dispatcher) -----------
-
-    async def _handle_action(self, body: dict) -> None:
-        if self._dispatcher is None:
-            return
-        actions = body.get("actions") or []
-        if not actions:
-            return
-        token, form_token, value = decode_action(actions[0])
-        user_id = (body.get("user") or {}).get("id", "")
-        approval = decode_approval(actions[0])
-        if approval:
-            # A request for a CREDENTIAL. Not to be confused with the Allow/Block
-            # further down: that one approves a tool call mid-turn and is
-            # answered by whoever is in the conversation, while this one is
-            # addressed to a named person and refuses everybody else.
-            #
-            # The broker rewrites its own card once it has the answer, so the
-            # buttons are stripped from here only when the click landed on a
-            # request that no longer exists.
-            outcome = self._dispatcher.resolve_approval(
-                approval, value, user_id
-            )
-            if outcome is ApprovalOutcome.NOT_MINE:
-                await self._strip_buttons(body, _BUTTONS_RETIRED)
-            return
-        screen, state = decode_screen(actions[0])
-        if screen:
-            # An engine screen: redraw the message it came from, no turn.
-            await self._dispatcher.redraw_screen(
-                state, value, post_id=self._message_id(body), user_id=user_id
-            )
-            return
-        if form_token:
-            # The button deliberately SURVIVES the open: a modal closed without
-            # submitting can then be reopened. It is retired when the form is
-            # answered (InteractionDispatcher.submit_form) or when its click finds
-            # nothing left to open.
-            if not await self._open_modal(body, form_token):
-                await self._strip_buttons(body, _BUTTONS_RETIRED)
-            return
-        # A blocking mid-turn request: ask_user_confirm, or the confirmation
-        # gate in front of a tool call. Addressed to the conversation, so any
-        # click that carries the token answers it.
-        if not self._dispatcher.resolve_pending(token, value):
-            # Slack names the element that fired, so a picker's id is resolvable.
-            await self._dispatcher.consume_action(
-                token, value, user_id, pick=picked_kind(actions[0])
-            )
-        # Slack won't retire the buttons on its own — strip them off the message so a
-        # fire-and-forget widget can't be clicked twice.
-        await self._strip_buttons(body, f"{_CHOSE_PREFIX}{value}")
-
-    def _handle_shortcut(self, body: dict) -> None:
-        """A message shortcut runs a command in the conversation of the message it
-        was invoked on — the thread if there is one, else the message itself (which
-        is what a reply would start). The callback id names the command."""
-        if self._dispatcher is None:
-            return
-        command = str(body.get("callback_id", "")).removeprefix(self._command_prefix)
-        if not command:
-            return
-        message = body.get("message") or {}
-        channel_id = (body.get("channel") or {}).get("id", "")
-        user = body.get("user") or {}
-        ts = str(message.get("ts") or "")
-        thread_ts = str(message.get("thread_ts") or "")
-        # Same conversation rule as an inbound message (slack/events.py): the
-        # thread wins; a DM without a thread is the DM-channel session.
-        if thread_ts and thread_ts != ts:
-            conversation_id, kind = thread_ts, KIND_THREAD
-        elif channel_id.startswith("D"):  # the shortcut payload carries no channel type
-            conversation_id, kind = channel_id, KIND_DM
-        else:
-            conversation_id, kind = ts, KIND_THREAD
-        if not conversation_id:
-            logger.warning("shortcut %s: no conversation in the payload", command)
-            return
-        self._dispatcher.invoke_command(
-            self._agent,
-            channel_id=channel_id,
-            conversation_id=conversation_id,
-            kind=kind,
-            text=f"/{command}",
-            user_id=user.get("id", ""),
-            username=user.get("username", "") or user.get("name", ""),
-        )
-
-    async def _open_modal(self, body: dict, form_token: str) -> bool:
-        if self._dispatcher is None or self._poster is None:
-            return False
-        form = await self._dispatcher.load_form(form_token)
-        if form is None:
-            return False
-        trigger = body.get("trigger_id", "")
-        if not trigger:
-            return False
-        try:
-            await self._poster.open_dialog(trigger, form.form, submit_url="", state=form_token)
-        except Exception:
-            logger.exception("failed to open Slack modal for form %s", form_token[:8])
-            return False
-        return True
-
-    @staticmethod
-    def _message_id(body: dict) -> str:
-        """The clicked message in the composite form SlackChatClient uses, so a
-        screen redraw goes through the neutral update verb."""
-        channel = (body.get("channel") or {}).get("id", "")
-        ts = (body.get("message") or {}).get("ts", "")
-        return f"{channel}{MESSAGE_ID_SEP}{ts}" if channel and ts else ""
-
-    async def _strip_buttons(self, body: dict, text: str) -> None:
-        """Best-effort: replace the clicked message's text and drop its interactive
-        blocks, so a widget can't be clicked again."""
-        channel = (body.get("channel") or {}).get("id", "")
-        ts = (body.get("message") or {}).get("ts", "")
-        if not (channel and ts):
-            return
-        try:
-            await self._app.client.chat_update(channel=channel, ts=ts, text=text, blocks=[])
-        except Exception:
-            logger.debug("could not strip buttons off %s/%s", channel, ts, exc_info=True)
-
-    async def _handle_view(self, body: dict) -> None:
-        if self._dispatcher is None:
-            return
-        view = body.get("view") or {}
-        state = view.get("private_metadata", "")
-        submission = extract_submission(view.get("state") or {})
-        user_id = (body.get("user") or {}).get("id", "")
-        await self._dispatcher.submit_form(state, submission, cancelled=False, user_id=user_id)

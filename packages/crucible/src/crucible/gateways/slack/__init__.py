@@ -4,14 +4,18 @@ events.py    — pure event normalization into neutral chat types
 rendering.py — Block Kit rendering + the widget token round-trip
 formatter.py — Markdown -> mrkdwn conversion for outgoing agent prose
 client.py    — ChatClient + ChatAdmin over the AsyncWebClient
-gateway.py   — Socket Mode loop + respond decision; interactive callbacks routed
-               to the neutral InteractionDispatcher (no HTTP receiver needed)
+interactions.py — clicks, modals, shortcuts and slash commands over the socket,
+               routed to the neutral InteractionDispatcher (no HTTP receiver);
+               usable without a gateway by an app that runs no agents
+gateway.py   — Socket Mode loop + respond decision for messages; composes the
+               interactions beside them
 """
 
 from crucible.gateways.slack.client import SlackChatClient
-from crucible.gateways.slack.gateway import (
+from crucible.gateways.slack.gateway import SlackGateway
+from crucible.gateways.slack.interactions import (
     DEFAULT_COMMAND_SHORTCUT_PREFIX,
-    SlackGateway,
+    SlackInteractions,
 )
 
 # Appended to a Slack agent's system prompt. The gateway converts outgoing
@@ -28,4 +32,5 @@ __all__ = [
     "PROMPT_HINT",
     "SlackChatClient",
     "SlackGateway",
+    "SlackInteractions",
 ]

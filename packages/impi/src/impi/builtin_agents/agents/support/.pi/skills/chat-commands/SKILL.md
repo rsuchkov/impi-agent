@@ -1,6 +1,6 @@
 ---
 name: chat-commands
-description: Register a slash command (Mattermost) or message shortcut (Slack) so it reaches an agent, and diagnose one that does nothing. Use when the operator asks to add a /command, wire a command to an agent, or reports that a slash command fails or answers as the wrong bot.
+description: Register a slash command (Mattermost, or Slack outside threads) or a Slack message shortcut so it reaches an agent, and diagnose one that does nothing. Use when the operator asks to add a /command, wire a command to an agent, or reports that a slash command fails or answers as the wrong bot.
 ---
 
 # Slash commands and shortcuts
@@ -59,14 +59,19 @@ agent is not authorising a command.
 
 ## 3. Slack
 
-Slack does not allow custom slash commands inside threads — that is a platform
-rule. Use a **message shortcut** whose callback id starts with
+Two entries, by where the command is typed. **Outside a thread** — a channel
+or a direct message — a slash command works as on Mattermost: the operator
+declares it in the agent's Slack app (*Slash Commands*, any name, no request
+URL — Socket Mode delivers it), and the engine answers `/skills` and `/tasks`
+with their panels and anything else as a turn of the agent. **Inside a
+thread** Slack does not allow custom slash commands — that is a platform rule
+— so the entry is a **message shortcut** whose callback id starts with
 `SLACK_COMMAND_PREFIX` (default `crux_`); the rest of the id is the command
-word. No URL and no token: the socket is already authenticated.
+word. Neither needs a URL or a token: the socket is already authenticated.
 
-Note the asymmetry: **the engine's screens are Mattermost-only.** A `crux_tasks`
-shortcut on a Slack agent becomes an ordinary turn, and the model will answer
-about a task list it cannot read.
+Note the asymmetry: a shortcut never opens a screen. A `crux_tasks` shortcut
+on a Slack agent becomes an ordinary turn, and the model will answer about a
+task list it cannot read — in a thread, point them at `open_screen` instead.
 
 ## 4. Networking (Mattermost only)
 

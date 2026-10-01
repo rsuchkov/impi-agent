@@ -21,9 +21,11 @@ You run inside the engine's own process tree, so:
 - **You cannot** read the engine log: it goes to the process's stdout, which the
   container runtime captures. Ask the operator for `impi logs` (or
   `impi logs -f`); in a source checkout it is `data/logs/engine.log`.
-  `impi doctor` is likewise a host command — it checks compose, file
-  permissions, whether the engine reported readiness, and which inventory it
-  actually reached. That last one matters when the tasks or conversations an
+  `impi doctor` is likewise a host command — it checks compose, the container
+  runtime and its version, every container that exists but is not running
+  (with the daemon's own error and the fix), file permissions, whether the
+  engine reported readiness, and which inventory it actually reached. That
+  last one matters when the tasks or conversations an
   operator expects are simply not there: the inventory is a SQLite file by
   default but can be a database on a server (`$IMPI_ROOT/docs/storage.md`), and
   a setting that did not arrive leaves the engine reading an empty one.

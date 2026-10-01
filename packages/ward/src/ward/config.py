@@ -53,8 +53,19 @@ class WardSettings(BaseSettings):
     # Asking a human. ward posts as its own bot on purpose: an approver learns
     # that a request for a credential only ever comes from this account, so a
     # compromised agent bot can imitate the card but not its author.
+    #
+    # Which platform that bot lives on. The broker asks through the chat ports
+    # and never learns; only the composition does, from this one word.
+    gateway: str = "mattermost"  # mattermost | slack
+    # Mattermost: the server and the bot's token.
     mattermost_url: str = "http://mattermost:8065"
     mattermost_token: str = ""
+    # Slack: the bot token the cards are posted as, and the app-level token the
+    # socket is opened with (Socket Mode). Nothing else: clicks and the slash
+    # command arrive over that socket, so there is no receiver to reach, no
+    # callback URL to publish and no command token to mint.
+    slack_bot_token: str = ""
+    slack_app_token: str = ""
     approvers: str = ""  # usernames or user ids, CSV; nobody by default
     approval_channel: str = ""  # "" = a direct message to the first approver
     approval_timeout_s: float = 120.0
@@ -64,8 +75,9 @@ class WardSettings(BaseSettings):
     # nobody reads is the same as no notice.
     notice_fold_s: float = 900.0
 
-    # The slash command's tokens (CSV), as Mattermost minted them when the
-    # command was registered. Empty = no operator surface in chat at all: the
+    # Mattermost only. The slash command's tokens (CSV), as Mattermost minted
+    # them when the command was registered. Empty = no operator surface in chat
+    # at all: the
     # receiver refuses a command it has no token for, so the feature is off
     # until somebody registers the command AND puts its token here.
     #
@@ -74,8 +86,8 @@ class WardSettings(BaseSettings):
     # is what actually decides. Not shared with the engine's own commands.
     command_tokens: str = ""
 
-    # Where the click on an approval comes back to. Its own receiver, on its own
-    # port, because the engine's belongs to the engine.
+    # Mattermost only. Where the click on an approval comes back to. Its own
+    # receiver, on its own port, because the engine's belongs to the engine.
     callback_host: str = "0.0.0.0"
     callback_port: int = 8426
     callback_public_url: str = "http://ward:8426"

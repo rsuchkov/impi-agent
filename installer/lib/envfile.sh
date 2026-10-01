@@ -70,3 +70,24 @@ write_interactivity_env() {
         env_set INTEGRATIONS_PUBLIC_URL "$public_url" "$env_file"
     fi
 }
+
+# write_ward_env GATEWAY APPROVERS MM_URL ENV_FILE — the broker's own env file,
+# which the engine does not read. What the broker needs from the chat platform
+# differs by platform: on Mattermost a server and a bot token, on Slack a bot
+# token and the app-level token the socket is opened with (no receiver, no
+# callback URL, no command token — clicks and the slash command come down the
+# socket). The token keys are written EMPTY on purpose: the broker posts as its
+# own account, and until that token is here it can decide nothing — every
+# request needing a human is refused. An empty key in the file is the reminder.
+write_ward_env() {
+    local gateway=$1 approvers=$2 mm_url=$3 env_file=$4
+    env_set WARD_APPROVERS "$approvers" "$env_file"
+    if [ "$gateway" = slack ]; then
+        env_set WARD_GATEWAY slack "$env_file"
+        env_set WARD_SLACK_BOT_TOKEN "" "$env_file"
+        env_set WARD_SLACK_APP_TOKEN "" "$env_file"
+        return 0
+    fi
+    env_set WARD_MATTERMOST_URL "$mm_url" "$env_file"
+    env_set WARD_MATTERMOST_TOKEN "" "$env_file"
+}

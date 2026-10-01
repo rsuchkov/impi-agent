@@ -94,3 +94,29 @@ setup() {
     [ "$(env_get INTEGRATIONS_ENABLED "$WORK/.env")" = false ]
     ! grep -q '^INTEGRATIONS_PORT=' "$WORK/.env"
 }
+
+# --- the broker's env file ---------------------------------------------------------
+
+@test "ward on Mattermost: the server, an empty bot token, the approvers" {
+    write_ward_env mattermost "alice,bob" "http://mattermost:8065" "$WORK/ward.env"
+    [ "$(env_get WARD_APPROVERS "$WORK/ward.env")" = "alice,bob" ]
+    [ "$(env_get WARD_MATTERMOST_URL "$WORK/ward.env")" = "http://mattermost:8065" ]
+    grep -q '^WARD_MATTERMOST_TOKEN=' "$WORK/ward.env"
+    ! grep -q 'WARD_GATEWAY\|WARD_SLACK' "$WORK/ward.env" || false
+}
+
+@test "ward on Slack: the platform, two empty tokens, and nothing of Mattermost" {
+    write_ward_env slack "U0ABC" "" "$WORK/ward.env"
+    [ "$(env_get WARD_GATEWAY "$WORK/ward.env")" = slack ]
+    [ "$(env_get WARD_APPROVERS "$WORK/ward.env")" = "U0ABC" ]
+    grep -q '^WARD_SLACK_BOT_TOKEN=' "$WORK/ward.env"
+    grep -q '^WARD_SLACK_APP_TOKEN=' "$WORK/ward.env"
+    run grep 'MATTERMOST' "$WORK/ward.env"
+    [ "$status" -ne 0 ]
+}
+
+@test "ward's file is the broker's own: mode 600, nothing in the engine's env" {
+    write_ward_env slack "U0ABC" "" "$WORK/ward.env"
+    [ "$(stat -c '%a' "$WORK/ward.env" 2>/dev/null || stat -f '%Lp' "$WORK/ward.env")" = 600 ]
+    [ ! -e "$WORK/.env" ]
+}

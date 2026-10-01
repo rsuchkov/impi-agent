@@ -10,26 +10,7 @@ from crucible.ports.chat.types import (
     FormField,
     OutgoingFile,
 )
-
-
-class FakeWeb:
-    """Records calls; returns canned responses. Duck-types AsyncWebClient."""
-
-    def __init__(self, **canned) -> None:
-        self.calls: list[tuple[str, dict]] = []
-        self._canned = canned
-        self.raise_on: dict[str, SlackApiError] = {}
-
-    def __getattr__(self, method_name: str):
-        async def method(**kwargs):
-            self.calls.append((method_name, kwargs))
-            if method_name in self.raise_on:
-                raise self.raise_on[method_name]
-            return self._canned.get(method_name, {})
-        return method
-
-    def last(self, name: str) -> dict:
-        return next(kw for n, kw in reversed(self.calls) if n == name)
+from tests.fakes.slack import FakeWeb
 
 
 def _sc(web) -> SlackChatClient:

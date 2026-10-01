@@ -19,6 +19,14 @@ KIND_THREAD = "thread"
 KIND_DM = "dm"
 KIND_CHANNEL = "channel"
 
+# What a click or a command is answered with when the answer is the engine's
+# rather than an agent's. Beside the vocabulary so the HTTP receiver and a
+# socket gateway say the same thing — two spellings would drift.
+COMMAND_ACK_TEXT = "Working on it — the answer will appear in this conversation."
+AGENT_UNAVAILABLE_TEXT = "The agent is currently unavailable."
+NOT_AN_APPROVER_TEXT = "Only an approver can answer that request."
+BUTTONS_RETIRED_TEXT = "These buttons are no longer active."
+
 
 @dataclass(frozen=True)
 class UserProfile:

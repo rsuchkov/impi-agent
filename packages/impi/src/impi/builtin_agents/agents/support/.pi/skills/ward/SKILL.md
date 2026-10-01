@@ -28,7 +28,7 @@ not move with you: `--from` reads that file so that you never do.
 
 ## Is it even on?
 
-Ask the operator for `impi ward status`. Four answers matter:
+Ask the operator for `impi ward status`. Five answers matter:
 
 - **no broker in this deployment** — the store was never enabled, so there is no
   address to ask at. Turning it on in a deployment that already runs takes
@@ -36,6 +36,10 @@ Ask the operator for `impi ward status`. Four answers matter:
   the stack will come up); send the operator to the "Turning it on in a
   deployment that already runs" section of `$IMPI_ROOT/docs/secrets.md` rather
   than improvising it.
+- **the broker cannot sign in to chat** (in `impi logs ward`) — its own account
+  is missing or wrong: `WARD_MATTERMOST_TOKEN` on Mattermost, or
+  `WARD_SLACK_BOT_TOKEN` and `WARD_SLACK_APP_TOKEN` on Slack, in
+  `conf/ward.env`. Until then every request needing a human is `no_approver`.
 - **sealed, or the broker holds no credential** — normal after a restart, every
   one of them. `impi ward unlock --from ~/.impi/ward-recovery.txt` (that file is
   what the ceremony wrote; without `--from` it prompts, which means a key typed

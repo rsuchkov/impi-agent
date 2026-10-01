@@ -80,10 +80,21 @@ containers — the broker and the store it opens — creates `conf/ward.env` for
 broker's own settings, and `certs/` for the identities. Nothing is written to the
 engine's `conf/.env`: the engine has no settings for any of this.
 
-The broker posts approval cards as its **own** chat account, so give it one:
-create a bot named `ward` and put its token in `conf/ward.env` as
-`WARD_MATTERMOST_TOKEN`. Without it the broker starts, decides nothing, and
-every request that needs a human is refused with `no_approver`.
+The broker posts approval cards as its **own** chat account, so give it one.
+Without it the broker starts, decides nothing, and every request that needs a
+human is refused with `no_approver`.
+
+- **On Mattermost:** create a bot named `ward` and put its token in
+  `conf/ward.env` as `WARD_MATTERMOST_TOKEN`.
+- **On Slack:** create a Slack app for the broker — Socket Mode on, bot scopes
+  `chat:write`, `im:write`, `users:read`, `commands`, Interactivity on, and a
+  slash command `/ward` (no request URL: Socket Mode delivers it). Put its two
+  tokens in `conf/ward.env` as `WARD_SLACK_BOT_TOKEN` (`xoxb-…`) and
+  `WARD_SLACK_APP_TOKEN` (`xapp-…`, scope `connections:write`); the installer
+  wrote `WARD_GATEWAY=slack` beside them. Name approvers by member id (`U…`):
+  a handle is looked up among the first two hundred members and no further.
+  Nothing else — no receiver, no callback URL, no command token: clicks, modal
+  submissions and the slash command all come down the socket the app holds.
 
 Then the one-time ceremony:
 
@@ -131,6 +142,11 @@ $EDITOR ~/.impi/conf/ward.env
 #   WARD_MATTERMOST_TOKEN=<the ward bot's token>
 #   WARD_MATTERMOST_URL=http://mattermost:8065
 #   WARD_APPROVERS=<your username>
+#   — or, on Slack:
+#   WARD_GATEWAY=slack
+#   WARD_SLACK_BOT_TOKEN=xoxb-…
+#   WARD_SLACK_APP_TOKEN=xapp-…
+#   WARD_APPROVERS=<your member id, U…>
 
 mkdir -p ~/.impi/certs                  # the identities, mounted at /app/conf/certs
 
@@ -154,7 +170,8 @@ compose overlay, and the tool reads them from the container's environment.
 
 If Mattermost runs outside this stack, add `ward` to its
 **AllowedUntrustedInternalConnections** as well, or the click on an approval
-card never reaches the broker. The bundled Mattermost already allows it.
+card never reaches the broker. The bundled Mattermost already allows it. Slack
+has no such list: nothing calls the broker back.
 
 After each restart of the stack — and that includes `impi start` and every
 `impi update` — the store is sealed again and every request is refused. Both
@@ -407,11 +424,18 @@ unplanned restart the store is sealed and every agent is refused until somebody
 opens it, and "why was my agent refused" is a question you have while holding a
 phone. So a subset of the operator surface lives in chat.
 
-Register a slash command in Mattermost pointing at the broker's receiver
+On Mattermost, register a slash command pointing at the broker's receiver
 (`http://ward:8426/command/ward`, trigger word `ward`), and put the token it
 mints into `conf/ward.env` as `WARD_COMMAND_TOKENS`. No token, no surface: the
 receiver refuses a command it has no token for, which is what keeps this off
 until you turn it on.
+
+On Slack, the surface is the `/ward` slash command declared in the broker's
+own app (see [Setting it up](#setting-it-up)); there is no token to mint,
+because the socket the command arrives on is already the app's. What keeps it
+off is not declaring the command. Slack forbids custom slash commands inside
+threads, which costs nothing here: the surface only works in a direct message
+anyway.
 
 `/ward` opens a card:
 
@@ -448,7 +472,7 @@ Three rules the surface holds to:
   policies to the room.
 - **Nothing that hands out a credential.** `impi ward rotate` and `impi ward
   cert` are absent here on purpose: their whole output is a credential, and a
-  credential in a chat message is a credential in Mattermost's database.
+  credential in a chat message is a credential in the chat platform's database.
 
 Who may use it is `WARD_APPROVERS` — the same people who answer the approval
 cards, on the grounds that approving `prod-db-password` and administering the
@@ -464,7 +488,7 @@ what. It still cannot read a value: no route does. See
 [what being an approver means](#what-being-an-approver-means) for where that
 leaves the role.
 
-Anything typed into a modal has passed through Mattermost — for the credential
+Anything typed into a modal has passed through the chat platform — for the credential
 that is recoverable (`impi ward rotate`), for the unseal key it is not. Every
 action lands in the ledger with the user id that did it and, for a policy, with
 what changed: `impi ward audit --kind operator`.
@@ -507,12 +531,17 @@ or simply unopened, how many policies exist, and when the last request was.
   --agent <name>`. `no_policy` means the name is wrong or nothing is configured;
   `not_permitted` means the agent is not in `--subjects`.
 - **No card arrives** — `no_approver` in the ledger means `WARD_APPROVERS` is
-  empty, names somebody the platform doesn't resolve, or the broker has no chat
-  account of its own (`WARD_MATTERMOST_TOKEN`). If its account cannot open a
-  direct message, send the cards to a channel with `WARD_APPROVAL_CHANNEL`.
-- **The card arrives but the buttons do nothing** — Mattermost refuses to call
-  an address that is not in `AllowedUntrustedInternalConnections`; `ward` has to
-  be in that list.
+  empty, names somebody the platform doesn't resolve (on Slack, prefer member
+  ids), or the broker has no chat account of its own (`WARD_MATTERMOST_TOKEN`,
+  or `WARD_SLACK_BOT_TOKEN` + `WARD_SLACK_APP_TOKEN`). If its account cannot
+  open a direct message, send the cards to a channel with `WARD_APPROVAL_CHANNEL`.
+- **The card arrives but the buttons do nothing** — on Mattermost, it refuses
+  to call an address that is not in `AllowedUntrustedInternalConnections`;
+  `ward` has to be in that list. On Slack, the app's Interactivity is off, or
+  the socket is not open — `impi logs ward` says which.
+- **`/ward` does nothing on Slack** — the app declares no such slash command,
+  or you typed it in a channel: it answers only in a direct message with the
+  broker, and says so there.
 - **The agent's turn dies while you are deciding** — `WARD_APPROVAL_TIMEOUT_S`
   is too close to the agent's `runtime.timeout`. Lower the former, or raise the
   latter in the agent's `agent.yaml`.
