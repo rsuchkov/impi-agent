@@ -41,6 +41,7 @@ from crucible.gateways import (
     GatewayHandle,
     needs_http_receiver,
 )
+from crucible.gateways.http import HttpHub, HttpTurns, TokenCallers
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.gateways.ws import WsHub
 from crucible.interactions import (
@@ -71,6 +72,7 @@ from crucible.skills import SkillLibrary
 from crucible.store import open_store
 from crucible.store.base import SessionStore
 from crucible.tools import MANIFEST_ENV, SessionProofBook, ToolServer, ToolWiring
+from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
 from impi.gateways import resolve_gateway
@@ -158,6 +160,7 @@ class App:
     # ordinary agent turn.
     screens: ScreenRegistry
     ws_hub: WsHub | None = None
+    http_hub: HttpHub | None = None
     scheduler: Scheduler | None = None
     # The tool widget under a reply. None when interactivity or the widget is
     # off; the screen that answers its clicks is registered either way.
@@ -231,7 +234,8 @@ def _build_unit(
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
     inline_image_max_bytes: int,
-    tracer: ToolTrace | None,
+    tracer: ToolTrace | HttpTurns | None,
+    turns: TurnRegistry,
 ) -> AgentUnit:
     profile = profiles.build(spec)
     flow = AgentFlow(
@@ -239,6 +243,7 @@ def _build_unit(
         agent_name=spec.name,
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
+        turns=turns,
     )
     coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
     # Record the agent's live presence in the app-owned registry; interactions read
@@ -261,6 +266,8 @@ def _build_units(
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
     tracer: ToolTrace | None,
+    http_turns: HttpTurns | None,
+    turns: TurnRegistry,
 ) -> list[AgentUnit]:
     units: list[AgentUnit] = []
     for spec in specs:
@@ -288,7 +295,10 @@ def _build_units(
                 runtime=runtime, sessions=sessions, profiles=profiles,
                 interactions=interactions, sinks_by_agent=sinks_by_agent,
                 inline_image_max_bytes=int(settings.inline_image_max_mb * 1024 * 1024),
-                tracer=tracer,
+                # An http agent's tool activity goes to the caller's journal, not
+                # to a widget under a chat reply — there is no chat to draw it in.
+                tracer=http_turns if config.kind == "http" else tracer,
+                turns=turns,
             )
         )
     return units
@@ -442,9 +452,28 @@ def build_app(settings: ImpiSettings) -> App:
             settings.ws_host, settings.ws_port, ws_services,
             directory=registry, attachments=attachments,
         )
+    # The http hub likewise: a request/turn API for programs that cannot hold a
+    # socket; callers authenticate with their own tokens (HTTP_CALLER_TOKEN__*).
+    http_hub: HttpHub | None = None
+    if any(cfg is not None and cfg.kind == "http" for cfg in configs.values()):
+        http_callers = settings.http_callers()
+        if not http_callers:
+            logger.warning(
+                "http agents configured but no callers "
+                "(set HTTP_CALLER_TOKEN__<NAME>) — nothing can reach the hub"
+            )
+        http_hub = HttpHub(
+            settings.http_host, settings.http_port, TokenCallers(http_callers),
+            directory=registry, attachments=attachments,
+            dispatcher=interactions.dispatcher, control=runtime,
+            max_wait_s=settings.http_max_wait_s,
+        )
+    # What belongs to one turn (a credential a caller sent along), bound by the
+    # flow for the turn and read by the tool server. One registry for the app.
+    turns = TurnRegistry()
     gateway_factory = GatewayFactory(
         directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher,
-        ws_hub=ws_hub, attachments=attachments,
+        ws_hub=ws_hub, http_hub=http_hub, attachments=attachments,
     )
 
     # Only with a dispatcher to route the click to: with interactivity off the
@@ -463,7 +492,7 @@ def build_app(settings: ImpiSettings) -> App:
         settings=settings, runtime=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools,
         profiles=profile_builder, interactions=interactions, sinks_by_agent=sinks_by_agent,
-        tracer=tracer,
+        tracer=tracer, http_turns=http_hub.turns if http_hub else None, turns=turns,
     )
     if not units:
         raise RuntimeError("No agents with a gateway token — nothing to run")
@@ -527,6 +556,7 @@ def build_app(settings: ImpiSettings) -> App:
         # While the gate waits for a person, the turn's timeout waits too.
         clock=runtime,
         session_proofs=session_proofs,
+        turns=turns,
     )
     # Scheduled work. Built after the units, because its dispatcher reads the
     # live {agent: AgentSink} map and its prompt runner the units' profiles.
@@ -562,7 +592,7 @@ def build_app(settings: ImpiSettings) -> App:
     )
 
     logger.info(
-        "app built: agents=[%s], mm=%s, data=%s, tools=%s, widgets=%s, ws=%s, "
+        "app built: agents=[%s], mm=%s, data=%s, tools=%s, widgets=%s, ws=%s, http=%s, "
         "scheduler=%s",
         ", ".join(u.spec.name for u in units),
         settings.mattermost_url,
@@ -570,6 +600,7 @@ def build_app(settings: ImpiSettings) -> App:
         "on" if tool_server else "off",
         "on" if interactions.receiver else "off",
         f"on:{settings.ws_port}" if ws_hub else "off",
+        f"on:{settings.http_port}" if http_hub else "off",
         f"on:{settings.scheduler.tick_s:.0f}s" if scheduler else "off",
     )
     return App(
@@ -583,6 +614,7 @@ def build_app(settings: ImpiSettings) -> App:
         reloader=reloader,
         screens=screens,
         ws_hub=ws_hub,
+        http_hub=http_hub,
         scheduler=scheduler,
         tracer=tracer,
     )
@@ -629,6 +661,8 @@ async def run(settings: ImpiSettings) -> None:
         await app.integrations.start()
     if app.ws_hub is not None:
         await app.ws_hub.start()
+    if app.http_hub is not None:
+        await app.http_hub.start()
     try:
         identities = {}
         for unit in app.units:
@@ -662,6 +696,8 @@ async def run(settings: ImpiSettings) -> None:
             await app.scheduler.stop()
         if app.ws_hub is not None:
             await app.ws_hub.stop()
+        if app.http_hub is not None:
+            await app.http_hub.stop()
         if app.integrations is not None:
             await app.integrations.stop()
         if app.tool_server is not None:

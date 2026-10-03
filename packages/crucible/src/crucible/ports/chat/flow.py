@@ -2,7 +2,7 @@
 
 from collections.abc import Awaitable
 from enum import Enum, auto
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import IncomingMessage
@@ -45,6 +45,7 @@ class MessageSink(Protocol):
     def submit(self, msg: IncomingMessage, chat: ChatClient) -> None: ...
 
 
+@runtime_checkable
 class TrackedSink(MessageSink, Protocol):
     """A sink that can also say how the turn it started ended.
 

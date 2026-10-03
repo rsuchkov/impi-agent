@@ -159,6 +159,16 @@ class Settings(BaseSettings):
     ws_host: str = "0.0.0.0"
     ws_port: int = 8424
 
+    # http gateway (request/turn API for programs that cannot hold a socket).
+    # Started only when some agent runs on the "http" gateway; access is per
+    # CALLER, via dynamic HTTP_CALLER_TOKEN__<NAME> keys (see http_callers()).
+    # 8425/8426 are the secret broker's; this one is next door.
+    http_host: str = "0.0.0.0"
+    http_port: int = 8427
+    # The longest a poll may wait for new events. Every waiting poll holds a
+    # connection — and, behind a proxy, one of its workers.
+    http_max_wait_s: float = 8.0
+
     # Which chat gateway an agent runs on ("mattermost" | "slack" | "ws"). The
     # default for all agents; override per agent with AGENTS_GATEWAY__<AGENT>.
     gateway: str = "mattermost"
@@ -397,24 +407,34 @@ class Settings(BaseSettings):
         unset = every ws agent, set-but-empty = none. The service name is the
         key suffix, lower-cased with '_' back to '-' (mirroring the agent-key
         transform)."""
-        prefix = "WS_SERVICE_TOKEN__"
+        return self._dynamic_callers("WS_SERVICE_TOKEN__", "WS_SERVICE_AGENTS__")
+
+    def http_callers(self) -> dict[str, tuple[str, tuple[str, ...] | None]]:
+        """Programs allowed to call the http gateway: name -> (bearer token,
+        agent allowlist or None), from HTTP_CALLER_TOKEN__<NAME> and
+        HTTP_CALLER_AGENTS__<NAME> — the same shape as the ws services."""
+        return self._dynamic_callers("HTTP_CALLER_TOKEN__", "HTTP_CALLER_AGENTS__")
+
+    def _dynamic_callers(
+        self, token_prefix: str, agents_prefix: str
+    ) -> dict[str, tuple[str, tuple[str, ...] | None]]:
         merged = {**self._dotenv, **os.environ}
-        services: dict[str, tuple[str, tuple[str, ...] | None]] = {}
+        callers: dict[str, tuple[str, tuple[str, ...] | None]] = {}
         for key, token in merged.items():
-            if not key.startswith(prefix) or not token:
+            if not key.startswith(token_prefix) or not token:
                 continue
-            suffix = key[len(prefix):]
+            suffix = key[len(token_prefix):]
             name = suffix.lower().replace("_", "-")
-            raw_allow = os.environ.get(f"WS_SERVICE_AGENTS__{suffix}")
+            raw_allow = os.environ.get(f"{agents_prefix}{suffix}")
             if raw_allow is None:
-                raw_allow = self._dotenv.get(f"WS_SERVICE_AGENTS__{suffix}")
+                raw_allow = self._dotenv.get(f"{agents_prefix}{suffix}")
             allow = (
                 None
                 if raw_allow is None
                 else tuple(a.strip() for a in raw_allow.split(",") if a.strip())
             )
-            services[name] = (token, allow)
-        return services
+            callers[name] = (token, allow)
+        return callers
 
     def _token(self, key: str) -> str:
         return os.environ.get(key) or self._dotenv.get(key) or ""

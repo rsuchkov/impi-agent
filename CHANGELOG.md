@@ -6,6 +6,18 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A fourth gateway: `http`, a request/turn API.** For a program that cannot
+  hold a socket open — a chat panel in a browser behind someone else's server,
+  a caller spread over several nodes. It posts a message to an agent's
+  conversation and gets a turn id; polls the turn's events (the tools running,
+  a card to answer, the reply, how it ended); answers a card; cancels a turn;
+  comes back after a page reload and finds the running turn. One turn per
+  conversation at a time (a second message is refused with the running turn's
+  id), a retried message is the same turn, and a poll never waits longer than
+  `HTTP_MAX_WAIT_S`. `AGENTS_GATEWAY__<AGENT>=http`, callers by
+  `impi http add-caller <name>` (`HTTP_CALLER_TOKEN__*`), port `HTTP_PORT`
+  (8427). Chat-only things stay chat-only: forms cannot open there, and an
+  http agent's tool activity goes to the caller's journal instead of a widget.
 - **A notice on the `ws` gateway now says what kind it is.** Beside the
   sentence for a person, a `notice` frame carries a `code` a program can act
   on — `timeout`, `busy`, `quota`, `credentials`, `context`,

@@ -14,6 +14,7 @@ from slack_bolt.async_app import AsyncApp
 
 from crucible.attachments import AttachmentStore
 from crucible.gateways.dispatch import GatewayDispatcher
+from crucible.gateways.http import HttpChatClient, HttpGateway, HttpHub
 from crucible.gateways.mattermost import (
     MattermostChatClient,
     MattermostGateway,
@@ -30,7 +31,7 @@ from crucible.loopguard import LoopGuard
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.flow import MessageSink
+from crucible.ports.chat.flow import MessageSink, TrackedSink
 from crucible.ports.chat.gateway import Gateway
 from crucible.tools.base import CAP_EPHEMERAL
 
@@ -53,7 +54,7 @@ class GatewayConfig:
     agent's gateway. An application maps its own settings onto this (which agent
     runs on which transport, and with which tokens)."""
 
-    kind: str  # "mattermost" | "slack" | "ws"
+    kind: str  # "mattermost" | "slack" | "ws" | "http"
     reply_to_agents: bool = True
     max_post_chars: int = 16000
     # Mattermost
@@ -94,18 +95,21 @@ class GatewayFactory:
         loop_guard: LoopGuard,
         dispatcher: GatewayDispatcher | None,
         ws_hub: WsHub | None = None,
+        http_hub: HttpHub | None = None,
         attachments: AttachmentStore | None = None,
     ) -> None:
         self._directory = directory
         self._loop_guard = loop_guard
         self._dispatcher = dispatcher
         self._ws_hub = ws_hub
+        self._http_hub = http_hub
         # Where a gateway saves what a sender attached (None = files are ignored).
         self._attachments = attachments
         self._builders: dict[str, Callable[[str, GatewayConfig], GatewayHandle | None]] = {
             "mattermost": self._mattermost,
             "slack": self._slack,
             "ws": self._ws,
+            "http": self._http,
         }
 
     def create(self, agent: str, config: GatewayConfig) -> GatewayHandle | None:
@@ -115,7 +119,7 @@ class GatewayFactory:
         builder = self._builders.get(config.kind)
         if builder is None:
             logger.warning(
-                "agent %s: unknown gateway %r (use 'mattermost', 'slack' or 'ws') — skipping",
+                "agent %s: unknown gateway %r (use 'mattermost', 'slack', 'ws' or 'http') — skipping",
                 agent, config.kind,
             )
             return None
@@ -175,6 +179,28 @@ class GatewayFactory:
             # because the sink exists only now.
             hub.register_agent(agent, sink, chat)
             return WsGateway(agent)
+
+        return GatewayHandle(
+            chat=chat, admin=None, create_gateway=create_gateway,
+            prompt_hint="", needs_http_receiver=False,
+        )
+
+    def _http(self, agent: str, config: GatewayConfig) -> GatewayHandle | None:
+        hub = self._http_hub
+        if hub is None:
+            logger.warning(
+                "agent %s: gateway 'http' but the app built no HttpHub — skipping", agent
+            )
+            return None
+        chat = HttpChatClient(hub.turns, agent)
+
+        def create_gateway(sink: MessageSink) -> Gateway:
+            # The hub answers a caller with the turn's outcome, so its sink has to
+            # be one that reports outcomes (the coalescer is).
+            if not isinstance(sink, TrackedSink):
+                raise TypeError("the http gateway needs a sink that reports turn outcomes")
+            hub.register_agent(agent, sink, chat)
+            return HttpGateway(agent)
 
         return GatewayHandle(
             chat=chat, admin=None, create_gateway=create_gateway,

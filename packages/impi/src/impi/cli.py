@@ -205,9 +205,9 @@ def _cmd_agent_add(args: argparse.Namespace) -> int:
             return 2
         updates[prov.agent_env_key(name, "SLACK_BOT_TOKEN")] = slack_bot
         updates[prov.agent_env_key(name, "SLACK_APP_TOKEN")] = slack_app
-    elif gateway == "ws":
-        # No per-agent credentials: client services authorize against the hub
-        # with their own tokens (impi ws add-service).
+    elif gateway in ("ws", "http"):
+        # No per-agent credentials: the callers authorize against the hub with
+        # their own tokens (impi ws add-service / impi http add-caller).
         pass
     else:
         _fail(f"unknown gateway {gateway!r}")
@@ -255,6 +255,11 @@ def _cmd_agent_add(args: argparse.Namespace) -> int:
         print(_dim(
             "No ws client services yet — register one with "
             "`impi ws add-service <name>` so something can talk to this agent."
+        ))
+    if gateway == "http" and not settings.http_callers():
+        print(_dim(
+            "No http callers yet — register one with "
+            "`impi http add-caller <name>` so something can talk to this agent."
         ))
     _restart_hint()
     return 0
@@ -635,23 +640,48 @@ def _cmd_provision(args: argparse.Namespace) -> int:
 
 def _cmd_ws_add_service(args: argparse.Namespace) -> int:
     settings = _settings()
-    env_file = args.env_file or settings.dotenv_path
+    return _register_caller(
+        args, what="service", token_prefix="WS_SERVICE_TOKEN__",
+        agents_prefix="WS_SERVICE_AGENTS__", gateway="ws",
+        connect=f"ws://<engine-host>:{settings.ws_port}/ws", env_default=settings.dotenv_path,
+    )
+
+
+# --- impi http add-caller ---------------------------------------------------------
+
+
+def _cmd_http_add_caller(args: argparse.Namespace) -> int:
+    settings = _settings()
+    return _register_caller(
+        args, what="caller", token_prefix="HTTP_CALLER_TOKEN__",
+        agents_prefix="HTTP_CALLER_AGENTS__", gateway="http",
+        connect=f"http://<engine-host>:{settings.http_port}/v1", env_default=settings.dotenv_path,
+    )
+
+
+def _register_caller(
+    args: argparse.Namespace, *, what: str, token_prefix: str, agents_prefix: str,
+    gateway: str, connect: str, env_default: str,
+) -> int:
+    """A program allowed on a hub: a generated bearer token under its name, and
+    optionally the agents it may address. One shape for the ws and http hubs."""
+    env_file = args.env_file or env_default
     name = args.name.strip().lower()
     if not prov.AGENT_NAME_RE.match(name):
-        _fail(f"invalid service name {name!r}: lowercase letters, digits, hyphens")
+        _fail(f"invalid {what} name {name!r}: lowercase letters, digits, hyphens")
         return 2
     suffix = name.upper().replace("-", "_")
     token = secrets.token_hex(24)
-    updates = {f"WS_SERVICE_TOKEN__{suffix}": token}
+    updates = {f"{token_prefix}{suffix}": token}
     if args.agents is not None:
-        updates[f"WS_SERVICE_AGENTS__{suffix}"] = args.agents
+        updates[f"{agents_prefix}{suffix}"] = args.agents
     _apply_env(env_file, updates)
-    allowed = args.agents if args.agents is not None else "all ws agents"
-    print(f"service {_bold(name)} registered (agents: {allowed})")
-    print(f"connect: ws://<engine-host>:{settings.ws_port}/ws")
+    allowed = args.agents if args.agents is not None else f"all {gateway} agents"
+    print(f"{what} {_bold(name)} registered (agents: {allowed})")
+    print(f"connect: {connect}")
     print(f"token  : {token}")
-    print(_dim("shown only once — store it in the service's config now"))
-    print(_dim("restart the engine so the hub picks the service up"))
+    print(_dim(f"shown only once — store it in the {what}'s config now"))
+    print(_dim(f"restart the engine so the hub picks the {what} up"))
     return 0
 
 
@@ -939,7 +969,7 @@ def _build_parser() -> argparse.ArgumentParser:
     add.add_argument("--role", help="one-line role")
     add.add_argument("--display-name")
     add.add_argument("--description")
-    add.add_argument("--gateway", choices=["mattermost", "slack", "ws"])
+    add.add_argument("--gateway", choices=["mattermost", "slack", "ws", "http"])
     add.add_argument("--mm-url", help="Mattermost base URL (default: MATTERMOST_URL)")
     add.add_argument("--admin-token", help="MM system-admin PAT (auto bot creation)")
     add.add_argument("--bot-token", help="existing bot token (skip auto creation)")
@@ -1127,6 +1157,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     add_service.add_argument("--env-file")
     add_service.set_defaults(func=_cmd_ws_add_service)
+
+    http = sub.add_parser("http", help="http gateway helpers")
+    http_sub = http.add_subparsers(dest="http_command", required=True)
+    add_caller = http_sub.add_parser(
+        "add-caller",
+        help="register a program on the http hub (generates its token)",
+    )
+    add_caller.add_argument("name", help="caller slug (lowercase, digits, hyphens)")
+    add_caller.add_argument(
+        "--agents", help="CSV allowlist of agents it may address (default: all http agents)"
+    )
+    add_caller.add_argument("--env-file")
+    add_caller.set_defaults(func=_cmd_http_add_caller)
 
     health = sub.add_parser("health", help="check Mattermost + agents dir")
     health.set_defaults(func=_cmd_health)

@@ -364,3 +364,24 @@ async def test_no_interactivity_means_no_tool_trace(tmp_path: Path) -> None:
         assert app.tracer is None
     finally:
         await _closed(app)
+
+
+async def test_build_app_puts_an_agent_on_the_http_hub(tmp_path: Path, monkeypatch) -> None:
+    # gateway=http + a registered caller -> the agent is served by the http hub:
+    # its tool activity goes to the caller's journal, not to a chat widget.
+    from crucible.gateways.http import HttpChatClient, HttpGateway
+
+    monkeypatch.setenv("HTTP_CALLER_TOKEN__PORTAL", "tok-portal")
+    settings = _settings(tmp_path).model_copy(update={"gateway": "http"})
+    app = build_app(settings)
+    try:
+        assert app.http_hub is not None and app.ws_hub is None
+        unit = app.units[0]
+        assert isinstance(unit.gateway, HttpGateway)
+        assert unit.flow._tracer is app.http_hub.turns  # the journal, not ToolTrace
+        assert unit.flow._turns is not None  # a caller's TurnScope has somewhere to go
+        sink, chat = app.http_hub._agents["assistant"]
+        assert isinstance(chat, HttpChatClient)
+        assert hasattr(sink, "submit_tracked")
+    finally:
+        await app.sessions.close()

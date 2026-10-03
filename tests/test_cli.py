@@ -406,3 +406,14 @@ def test_a_missing_library_skill_still_says_so(tmp_path, monkeypatch, _isolated_
 
     assert cli.main(["agent", "list"]) == 2
     assert "unknown library skill 'absent'" in capsys.readouterr().err
+
+
+def test_http_add_caller_registers_token_and_allowlist(capsys, _isolated_env):
+    rc = cli.main(["http", "add-caller", "my-app", "--agents", "helper"])
+    assert rc == 0
+    content = _read_env(_isolated_env)
+    assert "HTTP_CALLER_TOKEN__MY_APP=" in content
+    assert "HTTP_CALLER_AGENTS__MY_APP=helper" in content
+    out = capsys.readouterr().out
+    assert "/v1" in out and "caller" in out
+    assert cli.main(["http", "add-caller", "Bad Name"]) == 2

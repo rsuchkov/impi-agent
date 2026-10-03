@@ -99,3 +99,12 @@ def test_the_human_answer_window_must_close_before_the_call_deadline() -> None:
     assert _settings(integrations_ui_timeout=TOOL_CALL_DEADLINE_S - 31).integrations.ui_timeout
     with pytest.raises(ValueError, match="INTEGRATIONS_UI_TIMEOUT"):
         _settings(integrations_ui_timeout=TOOL_CALL_DEADLINE_S - 30)
+
+
+def test_http_callers_are_read_like_ws_services(monkeypatch) -> None:
+    monkeypatch.setenv("HTTP_CALLER_TOKEN__MY_APP", "tok")
+    monkeypatch.setenv("HTTP_CALLER_AGENTS__MY_APP", "helper, scribe")
+    monkeypatch.setenv("HTTP_CALLER_TOKEN__OPEN", "tok2")
+    callers = _settings(dotenv_path="/dev/null").http_callers()
+    assert callers["my-app"] == ("tok", ("helper", "scribe"))
+    assert callers["open"] == ("tok2", None)  # unset allowlist = every http agent

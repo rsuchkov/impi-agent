@@ -55,7 +55,7 @@ HTTP receiver is needed.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GATEWAY` | `mattermost` | which gateway agents run on (`mattermost` \| `slack` \| `ws`); override per agent below |
+| `GATEWAY` | `mattermost` | which gateway agents run on (`mattermost` \| `slack` \| `ws` \| `http`); override per agent below |
 
 Gateway kinds mix freely in one engine process — agent A on Slack, agent B on
 Mattermost, agent C on ws, each with its own connection, supervised
@@ -77,6 +77,25 @@ Client services are dynamic keys (register with `impi ws add-service`):
 `WS_SERVICE_TOKEN__<NAME>` — the service's bearer token;
 `WS_SERVICE_AGENTS__<NAME>` — CSV allowlist of agents it may address
 (unset = every ws agent).
+
+## http gateway (request/turn API)
+
+A request/turn HTTP API for programs that cannot hold a socket open — a browser
+behind someone else's server, a caller spread over several nodes. Started only
+when some agent has `AGENTS_GATEWAY__<AGENT>=http`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HTTP_HOST` | `0.0.0.0` | hub bind host |
+| `HTTP_PORT` | `8427` | hub port (`http://host:port/v1`) |
+| `HTTP_MAX_WAIT_S` | `8` | the longest a poll may wait for new events, whatever the caller asks — every waiting poll holds a connection |
+
+Callers are dynamic keys (register with `impi http add-caller`):
+`HTTP_CALLER_TOKEN__<NAME>` — the program's bearer token;
+`HTTP_CALLER_AGENTS__<NAME>` — CSV allowlist of agents it may address
+(unset = every http agent). The program is trusted to say who its user is
+(`X-User-Id`, `X-Username`); a deployment that needs the caller to prove it
+writes its own authenticator on the library.
 
 ## Agents
 
@@ -108,7 +127,7 @@ as defaults — set only the ones you need.
 | `AGENTS_MM_TOKEN__<AGENT>` | that agent's Mattermost bot token |
 | `AGENTS_SLACK_BOT_TOKEN__<AGENT>` | that agent's Slack bot token |
 | `AGENTS_SLACK_APP_TOKEN__<AGENT>` | that agent's Slack app-level token |
-| `AGENTS_GATEWAY__<AGENT>` | that agent's gateway (`mattermost` \| `slack`) |
+| `AGENTS_GATEWAY__<AGENT>` | that agent's gateway (`mattermost` \| `slack` \| `ws` \| `http`) |
 | `AGENTS_SKILLS__<AGENT>` | override that agent's skills (CSV of names; empty = none; unset = its `agent.yaml`) |
 
 An agent is present only if its token is set; a tokenless profile is skipped.
