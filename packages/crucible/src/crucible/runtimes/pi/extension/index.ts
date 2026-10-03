@@ -8,6 +8,8 @@
 //   TOOL_URL       — http://127.0.0.1:<port>
 //   TOOL_TOKEN     — per-agent secret; authenticates AND identifies the caller
 //   RUNTIME_SESSION_ID — the store's session key for the current conversation
+//   TOOL_SESSION_PROOF — a secret for THIS session; sent beside the id so the
+//                        engine believes the id (the token alone names only the agent)
 //
 // Type.Unsafe wraps the raw JSON Schema into a typebox schema so pi is happy
 // whether or not it relies on typebox metadata.
@@ -19,6 +21,7 @@ const TOOL_URL = process.env.TOOL_URL || "";
 const TOOL_TOKEN = process.env.TOOL_TOKEN || "";
 const MANIFEST_PATH = process.env.TOOL_MANIFEST || "";
 const SESSION_ID = process.env.RUNTIME_SESSION_ID || "";
+const SESSION_PROOF = process.env.TOOL_SESSION_PROOF || "";
 
 interface ManifestEntry {
   name: string;
@@ -55,6 +58,7 @@ async function callTool(
         "Content-Type": "application/json",
         "X-Tool-Token": TOOL_TOKEN,
         "X-Runtime-Session": SESSION_ID,
+        "X-Session-Proof": SESSION_PROOF,
       },
       body: JSON.stringify(args),
       signal,

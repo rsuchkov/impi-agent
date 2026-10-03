@@ -27,7 +27,12 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from pathlib import Path
 
-from crucible.ports.agent.runtime import AgentProfile, PromptImage, RuntimeStats
+from crucible.ports.agent.runtime import (
+    AgentProfile,
+    PromptImage,
+    RuntimeStats,
+    SessionProofs,
+)
 from crucible.ports.agent.ui import UiBridge
 from crucible.runtimes.pi.errors import PiBusy, PiProcessError, PiTimeout
 from crucible.runtimes.pi.hosts import HostRouter, LocalHost
@@ -36,6 +41,10 @@ from crucible.runtimes.pi.session import EventCallback, PiResult, PiRpcSession
 from crucible.runtimes.pi.spawn import SpawnRequest, safe_session_id, session_files
 
 logger = logging.getLogger(__name__)
+
+# The per-session secret's name in the process environment: beside
+# RUNTIME_SESSION_ID, and what lets the tool server believe that id.
+SESSION_PROOF_ENV = "TOOL_SESSION_PROOF"
 
 # (profile, session_id_or_None, cwd_or_None) -> a started session. No listener
 # here on purpose: events are a per-turn concern and travel with each prompt.
@@ -76,6 +85,7 @@ class PiRuntime:
         acquire_timeout: float = 120.0,
         evict_idle_on_pressure: bool = True,
         cancel_grace: float = 10.0,
+        session_proofs: SessionProofs | None = None,
         extra_env: dict[str, str] | None = None,
         extra_extensions: list[str] | None = None,
         session_factory: SessionFactory | None = None,
@@ -123,6 +133,9 @@ class PiRuntime:
         # How long cancel() gives the runtime to end the interrupted turn by
         # itself before the session is dropped instead.
         self._cancel_grace = cancel_grace
+        # Issues each process a secret for its own session, so a tool call can
+        # prove which conversation it belongs to and not merely say so.
+        self._proofs = session_proofs
         self._factory = session_factory or self._spawn_session
 
         self._sessions: dict[str, _ManagedSession] = {}
@@ -404,6 +417,8 @@ class PiRuntime:
     async def _drop_session(self, key: str) -> None:
         managed = self._sessions.pop(key, None)
         if managed is not None:
+            if self._proofs is not None:
+                self._proofs.revoke(safe_session_id(key))
             await self._close_session(managed.session, managed.agent)
 
     async def _spawn_session(
@@ -420,6 +435,8 @@ class PiRuntime:
         env = {**self._extra_env, **profile.env}
         if safe_id:
             env["RUNTIME_SESSION_ID"] = safe_id
+            if self._proofs is not None:
+                env[SESSION_PROOF_ENV] = self._proofs.issue(safe_id)
         request = SpawnRequest(
             agent=profile.name,
             profile_dir=profile.config_dir,

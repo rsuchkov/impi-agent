@@ -609,3 +609,46 @@ async def test_stats_count_what_is_alive_busy_and_waiting() -> None:
     with contextlib.suppress(asyncio.CancelledError):
         await queued
     assert rt.stats().waiting == 0
+
+
+# -- the session's own secret ---------------------------------------------------
+
+
+class _Proofs:
+    def __init__(self) -> None:
+        self.issued: list[str] = []
+        self.revoked: list[str] = []
+
+    def issue(self, session_id: str) -> str:
+        self.issued.append(session_id)
+        return f"proof-for-{session_id}"
+
+    def revoke(self, session_id: str) -> None:
+        self.revoked.append(session_id)
+
+
+async def test_each_process_is_handed_a_proof_for_its_own_session(monkeypatch) -> None:
+    captured = {}
+
+    async def fake_spawn(pi_bin, args, *, cwd, env=None):
+        captured["env"] = env
+        return SimpleNamespace()
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", fake_spawn)
+    proofs = _Proofs()
+    rt = PiRuntime(session_proofs=proofs)
+    await rt._spawn_session(_profile(), "assistant--c1")
+    assert proofs.issued == ["assistant--c1"]
+    assert captured["env"]["TOOL_SESSION_PROOF"] == "proof-for-assistant--c1"
+
+    await rt._spawn_session(_profile(), None)  # a memoryless run: no session, no proof
+    assert proofs.issued == ["assistant--c1"]
+    assert "TOOL_SESSION_PROOF" not in (captured["env"] or {})
+
+
+async def test_a_dropped_sessions_proof_is_revoked() -> None:
+    proofs = _Proofs()
+    rt = _runtime_with([FakeSession()], session_proofs=proofs)
+    await rt.run_stateful(_profile(), "assistant--c1", "hi")
+    await rt.drop_agent_sessions("assistant")
+    assert proofs.revoked == ["assistant--c1"]

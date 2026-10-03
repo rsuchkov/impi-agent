@@ -227,8 +227,16 @@ tool_server = tools.build_server(
     session_resolver=my_resolver,              # runtime session id -> (channel, user)
     tool_gate=my_gate,                         # your ToolApproving: however you ask a person
     clock=runtime,                             # the turn waits while they decide
+    session_proofs=proofs,                     # the same SessionProofBook the runtime got
 )
 ```
+
+Give the runtime and the server **one** `SessionProofBook`
+(`PiRuntime(session_proofs=proofs)` and `build_server(session_proofs=proofs)`):
+the runtime issues each conversation's process a secret for its session, the
+server believes a call's session id only with it. Without the book the id is a
+claim any process of the agent could make — which, once a turn's scope carries a
+credential, is another user's credential.
 
 - `StaticDirectory` is the `AgentDirectory` for a roster fixed at composition.
 - `interaction_svc=None` turns the widget/form tools off; a tool that requires

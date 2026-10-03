@@ -37,6 +37,7 @@ from crucible.tools.base import (
     ToolContext,
     ToolError,
 )
+from crucible.tools.proofs import SessionProofBook
 from crucible.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,9 @@ _TOKEN_HEADER = "X-Tool-Token"
 # session record's ``runtime_session_id``, byte for byte — a tool, or whatever
 # an application keeps per running turn, may look the conversation up by it.
 _SESSION_HEADER = "X-Runtime-Session"
+# The session's own secret, issued to its process at spawn: with a proof book
+# wired, a session id is believed only when this matches what was issued.
+_PROOF_HEADER = "X-Session-Proof"
 
 
 class ToolServer:
@@ -75,6 +79,7 @@ class ToolServer:
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
+        session_proofs: SessionProofBook | None = None,
     ) -> None:
         self._registry = registry
         self._directory = directory
@@ -97,6 +102,10 @@ class ToolServer:
         # Where the turn running on a session keeps what is its alone; a tool
         # finds it through the session id its call carries.
         self._turns = turns
+        # Makes a call's session id a fact rather than a claim: the agent token
+        # is shared by every process of that agent, so without this any of them
+        # could name another conversation and reach what its turn holds.
+        self._proofs = session_proofs
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
@@ -151,6 +160,13 @@ class ToolServer:
             args = {}
 
         runtime_session_id = request.headers.get(_SESSION_HEADER, "")
+        if runtime_session_id and self._proofs is not None:
+            if not self._proofs.verify(runtime_session_id, request.headers.get(_PROOF_HEADER, "")):
+                logger.warning(
+                    "tool %s: agent %s named session %s without its proof; refused",
+                    tool.name, agent, runtime_session_id,
+                )
+                return web.json_response({"error": "session not proven"}, status=403)
         channel_id, user_id = "", ""
         if self._session_resolver is not None and runtime_session_id:
             resolved = await self._session_resolver(runtime_session_id)

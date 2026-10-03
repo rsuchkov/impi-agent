@@ -181,7 +181,8 @@ A runtime started as a child of the engine inherits **the engine's whole
 environment**, and always has. A runtime started in the agent's own container
 inherits **that container's** environment instead, plus only what the engine
 explicitly grants for this spawn: the model settings, its own `AGENT_NAME`,
-`TOOL_URL`, `TOOL_TOKEN` and `AGENT_FILES_DIR`, and the session id. Files a
+`TOOL_URL`, `TOOL_TOKEN` and `AGENT_FILES_DIR`, and the session id with its
+proof. Files a
 variable points at — the tool manifest — travel as content and are rewritten to
 the host's own path, because a path only means something where it was written.
 

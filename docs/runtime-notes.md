@@ -61,7 +61,9 @@ then the agent's per-agent env, then a per-session value.
   by `pi`'s provider extension.
 - `TOOL_URL` / `TOOL_TOKEN` / `TOOL_MANIFEST` — how the tool-bridge extension reaches
   the tool-server as this agent (the token identifies the caller; the manifest lists
-  its allowed tools). Plus `RUNTIME_SESSION_ID` per session.
+  its allowed tools). Plus, per session, `RUNTIME_SESSION_ID` and
+  `TOOL_SESSION_PROOF` — the secret that makes the server believe the id, since
+  the token alone is the agent's and the same in every conversation's process.
 - For engine-owned agents (`support`): `AGENTS_PATH` (their editable workspace) and
   `IMPI_ROOT` (the engine checkout, read-only, so `support` can diagnose the engine).
 

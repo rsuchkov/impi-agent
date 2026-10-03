@@ -70,7 +70,7 @@ from crucible.scheduler.service import Scheduler
 from crucible.skills import SkillLibrary
 from crucible.store import open_store
 from crucible.store.base import SessionStore
-from crucible.tools import MANIFEST_ENV, ToolServer, ToolWiring
+from crucible.tools import MANIFEST_ENV, SessionProofBook, ToolServer, ToolWiring
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
 from impi.gateways import resolve_gateway
@@ -373,6 +373,10 @@ def build_app(settings: ImpiSettings) -> App:
     # TODO(runtime-backend): build_app hardcodes the pi backend. When a second
     # AgentRuntime appears, extract a runtime-builder (selected by a settings key)
     # so this function depends only on the AgentRuntime port. Deferred until needed.
+    # One secret per conversation's process, issued here and checked by the
+    # tool server: a call's session id is then a fact, not a claim the shared
+    # agent token lets any process of that agent make.
+    session_proofs = SessionProofBook()
     runtime = PiRuntime(
         pi_bin=settings.pi_bin,
         session_dir=str(settings.resolved_pi_session_dir),
@@ -381,6 +385,7 @@ def build_app(settings: ImpiSettings) -> App:
         idle_ttl=settings.pi_session_idle_ttl,
         acquire_timeout=settings.pi_acquire_timeout_s,
         evict_idle_on_pressure=settings.pi_evict_idle_on_pressure,
+        session_proofs=session_proofs,
         extra_env=build_pi_env(settings),
         extra_extensions=build_pi_extensions(settings),
         ui_bridge=interactions.ui_bridge,
@@ -521,6 +526,7 @@ def build_app(settings: ImpiSettings) -> App:
         tool_gate=interactions.tool_gate,
         # While the gate waits for a person, the turn's timeout waits too.
         clock=runtime,
+        session_proofs=session_proofs,
     )
     # Scheduled work. Built after the units, because its dispatcher reads the
     # live {agent: AgentSink} map and its prompt runner the units' profiles.

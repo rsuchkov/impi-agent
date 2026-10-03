@@ -6,6 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: a process of one conversation could name another.** The tool
+  server identified the caller by the agent's token alone, and every
+  conversation's process of that agent holds the same one — so anything with
+  it (the runtime, a shell it opened) could send a tool call under another
+  conversation's session id and act in that conversation: its channel, its
+  user, and now whatever its turn holds. Each process is now also given a
+  secret for its own session, and the server believes a session id only with
+  it. This closes the claim made from knowledge — a model naming a session it
+  was never told, an agent with typed tools only — not a shell that reads a
+  neighbouring process's environment in the same container; that boundary
+  remains the agent's own container. Applications on the library wire one
+  `SessionProofBook` into both the runtime and `build_server`; without it the
+  server behaves as before.
 - **For applications on the library: a tool can be handed what belongs to
   this turn alone.** A message may carry a `TurnScope` — a credential the
   person sent along (held so that it is never printed or pickled), request

@@ -1247,3 +1247,56 @@ async def test_a_tool_sees_the_scope_of_the_turn_it_runs_in() -> None:
     assert inside["result"] == {"cookie": "JSESSIONID=abc", "turn": "turn-7"}
     assert after[0] == 400 and "no 'cookie' to act with" in after[1]["error"]
     assert "do not retry" in after[1]["error"]
+
+
+# --- a session id has to be proven ---------------------------------------------
+
+
+async def test_a_session_id_without_its_proof_is_refused() -> None:
+    """The agent token is one per agent; a process of conversation B holds the
+    same one as conversation A's. Naming A's session must not reach A's turn."""
+    from typing import ClassVar
+
+    from crucible.tools import SessionProofBook
+    from crucible.tools.base import Tool
+    from crucible.tools.registry import ToolRegistry
+
+    class _Whoami(Tool):
+        name: ClassVar[str] = "whoami"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {}
+
+        async def execute(self, ctx, args):
+            return {"session": ctx.runtime_session_id}
+
+    book = SessionProofBook()
+    proof_a = book.issue("assistant--a")
+    book.issue("assistant--b")
+    server = ToolServer(
+        ToolRegistry((_Whoami(),)),  # type: ignore[arg-type]
+        directory=FakeDirectory(AGENTS),
+        admins={},
+        tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"whoami"})},
+        port=8474,
+        session_proofs=book,
+    )
+    await server.start()
+    url = "http://127.0.0.1:8474/tool/whoami"
+    try:
+        async with aiohttp.ClientSession() as s:
+            async def call(headers: dict) -> tuple[int, dict]:
+                async with s.post(url, json={}, headers={"X-Tool-Token": "tok", **headers}) as r:
+                    return r.status, await r.json()
+
+            own = await call({"X-Runtime-Session": "assistant--a", "X-Session-Proof": proof_a})
+            forged = await call({"X-Runtime-Session": "assistant--b", "X-Session-Proof": proof_a})
+            bare = await call({"X-Runtime-Session": "assistant--b"})
+            stateless = await call({})  # a memoryless run names no session at all
+    finally:
+        await server.stop()
+
+    assert own == (200, {"result": {"session": "assistant--a"}})
+    assert forged[0] == 403 and forged[1] == {"error": "session not proven"}
+    assert bare[0] == 403
+    assert stateless == (200, {"result": {"session": ""}})

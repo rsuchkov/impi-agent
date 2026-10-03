@@ -149,13 +149,22 @@ registered with `@tool` (name, JSON-Schema parameters, `execute`, and the
 capabilities it `requires`). At runtime:
 
 - Each agent gets a per-agent **manifest** (the tools it may use) and a secret
-  **token**, injected into its `pi` subprocess env.
+  **token**, injected into its `pi` subprocess env; each conversation's
+  process additionally gets a **session proof**, a secret for that session
+  alone (`SessionProofBook`, issued at spawn, revoked when the process goes).
 - The engine's TypeScript **tool-bridge extension** (shipped with the driver,
   loaded via `-e`) turns a `pi` tool call into `POST /tool/<name>` against a
-  localhost **tool-server**, with the token in a header.
-- `ToolServer` maps token → agent, checks that agent's allowlist, builds a
-  `ToolContext` scoped to that agent (its own `ChatAdmin`, the directory, the
-  widget/form services), and runs the tool.
+  localhost **tool-server**, with the token, the session id and the session
+  proof in headers.
+- `ToolServer` maps token → agent, checks that agent's allowlist, believes the
+  session id only when its proof matches (the token is shared by every process
+  of the agent, so without the proof any of them could name another
+  conversation), builds a `ToolContext` scoped to that agent and that turn (its
+  own `ChatAdmin`, the directory, the widget/form services, the turn's scope),
+  and runs the tool. The proof defeats a claim made from knowledge, not a
+  process that can read another's environment: a shell run as the same user in
+  the same container sees every neighbour's `/proc/<pid>/environ`. That
+  boundary is process isolation — see [agent-containers.md](agent-containers.md).
 
 **Confirmation gating:** a tool may also declare `requires_confirmation`, and
 the check happens in the **server**, before `execute` — and only there. The

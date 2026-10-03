@@ -31,6 +31,7 @@ from crucible.tools.base import (
     CAP_SCHEDULER,
     CAP_WIDGETS,
 )
+from crucible.tools.proofs import SessionProofBook
 from crucible.tools.registry import ToolRegistry, build_registry
 from crucible.tools.server import SessionResolver, ToolServer
 
@@ -173,6 +174,7 @@ class ToolWiring:
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
+        session_proofs: SessionProofBook | None = None,
     ) -> ToolServer | None:
         if self.registry is None:
             return None
@@ -205,4 +207,5 @@ class ToolWiring:
             tool_gate=tool_gate,
             clock=clock,
             turns=turns,
+            session_proofs=session_proofs,
         )

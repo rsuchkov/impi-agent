@@ -170,3 +170,17 @@ class RuntimeControl(Protocol):
         ...
 
     def stats(self) -> RuntimeStats: ...
+
+
+class SessionProofs(Protocol):
+    """Where a runtime gets the secret that vouches for one session.
+
+    The runtime asks for a proof when it starts a session's process and puts
+    it in that process's environment; whatever serves the process's calls
+    checks the proof against the session id the call names. Revoked when the
+    process goes, so a copy that outlived it buys nothing.
+    """
+
+    def issue(self, session_id: str) -> str: ...
+
+    def revoke(self, session_id: str) -> None: ...

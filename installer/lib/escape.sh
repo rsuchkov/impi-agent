@@ -90,7 +90,7 @@ escape_plan() {
 # process it runs; on the host the agent is the operator, and the one thing it
 # must not be handed is an identity to present from outside a container.
 escape_scrub() {
-    env | sed -n 's/^\(SECRET_BROKER_[A-Z_]*\|AGENTS_MM_TOKEN__[A-Z0-9_]*\|AGENTS_SLACK_[A-Z0-9_]*\|WARD_[A-Z_]*\|TOOL_TOKEN\|TOOL_URL\|MATTERMOST_TOKEN\|SLACK_[A-Z_]*TOKEN\)=.*/-u \1/p'
+    env | sed -n 's/^\(SECRET_BROKER_[A-Z_]*\|AGENTS_MM_TOKEN__[A-Z0-9_]*\|AGENTS_SLACK_[A-Z0-9_]*\|WARD_[A-Z_]*\|TOOL_TOKEN\|TOOL_URL\|TOOL_SESSION_PROOF\|MATTERMOST_TOKEN\|SLACK_[A-Z_]*TOKEN\)=.*/-u \1/p'
 }
 
 # escape_sweep — drop abandoned session directories: older than

@@ -24,6 +24,7 @@ from crucible.ports.agent.runtime import (
     PromptImage,
     RuntimeControl,
     RuntimeStats,
+    SessionProofs,
     TurnClock,
 )
 from crucible.ports.agent.spec import AgentSpec
@@ -50,6 +51,7 @@ __all__ = [
     "PromptImage",
     "RuntimeControl",
     "RuntimeStats",
+    "SessionProofs",
     "TurnClock",
     "UiBridge",
     "UiRequest",
