@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from crucible.ports.turn import TurnScope
+
 KIND_THREAD = "thread"
 KIND_DM = "dm"
 KIND_CHANNEL = "channel"
@@ -230,6 +232,11 @@ class IncomingMessage:
     # True for messages the engine synthesizes from a widget click (not typed by a
     # human). Lets the coalescer skip the "typed instead of clicking" auto-cancel.
     synthetic: bool = False
+    # What belongs to the turn this message starts — a credential sent along
+    # with it, a request id — for the tools that run inside it. Never part of
+    # ``raw`` and kept out of repr: it is the one field that must not be written
+    # down. None on platforms where nothing is per turn (every chat gateway).
+    turn: TurnScope | None = field(default=None, repr=False)
     # Escape hatch: the platform-native payload. Only adapters/dispatchers may
     # read it — flows never do (they'd silently couple to the platform).
     raw: dict[str, Any] = field(default_factory=dict)

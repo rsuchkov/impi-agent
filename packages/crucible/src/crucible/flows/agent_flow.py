@@ -6,6 +6,7 @@ can merge messages that arrived during a long turn into a single turn/reply.
 """
 
 import asyncio
+import contextlib
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,7 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     PostSnippet,
 )
+from crucible.ports.turn import TurnBinding
 from crucible.store.base import SessionRecord, SessionStore
 
 logger = logging.getLogger(__name__)
@@ -117,12 +119,16 @@ class AgentFlow:
         inline_image_max_bytes: int = DEFAULT_INLINE_IMAGE_MAX_BYTES,
         max_inline_images: int = DEFAULT_MAX_INLINE_IMAGES,
         tracer: TurnTracer | None = None,
+        turns: TurnBinding | None = None,
     ) -> None:
         self._runtime = runtime
         self._profile = profile
         self._sessions = sessions
         self._agent_name = agent_name
         self._tracer = tracer
+        # Where a message's TurnScope is bound for the length of its turn, so the
+        # tools the turn calls can read it. None = messages here carry none.
+        self._turns = turns
         self._own_user_id = ""
         self._inline_image_max_bytes = inline_image_max_bytes
         self._max_inline_images = max_inline_images
@@ -191,12 +197,20 @@ class AgentFlow:
         # The trace posts nothing until the first tool runs, so a turn that
         # only talks leaves no extra message.
         trace = self._tracer.begin(record, chat) if self._tracer is not None else None
+        # The anchor's scope is the turn's: a batch is one turn, and the newest
+        # message is the one whose credentials are freshest.
+        bound = (
+            self._turns.bind(record.runtime_session_id, anchor.turn)
+            if self._turns is not None and anchor.turn is not None
+            else contextlib.nullcontext()
+        )
         interrupted = True  # until the runtime hands back a result
         try:
-            result = await self._runtime.run_stateful(
-                self._profile, record.runtime_session_id, prompt, images=images,
-                on_event=trace.on_event if trace is not None else None,
-            )
+            async with bound:
+                result = await self._runtime.run_stateful(
+                    self._profile, record.runtime_session_id, prompt, images=images,
+                    on_event=trace.on_event if trace is not None else None,
+                )
             interrupted = False
         except AgentTimeout as exc:
             logger.warning(

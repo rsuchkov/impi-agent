@@ -6,6 +6,14 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **For applications on the library: a tool can be handed what belongs to
+  this turn alone.** A message may carry a `TurnScope` — a credential the
+  person sent along (held so that it is never printed or pickled), request
+  attributes, a place for a tool to leave a note — and the flow binds it to the
+  conversation for exactly the turn; a tool reads it from its context
+  (`ctx.require_secret(...)`). Until now a tool could learn only the
+  conversation it ran in, never anything of the particular request. Chat
+  gateways carry no such data; nothing changes for them.
 - **Fixed: the record of answered messages grew forever.** The engine keeps
   the id of every message it has answered so a reconnect replaying recent posts
   is not answered twice; nothing ever removed them. They are now dated and

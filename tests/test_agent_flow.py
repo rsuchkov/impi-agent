@@ -856,3 +856,35 @@ async def test_a_flow_without_a_tracer_listens_to_nothing(tmp_path: Path) -> Non
 
     assert runtime.listeners == [None]
     assert chat.posted_cards == []
+
+
+# -- the turn's own data --------------------------------------------------------
+
+
+async def test_the_flow_binds_the_messages_scope_for_exactly_the_turn(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from crucible.ports.turn import TurnScope
+    from crucible.turns import TurnRegistry
+
+    registry = TurnRegistry()
+    seen: list[object] = []
+
+    class _LooksUp(FakeRuntime):
+        async def run_stateful(self, profile, session_id, message, **kw):
+            seen.append(registry.current(session_id))  # what a tool would find mid-turn
+            return await super().run_stateful(profile, session_id, message, **kw)
+
+    runtime = _LooksUp()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", turns=registry)
+    scope = TurnScope("turn-1")
+
+    await flow.handle(replace(_dm("act for me"), turn=scope), FakeChat())
+    plain = _dm("plain")  # a later message with nothing per turn
+    plain = replace(plain, ref=replace(plain.ref, message_id="p2"))
+    await flow.handle(plain, FakeChat())
+
+    assert seen == [scope, None]
+    assert registry.current("assistant--dm1") is None  # unbound once the turn ended
+    await store.close()

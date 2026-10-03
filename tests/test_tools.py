@@ -1198,3 +1198,52 @@ async def test_create_agent_describes_the_agent_it_would_create(tmp_path) -> Non
     assert rows["Profile"].endswith("profiles/agents/scribe")
     assert rows["System prompt"] == "You take notes."
     assert "Display name" not in rows  # not given, not shown
+
+
+# --- the turn's own data -------------------------------------------------------
+
+
+async def test_a_tool_sees_the_scope_of_the_turn_it_runs_in() -> None:
+    from typing import ClassVar
+
+    from crucible.ports.turn import TurnScope, TurnSecrets
+    from crucible.tools.base import Tool
+    from crucible.tools.registry import ToolRegistry
+    from crucible.turns import TurnRegistry
+
+    class _ActsAsTheUser(Tool):
+        name: ClassVar[str] = "acts"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {}
+
+        async def execute(self, ctx, args):
+            turn_id = ctx.turn.turn_id if ctx.turn is not None else ""
+            return {"cookie": ctx.require_secret("cookie"), "turn": turn_id}
+
+    turns = TurnRegistry()
+    server = ToolServer(
+        ToolRegistry((_ActsAsTheUser(),)),  # type: ignore[arg-type]
+        directory=FakeDirectory(AGENTS),
+        admins={},
+        tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"acts"})},
+        port=8473,
+        turns=turns,
+    )
+    await server.start()
+    headers = {"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--c1"}
+    try:
+        async with aiohttp.ClientSession() as s:
+            scope = TurnScope("turn-7", TurnSecrets({"cookie": "JSESSIONID=abc"}))
+            async with turns.bind("assistant--c1", scope):
+                async with s.post("http://127.0.0.1:8473/tool/acts", json={}, headers=headers) as resp:
+                    inside = await resp.json()
+            # The turn is over: the same call finds nothing to act with.
+            async with s.post("http://127.0.0.1:8473/tool/acts", json={}, headers=headers) as resp:
+                after = resp.status, await resp.json()
+    finally:
+        await server.stop()
+
+    assert inside["result"] == {"cookie": "JSESSIONID=abc", "turn": "turn-7"}
+    assert after[0] == 400 and "no 'cookie' to act with" in after[1]["error"]
+    assert "do not retry" in after[1]["error"]

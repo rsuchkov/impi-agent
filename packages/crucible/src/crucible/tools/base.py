@@ -17,6 +17,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.tasks import TaskService
+from crucible.ports.turn import TurnScope
 
 # Capabilities a tool may require (Tool.requires). The composition root advertises
 # a tool to an agent only when its gateway/config provides every required
@@ -101,6 +102,10 @@ class ToolContext:
     # when the server can't resolve them (e.g. no session yet).
     channel_id: str = ""
     user_id: str = ""
+    # What belongs to this turn alone — a credential sent with the message, a
+    # request id, a place to leave a note for the flow. None when the
+    # application binds none (every chat gateway today).
+    turn: TurnScope | None = None
 
     def require_chat_admin(self) -> ChatAdmin:
         """The agent's channel-admin client, or a ToolError if its gateway has none
@@ -124,6 +129,18 @@ class ToolContext:
         if self.task_svc is None:
             raise ToolError("scheduling is turned off in this deployment")
         return self.task_svc
+
+    def require_secret(self, name: str) -> str:
+        """A value the person sent along for this turn, or a ToolError that
+        tells the model to stop rather than retry: without it the tool cannot
+        act for anyone, and nothing it does about that can produce one."""
+        value = self.turn.secrets.get(name) if self.turn is not None else None
+        if value is None:
+            raise ToolError(
+                f"this call has no {name!r} to act with: the request it belongs to "
+                "carried none. Tell the user, and do not retry"
+            )
+        return value
 
     def require_interactions(self) -> InteractionService:
         """The widget/form service, or a ToolError if interactivity is off (declare

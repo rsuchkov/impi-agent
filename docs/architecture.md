@@ -73,6 +73,11 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   turn's timeout while a person is being waited on), `RuntimeControl` (operate
   the runtime from outside its turns: does it still remember a conversation,
   forget one, interrupt a turn, how full is it).
+- **Turn** (`ports/turn`): `TurnScope` (what belongs to one turn — credentials
+  sent with the message in `TurnSecrets`, which never prints them; attributes;
+  flags a tool leaves for the flow), `TurnScopes` / `TurnBinding` (how the tool
+  server reads it and the flow binds it). `crucible.turns.TurnRegistry` is the
+  in-memory binding both sides hold.
 - **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill + files + the widget
   verbs), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `FileService`

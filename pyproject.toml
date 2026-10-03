@@ -217,6 +217,22 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "A turn's own data is a leaf — the flow and the tools both hold it, neither through the other"
+type = "forbidden"
+source_modules = ["crucible.turns", "crucible.ports.turn"]
+forbidden_modules = [
+    "crucible.runtimes.pi",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.tools",
+    "crucible.interactions",
+    "crucible.store",
+    "crucible.profiles",
+    "crucible.ports.chat",
+    "crucible.ports.agent",
+]
+
+[[tool.importlinter.contracts]]
 name = "Asking a human is a leaf primitive — it knows nobody"
 type = "forbidden"
 source_modules = ["crucible.approvals"]

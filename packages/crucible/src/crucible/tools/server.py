@@ -28,6 +28,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.tasks import TaskService
+from crucible.ports.turn import TurnScopes
 from crucible.tools.base import (
     SPEAKS_TO_USER_NOTE,
     UNTRUSTED_NOTE,
@@ -73,6 +74,7 @@ class ToolServer:
         session_resolver: SessionResolver | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
+        turns: TurnScopes | None = None,
     ) -> None:
         self._registry = registry
         self._directory = directory
@@ -92,6 +94,9 @@ class ToolServer:
         # Pauses the calling turn's timeout while the gate waits: the person
         # deciding is not the runtime being stuck. None = the turn keeps counting.
         self._clock = clock
+        # Where the turn running on a session keeps what is its alone; a tool
+        # finds it through the session id its call carries.
+        self._turns = turns
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
@@ -163,6 +168,7 @@ class ToolServer:
             task_svc=self._task_svc,
             channel_id=channel_id,
             user_id=user_id,
+            turn=self._turns.current(runtime_session_id) if self._turns is not None else None,
         )
 
         # The confirmation a tool declares, enforced HERE and not in the

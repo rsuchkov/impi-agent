@@ -239,6 +239,18 @@ tool_server = tools.build_server(
 - `session_resolver` maps the runtime session id a tool call carries back to
   whatever you key your conversations by; it is the same id you passed to
   `run_stateful`.
+- **Per-turn data for tools — a credential the person sent with the message,
+  say — rides in `IncomingMessage.turn` as a `TurnScope`.** Build one in your
+  gateway or API handler (`TurnSecrets({"cookie": …})` for anything that must
+  never be stored or printed — it shows its names, never its values, and
+  refuses pickling), hand `AgentFlow(..., turns=TurnRegistry())` and
+  `build_server(..., turns=<the same registry>)`; the flow binds the scope to
+  the conversation's session for exactly the turn, and a tool reads
+  `ctx.turn` or `ctx.require_secret("cookie")` — a `ToolError` that tells the
+  model to stop when there is none. `scope.flag("session_expired")` is how a
+  tool leaves a note for the code that started the turn; read `scope.flags`
+  when `handle_batch` returns. Chat gateways set no scope: nothing on Slack or
+  Mattermost belongs to one turn.
 - For tests without a `pi` binary, `tests/fakes/fake_transport.py` in this
   repository is an in-process `PiTransport` you can copy: a reactor answers the
   commands the session sends, and the session logic runs unchanged.

@@ -22,6 +22,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.tasks import TaskService
+from crucible.ports.turn import TurnScopes
 from crucible.tools.base import (
     CAP_CHAT_ADMIN,
     CAP_CONFIRMATION,
@@ -171,6 +172,7 @@ class ToolWiring:
         session_resolver: SessionResolver | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
+        turns: TurnScopes | None = None,
     ) -> ToolServer | None:
         if self.registry is None:
             return None
@@ -202,4 +204,5 @@ class ToolWiring:
             session_resolver=session_resolver,
             tool_gate=tool_gate,
             clock=clock,
+            turns=turns,
         )
