@@ -17,6 +17,12 @@ Who may answer is deliberately *anyone in the conversation*, which is what the
 blocking confirm has always done. A tool call is addressed to the people
 watching the agent work; a credential is addressed to a named approver. That
 difference is one argument to the shared registry.
+
+And a window is that conversation's. The people who were asked are the people
+it covers: "allow for fifteen minutes" said in one thread does not let the same
+tool run unasked in another, where someone else may be talking to the agent
+and nobody saw the question. So the window's scope is the tool *in* the
+conversation, not the tool alone.
 """
 
 import asyncio
@@ -87,11 +93,12 @@ class ToolGate:
     ) -> bool:
         started = asyncio.get_running_loop().time()
         request_id = f"rq_{tokens.token_hex(6)}"
+        scope = tool_scope(tool, runtime_session_id)
 
-        grant = await self._ledger.live_grant(KIND_TOOL, agent, tool, now=_now())
+        grant = await self._ledger.live_grant(KIND_TOOL, agent, scope, now=_now())
         if grant is not None:
             await self._record(
-                agent, tool, args, DECISION_REUSED_GRANT, started, request_id,
+                agent, scope, args, DECISION_REUSED_GRANT, started, request_id,
                 grant_id=grant.id,
             )
             return True
@@ -105,17 +112,17 @@ class ToolGate:
         if not answer.allowed:
             decision = DECISION_TIMEOUT if answer.timed_out else DECISION_DENIED
             await self._record(
-                agent, tool, args, decision, started, request_id, approver=answer.approver
+                agent, scope, args, decision, started, request_id, approver=answer.approver
             )
             return False
 
         grant_id = ""
         decision = DECISION_APPROVED_ONCE
         if answer.grant_s > 0:
-            grant_id = await self._open_window(agent, tool, answer)
+            grant_id = await self._open_window(agent, tool, scope, answer)
             decision = DECISION_APPROVED_GRANT
         await self._record(
-            agent, tool, args, decision, started, request_id,
+            agent, scope, args, decision, started, request_id,
             approver=answer.approver, grant_id=grant_id,
         )
         return True
@@ -154,14 +161,14 @@ class ToolGate:
         await self._rewrite(poster, post_id, _verdict(agent, tool, answer))
         return answer
 
-    async def _open_window(self, agent: str, tool: str, answer: Approval) -> str:
+    async def _open_window(self, agent: str, tool: str, scope: str, answer: Approval) -> str:
         seconds = min(answer.grant_s, self._max_grant_s)
         now = datetime.now(timezone.utc)
         grant = ApprovalGrant(
             id=f"gr_{tokens.token_hex(6)}",
             kind=KIND_TOOL,
             principal=agent,
-            scope=tool,
+            scope=scope,
             granted_by=answer.approver,
             granted_at=now.isoformat(timespec="seconds"),
             expires_at=(now + timedelta(seconds=seconds)).isoformat(timespec="seconds"),
@@ -174,7 +181,7 @@ class ToolGate:
         return grant.id
 
     async def _record(
-        self, agent: str, tool: str, args: dict[str, Any], decision: str,
+        self, agent: str, scope: str, args: dict[str, Any], decision: str,
         started: float, request_id: str, *, approver: str = "", grant_id: str = "",
     ) -> None:
         elapsed = asyncio.get_running_loop().time() - started
@@ -184,7 +191,7 @@ class ToolGate:
                 at=_now(),
                 kind=KIND_TOOL,
                 principal=agent,
-                scope=tool,
+                scope=scope,
                 reason="",
                 detail=_arguments(args),
                 decision=decision,
@@ -194,7 +201,7 @@ class ToolGate:
                 duration_ms=int(elapsed * 1000),
             )
         )
-        logger.info("tool %s for %s: %s", tool, agent, decision)
+        logger.info("tool %s for %s: %s", scope, agent, decision)
 
     @staticmethod
     async def _rewrite(poster, post_id: str, text: str) -> None:
@@ -206,6 +213,13 @@ class ToolGate:
             await poster.retract(post_id, text)
         except Exception:
             logger.warning("tool gate: could not retire %s", post_id, exc_info=True)
+
+
+def tool_scope(tool: str, runtime_session_id: str) -> str:
+    """What a window covers, as the ledger spells it: this tool, in this
+    conversation. The conversation is named by its runtime session id — the one
+    key the gate is handed — so the same window is found again by the same call."""
+    return f"{tool}@{runtime_session_id}"
 
 
 def _arguments(args: dict[str, Any]) -> str:

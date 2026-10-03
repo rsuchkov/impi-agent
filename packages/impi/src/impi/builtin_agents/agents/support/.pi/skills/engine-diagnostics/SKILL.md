@@ -94,7 +94,8 @@ Two other 403s come from the confirmation gate, and both say so in the body:
 - `declined by the user` — the tool declares `requires_confirmation`, the card
   went out, and the answer was Deny or nobody answered in time. A human can
   answer **Allow for…** instead, which stops the questions for that agent and
-  that tool until the window closes (`TOOL_MAX_GRANT_S` caps it).
+  that tool **in that conversation** until the window closes (`TOOL_MAX_GRANT_S`
+  caps it); another thread or direct message is asked on its own.
 - `cannot be confirmed here` — the same tool reached the server in a
   deployment with no way to ask. Normally it cannot even get there: with
   interactivity off such a tool is left out of the agent's tool list (the

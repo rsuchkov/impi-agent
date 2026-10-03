@@ -156,7 +156,10 @@ container could call the tool server directly: a gate in the extension would
 be one that can be walked around, and asking there as well would be asking
 twice. The gate asks through the same approval primitive the secret broker
 uses, so a human can answer "once" or "for the next 15 minutes"
-(`TOOL_MAX_GRANT_S` caps the window). The flag is a capability like any other
+(`TOOL_MAX_GRANT_S` caps the window); the window belongs to the conversation
+it was opened in — the people who were asked are the people it covers — so the
+same tool in another conversation of that agent is asked again. The flag is a
+capability like any other
 (`CAP_CONFIRMATION`): a deployment with no gate does not advertise the tool,
 and the server still refuses a call that arrives for one.
 

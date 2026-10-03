@@ -6,6 +6,13 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: "Allow for…" on a tool call opened the window for everyone.** The
+  window was keyed by agent and tool, so one person allowing a tool for
+  fifteen minutes in their direct message let the same agent run it unasked in
+  every other conversation — for people who never saw a card. A window now
+  belongs to the conversation it was opened in: the people who were asked are
+  the people it covers, and another thread or direct message is asked afresh.
+  Windows opened before this update are not found any more and simply expire.
 - **Fixed: a tool that needs confirming was asked about twice — or refused
   before anyone was asked.** The runtime's tool extension used to put up its
   own confirm for every such call and then the engine asked again with the

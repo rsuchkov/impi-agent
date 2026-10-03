@@ -300,7 +300,7 @@ list rather than offered and refused.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `TOOL_MAX_GRANT_S` | `900` | longest window a human may open for a gated tool (`0` = ask every time) |
+| `TOOL_MAX_GRANT_S` | `900` | longest window a human may open for a gated tool (`0` = ask every time). A window covers that tool in the conversation where it was opened — another thread or direct message with the same agent is asked afresh |
 
 ## Logging
 

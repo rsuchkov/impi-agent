@@ -20,7 +20,7 @@ import pytest
 from crucible.approvals import ANSWER_DENY, ANSWER_ONCE, APPROVAL_KEY, PendingApprovals
 from crucible.config import ToolSettings
 from crucible.interactions import toolgate
-from crucible.interactions.toolgate import ToolGate
+from crucible.interactions.toolgate import ToolGate, tool_scope
 from crucible.ports.agent import AgentSpec
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.types import ACTION_SELECT, KIND_DM
@@ -143,12 +143,12 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
     return Rig(server, store, poster, approvals, dangerous, plain, record.runtime_session_id, port)
 
 
-async def _call(rig: Rig, name: str) -> int:
+async def _call(rig: Rig, name: str, *, conversation: str = "") -> int:
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"http://127.0.0.1:{rig.port}/tool/{name}",
             json={},
-            headers={**TOKEN, "X-Runtime-Session": rig.session},
+            headers={**TOKEN, "X-Runtime-Session": conversation or rig.session},
         ) as response:
             return response.status
 
@@ -257,7 +257,30 @@ async def test_the_window_is_capped_however_it_was_asked_for(tmp_path: Path) -> 
         dropdown = next(a for a in card.actions if a.kind == ACTION_SELECT)
         assert [c.value for c in dropdown.options] == ["grant:60", "grant:300"]
         grant = (await rig.store.list_grants(now="2000-01-01T00:00:00+00:00"))[0]
-        assert grant.kind == KIND_TOOL and grant.scope == "dangerous"
+        assert grant.kind == KIND_TOOL and grant.scope == tool_scope("dangerous", rig.session)
+    finally:
+        await _close(rig)
+
+
+async def test_a_window_belongs_to_the_conversation_it_was_opened_in(tmp_path: Path) -> None:
+    """The people who were asked are the people the window covers. Another
+    conversation of the same agent — someone else talking to it, who saw no
+    card — is asked afresh."""
+    rig = await _rig(tmp_path, 8550, timeout_s=0.05)
+    other, _ = await rig.store.get_or_create("assistant", "dm2", "dm2", KIND_DM)
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer(rig, "grant:900")
+        assert await pending == 200
+
+        # Same agent, same tool, a different conversation: asked, and (nobody
+        # answering within the short timeout) refused.
+        assert await _call(rig, "dangerous", conversation=other.runtime_session_id) == 403
+        assert rig.tool.ran == 1
+        assert len(rig.poster.posts) == 2
+        # The first conversation's window is still open.
+        assert await _call(rig, "dangerous") == 200
+        assert rig.tool.ran == 2
     finally:
         await _close(rig)
 
@@ -272,7 +295,8 @@ async def test_a_window_of_another_kind_does_not_open_a_tool(tmp_path: Path) -> 
 
         await rig.store.create_grant(
             ApprovalGrant(
-                id="gr_1", kind="secret", principal="assistant", scope="dangerous",
+                id="gr_1", kind="secret", principal="assistant",
+                scope=tool_scope("dangerous", rig.session),
                 granted_by=CLICKER, granted_at="2026-01-01T00:00:00+00:00",
                 expires_at="2099-01-01T00:00:00+00:00",
             )
