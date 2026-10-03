@@ -74,6 +74,7 @@ class PiRuntime:
         max_sessions_per_agent: int = 0,
         idle_ttl: float = 1800.0,
         acquire_timeout: float = 120.0,
+        evict_idle_on_pressure: bool = True,
         extra_env: dict[str, str] | None = None,
         extra_extensions: list[str] | None = None,
         session_factory: SessionFactory | None = None,
@@ -109,6 +110,13 @@ class PiRuntime:
         # without a bound a turn can wait forever, and the per-turn timeout
         # never even starts (it applies after the session exists).
         self._acquire_timeout = acquire_timeout
+        # When every permit is held, drop the session that has gone unused the
+        # longest rather than make the new turn wait for the reaper. A permit is
+        # held for a session's whole life, idle included, so without this a few
+        # conversations that each said one thing can keep a pool full for the
+        # length of the idle TTL while a live one queues. Memory is on disk; the
+        # evicted conversation's next turn resumes it.
+        self._evict_idle = evict_idle_on_pressure
         self._factory = session_factory or self._spawn_session
 
         self._sessions: dict[str, _ManagedSession] = {}
@@ -266,7 +274,11 @@ class PiRuntime:
         agent_permit = self._agent_semaphore(agent)
         try:
             if agent_permit is not None:
+                if agent_permit.locked():
+                    await self._make_room(agent)
                 await asyncio.wait_for(agent_permit.acquire(), deadline)
+            if self._semaphore.locked():
+                await self._make_room(None)
             await asyncio.wait_for(self._semaphore.acquire(), deadline)
         except TimeoutError as exc:
             if agent_permit is not None and agent_permit.locked():
@@ -281,6 +293,30 @@ class PiRuntime:
                 f"no runtime slot for {agent} within {deadline:.0f}s "
                 f"({len(self._sessions)} session(s) alive)"
             ) from exc
+
+    async def _make_room(self, agent: str | None) -> None:
+        """Every permit is taken: evict the least recently used idle session —
+        of ``agent`` when its own bound is the one exhausted, of anyone when the
+        global one is. A session is left alone while a turn runs on it, and
+        while a turn is about to (its lock is held: the window between taking
+        the lock and sending the prompt). Dropping it frees both its permits."""
+        if not self._evict_idle:
+            return
+        idle = [
+            (managed.last_used or managed.created_at, key)
+            for key, managed in self._sessions.items()
+            if (agent is None or managed.agent == agent)
+            and not managed.session.busy
+            and not self._locks.setdefault(key, asyncio.Lock()).locked()
+        ]
+        if not idle:
+            return
+        _, victim = min(idle)
+        logger.info(
+            "runtime full: dropping idle session %s to make room (%d alive)",
+            victim, len(self._sessions),
+        )
+        await self._drop_session(victim)
 
     def _release(self, agent: str) -> None:
         self._semaphore.release()

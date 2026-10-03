@@ -6,6 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: a full runtime pool made new conversations wait for idle ones to
+  expire.** A slot is held for a session's whole life, idle included, so a few
+  conversations that each said one thing could keep the pool full for the
+  length of the idle TTL while a live one waited two minutes and then got
+  "the engine is full". When every slot is held, the engine now drops the
+  session that has gone unused the longest (never one with a turn running or
+  about to) and gives the slot to the new turn; the evicted conversation
+  resumes from disk on its next message. `PI_EVICT_IDLE_ON_PRESSURE=false`
+  restores the old behaviour, and the wait itself is now a setting,
+  `PI_ACQUIRE_TIMEOUT_S` (it was fixed at 120 s).
 - **A tool that returns what other people wrote now says so, the same way
   every time.** A tool may declare `returns_untrusted`; the engine appends one
   sentence to its description and wraps its result in

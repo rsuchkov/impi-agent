@@ -228,6 +228,11 @@ class Settings(BaseSettings):
     # every slot from the rest.
     pi_max_sessions_per_agent: int = 0
     pi_session_idle_ttl: float = 1800.0
+    # How long a turn waits for a free slot before giving up with "the engine is
+    # full". Rarely reached: with eviction on, a full pool gives up its idlest
+    # session instead of making the new turn wait for the idle TTL.
+    pi_acquire_timeout_s: float = 120.0
+    pi_evict_idle_on_pressure: bool = True
 
     # Default LLM provider/model when an agent's agent.yaml omits them (empty =
     # pass no flag, letting pi use its own ~/.pi/agent/settings.json default).

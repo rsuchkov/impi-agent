@@ -378,6 +378,8 @@ def build_app(settings: ImpiSettings) -> App:
         max_concurrent_sessions=settings.pi_max_concurrent_sessions,
         max_sessions_per_agent=settings.pi_max_sessions_per_agent,
         idle_ttl=settings.pi_session_idle_ttl,
+        acquire_timeout=settings.pi_acquire_timeout_s,
+        evict_idle_on_pressure=settings.pi_evict_idle_on_pressure,
         extra_env=build_pi_env(settings),
         extra_extensions=build_pi_extensions(settings),
         ui_bridge=interactions.ui_bridge,

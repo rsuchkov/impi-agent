@@ -423,8 +423,12 @@ async def test_session_id_is_injected_into_env(monkeypatch) -> None:
 async def test_a_turn_does_not_wait_forever_for_a_free_slot() -> None:
     # Permits are held for as long as a session lives, idle included, so an
     # unbounded wait would hang the turn with no timeout to end it: the per-turn
-    # deadline only starts once the session exists.
-    rt = _runtime_with([FakeSession(), FakeSession()], max_concurrent_sessions=1)
+    # deadline only starts once the session exists. (Eviction off: with it on,
+    # the idle holder would simply be dropped.)
+    rt = _runtime_with(
+        [FakeSession(), FakeSession()], max_concurrent_sessions=1,
+        evict_idle_on_pressure=False,
+    )
     rt._acquire_timeout = 0.05
     profile = _profile()
     await rt.run_stateful(profile, "assistant--T1", "one")  # holds the only permit
@@ -454,3 +458,65 @@ async def test_human_wait_pauses_the_live_session_and_nothing_else() -> None:
     # A session that is not running: a usable no-op, not an error.
     async with rt.human_wait("assistant--nobody"):
         pass
+
+
+# -- making room ----------------------------------------------------------------
+
+
+async def test_a_full_pool_drops_the_longest_unused_idle_session() -> None:
+    first, second, third = FakeSession(), FakeSession(), FakeSession()
+    rt = _runtime_with([first, second, third], max_concurrent_sessions=2)
+    rt._acquire_timeout = 0.05
+    profile = _profile()
+    await rt.run_stateful(profile, "assistant--A", "one")
+    await asyncio.sleep(0.01)  # so the two have distinguishable last-used times
+    await rt.run_stateful(profile, "assistant--B", "two")
+
+    result = await rt.run_stateful(profile, "assistant--C", "three")  # no free slot
+
+    assert result.text == "ok"
+    assert first.closed and not second.closed  # A was the idlest; B stays warm
+    assert set(rt._sessions) == {"assistant--B", "assistant--C"}
+
+
+async def test_a_session_with_a_turn_in_flight_is_never_evicted() -> None:
+    busy = FakeSession()
+    rt = _runtime_with([busy, FakeSession()], max_concurrent_sessions=1)
+    rt._acquire_timeout = 0.05
+    profile = _profile()
+    await rt.run_stateful(profile, "assistant--A", "one")
+    busy.busy = True  # as it would be mid-prompt
+
+    with pytest.raises(PiTimeout, match="no runtime slot"):
+        await rt.run_stateful(profile, "assistant--B", "two")
+    assert not busy.closed
+
+
+async def test_a_session_whose_turn_is_about_to_start_is_never_evicted() -> None:
+    # Between taking the conversation's lock and sending the prompt the session
+    # is idle to look at; dropping it there would run the turn on a dead session.
+    idle = FakeSession()
+    rt = _runtime_with([idle, FakeSession()], max_concurrent_sessions=1)
+    rt._acquire_timeout = 0.05
+    profile = _profile()
+    await rt.run_stateful(profile, "assistant--A", "one")
+
+    async with rt._locks["assistant--A"]:
+        with pytest.raises(PiTimeout, match="no runtime slot"):
+            await rt.run_stateful(profile, "assistant--B", "two")
+    assert not idle.closed
+
+
+async def test_an_agents_own_bound_evicts_only_that_agents_sessions() -> None:
+    mine, theirs, fresh = FakeSession(), FakeSession(), FakeSession()
+    rt = _runtime_with(
+        [theirs, mine, fresh], max_concurrent_sessions=4, max_sessions_per_agent=1
+    )
+    rt._acquire_timeout = 0.05
+    await rt.run_stateful(_profile("other"), "other--X", "one")  # the idlest of all
+    await asyncio.sleep(0.01)
+    await rt.run_stateful(_profile(), "assistant--A", "two")
+
+    await rt.run_stateful(_profile(), "assistant--B", "three")  # assistant's bound is full
+
+    assert mine.closed and not theirs.closed  # room came from assistant's own idle session
