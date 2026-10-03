@@ -30,7 +30,12 @@ class ChatClient(Protocol):
         agent loop accounting); adapters stamp it where other agents can read it."""
         ...
 
-    async def post_notice(self, ref: ConversationRef, text: str) -> None: ...
+    async def post_notice(self, ref: ConversationRef, text: str, *, code: str = "") -> None:
+        """Post status/system text as-is. ``code`` names the kind of notice
+        (``timeout``, ``empty_answer``, …) for a client that is a program rather
+        than a person and words things itself; a chat adapter shows the text and
+        ignores it. "" = no kind, just text."""
+        ...
 
     async def add_reaction(self, ref: ConversationRef, name: str) -> None: ...
 

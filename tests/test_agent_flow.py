@@ -888,3 +888,31 @@ async def test_the_flow_binds_the_messages_scope_for_exactly_the_turn(tmp_path: 
     assert seen == [scope, None]
     assert registry.current("assistant--dm1") is None  # unbound once the turn ended
     await store.close()
+
+
+# -- notices carry a code --------------------------------------------------------
+
+
+async def test_every_notice_names_its_kind(tmp_path: Path) -> None:
+    """A chat shows the sentence; a program on the other end of an API reads the
+    code — so the flow sends both, for every notice it posts."""
+    from dataclasses import replace
+
+    from crucible.ports.agent.errors import NOTICE_QUOTA, NOTICE_TIMEOUT
+
+    def message(text: str, post: str) -> IncomingMessage:
+        msg = _dm(text)
+        return replace(msg, ref=replace(msg.ref, message_id=post))
+
+    chat = FakeChat()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    for runtime, post in (
+        (FakeRuntime(error=PiTimeout("slow")), "p1"),
+        (FakeRuntime(error=PiProcessError("pi LLM error: 429 usage limit")), "p2"),
+        (FakeRuntime(result=PiResult(text="")), "p3"),
+    ):
+        flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant")
+        await flow.handle(message("say something", post), chat)
+
+    assert chat.notice_codes == [NOTICE_TIMEOUT, NOTICE_QUOTA, "empty_answer"]
+    await store.close()

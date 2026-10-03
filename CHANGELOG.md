@@ -6,6 +6,12 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A notice on the `ws` gateway now says what kind it is.** Beside the
+  sentence for a person, a `notice` frame carries a `code` a program can act
+  on — `timeout`, `busy`, `quota`, `credentials`, `context`,
+  `runtime_unavailable`, `agent_error`, `empty_answer`. Chat gateways show the
+  sentence as before. (For applications on the library: `post_notice(...,
+  code=)` and `notice_for(error)`.)
 - **Fixed: a process of one conversation could name another.** The tool
   server identified the caller by the agent's token alone, and every
   conversation's process of that agent holds the same one — so anything with

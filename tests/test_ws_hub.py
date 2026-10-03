@@ -140,14 +140,20 @@ async def test_reply_routes_to_the_owning_service_and_strips_namespace() -> None
             ref1 = ConversationRef("one:user-7", "one:user-7", "m")
             ref2 = ConversationRef("two:user-7", "two:user-7", "m")
             await chat.post_reply(ref1, "for one")
-            await chat.post_notice(ref2, "for two")
+            await chat.post_notice(ref2, "for two", code="timeout")
+            await chat.post_notice(ref2, "plain")
             frame1 = await ws1.receive_json(timeout=2)
             frame2 = await ws2.receive_json(timeout=2)
+            frame3 = await ws2.receive_json(timeout=2)
             assert frame1 == {
                 "type": "reply", "agent": "helper",
                 "conversation_id": "user-7", "text": "for one",
             }
-            assert frame2["type"] == "notice" and frame2["text"] == "for two"
+            assert frame2 == {
+                "type": "notice", "agent": "helper",
+                "conversation_id": "user-7", "text": "for two", "code": "timeout",
+            }
+            assert "code" not in frame3  # a notice with no kind carries no key
             await ws1.close()
             await ws2.close()
     finally:

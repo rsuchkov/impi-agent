@@ -76,7 +76,7 @@ class SlackChatClient:
         # link never straddles a chunk boundary mid-token.
         await self._post_chunks(ref, markdown_to_mrkdwn(text))
 
-    async def post_notice(self, ref: ConversationRef, text: str) -> None:
+    async def post_notice(self, ref: ConversationRef, text: str, *, code: str = "") -> None:
         # Port contract: notices are fixed system strings, sent verbatim.
         await self._post_chunks(ref, text)
 

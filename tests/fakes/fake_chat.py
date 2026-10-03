@@ -16,6 +16,7 @@ class FakeChat:
         self.replies: list[tuple[ConversationRef, str]] = []
         self.reply_hops: list[int] = []  # hop_depth of each reply, positionally
         self.notices: list[tuple[ConversationRef, str]] = []
+        self.notice_codes: list[str] = []  # beside `notices`, in the same order
         self.reactions: list[tuple[str, str]] = []  # ("+eyes"/"-eyes", message_id)
         self.thread_posts: dict[str, list[PostSnippet]] = {}  # root_id -> thread
         self.recent_posts: dict[str, list[PostSnippet]] = {}  # channel_id -> history
@@ -31,8 +32,9 @@ class FakeChat:
         self.replies.append((ref, text))
         self.reply_hops.append(hop_depth)
 
-    async def post_notice(self, ref: ConversationRef, text: str) -> None:
+    async def post_notice(self, ref: ConversationRef, text: str, *, code: str = "") -> None:
         self.notices.append((ref, text))
+        self.notice_codes.append(code)
 
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:
         self.reactions.append((f"+{name}", ref.message_id))

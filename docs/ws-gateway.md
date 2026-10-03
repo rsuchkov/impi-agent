@@ -60,7 +60,8 @@ All frames are JSON text messages.
 
 ```jsonc
 {"type": "reply",  "agent": "helper", "conversation_id": "user-42", "text": "…"}
-{"type": "notice", "agent": "helper", "conversation_id": "user-42", "text": "…"}  // status/fallback
+{"type": "notice", "agent": "helper", "conversation_id": "user-42", "text": "…",
+ "code": "timeout"}                 // status/fallback; `code` names the kind when there is one
 {"type": "agents", "agents": [{"name": "helper", "role": "…", "description": "…"}]}
 {"type": "error",  "detail": "…"}   // bad frame / unknown agent; the socket stays open
 
@@ -72,6 +73,12 @@ All frames are JSON text messages.
 Replies arrive whenever the agent's turn finishes (seconds to minutes) — the
 `message` frame is fire-and-forget, correlate by `conversation_id`. Text is
 Markdown as-is; rendering is the service's business.
+
+A `notice` is the engine speaking, not the agent — a turn that failed or
+produced nothing. Its `text` is a sentence for a person; its `code`, when
+present, is for a program: `timeout`, `busy`, `quota`, `credentials`, `context`,
+`runtime_unavailable`, `agent_error`, `empty_answer`. Show the text, or word the
+code yourself; ignore codes you do not know.
 
 ## Semantics worth knowing
 

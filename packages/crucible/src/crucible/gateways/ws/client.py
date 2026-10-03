@@ -31,8 +31,10 @@ class WsChatClient:
         # agent could read; the LoopGuard rate window is the loop bound here.
         await self._hub.send(self._agent, ref.conversation_id, "reply", text)
 
-    async def post_notice(self, ref: ConversationRef, text: str) -> None:
-        await self._hub.send(self._agent, ref.conversation_id, "notice", text)
+    async def post_notice(self, ref: ConversationRef, text: str, *, code: str = "") -> None:
+        # The code rides in the frame: a service is a program, and "timeout" is
+        # something it can act on where a sentence is not.
+        await self._hub.send(self._agent, ref.conversation_id, "notice", text, code=code)
 
     async def post_files(
         self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""

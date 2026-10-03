@@ -75,8 +75,21 @@ _CONTEXT = re.compile(
 )
 
 
-def message_for(error: Exception) -> str:
-    """The sentence a person should see for this failure.
+# The kinds of failure a notice can report, as codes a client may act on: a
+# chat gateway shows the sentence, a program on the other end of an API reads
+# the code and words it itself (a banner, a retry, a "sign in again" button).
+# Stable names, not the sentences — the sentences may be reworded.
+NOTICE_RUNTIME_UNAVAILABLE = "runtime_unavailable"
+NOTICE_BUSY = "busy"
+NOTICE_QUOTA = "quota"
+NOTICE_CREDENTIALS = "credentials"
+NOTICE_CONTEXT = "context"
+NOTICE_TIMEOUT = "timeout"
+NOTICE_AGENT_ERROR = "agent_error"
+
+
+def notice_for(error: Exception) -> tuple[str, str]:
+    """The (code, sentence) a person — or a program — should get for this failure.
 
     The cause is never shown verbatim. A notice is an ordinary message in the
     conversation, so everyone present reads it, and a provider's error carries
@@ -85,16 +98,21 @@ def message_for(error: Exception) -> str:
     which KIND of thing went wrong, because that is what decides who fixes it.
     """
     if isinstance(error, AgentUnavailable):
-        return UNAVAILABLE_MESSAGE
+        return NOTICE_RUNTIME_UNAVAILABLE, UNAVAILABLE_MESSAGE
     if isinstance(error, AgentBusy):
-        return BUSY_MESSAGE
+        return NOTICE_BUSY, BUSY_MESSAGE
     text = str(error)
     if _QUOTA.search(text):
-        return QUOTA_MESSAGE
+        return NOTICE_QUOTA, QUOTA_MESSAGE
     if _CREDENTIALS.search(text):
-        return CREDENTIALS_MESSAGE
+        return NOTICE_CREDENTIALS, CREDENTIALS_MESSAGE
     if _CONTEXT.search(text):
-        return CONTEXT_MESSAGE
+        return NOTICE_CONTEXT, CONTEXT_MESSAGE
     if isinstance(error, AgentTimeout):
-        return LLM_FALLBACK_MESSAGE
-    return INTERNAL_ERROR_MESSAGE
+        return NOTICE_TIMEOUT, LLM_FALLBACK_MESSAGE
+    return NOTICE_AGENT_ERROR, INTERNAL_ERROR_MESSAGE
+
+
+def message_for(error: Exception) -> str:
+    """The sentence alone — see ``notice_for``."""
+    return notice_for(error)[1]

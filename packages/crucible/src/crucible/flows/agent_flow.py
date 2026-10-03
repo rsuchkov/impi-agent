@@ -20,7 +20,7 @@ from crucible.ports.agent import (
     AgentRuntime,
     AgentTimeout,
     PromptImage,
-    message_for,
+    notice_for,
 )
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import TurnOutcome
@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 LOADING_REACTION = "eyes"
 EMPTY_ANSWER_MESSAGE = "I thought about it but produced no answer — please try rephrasing."
+NOTICE_EMPTY_ANSWER = "empty_answer"
 _MAX_BACKFILL_CHARS = 6000
 _CHANNEL_BACKFILL_LIMIT = 20
 _FIRST_TURN_HEADER = "[context: earlier conversation]"
@@ -216,7 +217,8 @@ class AgentFlow:
             logger.warning(
                 "agent turn timed out for %s: %s", record.runtime_session_id, exc
             )
-            await chat.post_notice(anchor.ref, message_for(exc))
+            code, text = notice_for(exc)
+            await chat.post_notice(anchor.ref, text, code=code)
             return TurnOutcome.TIMEOUT
         except AgentError as exc:
             # The cause goes to the log in full; what reaches the conversation is
@@ -224,7 +226,8 @@ class AgentFlow:
             # message everyone present can read.
             logger.exception("agent run failed for %s", record.runtime_session_id)
             self._warn_if_picture_rejected(exc, record)
-            await chat.post_notice(anchor.ref, message_for(exc))
+            code, text = notice_for(exc)
+            await chat.post_notice(anchor.ref, text, code=code)
             return TurnOutcome.ERROR
         finally:
             if acknowledge:
@@ -249,7 +252,7 @@ class AgentFlow:
         # deliberate: a tool that declares it speaks to the user has already put
         # the message there (buttons, a form, a panel), and a fallback here would
         # double up on the already-visible action.
-        await chat.post_notice(anchor.ref, EMPTY_ANSWER_MESSAGE)
+        await chat.post_notice(anchor.ref, EMPTY_ANSWER_MESSAGE, code=NOTICE_EMPTY_ANSWER)
         return TurnOutcome.EMPTY
 
     # -- internals ----------------------------------------------------------

@@ -94,7 +94,7 @@ class MattermostChatClient:
                 props=props,
             )
 
-    async def post_notice(self, ref: ConversationRef, text: str) -> None:
+    async def post_notice(self, ref: ConversationRef, text: str, *, code: str = "") -> None:
         # Same transport as post_reply; the verb split keeps the port's
         # "verbatim system text" semantics available to richer adapters.
         await self.post_reply(ref, text)

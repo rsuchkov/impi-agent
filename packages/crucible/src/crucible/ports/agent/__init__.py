@@ -8,6 +8,7 @@ from crucible.ports.agent.errors import (
     AgentTimeout,
     AgentUnavailable,
     message_for,
+    notice_for,
 )
 from crucible.ports.agent.events import (
     TOOL_FINISHED,
@@ -36,6 +37,7 @@ __all__ = [
     "AgentTimeout",
     "AgentUnavailable",
     "message_for",
+    "notice_for",
     "AgentEvent",
     "AgentProfile",
     "AgentResult",
