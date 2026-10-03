@@ -141,6 +141,14 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   `requires_confirmation`, pass `tool_gate=` to `build_server`. Without one the
   server refuses those calls rather than running them: a confirmation nobody can
   answer is not a confirmation, and failing open would make the flag decorative.
+- **Finding the conversation from inside a tool.** A tool call carries the
+  runtime session id (`ToolContext.runtime_session_id`), and it is exactly the
+  `runtime_session_id` of the conversation's `SessionRecord` — the engine sets
+  `RUNTIME_SESSION_ID` in the runtime's environment and the tool extension
+  echoes it on every call. Two conversations never share one (the derivation
+  appends a digest whenever it had to coerce a character, and the store
+  enforces uniqueness), so an application may key whatever it holds per
+  running turn by that id and resolve it from a tool.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base

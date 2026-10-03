@@ -13,17 +13,29 @@ where the translation can be checked and can fail loudly, rather than being
 assumed to line up.
 """
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+_DIGEST_CHARS = 12
+
 
 def safe_session_id(raw: str) -> str:
     """Coerce a conversation key into a valid runtime session id
-    (``[A-Za-z0-9._-]``, starting and ending alphanumeric)."""
+    (``[A-Za-z0-9._-]``, starting and ending alphanumeric).
+
+    The same rule as the store's ``derive_runtime_session_id`` — a digest of the
+    original is appended whenever coercion changed it, so two keys that clean to
+    the same string still get different sessions. The two copies exist because
+    the store may not import the runtime; ``tests/test_session_store.py`` keeps
+    them in agreement."""
     cleaned = re.sub(r"[^A-Za-z0-9._-]", "-", raw).strip("-._")
-    return cleaned or "session"
+    if cleaned == raw:
+        return cleaned
+    digest = hashlib.sha256(raw.encode()).hexdigest()[:_DIGEST_CHARS]
+    return f"{cleaned or 'session'}-{digest}"
 
 
 @dataclass(frozen=True)

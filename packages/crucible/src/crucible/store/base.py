@@ -10,6 +10,7 @@ agreement so the two never drift.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -23,6 +24,10 @@ SQLITE = "sqlite"
 MONGO = "mongo"
 STORE_BACKENDS = (SQLITE, MONGO)
 
+# How much of the digest a coerced id carries: enough that two conversations of
+# one agent colliding is not a thing that happens, short enough to read.
+_DIGEST_CHARS = 12
+
 
 def derive_runtime_session_id(agent: str, conversation_id: str) -> str:
     """Deterministic, filesystem-safe session key from (agent, conversation).
@@ -31,10 +36,18 @@ def derive_runtime_session_id(agent: str, conversation_id: str) -> str:
     recomputable from the pair alone. The charset is a portable safe-identifier
     set (also valid as the runtime's session id); the runtime re-coerces to the
     same set at its own boundary, so stored key and on-disk session agree.
+
+    Coercion alone is lossy — ``john@x`` and ``john-x`` both clean to
+    ``john-x`` — so whenever it changed anything, a digest of the original is
+    appended. Two conversations then never share a session, and a key the
+    platform already spelled safely (every Slack and Mattermost id) is unchanged.
     """
     raw = f"{agent}--{conversation_id}"
     cleaned = re.sub(r"[^A-Za-z0-9._-]", "-", raw).strip("-._")
-    return cleaned or "session"
+    if cleaned == raw:
+        return cleaned
+    digest = hashlib.sha256(raw.encode()).hexdigest()[:_DIGEST_CHARS]
+    return f"{cleaned or 'session'}-{digest}"
 
 
 @dataclass(frozen=True)

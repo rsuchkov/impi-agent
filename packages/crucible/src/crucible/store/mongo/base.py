@@ -59,7 +59,10 @@ async def create_indexes(db: AsyncDatabase) -> None:
     would double-fire.
     """
     await db[SESSIONS].create_index([("agent", 1), ("conversation_id", 1)], unique=True)
-    await db[SESSIONS].create_index([("runtime_session_id", 1)])
+    # Looked up on its own by every tool call, so two conversations must never
+    # share one. (Deployments from before the constraint drop the plain index
+    # by hand first; Mongo will not change an index's options in place.)
+    await db[SESSIONS].create_index([("runtime_session_id", 1)], unique=True)
     await db[SESSIONS].create_index([("last_active", -1)])
     await db[AGENTS].create_index([("name", 1)], unique=True)
     await db[TASKS].create_index([("agent", 1), ("name", 1)])

@@ -6,6 +6,8 @@ the first does. What is true only of SQLite — its file, its migrations, its
 pragmas — lives in test_sqlite_store.py.
 """
 
+import re
+
 import pytest
 
 from crucible.ports.chat.types import KIND_DM, KIND_THREAD
@@ -91,9 +93,28 @@ def test_derived_ids_are_already_safe_for_pi() -> None:
 
 
 def test_derive_sanitizes_hostile_input() -> None:
-    # Non-ASCII input on purpose: exercises the sanitizer alphabet.
-    assert derive_runtime_session_id("агент", "тред/1") == "1"
-    assert derive_runtime_session_id("///", "///") == "session"
+    # Non-ASCII input on purpose: exercises the sanitizer alphabet. What the
+    # coercion dropped comes back as a digest, so the key stays distinct.
+    assert re.fullmatch(r"1-[0-9a-f]{12}", derive_runtime_session_id("агент", "тред/1"))
+    assert re.fullmatch(r"session-[0-9a-f]{12}", derive_runtime_session_id("///", "///"))
+
+
+def test_derive_is_a_pure_function_of_its_input() -> None:
+    first = derive_runtime_session_id("assistant", "svc:john@x")
+    assert first == derive_runtime_session_id("assistant", "svc:john@x")
+    assert first != derive_runtime_session_id("assistant", "svc:john-x")
+    assert first != derive_runtime_session_id("assistant", "svc-john:x")
+
+
+async def test_two_conversations_never_share_a_runtime_key(store: Store) -> None:
+    # `john@x` and `john-x` both coerce to `john-x`; without the digest they
+    # would resume one another's memory.
+    first, _ = await store.get_or_create("assistant", "ch1", "john@x", KIND_DM)
+    second, _ = await store.get_or_create("assistant", "ch1", "john-x", KIND_DM)
+    assert first.runtime_session_id != second.runtime_session_id
+    assert await store.get_by_runtime_session(first.runtime_session_id) == first
+    assert await store.get_by_runtime_session(second.runtime_session_id) == second
+
 
 
 async def test_get_by_runtime_session_reverse_lookup(store: Store) -> None:

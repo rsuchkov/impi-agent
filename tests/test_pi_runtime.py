@@ -1,4 +1,5 @@
 import asyncio
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -379,9 +380,26 @@ async def test_stateless_spawn_uses_no_session(monkeypatch) -> None:
 
 def test_safe_session_id_sanitizes() -> None:
     assert _safe_session_id("assistant--abc123") == "assistant--abc123"
-    # Non-ASCII input on purpose: exercises the sanitizer alphabet.
-    assert _safe_session_id("агент/тред:1") == "1"
-    assert _safe_session_id("///") == "session"
+    # Non-ASCII input on purpose: exercises the sanitizer alphabet. A coerced
+    # id carries a digest of the original, so distinct inputs stay distinct.
+    assert re.fullmatch(r"1-[0-9a-f]{12}", _safe_session_id("агент/тред:1"))
+    assert re.fullmatch(r"session-[0-9a-f]{12}", _safe_session_id("///"))
+    assert _safe_session_id("svc:john@x") != _safe_session_id("svc:john-x")
+
+
+async def test_the_session_is_told_the_coerced_id(monkeypatch) -> None:
+    # The UI bridge resolves the conversation by the id the session reports;
+    # the tool extension reports RUNTIME_SESSION_ID. They have to be the same.
+    captured = {}
+
+    async def fake_spawn(pi_bin, args, *, cwd, env=None):
+        captured["env"] = env
+        return SimpleNamespace()
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", fake_spawn)
+    session = await PiRuntime()._spawn_session(_profile(), "assistant--svc:john@x")
+    assert session._session_id == captured["env"]["RUNTIME_SESSION_ID"]
+    assert session._session_id != "assistant--svc:john@x"
 
 
 async def test_session_id_is_injected_into_env(monkeypatch) -> None:

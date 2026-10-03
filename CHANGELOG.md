@@ -6,7 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: two conversations could share one agent memory.** The runtime's
+  session key is the conversation id with unsafe characters replaced, so
+  `john@x` and `john-x` collapsed into one session — same memory, and a
+  confirmation card for one could land in the other. A coerced key now carries
+  a digest of the original, the store enforces uniqueness, and the runtime
+  hands its own session the same key the tool extension reports. Slack and
+  Mattermost ids were never coerced and keep their sessions; conversations on
+  the `ws` gateway get a new key once and start with fresh memory after this
+  update.
+  **Mongo deployments: one manual step before updating.** The plain index on
+  `sessions.runtime_session_id` must go so the unique one can be built, and
+  Mongo will not change it in place — the engine refuses to start until then:
+  `db.sessions.dropIndex("runtime_session_id_1")` in the engine's database.
 
 ## v0.17.0 — 2026-10-01
 

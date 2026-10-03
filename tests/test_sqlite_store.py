@@ -185,3 +185,19 @@ def _assert_no_secret_columns(store: SqliteSessionStore) -> None:
                 row[1] for row in store._conn.execute(f"PRAGMA table_info({table})")
             }
     assert not columns & {"value", "secret_value", "ciphertext", "token"}
+
+
+async def test_two_rows_cannot_share_one_runtime_key(tmp_path: Path) -> None:
+    # The derivation keeps runtime keys apart; the index is what notices if it
+    # ever stops doing so — on an old file as well as a new one.
+    store = SqliteSessionStore(tmp_path / "s.db")
+    store.get_or_create_sync("assistant", "ch1", "a", "dm")
+    try:
+        store._conn.execute(
+            "INSERT INTO sessions (agent, channel_id, conversation_id, kind, "
+            "runtime_session_id, created_at, last_active) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("assistant", "ch1", "b", "dm", "assistant--a", "t", "t"),
+        )
+    except sqlite3.IntegrityError:
+        return
+    raise AssertionError("a second row took the runtime key of the first")

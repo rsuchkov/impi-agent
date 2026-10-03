@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_user_id TEXT NOT NULL DEFAULT '',  -- who last triggered a turn here
   UNIQUE (agent, conversation_id)
 );
+-- The runtime key is looked up on its own (a tool call names only it), so two
+-- conversations must never share one: the derivation guarantees it, the index
+-- makes a drift in that guarantee fail loudly instead of merging two memories.
+CREATE UNIQUE INDEX IF NOT EXISTS sessions_runtime_session_id
+  ON sessions (runtime_session_id);
 
 -- agent registry snapshot (synced from profiles) + processed-post dedup:
 CREATE TABLE IF NOT EXISTS agents (

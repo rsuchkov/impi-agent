@@ -325,10 +325,13 @@ class PiRuntime:
             cwd=Path(cwd) if cwd else None,
         )
         transport = await self._hosts.for_agent(profile.name).open(request)
+        # The coerced id, not the one the caller passed: it is what the tool
+        # extension reports and what the store keys on, so the UI bridge must
+        # resolve the same conversation from it.
         return PiRpcSession(
             transport,
             ui_bridge=self._ui_bridge,
-            session_id=session_id or "",
+            session_id=safe_id or "",
         )
 
     async def _reap_loop(self, interval: float) -> None:

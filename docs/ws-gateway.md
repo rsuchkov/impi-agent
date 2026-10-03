@@ -78,7 +78,9 @@ Markdown as-is; rendering is the service's business.
 - **Isolation.** Sessions key on `(agent, conversation_id)`; internally the
   key is namespaced with the service name, so even two services reusing the
   same conversation id at the same agent never share history. Replies are
-  routed back to the owning service and the namespace is stripped.
+  routed back to the owning service and the namespace is stripped. Any
+  conversation id is fine — `john@x` and `john-x` are two conversations, not
+  one: the runtime's session key keeps a digest of whatever it had to coerce.
 - **Offline services.** If the socket is down when a reply lands, it goes to
   a bounded per-service buffer (200 frames, in-memory) and is flushed on
   reconnect. An engine restart drops the buffer.

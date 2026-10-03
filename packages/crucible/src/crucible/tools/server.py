@@ -37,8 +37,10 @@ SessionResolver = Callable[[str], Awaitable[tuple[str, str] | None]]
 _TOKEN_HEADER = "X-Tool-Token"
 # The engine ↔ tool-extension contract (not the runtime's — it only relays
 # the env we inject). The engine sets RUNTIME_SESSION_ID in the runtime's child
-# env; the extension forwards it as this header; here it becomes the runtime_session_id the
-# store keys on.
+# env; the extension forwards it as this header; here it becomes the
+# runtime_session_id the store keys on. Part of the contract: the value IS the
+# session record's ``runtime_session_id``, byte for byte — a tool, or whatever
+# an application keeps per running turn, may look the conversation up by it.
 _SESSION_HEADER = "X-Runtime-Session"
 
 
