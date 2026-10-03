@@ -87,3 +87,15 @@ def test_the_tool_trace_is_on_by_default_and_kept_two_weeks() -> None:
     settings = _settings()
     assert settings.tool_trace_enabled is True
     assert settings.tool_trace_retention_days == 14
+
+
+def test_the_human_answer_window_must_close_before_the_call_deadline() -> None:
+    # Past the extension's own deadline the model is told the call failed; an
+    # answer arriving later would run it anyway, beside the retry.
+    import pytest
+
+    from crucible.config import TOOL_CALL_DEADLINE_S
+
+    assert _settings(integrations_ui_timeout=TOOL_CALL_DEADLINE_S - 31).integrations.ui_timeout
+    with pytest.raises(ValueError, match="INTEGRATIONS_UI_TIMEOUT"):
+        _settings(integrations_ui_timeout=TOOL_CALL_DEADLINE_S - 30)

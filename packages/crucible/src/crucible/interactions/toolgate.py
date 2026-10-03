@@ -43,6 +43,7 @@ from crucible.approvals import (
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.service import conversation_ref
 from crucible.store.base import (
+    DECISION_ABANDONED,
     DECISION_APPROVED_GRANT,
     DECISION_APPROVED_ONCE,
     DECISION_DENIED,
@@ -60,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 _ANSWERED = "⚙️ {verdict} — **{agent}** running `{tool}`."
 _EXPIRED = "⌛ Nobody answered in time, so the call was refused."
+_ABANDONED = "⌛ The call was withdrawn before anyone answered."
 
 
 def _now() -> str:
@@ -103,7 +105,13 @@ class ToolGate:
             )
             return True
 
-        answer = await self._ask(agent, tool, args, runtime_session_id)
+        try:
+            answer = await self._ask(agent, tool, args, runtime_session_id)
+        except asyncio.CancelledError:
+            # The caller hung up — the turn was aborted or timed out while the
+            # card was up. Nothing may run on this card now, whatever is clicked.
+            await self._record(agent, scope, args, DECISION_ABANDONED, started, request_id)
+            raise
         if answer is None:
             # Nowhere to ask. Fail closed, and say so — an engine whose
             # interactivity is off should not be silently running gated tools.
@@ -158,6 +166,11 @@ class ToolGate:
             self._approvals.discard(token)
             await self._rewrite(poster, post_id, _EXPIRED)
             return Approval(allowed=False, timed_out=True)
+        except asyncio.CancelledError:
+            # Retire the card first: a click after this must find no question.
+            self._approvals.discard(token)
+            await self._rewrite(poster, post_id, _ABANDONED)
+            raise
         await self._rewrite(poster, post_id, _verdict(agent, tool, answer))
         return answer
 

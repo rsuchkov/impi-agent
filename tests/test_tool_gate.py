@@ -251,6 +251,42 @@ async def test_a_tool_that_needs_no_confirmation_is_not_gated(tmp_path: Path) ->
         await _close(rig)
 
 
+# -- the caller hangs up -------------------------------------------------------
+
+
+async def _call_and_hang_up(rig: Rig, name: str, *, after: float) -> None:
+    """Start a call and drop the connection ``after`` seconds — what the
+    runtime's extension does when the turn is aborted or it gives up waiting."""
+    timeout = aiohttp.ClientTimeout(total=after)
+    with contextlib.suppress(asyncio.TimeoutError, aiohttp.ClientError):
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            await session.post(
+                f"http://127.0.0.1:{rig.port}/tool/{name}",
+                json={}, headers={**TOKEN, "X-Runtime-Session": rig.session},
+            )
+
+
+async def test_a_call_abandoned_while_waiting_cannot_be_approved_later(tmp_path: Path) -> None:
+    """The model was told the call failed; a click after that must not run it —
+    not now, not as a duplicate of the retry the model is about to make."""
+    rig = await _rig(tmp_path, 8552)
+    try:
+        await _call_and_hang_up(rig, "dangerous", after=0.2)
+        for _ in range(400):
+            if rig.poster.retracted:
+                break
+            await asyncio.sleep(0.005)
+        card = rig.poster.posts[0]
+        token = str(card.actions[0].context[APPROVAL_KEY])
+        assert not rig.approvals.pending(token)
+        assert rig.poster.retracted == [(card.post_id, toolgate._ABANDONED)]
+        assert rig.approvals.resolve(token, ANSWER_ONCE, CLICKER).name == "NOT_MINE"
+        assert rig.tool.ran == 0
+        assert [row.decision for row in await rig.store.list_audit()] == ["abandoned"]
+    finally:
+        await _close(rig)
+
+
 # -- the turn's clock ----------------------------------------------------------
 
 

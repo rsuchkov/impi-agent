@@ -30,7 +30,11 @@ interface ManifestEntry {
   speaks_to_user?: boolean;
 }
 
-async function callTool(name: string, params: Record<string, unknown>): Promise<string> {
+async function callTool(
+  name: string,
+  params: Record<string, unknown>,
+  signal: AbortSignal | undefined,
+): Promise<string> {
   if (!TOOL_URL || !TOOL_TOKEN) {
     return "tool error: tool server is not configured for this agent";
   }
@@ -39,6 +43,10 @@ async function callTool(name: string, params: Record<string, unknown>): Promise<
     if (v !== undefined && v !== null) args[k] = v;
   }
   try {
+    // The runtime's abort signal travels with the call: when the turn is
+    // aborted, the connection closes and the engine knows the caller is gone —
+    // a confirmation still waiting on a person is then abandoned instead of
+    // running later for a turn that no longer exists.
     const resp = await fetch(`${TOOL_URL}/tool/${name}`, {
       method: "POST",
       headers: {
@@ -47,6 +55,7 @@ async function callTool(name: string, params: Record<string, unknown>): Promise<
         "X-Runtime-Session": SESSION_ID,
       },
       body: JSON.stringify(args),
+      signal,
     });
     const body = (await resp.json()) as { result?: unknown; error?: string; note?: string };
     if (!resp.ok) return `tool error: ${body.error || resp.statusText}`;
@@ -56,6 +65,7 @@ async function callTool(name: string, params: Record<string, unknown>): Promise<
     const out = JSON.stringify(body.result ?? null);
     return body.note ? `${out}\n\n${body.note}` : out;
   } catch (e) {
+    if (signal?.aborted) return "tool error: the call was cancelled";
     return `tool error: ${(e as Error).message}`;
   }
 }
@@ -88,8 +98,8 @@ export default function (pi: ExtensionAPI) {
       label: t.name,
       description: t.description,
       parameters: Type.Unsafe(t.parameters) as never,
-      async execute(_id: string, params: Record<string, unknown>) {
-        return text(await callTool(t.name, params));
+      async execute(_id: string, params: Record<string, unknown>, signal?: AbortSignal) {
+        return text(await callTool(t.name, params, signal));
       },
     });
   }

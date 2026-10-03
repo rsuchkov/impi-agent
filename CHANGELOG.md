@@ -6,6 +6,15 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: an Allow clicked after the model gave up on the call still ran it.**
+  The runtime's tool extension stops waiting for a call after five minutes
+  and tells the model it failed, but the engine kept the confirmation card
+  live, so a later click ran the write — beside whatever the model did about
+  the "failure". Now the extension hands the runtime's abort signal to the
+  call, the tool server notices a caller that hung up and withdraws the card
+  (`abandoned` in the ledger; a click on it does nothing), and the engine
+  refuses to start with `INTEGRATIONS_UI_TIMEOUT` at or above 270 s, so every
+  wait for a person ends before the extension stops listening.
 - **Fixed: a slow answer to a confirmation card ended the turn.** The time a
   person took to click Allow counted against the turn's timeout, and a turn
   that ran out there lost the conversation's runtime process with it. The

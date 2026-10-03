@@ -12,6 +12,7 @@ where the agents' shells are. The broker now runs in its own container beside
 the store it opens, and an agent reaches it over mutual TLS.
 """
 
+import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Mapping
@@ -88,7 +89,11 @@ class ToolServer:
     async def start(self) -> None:
         app = web.Application()
         app.router.add_post("/tool/{name}", self._handle)
-        self._runner = web.AppRunner(app)
+        # A caller that hangs up cancels its handler: the runtime's extension
+        # closes the connection when the turn is aborted (or gives up on a call),
+        # and a confirmation still waiting on a person must then be withdrawn
+        # rather than run later for a turn that is gone.
+        self._runner = web.AppRunner(app, handler_cancellation=True)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
         await site.start()
@@ -161,6 +166,11 @@ class ToolServer:
                 )
             if not allowed:
                 return web.json_response({"error": "declined by the user"}, status=403)
+            if request.transport is None or request.transport.is_closing():
+                # Approved, but for nobody: the caller left while the card was
+                # up and the cancellation has not reached this handler yet.
+                logger.warning("tool %s was approved after its caller hung up; not run", tool.name)
+                return web.json_response({"error": "abandoned by the caller"}, status=403)
 
         ctx = ToolContext(
             agent_name=agent,
@@ -175,7 +185,10 @@ class ToolServer:
             user_id=user_id,
         )
         try:
-            result = await tool.execute(ctx, args)
+            # Once started, a tool runs to its end: a half-done write because
+            # the caller hung up mid-way is worse than a finished one nobody
+            # reads. (The wait for a person, above, is what cancellation is for.)
+            result = await asyncio.shield(tool.execute(ctx, args))
         except ToolError as exc:
             return web.json_response({"error": str(exc)}, status=400)
         except Exception:

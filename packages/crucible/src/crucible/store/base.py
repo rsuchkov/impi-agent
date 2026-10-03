@@ -423,9 +423,10 @@ DECISION_REUSED_GRANT = "reused_grant"  # served by a window opened earlier
 DECISION_DENIED = "denied"  # a human refused
 DECISION_TIMEOUT = "timeout"  # nobody answered in time
 DECISION_NO_APPROVER = "no_approver"  # approval needed, nobody configured to give it
+DECISION_ABANDONED = "abandoned"  # the caller gave up (turn aborted) before anyone answered
 DECISIONS = (
     DECISION_APPROVED_ONCE, DECISION_APPROVED_GRANT, DECISION_REUSED_GRANT,
-    DECISION_DENIED, DECISION_TIMEOUT, DECISION_NO_APPROVER,
+    DECISION_DENIED, DECISION_TIMEOUT, DECISION_NO_APPROVER, DECISION_ABANDONED,
 )
 
 

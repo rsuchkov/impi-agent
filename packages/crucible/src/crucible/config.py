@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from dotenv import dotenv_values
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The backend names, spelled out rather than imported. `crucible.store` owns the
@@ -101,6 +101,17 @@ class SchedulerSettings(BaseModel):
     startup_grace_s: float
     max_failures: int  # consecutive failures before a task is paused
     max_tasks_per_agent: int
+
+
+# How long the runtime's tool extension waits for the tool server to answer a
+# call before it gives up and tells the model the call failed (its HTTP client's
+# default header timeout, which the extension does not change). A wait for a
+# human has to be over well before that: past it, the model is told "failed",
+# retries, and a late answer would run the first call as well as the second.
+TOOL_CALL_DEADLINE_S = 300.0
+# How much earlier than the deadline a human-answer window must close, so the
+# refusal reaches the model before the extension stops listening.
+_DEADLINE_MARGIN_S = 30.0
 
 
 class Settings(BaseSettings):
@@ -254,6 +265,18 @@ class Settings(BaseSettings):
     integrations_port: int = 8423
     integrations_public_url: str = ""  # default: http://host.containers.internal:{port}
     integrations_ui_timeout: float = 90.0  # blocking confirm/select: human-answer window
+
+    @model_validator(mode="after")
+    def _human_waits_end_before_the_call_deadline(self) -> Settings:
+        limit = TOOL_CALL_DEADLINE_S - _DEADLINE_MARGIN_S
+        if self.integrations_ui_timeout >= limit:
+            raise ValueError(
+                f"INTEGRATIONS_UI_TIMEOUT must be below {limit:.0f}s: the runtime's "
+                f"tool extension gives up on a call after {TOOL_CALL_DEADLINE_S:.0f}s, "
+                "and a confirmation answered after that would run a call the model "
+                "was already told had failed"
+            )
+        return self
 
     # The widget under a reply that lists the tools the turn ran (env:
     # TOOL_TRACE_*). It shows arguments and outcomes, never results, and needs

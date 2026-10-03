@@ -217,7 +217,7 @@ human owner auto-added to private channels an agent creates.
 | `INTEGRATIONS_HOST` | `0.0.0.0` | receiver bind host |
 | `INTEGRATIONS_PORT` | `8423` | receiver port |
 | `INTEGRATIONS_PUBLIC_URL` | `""` | URL a containerized Mattermost calls back to; default `http://host.containers.internal:{port}`; `auto` = detect the host LAN IP at startup |
-| `INTEGRATIONS_UI_TIMEOUT` | `90` | seconds to await a human on a blocking confirm/select before default-reject |
+| `INTEGRATIONS_UI_TIMEOUT` | `90` | seconds to await a human on a blocking confirm/select (and on a tool's confirmation card) before default-reject. Must stay below 270: the runtime's tool extension gives up on a call after 300 s, and an answer arriving later would run a call the model was already told had failed |
 | `TOOL_TRACE_ENABLED` | `true` | the message above a reply listing the tools the turn ran — see [tool-trace.md](tool-trace.md); needs interactivity |
 | `TOOL_TRACE_RETENTION_DAYS` | `14` | drop traces older than this at startup; `0` keeps them all |
 

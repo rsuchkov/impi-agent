@@ -148,7 +148,12 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   one question. Pass `clock=runtime` too (`PiRuntime` implements `TurnClock`):
   the turn's timeout then stops while the gate waits for the person, so a slow
   answer never ends the turn — the same pause the runtime takes for the
-  interactive requests it raises itself.
+  interactive requests it raises itself. Two things the pause does not change:
+  the runtime's tool extension gives up on a call after `TOOL_CALL_DEADLINE_S`
+  (300 s, `crucible.config`), so your gate's own timeout has to end before
+  that; and when the caller hangs up — the turn was aborted, or the extension
+  gave up — the server withdraws the card (`abandoned` in the ledger) and a
+  late click runs nothing.
 - **Finding the conversation from inside a tool.** A tool call carries the
   runtime session id (`ToolContext.runtime_session_id`), and it is exactly the
   `runtime_session_id` of the conversation's `SessionRecord` — the engine sets
