@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.18.0 — 2026-10-04
+
 - **Mongo deployments: one manual step before updating.** The plain index on
   `sessions.runtime_session_id` must go so the unique one below can be built,
   and Mongo will not change it in place — the engine refuses to start until
