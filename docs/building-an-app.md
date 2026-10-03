@@ -171,6 +171,14 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   account, and the model reads text other people wrote. `danger=True` puts a
   warning on the card. A `describe` that raises is logged and the card falls
   back to the arguments, so a preview can never block the decision.
+- **Mark what strangers wrote.** A tool whose result quotes other people —
+  messages, documents, tickets, search results — declares
+  `returns_untrusted = True`. The registry then appends one standard sentence to
+  its description and the server wraps its result in
+  `{"untrusted": true, "note": …, "data": …}`; your `execute` returns the data
+  as it always did. Declare it rather than writing the warning into the
+  description yourself: one wording for every such tool, and a new one cannot be
+  forgotten.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base

@@ -6,6 +6,13 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A tool that returns what other people wrote now says so, the same way
+  every time.** A tool may declare `returns_untrusted`; the engine appends one
+  sentence to its description and wraps its result in
+  `{"untrusted": true, "note": …, "data": …}`, so the model is told — where the
+  text is — that this is information to read, not instructions to follow.
+  `read_channel` and `get_channel_members` are marked. Listings of what the
+  operator installed (agents, tasks, skills) are not.
 - **A confirmation card now says what the call would do.** It used to show
   the tool's arguments as one line of JSON — the model's account of the call,
   and the model reads text other people wrote. A tool can now describe its

@@ -145,6 +145,7 @@ class InviteToChannel(Tool):
 class GetChannelMembers(Tool):
     name: ClassVar[str] = "get_channel_members"
     requires: ClassVar[frozenset[str]] = frozenset({CAP_CHAT_ADMIN})
+    returns_untrusted: ClassVar[bool] = True  # usernames are chosen by their owners
     description: ClassVar[str] = "List the members (user_id + username) of a channel."
     parameters: ClassVar[dict[str, Any]] = {
         "type": "object",
@@ -202,6 +203,7 @@ class SendMessage(Tool):
 class ReadChannel(Tool):
     name: ClassVar[str] = "read_channel"
     requires: ClassVar[frozenset[str]] = frozenset({CAP_CHAT_ADMIN})
+    returns_untrusted: ClassVar[bool] = True  # other people's messages, verbatim
     description: ClassVar[str] = (
         "Read the most recent messages in a channel by its channel_id (e.g. to see "
         "another agent's reply after send_message). Returns author + text, oldest "

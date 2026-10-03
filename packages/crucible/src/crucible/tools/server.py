@@ -30,6 +30,7 @@ from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.tasks import TaskService
 from crucible.tools.base import (
     SPEAKS_TO_USER_NOTE,
+    UNTRUSTED_NOTE,
     Describing,
     Tool,
     ToolContext,
@@ -210,6 +211,11 @@ class ToolServer:
         # that read `result` are unaffected. The description carries the same
         # sentence, but it is read once at registration — this one arrives at the
         # moment the model is deciding whether to write anything else.
+        if tool.returns_untrusted:
+            # Wrapped, not merely annotated: the boundary around what strangers
+            # wrote has to be visible where the text is, so the model can tell
+            # the tool's own fields from the quoted ones.
+            result = {"untrusted": True, "note": UNTRUSTED_NOTE, "data": result}
         body: dict[str, Any] = {"result": result}
         if tool.speaks_to_user:
             body["note"] = SPEAKS_TO_USER_NOTE

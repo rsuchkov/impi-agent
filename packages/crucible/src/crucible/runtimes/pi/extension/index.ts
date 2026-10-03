@@ -28,6 +28,8 @@ interface ManifestEntry {
   // to `description`, so nothing here has to act on it. Named so the shape of
   // the manifest stays readable next to what the engine writes.
   speaks_to_user?: boolean;
+  // Likewise: the engine wraps such a tool's result itself.
+  returns_untrusted?: boolean;
 }
 
 async function callTool(

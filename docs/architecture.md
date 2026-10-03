@@ -181,6 +181,16 @@ addition rather than a repetition. Nothing is suppressed — the engine posts
 whatever the agent writes, and `TurnOutcome.ACTED` already covers a turn that
 ends silently on a tool call.
 
+**Untrusted results:** a tool may declare `returns_untrusted` — what it returns
+is text other people wrote (the messages in a channel, a document, a ticket),
+and the model has to read it as information rather than as instructions. Handled
+like `speaks_to_user`, declared rather than described: the registry appends one
+sentence to the advertised description and the server wraps the result as
+`{"untrusted": true, "note": …, "data": …}`, so the boundary sits where the text
+is and every such tool marks it the same way. `read_channel` and
+`get_channel_members` are flagged; listings of what the operator installed
+(agents, tasks, skills) are not.
+
 **Capability gating:** a tool declares `requires` (e.g. `CAP_CHAT_ADMIN`,
 `CAP_WIDGETS`, `CAP_FORMS`). At composition, each agent's capability set is
 assembled from its environment (which gateway it runs on, whether interactivity is

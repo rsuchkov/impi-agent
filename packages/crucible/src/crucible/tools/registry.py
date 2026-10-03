@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
-from crucible.tools.base import SPEAKS_TO_USER_NOTE, Tool
+from crucible.tools.base import SPEAKS_TO_USER_NOTE, UNTRUSTED_NOTE, Tool
 
 _registered: list[Tool] = []
 
@@ -63,12 +63,15 @@ class ToolRegistry:
                     # tool, and a new one cannot be forgotten. A description that
                     # says this itself is the drift this replaces.
                     description = f"{description} {SPEAKS_TO_USER_NOTE}"
+                if t.returns_untrusted:
+                    description = f"{description} {UNTRUSTED_NOTE}"
                 entries.append(
                     {
                         "name": t.name,
                         "description": description,
                         "parameters": t.parameters,
                         "speaks_to_user": t.speaks_to_user,
+                        "returns_untrusted": t.returns_untrusted,
                     }
                 )
         return entries
