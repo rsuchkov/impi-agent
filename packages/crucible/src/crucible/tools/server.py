@@ -21,13 +21,20 @@ from typing import Any
 from aiohttp import web
 
 from crucible.approvals.ports import ToolApproving
+from crucible.approvals.preview import CallPreview
 from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.tasks import TaskService
-from crucible.tools.base import SPEAKS_TO_USER_NOTE, ToolContext, ToolError
+from crucible.tools.base import (
+    SPEAKS_TO_USER_NOTE,
+    Describing,
+    Tool,
+    ToolContext,
+    ToolError,
+)
 from crucible.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -144,34 +151,6 @@ class ToolServer:
             if resolved is not None:
                 channel_id, user_id = resolved
 
-        # The confirmation a tool declares, enforced HERE and not only in the
-        # runtime's extension: the extension's gate can be walked around by
-        # anything in the agent's container that can reach this port, which is
-        # the same shell the agent runs commands in.
-        if tool.requires_confirmation:
-            if self._tool_gate is None:
-                # Fail closed. A composition with no way to ask cannot answer
-                # "yes" on a human's behalf, and the runtime's own backstop
-                # already refuses for the same reason.
-                logger.warning("tool %s needs a confirmation and there is no gate", tool.name)
-                return web.json_response({"error": "cannot be confirmed here"}, status=403)
-            pause = (
-                self._clock.human_wait(runtime_session_id)
-                if self._clock is not None
-                else contextlib.nullcontext()
-            )
-            async with pause:
-                allowed = await self._tool_gate.confirm(
-                    agent, tool.name, args, runtime_session_id=runtime_session_id
-                )
-            if not allowed:
-                return web.json_response({"error": "declined by the user"}, status=403)
-            if request.transport is None or request.transport.is_closing():
-                # Approved, but for nobody: the caller left while the card was
-                # up and the cancellation has not reached this handler yet.
-                logger.warning("tool %s was approved after its caller hung up; not run", tool.name)
-                return web.json_response({"error": "abandoned by the caller"}, status=403)
-
         ctx = ToolContext(
             agent_name=agent,
             directory=self._directory,
@@ -184,6 +163,36 @@ class ToolServer:
             channel_id=channel_id,
             user_id=user_id,
         )
+
+        # The confirmation a tool declares, enforced HERE and not in the
+        # runtime's extension: the extension's token can be used by anything in
+        # the agent's container that can reach this port, which is the same
+        # shell the agent runs commands in.
+        if tool.requires_confirmation:
+            if self._tool_gate is None:
+                # Fail closed. A composition with no way to ask cannot answer
+                # "yes" on a human's behalf.
+                logger.warning("tool %s needs a confirmation and there is no gate", tool.name)
+                return web.json_response({"error": "cannot be confirmed here"}, status=403)
+            preview = await self._preview_of(tool, ctx, args)
+            pause = (
+                self._clock.human_wait(runtime_session_id)
+                if self._clock is not None
+                else contextlib.nullcontext()
+            )
+            async with pause:
+                allowed = await self._tool_gate.confirm(
+                    agent, tool.name, args, runtime_session_id=runtime_session_id,
+                    preview=preview,
+                )
+            if not allowed:
+                return web.json_response({"error": "declined by the user"}, status=403)
+            if request.transport is None or request.transport.is_closing():
+                # Approved, but for nobody: the caller left while the card was
+                # up and the cancellation has not reached this handler yet.
+                logger.warning("tool %s was approved after its caller hung up; not run", tool.name)
+                return web.json_response({"error": "abandoned by the caller"}, status=403)
+
         try:
             # Once started, a tool runs to its end: a half-done write because
             # the caller hung up mid-way is worse than a finished one nobody
@@ -205,3 +214,18 @@ class ToolServer:
         if tool.speaks_to_user:
             body["note"] = SPEAKS_TO_USER_NOTE
         return web.json_response(body)
+
+    @staticmethod
+    async def _preview_of(
+        tool: Tool, ctx: ToolContext, args: dict[str, Any]
+    ) -> CallPreview | None:
+        """What the tool says the call would do, or None — a preview that
+        fails must not stand between the person and the decision; the
+        arguments are still an honest description of the call."""
+        if not isinstance(tool, Describing):
+            return None
+        try:
+            return await tool.describe(ctx, args)
+        except Exception:
+            logger.exception("tool %s could not describe its call; showing the arguments", tool.name)
+            return None

@@ -6,6 +6,17 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A confirmation card now says what the call would do.** It used to show
+  the tool's arguments as one line of JSON — the model's account of the call,
+  and the model reads text other people wrote. A tool can now describe its
+  own call from what it sees (`Tool.describe` → `CallPreview`): the card shows
+  labelled rows, a change as `before → after`, and a warning mark where the
+  tool says one is due. `create_agent` names the agent, role, gateway and
+  profile directory; `install_skill` lists every file that would land, its
+  size and which of them will run (and warns when any does); `remove_skill`
+  names the skill, its path and the agents still using it. Without a preview
+  the arguments stay. For applications: `ToolApproving.confirm` gains a
+  `preview` keyword.
 - **Fixed: an Allow clicked after the model gave up on the call still ran it.**
   The runtime's tool extension stops waiting for a call after five minutes
   and tells the model it failed, but the engine kept the confirmation card

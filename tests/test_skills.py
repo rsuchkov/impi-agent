@@ -334,3 +334,47 @@ def test_the_directory_is_the_skill_s_identity(tmp_path: Path) -> None:
     _write_skill(tmp_path / "renamed", body=SKILL_MD, script=False)
     skill = SkillLibrary(tmp_path).get("renamed")
     assert skill.name == "renamed"  # not the "greek-tutor" its front matter claims
+
+
+async def test_install_skill_describes_the_files_that_would_land(tmp_path: Path) -> None:
+    from impi.skill_tools import InstallSkill
+
+    source = _write_skill(tmp_path / "src" / "greek-tutor")
+    preview = await InstallSkill().describe(_tool_ctx(tmp_path), {"source": str(source)})
+
+    assert preview is not None
+    assert preview.title == "install the skill greek-tutor (2 file(s))"
+    assert preview.danger is True  # scripts/drill.sh is executable: it will run
+    files = [row.value for row in preview.rows if row.label == "File"]
+    assert files == ["SKILL.md (%d B)" % len(SKILL_MD), "scripts/drill.sh (21 B) — runs"]
+    assert {row.label: row.value for row in preview.rows}["Source"] == str(source)
+
+
+async def test_install_skill_without_executables_is_not_marked_dangerous(tmp_path: Path) -> None:
+    from impi.skill_tools import InstallSkill
+
+    source = _write_skill(tmp_path / "src" / "greek-tutor", script=False)
+    preview = await InstallSkill().describe(_tool_ctx(tmp_path), {"source": str(source)})
+
+    assert preview is not None and preview.danger is False
+
+
+async def test_install_skill_describe_gives_up_on_a_source_it_cannot_read(tmp_path: Path) -> None:
+    from impi.skill_tools import InstallSkill
+
+    preview = await InstallSkill().describe(_tool_ctx(tmp_path), {"source": str(tmp_path / "no")})
+    assert preview is None  # the card falls back to the arguments; execute() says why
+
+
+async def test_remove_skill_describes_what_would_be_deleted(tmp_path: Path) -> None:
+    from impi.skill_tools import RemoveSkill
+
+    _write_skill(tmp_path / "library" / "greek-tutor")
+    assign_skill(_agent(tmp_path), "greek-tutor")
+    preview = await RemoveSkill().describe(_tool_ctx(tmp_path), {"name": "greek-tutor"})
+
+    assert preview is not None and preview.danger is True
+    rows = {row.label: row.value for row in preview.rows}
+    assert rows["Skill"] == "greek-tutor"
+    assert rows["Still assigned to"] == "greek-teacher"
+    assert await RemoveSkill().describe(_tool_ctx(tmp_path), {"name": "ghost"}) is None

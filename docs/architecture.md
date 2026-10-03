@@ -161,7 +161,11 @@ it was opened in — the people who were asked are the people it covers — so t
 same tool in another conversation of that agent is asked again. The flag is a
 capability like any other
 (`CAP_CONFIRMATION`): a deployment with no gate does not advertise the tool,
-and the server still refuses a call that arrives for one.
+and the server still refuses a call that arrives for one. What the card shows
+is the tool's own account of the call when it has one (`Tool.describe` →
+`CallPreview`, rows with a before and an after), and the raw arguments when it
+has not — the arguments are what the model asked for, and the model reads text
+other people wrote.
 
 **Speaking tools:** a tool may declare `speaks_to_user` — it puts a message in
 front of the person itself, so what it posts IS the agent's reply and the turn

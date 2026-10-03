@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 from typing import Any, ClassVar
 
+from crucible.approvals.preview import CallPreview, PreviewRow
 from crucible.tools.base import Tool, ToolContext, ToolError
 from crucible.tools.registry import tool
 from impi.provisioning import (
@@ -60,6 +61,30 @@ class CreateAgent(Tool):
         },
         "required": ["name", "role"],
     }
+
+    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None:
+        """The card: which agent would come into being, and where. Read from the
+        arguments and this deployment's settings — nothing here is the model's
+        account of what it is doing, only what it asked for, labelled."""
+        cfg = (
+            ctx.settings
+            if isinstance(ctx.settings, CreateAgentSettings)
+            else CreateAgentSettings()
+        )
+        name = str(args.get("name") or "").strip()
+        pairs = (
+            ("Agent", name),
+            ("Role", str(args.get("role") or "")),
+            ("Display name", str(args.get("display_name") or "")),
+            ("Description", str(args.get("description") or "")),
+            ("Gateway", cfg.gateway),
+            ("Profile", str(Path(cfg.agents_path) / "agents" / name) if name else ""),
+            ("System prompt", str(args.get("system_prompt") or "")),
+        )
+        return CallPreview(
+            title=f"create the agent {name}" if name else "create an agent",
+            rows=tuple(PreviewRow(label, value) for label, value in pairs if value),
+        )
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         if ctx.agent_name != _SUPPORT_AGENT:

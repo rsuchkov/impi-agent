@@ -7,15 +7,25 @@ needs.
 
 from typing import Any, Protocol
 
+from crucible.approvals.preview import CallPreview
+
 
 class ToolApproving(Protocol):
     """Ask a human whether a tool call may go ahead.
 
     The tool server holds one of these and consults it before executing a tool
     that declares ``requires_confirmation``. Returning False means the call does
-    not happen — a refusal, a silence, or nobody available to ask.
+    not happen — a refusal, a silence, or nobody available to ask. ``preview``
+    is what the tool itself says the call would do (``Tool.describe``), for the
+    card; None means the person is shown the arguments.
     """
 
     async def confirm(
-        self, agent: str, tool: str, args: dict[str, Any], *, runtime_session_id: str
+        self,
+        agent: str,
+        tool: str,
+        args: dict[str, Any],
+        *,
+        runtime_session_id: str,
+        preview: CallPreview | None = None,
     ) -> bool: ...

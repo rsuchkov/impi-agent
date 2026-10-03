@@ -11,6 +11,7 @@ from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from pydantic_settings import BaseSettings
 
+from crucible.approvals.preview import CallPreview
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
@@ -135,7 +136,8 @@ class Tool(Protocol):
     # before it executes; the flag never reaches the runtime, which has no gate
     # of its own to ask with. A deployment with no gate does not advertise the
     # tool at all, the same way it withholds a tool whose gateway lacks a
-    # capability it requires.
+    # capability it requires. A confirmed tool should also implement
+    # ``Describing`` below, so the card shows what the call would do.
     requires_confirmation: ClassVar[bool] = False
     # When True, this tool puts a message in front of the user itself, so what it
     # posts IS the agent's reply and the turn may end on the call. Declared rather
@@ -157,3 +159,19 @@ class Tool(Protocol):
         """Run the tool; return a JSON-serializable result. Raise ToolError for
         expected failures."""
         ...
+
+
+@runtime_checkable
+class Describing(Protocol):
+    """A tool that can say what a call would do before it is confirmed.
+
+    Optional, and checked structurally, so a tool that does not care is not
+    forced to. The server calls it with the same context ``execute`` gets,
+    before the gate, and hands the result to the card: the person deciding
+    then reads the system's account of the call — the record as it is, the
+    files that would land — rather than the model's arguments. A failure here
+    is logged and the card falls back to the arguments; a preview must never
+    stand between a person and the decision. Returning None means the same.
+    """
+
+    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None: ...

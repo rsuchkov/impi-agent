@@ -16,6 +16,7 @@ from typing import Any, ClassVar
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from crucible.approvals.preview import CallPreview, PreviewRow
 from crucible.skills import (
     SkillError,
     SkillLibrary,
@@ -35,6 +36,11 @@ _SUPPORT_AGENT = "support"
 # `crucible.skills` must not know an application's name or its layout, so the
 # app hands it an ordinary directory and the library stays reusable.
 BUILTIN_SKILLS_PATH = Path(__file__).parent / "builtin_skills"
+
+
+# How many of a skill's files the confirmation card lists one by one before
+# summarising the rest: enough to see what will run, short enough to read.
+_FILES_ON_CARD = 12
 
 
 def bundled_names() -> list[str]:
@@ -182,6 +188,48 @@ class InstallSkill(Tool):
         "required": ["source"],
     }
 
+    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None:
+        """The card lists what would land: every file, its size, and which of
+        them can run — read from the staged source itself, not from what the
+        model says is in it. A skill with executables gets the warning mark: it
+        is someone else's code about to run with the agent's tools."""
+        cfg = _config(ctx)
+        source = str(args.get("source") or "").strip()
+        if not source:
+            return None
+        try:
+            if args.get("bundled"):
+                source = str(bundled_skill(source))
+            with stage(source) as staged:
+                files = staged.files()
+                skill = staged.skill
+                origin = staged.source.describe()
+        except SkillError:
+            return None  # execute() will refuse with the reason; the card shows the arguments
+        name = str(args.get("name") or "").strip() or skill.name
+        rows = [
+            PreviewRow("Skill", name),
+            PreviewRow("Description", skill.description),
+            PreviewRow("Source", origin),
+        ]
+        if cfg.library().has(name):
+            replaces = (
+                str(cfg.library().path_of(name))
+                if args.get("force")
+                else "an installed skill (refused without force)"
+            )
+            rows.append(PreviewRow("Replaces", replaces))
+        for path, size, executable in files[:_FILES_ON_CARD]:
+            note = " — runs" if executable else ""
+            rows.append(PreviewRow("File", f"{path} ({size} B){note}"))
+        if len(files) > _FILES_ON_CARD:
+            rows.append(PreviewRow("Files", f"… and {len(files) - _FILES_ON_CARD} more"))
+        return CallPreview(
+            title=f"install the skill {name} ({len(files)} file(s))",
+            rows=tuple(rows),
+            danger=any(executable for _, _, executable in files),
+        )
+
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         cfg = _config(ctx)
         source = str(args.get("source") or "").strip()
@@ -278,18 +326,42 @@ class RemoveSkill(Tool):
         "required": ["name"],
     }
 
+    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None:
+        cfg = _config(ctx)
+        name = str(args.get("name") or "").strip()
+        library = cfg.library()
+        if not library.has(name):
+            return None  # execute() refuses; the card shows what was asked for
+        skill = library.get(name)
+        users = _users_of(cfg, name)
+        rows = [
+            PreviewRow("Skill", name),
+            PreviewRow("Description", skill.description),
+            PreviewRow("Path", str(skill.path)),
+        ]
+        if users:
+            rows.append(PreviewRow("Still assigned to", ", ".join(users)))
+        return CallPreview(
+            title=f"delete the skill {name} from the library", rows=tuple(rows), danger=True
+        )
+
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         cfg = _config(ctx)
         name = str(args.get("name") or "").strip()
         library = cfg.library()
         if not library.has(name):
             raise ToolError(f"no skill {name!r} in {library.root}")
-        users = [
-            manifest.parent.name
-            for manifest in sorted(Path(cfg.agents_path or ".").glob("agents/*/agent.yaml"))
-            if name in assigned_skills(manifest)
-        ]
+        users = _users_of(cfg, name)
         if users:
             raise ToolError(f"{name} is still assigned to: {', '.join(users)}")
         shutil.rmtree(library.path_of(name))
         return {"removed": name}
+
+
+def _users_of(cfg: SkillSettings, name: str) -> list[str]:
+    """The agents whose profile still names the skill."""
+    return [
+        manifest.parent.name
+        for manifest in sorted(Path(cfg.agents_path or ".").glob("agents/*/agent.yaml"))
+        if name in assigned_skills(manifest)
+    ]

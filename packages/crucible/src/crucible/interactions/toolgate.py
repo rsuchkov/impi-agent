@@ -34,12 +34,14 @@ from typing import Any
 
 from crucible.approvals import (
     Approval,
+    CallPreview,
     PendingApprovals,
     approval_actions,
     humanize,
     render_card,
     windows,
 )
+from crucible.containment import one_line
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.service import conversation_ref
 from crucible.store.base import (
@@ -91,7 +93,13 @@ class ToolGate:
         self._max_grant_s = max_grant_s
 
     async def confirm(
-        self, agent: str, tool: str, args: dict[str, Any], *, runtime_session_id: str
+        self,
+        agent: str,
+        tool: str,
+        args: dict[str, Any],
+        *,
+        runtime_session_id: str,
+        preview: CallPreview | None = None,
     ) -> bool:
         started = asyncio.get_running_loop().time()
         request_id = f"rq_{tokens.token_hex(6)}"
@@ -106,7 +114,7 @@ class ToolGate:
             return True
 
         try:
-            answer = await self._ask(agent, tool, args, runtime_session_id)
+            answer = await self._ask(agent, tool, args, runtime_session_id, preview)
         except asyncio.CancelledError:
             # The caller hung up — the turn was aborted or timed out while the
             # card was up. Nothing may run on this card now, whatever is clicked.
@@ -136,7 +144,12 @@ class ToolGate:
         return True
 
     async def _ask(
-        self, agent: str, tool: str, args: dict[str, Any], runtime_session_id: str
+        self,
+        agent: str,
+        tool: str,
+        args: dict[str, Any],
+        runtime_session_id: str,
+        preview: CallPreview | None,
     ) -> Approval | None:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
         poster = self._presence.poster(agent)
@@ -151,7 +164,7 @@ class ToolGate:
         try:
             post_id = await poster.post_actions(
                 conversation_ref(record),
-                _card(agent, tool, args),
+                _card(agent, tool, args, preview),
                 approval_actions(token, offers=windows(ceiling_s=self._max_grant_s)),
                 callback_url=self._callback_url,
             )
@@ -247,13 +260,27 @@ def _arguments(args: dict[str, Any]) -> str:
         return str(args)
 
 
-def _card(agent: str, tool: str, args: dict[str, Any]) -> str:
-    return render_card(
-        f"⚙️ **{agent}** wants to run `{tool}`.",
-        [],
-        block_label="Arguments" if args else "",
-        block=_arguments(args) if args else "",
-    )
+def _card(
+    agent: str, tool: str, args: dict[str, Any], preview: CallPreview | None = None
+) -> str:
+    """With a preview: what the tool says the call would do, row by row, a
+    change shown as ``before → after``. Without one: the arguments, verbatim.
+    Labels are the tool's text and values may be the model's, so both pass
+    through the card's hardening."""
+    if preview is None:
+        return render_card(
+            f"⚙️ **{agent}** wants to run `{tool}`.",
+            [],
+            block_label="Arguments" if args else "",
+            block=_arguments(args) if args else "",
+        )
+    mark = "⚠️" if preview.danger else "⚙️"
+    title = f"{mark} **{agent}** wants to run `{tool}` — {one_line(preview.title)}"
+    fields = [
+        (one_line(row.label), f"{row.before} → {row.value}" if row.before else row.value)
+        for row in preview.rows
+    ]
+    return render_card(title, fields)
 
 
 def _verdict(agent: str, tool: str, answer: Approval) -> str:

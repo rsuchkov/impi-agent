@@ -162,6 +162,15 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   appends a digest whenever it had to coerce a character, and the store
   enforces uniqueness), so an application may key whatever it holds per
   running turn by that id and resolve it from a tool.
+- **Say what the call would do, not what the model said.** A confirmed tool
+  should implement `describe(ctx, args) -> CallPreview | None` (`Describing`,
+  `crucible.tools`): the server calls it before the gate, with the same
+  context `execute` gets, and the card shows its rows — `Status: In Progress →
+  Done`, the issue's title beside its key — instead of the raw arguments. Read
+  the current state from the system there; the arguments are the model's
+  account, and the model reads text other people wrote. `danger=True` puts a
+  warning on the card. A `describe` that raises is logged and the card falls
+  back to the arguments, so a preview can never block the decision.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base

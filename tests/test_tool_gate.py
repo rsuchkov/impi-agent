@@ -18,7 +18,14 @@ from typing import Any
 import aiohttp
 import pytest
 
-from crucible.approvals import ANSWER_DENY, ANSWER_ONCE, APPROVAL_KEY, PendingApprovals
+from crucible.approvals import (
+    ANSWER_DENY,
+    ANSWER_ONCE,
+    APPROVAL_KEY,
+    CallPreview,
+    PendingApprovals,
+    PreviewRow,
+)
 from crucible.config import ToolSettings
 from crucible.interactions import toolgate
 from crucible.interactions.toolgate import ToolGate, tool_scope
@@ -46,6 +53,12 @@ class Dangerous(Tool):
 
     def __init__(self) -> None:
         self.ran = 0
+        self.preview: CallPreview | None = None
+        self.described: list[ToolContext] = []
+
+    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None:
+        self.described.append(ctx)
+        return self.preview
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         self.ran += 1
@@ -247,6 +260,52 @@ async def test_a_tool_that_needs_no_confirmation_is_not_gated(tmp_path: Path) ->
         assert await _call(rig, "harmless") == 200
         assert rig.plain.ran == 1
         assert rig.poster.posts == []  # nobody was disturbed
+    finally:
+        await _close(rig)
+
+
+# -- the card ------------------------------------------------------------------
+
+
+async def test_the_card_shows_what_the_tool_says_the_call_would_do(tmp_path: Path) -> None:
+    """The arguments are the model's account; the preview is the tool's — read
+    from the system, with the current value beside the new one."""
+    rig = await _rig(tmp_path, 8553)
+    rig.tool.preview = CallPreview(
+        title="move IPA-7 to another status",
+        rows=(
+            PreviewRow("Issue", "IPA-7 — Fix the login page"),
+            PreviewRow("Status", "Done", before="In Progress"),
+        ),
+        danger=True,
+    )
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        card = await _answer(rig, ANSWER_ONCE)
+        assert await pending == 200
+        assert "⚠️" in card.text and "move IPA-7 to another status" in card.text
+        assert "**Issue:** `IPA-7 — Fix the login page`" in card.text
+        assert "**Status:** `In Progress → Done`" in card.text
+        assert "Arguments" not in card.text
+        # describe() ran with the same context execute() gets: as the caller.
+        assert [ctx.agent_name for ctx in rig.tool.described] == ["assistant"]
+        assert rig.tool.described[0].runtime_session_id == rig.session
+    finally:
+        await _close(rig)
+
+
+async def test_a_preview_that_fails_leaves_the_arguments_on_the_card(tmp_path: Path) -> None:
+    rig = await _rig(tmp_path, 8554)
+
+    async def boom(ctx, args):
+        raise RuntimeError("the record could not be read")
+
+    rig.tool.describe = boom  # type: ignore[method-assign]
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        card = await _answer(rig, ANSWER_ONCE)
+        assert await pending == 200  # the decision was still possible
+        assert "⚙️" in card.text and "`dangerous`" in card.text
     finally:
         await _close(rig)
 

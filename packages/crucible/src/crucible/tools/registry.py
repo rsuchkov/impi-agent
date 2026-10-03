@@ -8,16 +8,20 @@ see ``crucible.builtin_tools`` for the generic ones.
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, cast
 
 from crucible.tools.base import SPEAKS_TO_USER_NOTE, Tool
 
 _registered: list[Tool] = []
 
+_ToolClass = TypeVar("_ToolClass", bound=type[Tool])
 
-def tool(cls: type[Tool]) -> type[Tool]:
-    """Register a tool class (instantiated once) into the default registry."""
-    _registered.append(cls())
+
+def tool(cls: _ToolClass) -> _ToolClass:
+    """Register a tool class (instantiated once) into the default registry.
+    Returns the class as it was, so what it declares beyond the port — a
+    ``describe``, say — stays visible to a caller holding it by name."""
+    _registered.append(cast(Tool, cls()))
     return cls
 
 

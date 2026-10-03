@@ -1085,3 +1085,34 @@ async def test_the_server_returns_the_speech_note_beside_a_speaking_tools_result
     assert spoken["result"] == {"status": "posted"}  # untouched
     assert spoken["note"] == SPEAKS_TO_USER_NOTE
     assert "note" not in plain
+
+
+# --- confirmation previews ----------------------------------------------------
+
+
+def test_every_confirmed_tool_describes_its_call() -> None:
+    # The card is the last line of defence against a call the model was talked
+    # into; a confirmed tool that leaves it to the raw arguments has no preview.
+    import impi.skill_tools  # noqa: F401  registers the skill tools
+    from crucible.tools.base import Describing
+
+    reg = build_registry()
+    tools = [reg.get(name) for name in reg.names()]
+    gated = [t for t in tools if t is not None and t.requires_confirmation]
+    assert gated, "no confirmed tool is registered — the check is vacuous"
+    assert all(isinstance(t, Describing) for t in gated)
+
+
+async def test_create_agent_describes_the_agent_it_would_create(tmp_path) -> None:
+    preview = await CreateAgent().describe(
+        _support_ctx(_create_agent_settings(tmp_path)),
+        {"name": "scribe", "role": "note-taker", "system_prompt": "You take notes."},
+    )
+    assert preview is not None
+    assert preview.title == "create the agent scribe"
+    rows = {row.label: row.value for row in preview.rows}
+    assert rows["Agent"] == "scribe" and rows["Role"] == "note-taker"
+    assert rows["Gateway"] == "mattermost"
+    assert rows["Profile"].endswith("profiles/agents/scribe")
+    assert rows["System prompt"] == "You take notes."
+    assert "Display name" not in rows  # not given, not shown

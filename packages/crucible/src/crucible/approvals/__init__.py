@@ -26,6 +26,7 @@ from crucible.approvals.pending import (
     PendingApprovals,
     decide,
 )
+from crucible.approvals.preview import CallPreview, PreviewRow
 
 __all__ = [
     "ANSWER_DENY",
@@ -35,7 +36,9 @@ __all__ = [
     "GRANT_LADDER",
     "Approval",
     "ApprovalOutcome",
+    "CallPreview",
     "PendingApprovals",
+    "PreviewRow",
     "approval_actions",
     "decide",
     "humanize",

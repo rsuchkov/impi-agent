@@ -36,8 +36,10 @@ the usual mistake.
   call. The operator's equivalent is
   `impi skill install --bundled web-browsing`.
 
-The operator confirms before anything is copied, and the confirmation lists
-**every file, its size, and which are executable**. Say plainly what you are
+The operator confirms before anything is copied, and the card they decide from
+lists **every file, its size, and which will run** — read from the source
+itself, not from your description of it; a skill with executables carries a
+warning mark. Say plainly what you are
 about to install and from where — a skill's scripts run inside the engine with
 the agent's tools, so this is running someone else's code on the operator's
 machine. Only public repositories work; no credentials are passed to git.
