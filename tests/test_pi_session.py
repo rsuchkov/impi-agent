@@ -415,6 +415,56 @@ async def test_pause_clock_holds_the_timeout_until_the_last_waiter_leaves(monkey
         await turn
 
 
+async def test_cancel_interrupts_the_turn_and_keeps_the_session_usable() -> None:
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport.emit({"type": "agent_start"})  # and then it thinks for a long time
+        elif command.get("type") == "abort":
+            transport.emit(
+                {"type": "message_update",
+                 "assistantMessageEvent": {"type": "text_end", "content": "So far:"}}
+            )
+            transport.emit({"type": "agent_end", "messages": []})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    turn = asyncio.ensure_future(session.prompt("hi", timeout=5.0))
+    await _wait_until(lambda: "prompt" in transport.sent_types())
+
+    assert await session.cancel(timeout=1.0) is True
+    assert "abort" in transport.sent_types()
+    assert (await turn).text == "So far:"  # the turn ended with what it had
+
+    # Not poisoned: the next turn runs as usual.
+    transport._reactor = _normal_turn_reactor(transport, text="Next")
+    assert (await session.prompt("again", timeout=5.0)).text == "Next"
+
+
+async def test_cancel_says_so_when_the_runtime_does_not_end_the_turn() -> None:
+    transport = FakeTransport()  # ignores the abort; the turn never ends
+    session = PiRpcSession(transport)
+    session.start()
+    turn = asyncio.ensure_future(session.prompt("hi", timeout=5.0))
+    await _wait_until(lambda: "prompt" in transport.sent_types())
+
+    assert await session.cancel(timeout=0.05) is False
+    assert not turn.done()
+    assert await session.cancel(timeout=0.05) is False  # still in flight; idempotent
+    await session.close()
+    with pytest.raises(PiProcessError):
+        await turn
+
+
+async def test_cancel_with_no_turn_in_flight_does_nothing() -> None:
+    transport = FakeTransport()
+    session = PiRpcSession(transport)
+    assert await session.cancel(timeout=0.05) is False
+    assert transport.sent == []
+
+
 async def test_close_fails_in_flight_turn() -> None:
     transport = FakeTransport()  # never answers
     session = PiRpcSession(transport)

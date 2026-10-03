@@ -22,6 +22,8 @@ from crucible.ports.agent.runtime import (
     AgentRuntime,
     EventCallback,
     PromptImage,
+    RuntimeControl,
+    RuntimeStats,
     TurnClock,
 )
 from crucible.ports.agent.spec import AgentSpec
@@ -46,6 +48,8 @@ __all__ = [
     "LLM_FALLBACK_MESSAGE",
     "INTERNAL_ERROR_MESSAGE",
     "PromptImage",
+    "RuntimeControl",
+    "RuntimeStats",
     "TurnClock",
     "UiBridge",
     "UiRequest",

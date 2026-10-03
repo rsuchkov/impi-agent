@@ -117,3 +117,26 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
 - **Config is baked at spawn.** `pi` reads `.pi/*` and the CLI flags when the
   subprocess starts, so applying a profile change means dropping idle sessions
   (hot-reload) — the on-disk memory persists per session id.
+
+## Interrupting and forgetting a conversation
+
+`PiRuntime.cancel(session_id)` sends pi an `abort` and waits (10 s by default,
+`cancel_grace`) for the turn to end on pi's side: pi then emits its `agent_end`
+with whatever the turn had produced, the interrupted `run_stateful` returns that
+as its result, and the session stays usable — the next turn resumes the
+conversation. This is deliberately different from what happens after a turn
+*timeout*, where the session is poisoned and replaced: there the engine does not
+know what pi will still send; here it asked and waited for the end. If pi does
+not end the turn within the grace period, the session is dropped (the turn
+fails like a crashed process would) and the memory on disk is left alone, so
+the next turn still resumes in a fresh process. (Checked against pi 0.80.3: an
+`abort` sent while a tool call waits on the engine ends the turn within seconds
+— pi reports `stopReason: aborted`, the tool's abort signal fires so the
+extension's call to the engine closes, and the same session answers the next
+prompt.)
+
+`PiRuntime.reset(agent, session_id)` is the opposite: end the process now and
+delete `<session_dir>/<agent>/*_<session_id>.*`, so the next turn starts from
+nothing. `has_memory(agent, session_id)` reads the same place. The layout lives
+in exactly one function, `runtimes/pi/spawn.session_files`, which the cleanup
+CLI uses too.

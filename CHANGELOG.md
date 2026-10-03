@@ -6,6 +6,14 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The runtime can be operated, not only run.** For applications on the
+  library, `PiRuntime` now also implements `RuntimeControl`: `has_memory`
+  says whether a conversation would resume or start over (answered by the
+  runtime from its own files, so nobody else has to know their layout);
+  `reset` ends a conversation's process at once and deletes its memory;
+  `cancel` interrupts the turn in flight and keeps the session — the turn
+  returns with what it had; `stats` reports sessions alive, busy, the pool's
+  capacity and turns waiting for a slot.
 - **Fixed: a full runtime pool made new conversations wait for idle ones to
   expire.** A slot is held for a session's whole life, idle included, so a few
   conversations that each said one thing could keep the pool full for the

@@ -8,7 +8,7 @@ from typing import cast
 
 import pytest
 
-from crucible.ports.agent.runtime import PromptImage
+from crucible.ports.agent.runtime import PromptImage, RuntimeStats
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.runtime import PiRuntime, SessionFactory
@@ -56,6 +56,12 @@ class FakeSession:
     def pause_clock(self):
         self.paused = True
         return contextlib.nullcontext()
+
+    cancel_result = True
+
+    async def cancel(self, *, timeout: float) -> bool:
+        self.cancelled = True
+        return self.cancel_result
 
 
 def _profile(name: str = "assistant") -> PiProfile:
@@ -520,3 +526,86 @@ async def test_an_agents_own_bound_evicts_only_that_agents_sessions() -> None:
     await rt.run_stateful(_profile(), "assistant--B", "three")  # assistant's bound is full
 
     assert mine.closed and not theirs.closed  # room came from assistant's own idle session
+
+
+# -- operating the runtime from outside its turns -----------------------------
+
+
+def _memory_file(root: Path, agent: str, session_id: str) -> Path:
+    path = root / agent / f"2026-10-03T10-00-00_{session_id}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}\n")
+    return path
+
+
+async def test_has_memory_sees_a_live_session_or_a_file_on_disk(tmp_path: Path) -> None:
+    rt = _runtime_with([FakeSession()], session_dir=str(tmp_path))
+    assert rt.has_memory("assistant", "assistant--c1") is False
+
+    await rt.run_stateful(_profile(), "assistant--c1", "hi")
+    assert rt.has_memory("assistant", "assistant--c1") is True  # live
+
+    await rt.drop_agent_sessions("assistant")
+    assert rt.has_memory("assistant", "assistant--c1") is False  # gone, and nothing on disk
+    _memory_file(tmp_path, "assistant", "assistant--c1")
+    assert rt.has_memory("assistant", "assistant--c1") is True  # remembered on disk
+    assert rt.has_memory("other", "assistant--c1") is False  # another agent's directory
+
+
+async def test_reset_ends_the_process_frees_its_slot_and_deletes_the_memory(
+    tmp_path: Path,
+) -> None:
+    first, second = FakeSession(), FakeSession()
+    rt = _runtime_with(
+        [first, second], max_concurrent_sessions=1, evict_idle_on_pressure=False,
+        session_dir=str(tmp_path),
+    )
+    rt._acquire_timeout = 0.05
+    await rt.run_stateful(_profile(), "assistant--c1", "hi")
+    memory = _memory_file(tmp_path, "assistant", "assistant--c1")
+
+    await rt.reset("assistant", "assistant--c1")
+
+    assert first.closed and not memory.exists()
+    assert rt.has_memory("assistant", "assistant--c1") is False
+    # The slot is free right now, not when the reaper gets to it.
+    assert (await rt.run_stateful(_profile(), "assistant--c2", "hi")).text == "ok"
+    assert not second.closed
+
+
+async def test_cancel_interrupts_a_live_turn_and_drops_a_session_that_would_not_stop() -> None:
+    polite, stubborn = FakeSession(), FakeSession()
+    stubborn.cancel_result = False
+    rt = _runtime_with([polite, stubborn], max_concurrent_sessions=2)
+    await rt.run_stateful(_profile(), "assistant--a", "hi")
+    await rt.run_stateful(_profile(), "assistant--b", "hi")
+
+    assert await rt.cancel("assistant--a") is False  # idle: nothing to interrupt
+    polite.busy = stubborn.busy = True
+    assert await rt.cancel("assistant--a") is True
+    assert polite.cancelled and not polite.closed  # the session lives on
+    assert await rt.cancel("assistant--b") is True
+    assert stubborn.cancelled and stubborn.closed  # it would not end its turn: dropped
+    assert "assistant--b" not in rt._sessions
+    assert await rt.cancel("assistant--nobody") is False
+
+
+async def test_stats_count_what_is_alive_busy_and_waiting() -> None:
+    held = FakeSession()
+    rt = _runtime_with([held, FakeSession()], max_concurrent_sessions=1, evict_idle_on_pressure=False)
+    rt._acquire_timeout = 5.0
+    assert rt.stats() == RuntimeStats(alive=0, busy=0, capacity=1, waiting=0)
+
+    await rt.run_stateful(_profile(), "assistant--a", "hi")
+    held.busy = True
+    queued = asyncio.ensure_future(rt.run_stateful(_profile(), "assistant--b", "hi"))
+    for _ in range(100):
+        if rt.stats().waiting:
+            break
+        await asyncio.sleep(0.005)
+    assert rt.stats() == RuntimeStats(alive=1, busy=1, capacity=1, waiting=1)
+
+    queued.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await queued
+    assert rt.stats().waiting == 0

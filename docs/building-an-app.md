@@ -179,6 +179,16 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   as it always did. Declare it rather than writing the warning into the
   description yourself: one wording for every such tool, and a new one cannot be
   forgotten.
+- **Operating the runtime, not only running it.** `PiRuntime` also implements
+  `RuntimeControl` (`crucible.ports.agent`): `has_memory(agent, session_id)`
+  says whether the conversation would resume or start over — the runtime
+  answers from its own files, so an application never has to know their layout;
+  `reset(agent, session_id)` ends the process (its slot is free at once) and
+  deletes the memory; `cancel(session_id)` interrupts the turn in flight and
+  keeps the session for the next one — the turn returns with what it had, or
+  the session is dropped if the runtime would not stop, with memory on disk
+  untouched; `stats()` gives alive / busy / capacity / waiting for a readiness
+  check. A flow needs none of this, which is why it is a second Protocol.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base

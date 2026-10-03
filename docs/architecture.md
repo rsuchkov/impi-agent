@@ -69,7 +69,10 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
 
 - **Agent** (`ports/agent`): `AgentRuntime` (drives a conversation), `AgentSpec`
   (an agent's neutral config), `AgentProfile` (opaque per-agent runtime config),
-  `UiBridge` (surface a mid-turn confirm/select to a human).
+  `UiBridge` (surface a mid-turn confirm/select to a human), `TurnClock` (stop a
+  turn's timeout while a person is being waited on), `RuntimeControl` (operate
+  the runtime from outside its turns: does it still remember a conversation,
+  forget one, interrupt a turn, how full is it).
 - **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill + files + the widget
   verbs), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `FileService`

@@ -128,3 +128,45 @@ class TurnClock(Protocol):
     """
 
     def human_wait(self, session_id: str) -> AbstractAsyncContextManager[None]: ...
+
+
+@dataclass(frozen=True)
+class RuntimeStats:
+    """How full the runtime is: sessions alive (a process each), how many of
+    them have a turn in flight, how many the pool admits, and how many turns are
+    waiting for a slot right now."""
+
+    alive: int
+    busy: int
+    capacity: int
+    waiting: int
+
+
+class RuntimeControl(Protocol):
+    """Operating a runtime from outside its turns — what an application needs
+    to manage conversations rather than merely run them.
+
+    Kept apart from ``AgentRuntime`` so a flow depends only on running turns
+    and a stand-in runtime in a test need not fake any of this.
+    """
+
+    def has_memory(self, agent: str, session_id: str) -> bool:
+        """Whether the runtime still remembers this conversation — a live
+        session, or its memory on disk — so a caller can tell a resumed
+        conversation from one that starts over, without knowing where or how
+        the runtime keeps it."""
+        ...
+
+    async def reset(self, agent: str, session_id: str) -> None:
+        """Forget the conversation: end its process (freeing its slot now, not
+        when the idle reaper gets to it) and delete its memory. The next turn
+        under this id starts from nothing."""
+        ...
+
+    async def cancel(self, session_id: str) -> bool:
+        """Interrupt the turn in flight, if there is one, and keep the session
+        usable: the turn ends with whatever it had, and the next one resumes
+        the conversation. False when nothing was running."""
+        ...
+
+    def stats(self) -> RuntimeStats: ...

@@ -147,6 +147,25 @@ class PiRpcSession:
             protocol.encode_abort(command_id=protocol.new_command_id())
         )
 
+    async def cancel(self, *, timeout: float) -> bool:
+        """Interrupt the turn in flight without poisoning the session: the
+        runtime ends the turn on its own (an agent_end with what it had), the
+        caller gets that as the turn's result, and the next turn resumes. True
+        once the turn has ended; False if the runtime did not end it in time —
+        the owner then has to drop the session, since a late agent_end would
+        complete a turn that is not this one."""
+        turn = self._turn
+        if turn is None:
+            return False
+        await self.abort()
+        try:
+            await asyncio.wait_for(asyncio.shield(turn.future), timeout)
+        except asyncio.TimeoutError:
+            return False
+        except Exception:
+            pass  # the turn's failure is its owner's to handle; it did end
+        return True
+
     async def close(self) -> None:
         if self._closed:
             return

@@ -27,13 +27,13 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from pathlib import Path
 
-from crucible.ports.agent.runtime import AgentProfile, PromptImage
+from crucible.ports.agent.runtime import AgentProfile, PromptImage, RuntimeStats
 from crucible.ports.agent.ui import UiBridge
 from crucible.runtimes.pi.errors import PiBusy, PiProcessError, PiTimeout
 from crucible.runtimes.pi.hosts import HostRouter, LocalHost
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.session import EventCallback, PiResult, PiRpcSession
-from crucible.runtimes.pi.spawn import SpawnRequest, safe_session_id
+from crucible.runtimes.pi.spawn import SpawnRequest, safe_session_id, session_files
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,7 @@ class PiRuntime:
         idle_ttl: float = 1800.0,
         acquire_timeout: float = 120.0,
         evict_idle_on_pressure: bool = True,
+        cancel_grace: float = 10.0,
         extra_env: dict[str, str] | None = None,
         extra_extensions: list[str] | None = None,
         session_factory: SessionFactory | None = None,
@@ -97,6 +98,8 @@ class PiRuntime:
         # of this one, so a deployment that has moved nobody behaves exactly as
         # it always did.
         self._hosts = hosts or HostRouter(LocalHost(program=pi_bin))
+        self._capacity = max_concurrent_sessions
+        self._waiting = 0  # turns queued for a slot right now, for stats()
         self._semaphore = asyncio.Semaphore(max_concurrent_sessions)
         # A second, per-agent bound. The global one stops the machine being
         # swamped; this one stops ONE agent taking every slot and leaving the
@@ -117,6 +120,9 @@ class PiRuntime:
         # length of the idle TTL while a live one queues. Memory is on disk; the
         # evicted conversation's next turn resumes it.
         self._evict_idle = evict_idle_on_pressure
+        # How long cancel() gives the runtime to end the interrupted turn by
+        # itself before the session is dropped instead.
+        self._cancel_grace = cancel_grace
         self._factory = session_factory or self._spawn_session
 
         self._sessions: dict[str, _ManagedSession] = {}
@@ -125,6 +131,59 @@ class PiRuntime:
         # on the same conversation.
         self._locks: dict[str, asyncio.Lock] = {}
         self._reaper_task: asyncio.Task[None] | None = None
+
+    # -- public API (RuntimeControl) ----------------------------------------
+
+    def has_memory(self, agent: str, session_id: str) -> bool:
+        """A live session, or memory on disk under the id the process was given."""
+        if session_id in self._sessions:
+            return True
+        if not self._session_dir:
+            return False  # the runtime's own default directory: not ours to read
+        return bool(self._files_of(agent, session_id))
+
+    async def reset(self, agent: str, session_id: str) -> None:
+        """End the process (its slot is free at once) and delete the memory. A
+        turn in flight is cancelled first; the conversation's lock then
+        serialises this with any turn about to start, so the next one finds
+        nothing and begins afresh."""
+        await self.cancel(session_id)
+        lock = self._locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            await self._drop_session(session_id)
+            removed = 0
+            if self._session_dir:
+                for path in self._files_of(agent, session_id):
+                    path.unlink(missing_ok=True)
+                    removed += 1
+        logger.info("reset session %s (%d memory file(s) removed)", session_id, removed)
+
+    async def cancel(self, session_id: str) -> bool:
+        """Interrupt the turn running on this conversation, keeping the session
+        for the next one. A runtime that does not end the turn within the grace
+        period is dropped instead — memory on disk is untouched, so the next
+        turn still resumes the conversation, in a fresh process."""
+        managed = self._sessions.get(session_id)
+        if managed is None or not managed.session.busy:
+            return False
+        if not await managed.session.cancel(timeout=self._cancel_grace):
+            logger.warning(
+                "session %s did not end its turn within %.0fs of being cancelled; dropping it",
+                session_id, self._cancel_grace,
+            )
+            await self._drop_session(session_id)
+        return True
+
+    def stats(self) -> RuntimeStats:
+        return RuntimeStats(
+            alive=len(self._sessions),
+            busy=sum(1 for m in self._sessions.values() if m.session.busy),
+            capacity=self._capacity,
+            waiting=self._waiting,
+        )
+
+    def _files_of(self, agent: str, session_id: str) -> list[Path]:
+        return session_files(Path(self._session_dir), agent, safe_session_id(session_id))
 
     # -- public API (TurnClock) ---------------------------------------------
 
@@ -272,6 +331,7 @@ class PiRuntime:
         """
         deadline = self._acquire_timeout
         agent_permit = self._agent_semaphore(agent)
+        self._waiting += 1
         try:
             if agent_permit is not None:
                 if agent_permit.locked():
@@ -293,6 +353,8 @@ class PiRuntime:
                 f"no runtime slot for {agent} within {deadline:.0f}s "
                 f"({len(self._sessions)} session(s) alive)"
             ) from exc
+        finally:
+            self._waiting -= 1
 
     async def _make_room(self, agent: str | None) -> None:
         """Every permit is taken: evict the least recently used idle session —

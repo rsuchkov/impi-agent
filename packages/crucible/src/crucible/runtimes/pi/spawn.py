@@ -38,6 +38,15 @@ def safe_session_id(raw: str) -> str:
     return f"{cleaned or 'session'}-{digest}"
 
 
+def session_files(session_dir: Path, agent: str, session_id: str) -> list[Path]:
+    """The files the runtime keeps for one conversation's memory:
+    ``<session_dir>/<agent>/<timestamp>_<session_id>.*``. The one place that
+    knows this layout — the cleanup CLI and the runtime's own memory checks
+    both ask here, so a change in how the runtime names its files is a change
+    in one function."""
+    return sorted((session_dir / agent).glob(f"*_{session_id}.*"))
+
+
 @dataclass(frozen=True)
 class SpawnRequest:
     """One process to start, described in terms a host can honour its own way."""

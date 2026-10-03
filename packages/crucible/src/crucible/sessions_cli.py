@@ -1,8 +1,9 @@
 """Manual session cleanup: the ONLY way conversation memory gets deleted.
 
 Deletes both halves in one motion — the inventory row and the runtime's on-disk
-session files (`{pi_session_dir}/{agent}/*_{runtime_session_id}.*`). Deleting only
-one side silently resets or orphans memory, so don't.
+session files (`{pi_session_dir}/{agent}/*_{runtime_session_id}.*`, as
+``runtimes.pi.spawn.session_files`` spells it). Deleting only one side silently
+resets or orphans memory, so don't.
 
 Usage:
     python -m crucible.sessions_cli list [--agent X]
@@ -21,13 +22,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from crucible.config import Settings, load_settings
+from crucible.runtimes.pi.spawn import session_files
 from crucible.store import open_store
 from crucible.store.base import SessionRecord, Store
 
 
 def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
-    agent_dir = settings.resolved_pi_session_dir / record.agent
-    return sorted(agent_dir.glob(f"*_{record.runtime_session_id}.*"))
+    return session_files(settings.resolved_pi_session_dir, record.agent, record.runtime_session_id)
 
 
 async def _delete_record(settings: Settings, store: Store, record: SessionRecord) -> None:
