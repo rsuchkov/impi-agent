@@ -6,6 +6,15 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: a slow answer to a confirmation card ended the turn.** The time a
+  person took to click Allow counted against the turn's timeout, and a turn
+  that ran out there lost the conversation's runtime process with it. The
+  runtime already stopped its clock for the questions it asked itself; now the
+  tool server stops it the same way while its gate waits — a confirmation can
+  sit on screen for as long as the gate allows without the turn noticing. (A
+  wait inside a shell command the agent runs, such as the secret broker's
+  approval, still counts: the engine cannot see it.) For applications on the
+  library: `build_server(clock=runtime)`.
 - **Fixed: "Allow for…" on a tool call opened the window for everyone.** The
   window was keyed by agent and tool, so one person allowing a tool for
   fifteen minutes in their direct message let the same agent run it unasked in

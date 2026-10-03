@@ -294,7 +294,10 @@ are `WARD_*` and live in its container's environment, not here.
 A tool that declares `requires_confirmation` is asked about before it runs — by
 the engine, inside the tool server, so a call that skips the runtime and reaches
 the server directly is gated all the same. The question is asked once, as a card
-in the conversation. It needs interactivity (`INTEGRATIONS_ENABLED=true`): with
+in the conversation, and the time a person takes to answer it does not count
+against the turn's timeout (`PI_TIMEOUT` / `runtime.timeout`) — that timeout is
+for a stuck runtime, not a slow human. It needs interactivity
+(`INTEGRATIONS_ENABLED=true`): with
 it off there is nobody to ask, and such a tool is left out of the agent's tool
 list rather than offered and refused.
 

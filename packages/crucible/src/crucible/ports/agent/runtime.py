@@ -11,6 +11,7 @@ agree on the key.
 """
 
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -111,3 +112,19 @@ class AgentRuntime(Protocol):
         to finish; persisted memory is unaffected — the next turn resumes it.
         Returns how many sessions were dropped."""
         ...
+
+
+class TurnClock(Protocol):
+    """Stops a turn's timeout while a human is being waited on.
+
+    A turn's timeout is for a runtime that is stuck, not for a person who is
+    slow: a confirmation card left on screen for two minutes must not end the
+    turn — and, in a runtime that discards a timed-out session, cost the
+    conversation its process. The runtime already pauses its own clock for the
+    interactive requests it raises itself; this is the same pause offered to
+    whoever else waits on a human on the turn's behalf — the tool server
+    holding a call until its gate answers. Unknown session: a no-op, so a caller
+    never has to know whether the session is live.
+    """
+
+    def human_wait(self, session_id: str) -> AbstractAsyncContextManager[None]: ...

@@ -10,6 +10,7 @@ call inside it does not ask again.
 """
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,15 +22,14 @@ from crucible.approvals import ANSWER_DENY, ANSWER_ONCE, APPROVAL_KEY, PendingAp
 from crucible.config import ToolSettings
 from crucible.interactions import toolgate
 from crucible.interactions.toolgate import ToolGate, tool_scope
-from crucible.ports.agent import AgentSpec
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.types import ACTION_SELECT, KIND_DM
 from crucible.store.base import KIND_TOOL
 from crucible.store.sqlite import SqliteSessionStore
-from crucible.tools.base import Tool, ToolContext
+from crucible.tools.base import CAP_CONFIRMATION, Tool, ToolContext
 from crucible.tools.registry import ToolRegistry
 from crucible.tools.server import ToolServer
-from crucible.tools.wiring import ToolWiring
+from crucible.tools.wiring import ToolWiring, _gate_tools
 
 AGENTS = [
     AgentInfo(name="assistant", role="r", description="", username="assistant", user_id="bot-1")
@@ -105,6 +105,24 @@ class FakePresence:
         return None
 
 
+class FakeClock:
+    """A TurnClock that remembers which session was paused, and when."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+    def human_wait(self, session_id: str):
+        return self._pause(session_id)
+
+    @contextlib.asynccontextmanager
+    async def _pause(self, session_id: str):
+        self.events.append(("enter", session_id))
+        try:
+            yield
+        finally:
+            self.events.append(("exit", session_id))
+
+
 @dataclass
 class Rig:
     server: ToolServer
@@ -115,6 +133,7 @@ class Rig:
     plain: Harmless
     session: str
     port: int
+    clock: FakeClock
 
 
 async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
@@ -129,6 +148,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         max_grant_s=over.pop("max_grant_s", 900),
     )
     dangerous, plain = Dangerous(), Harmless()
+    clock = FakeClock()
     registry = ToolRegistry((dangerous, plain))  # type: ignore[arg-type]
     server = ToolServer(
         registry,
@@ -138,9 +158,12 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         allowlists={"assistant": frozenset({"dangerous", "harmless"})},
         port=port,
         tool_gate=gate if gated else None,  # type: ignore[arg-type]
+        clock=clock,
     )
     await server.start()
-    return Rig(server, store, poster, approvals, dangerous, plain, record.runtime_session_id, port)
+    return Rig(
+        server, store, poster, approvals, dangerous, plain, record.runtime_session_id, port, clock
+    )
 
 
 async def _call(rig: Rig, name: str, *, conversation: str = "") -> int:
@@ -224,6 +247,31 @@ async def test_a_tool_that_needs_no_confirmation_is_not_gated(tmp_path: Path) ->
         assert await _call(rig, "harmless") == 200
         assert rig.plain.ran == 1
         assert rig.poster.posts == []  # nobody was disturbed
+    finally:
+        await _close(rig)
+
+
+# -- the turn's clock ----------------------------------------------------------
+
+
+async def test_the_turn_clock_is_paused_while_the_gate_waits(tmp_path: Path) -> None:
+    """A person deciding is not the runtime being stuck: the wait for the card
+    is taken out of the turn's timeout — for exactly the session that is waiting,
+    and only for as long as it waits."""
+    rig = await _rig(tmp_path, 8551)
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        for _ in range(400):
+            if rig.clock.events:
+                break
+            await asyncio.sleep(0.005)
+        assert rig.clock.events == [("enter", rig.session)]  # paused, and still paused
+        await _answer(rig, ANSWER_ONCE)
+        assert await pending == 200
+        assert rig.clock.events == [("enter", rig.session), ("exit", rig.session)]
+
+        await _call(rig, "harmless")
+        assert len(rig.clock.events) == 2  # nothing to wait for, nothing paused
     finally:
         await _close(rig)
 
@@ -361,23 +409,16 @@ def _wiring(tmp_path: Path, **flags) -> ToolWiring:
     )
 
 
-def _spec(tmp_path: Path) -> AgentSpec:
-    return AgentSpec(
-        name="assistant", display_name="A", role="r", description="d",
-        profile_dir=tmp_path, tools=("create_agent", "list_agents"),
-    )
-
-
-def test_a_confirmed_tool_is_not_advertised_without_a_gate(tmp_path: Path) -> None:
+def test_a_confirmed_tool_is_not_advertised_without_a_gate() -> None:
     # Offered-and-refused is the worst of both: the model is told the tool exists
     # and gets a 403 every time it tries. Without a gate the tool is simply absent.
-    without = _wiring(tmp_path)
-    without.enroll(_spec(tmp_path), None)
-    assert without.allowlists["assistant"] == frozenset({"list_agents"})
-
-    with_gate = _wiring(tmp_path, confirmations_on=True)
-    with_gate.enroll(_spec(tmp_path), None)
-    assert with_gate.allowlists["assistant"] == frozenset({"create_agent", "list_agents"})
+    registry = ToolRegistry((Dangerous(), Harmless()))  # type: ignore[arg-type]
+    both = ("dangerous", "harmless")
+    kept, dropped = _gate_tools(registry, both, frozenset())
+    assert kept == ("harmless",)
+    assert dropped == {"dangerous": frozenset({CAP_CONFIRMATION})}
+    kept, dropped = _gate_tools(registry, both, frozenset({CAP_CONFIRMATION}))
+    assert kept == both and dropped == {}
 
 
 def test_promising_a_gate_and_not_wiring_one_is_a_composition_error(tmp_path: Path) -> None:

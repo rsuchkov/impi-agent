@@ -1,8 +1,9 @@
 """PiRpcSession: one conversation backed by a single pi RPC process."""
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 
 from crucible.ports.agent.events import ToolFinished, ToolStarted
@@ -89,14 +90,34 @@ class PiRpcSession:
         self._poisoned = False
         # Wall-clock spent waiting on a human this turn; the turn timeout excludes
         # it so a slow approver never poisons the session. _ui_wait_started is the
-        # start of an in-flight wait (None when no UI request is outstanding).
+        # start of the outermost in-flight wait (None when nobody is waiting);
+        # _ui_wait_depth counts the waits nested inside it, since the bridge and
+        # the tool server may both be holding for a person at once.
         self._ui_wait_started: float | None = None
+        self._ui_wait_depth = 0
         self._ui_wait_total = 0.0
 
     @property
     def busy(self) -> bool:
         """True while a turn is in flight (the reaper must not close us)."""
         return self._turn is not None
+
+    @contextlib.asynccontextmanager
+    async def pause_clock(self) -> AsyncGenerator[None]:
+        """Exclude the time inside from the turn's timeout: a human is being
+        waited on. Reentrant — overlapping waits are counted once, for as long
+        as any of them is open."""
+        loop = asyncio.get_running_loop()
+        if self._ui_wait_depth == 0:
+            self._ui_wait_started = loop.time()
+        self._ui_wait_depth += 1
+        try:
+            yield
+        finally:
+            self._ui_wait_depth -= 1
+            if self._ui_wait_depth == 0 and self._ui_wait_started is not None:
+                self._ui_wait_total += loop.time() - self._ui_wait_started
+                self._ui_wait_started = None
 
     def start(self) -> None:
         """Begin draining stdout. Call once, before the first prompt."""
@@ -165,8 +186,12 @@ class PiRpcSession:
         command_id = protocol.new_command_id()
         turn = _Turn(command_id, on_event)
         self._turn = turn
-        self._ui_wait_started = None
+        # This turn's accounting starts now. A wait already open (a gate holding
+        # from just before the turn began) keeps holding — it just counts from here.
         self._ui_wait_total = 0.0
+        self._ui_wait_started = (
+            asyncio.get_running_loop().time() if self._ui_wait_depth > 0 else None
+        )
         started = asyncio.get_running_loop().time()
 
         try:
@@ -352,17 +377,12 @@ class PiRpcSession:
             options=tuple(str(o) for o in (event.raw.get("options") or [])),
             placeholder=str(event.raw.get("placeholder") or ""),
         )
-        loop = asyncio.get_running_loop()
-        self._ui_wait_started = loop.time()
-        try:
-            outcome = await self._ui_bridge.request(self._session_id, req)
-        except Exception as exc:
-            logger.exception("ui bridge failed (%s); defaulting to a declined response", exc)
-            outcome = UiOutcome(cancelled=True)
-        finally:
-            if self._ui_wait_started is not None:
-                self._ui_wait_total += loop.time() - self._ui_wait_started
-                self._ui_wait_started = None
+        async with self.pause_clock():
+            try:
+                outcome = await self._ui_bridge.request(self._session_id, req)
+            except Exception as exc:
+                logger.exception("ui bridge failed (%s); defaulting to a declined response", exc)
+                outcome = UiOutcome(cancelled=True)
         if outcome.cancelled:
             return protocol.encode_extension_ui_response(request_id, cancelled=True)
         return protocol.encode_extension_ui_response(

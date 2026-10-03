@@ -394,6 +394,27 @@ async def test_turn_timeout_pauses_while_bridge_awaits_human(monkeypatch) -> Non
         await turn
 
 
+async def test_pause_clock_holds_the_timeout_until_the_last_waiter_leaves(monkeypatch) -> None:
+    """The pause the tool server takes while its gate waits — reentrant, because
+    the bridge may be waiting on the same person at the same time, and the
+    clock must not restart when the inner of two waits ends."""
+    from crucible.runtimes.pi import session as session_module
+
+    monkeypatch.setattr(session_module, "_TURN_POLL_INTERVAL", 0.02)
+    transport = FakeTransport()  # never answers
+    session = PiRpcSession(transport)
+    session.start()
+
+    turn = asyncio.ensure_future(session.prompt("hi", timeout=0.1))
+    async with session.pause_clock():
+        async with session.pause_clock():
+            await asyncio.sleep(0.2)
+        await asyncio.sleep(0.2)  # the inner wait ended; the outer still holds
+        assert not turn.done()
+    with pytest.raises(PiTimeout):  # nobody waiting: the timeout resumes and fires
+        await turn
+
+
 async def test_close_fails_in_flight_turn() -> None:
     transport = FakeTransport()  # never answers
     session = PiRpcSession(transport)

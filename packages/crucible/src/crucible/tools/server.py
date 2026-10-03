@@ -12,6 +12,7 @@ where the agents' shells are. The broker now runs in its own container beside
 the store it opens, and an agent reaches it over mutual TLS.
 """
 
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -19,6 +20,7 @@ from typing import Any
 from aiohttp import web
 
 from crucible.approvals.ports import ToolApproving
+from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
@@ -61,6 +63,7 @@ class ToolServer:
         task_svc: TaskService | None = None,
         session_resolver: SessionResolver | None = None,
         tool_gate: ToolApproving | None = None,
+        clock: TurnClock | None = None,
     ) -> None:
         self._registry = registry
         self._directory = directory
@@ -77,6 +80,9 @@ class ToolServer:
         # Asks a human before a tool that declares it runs. See the note in
         # interactions/toolgate.py for why the runtime-side gate is not enough.
         self._tool_gate = tool_gate
+        # Pauses the calling turn's timeout while the gate waits: the person
+        # deciding is not the runtime being stuck. None = the turn keeps counting.
+        self._clock = clock
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
@@ -144,9 +150,16 @@ class ToolServer:
                 # already refuses for the same reason.
                 logger.warning("tool %s needs a confirmation and there is no gate", tool.name)
                 return web.json_response({"error": "cannot be confirmed here"}, status=403)
-            if not await self._tool_gate.confirm(
-                agent, tool.name, args, runtime_session_id=runtime_session_id
-            ):
+            pause = (
+                self._clock.human_wait(runtime_session_id)
+                if self._clock is not None
+                else contextlib.nullcontext()
+            )
+            async with pause:
+                allowed = await self._tool_gate.confirm(
+                    agent, tool.name, args, runtime_session_id=runtime_session_id
+                )
+            if not allowed:
                 return web.json_response({"error": "declined by the user"}, status=403)
 
         ctx = ToolContext(

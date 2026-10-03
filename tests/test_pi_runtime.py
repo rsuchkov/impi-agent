@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import re
 from collections.abc import Sequence
 from pathlib import Path
@@ -51,6 +52,10 @@ class FakeSession:
 
     async def close(self) -> None:
         self.closed = True
+
+    def pause_clock(self):
+        self.paused = True
+        return contextlib.nullcontext()
 
 
 def _profile(name: str = "assistant") -> PiProfile:
@@ -437,3 +442,15 @@ async def test_a_freed_slot_is_taken_by_the_waiting_turn() -> None:
 
     result = await rt.run_stateful(profile, "assistant--T2", "two")
     assert result.text == "ok"
+
+
+async def test_human_wait_pauses_the_live_session_and_nothing_else() -> None:
+    session = FakeSession()
+    rt = _runtime_with([session])
+    await rt.run_stateful(_profile(), "assistant--c1", "hi")
+
+    async with rt.human_wait("assistant--c1"):
+        assert session.paused is True
+    # A session that is not running: a usable no-op, not an error.
+    async with rt.human_wait("assistant--nobody"):
+        pass

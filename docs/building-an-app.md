@@ -145,7 +145,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   all: a confirmation nobody can answer is not a confirmation, and a tool that
   is offered and then refused on every call only teaches the model to retry.
   The runtime is never asked — the server's gate is the only one, so one call is
-  one question.
+  one question. Pass `clock=runtime` too (`PiRuntime` implements `TurnClock`):
+  the turn's timeout then stops while the gate waits for the person, so a slow
+  answer never ends the turn — the same pause the runtime takes for the
+  interactive requests it raises itself.
 - **Finding the conversation from inside a tool.** A tool call carries the
   runtime session id (`ToolContext.runtime_session_id`), and it is exactly the
   `runtime_session_id` of the conversation's `SessionRecord` — the engine sets

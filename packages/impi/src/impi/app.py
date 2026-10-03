@@ -516,6 +516,8 @@ def build_app(settings: ImpiSettings) -> App:
         dotenv_path=settings.dotenv_path,
         session_resolver=_resolve_conversation,
         tool_gate=interactions.tool_gate,
+        # While the gate waits for a person, the turn's timeout waits too.
+        clock=runtime,
     )
     # Scheduled work. Built after the units, because its dispatcher reads the
     # live {agent: AgentSink} map and its prompt runner the units' profiles.

@@ -20,8 +20,10 @@ process here, which is what always happened; another may run it elsewhere.
 """
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -115,6 +117,17 @@ class PiRuntime:
         # on the same conversation.
         self._locks: dict[str, asyncio.Lock] = {}
         self._reaper_task: asyncio.Task[None] | None = None
+
+    # -- public API (TurnClock) ---------------------------------------------
+
+    def human_wait(self, session_id: str) -> AbstractAsyncContextManager[None]:
+        """The pause the tool server takes while its gate waits on a person:
+        the live session's own clock pause, or nothing if no such session is
+        running (the call then costs the caller nothing either)."""
+        managed = self._sessions.get(session_id)
+        if managed is None:
+            return contextlib.nullcontext()
+        return managed.session.pause_clock()
 
     # -- public API (AgentRuntime) -------------------------------------------
 

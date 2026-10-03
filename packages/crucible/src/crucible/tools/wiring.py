@@ -16,7 +16,7 @@ from pathlib import Path
 
 from crucible.approvals.ports import ToolApproving
 from crucible.config import ToolSettings
-from crucible.ports.agent import AgentSpec
+from crucible.ports.agent import AgentSpec, TurnClock
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
@@ -170,6 +170,7 @@ class ToolWiring:
         dotenv_path: str,
         session_resolver: SessionResolver | None = None,
         tool_gate: ToolApproving | None = None,
+        clock: TurnClock | None = None,
     ) -> ToolServer | None:
         if self.registry is None:
             return None
@@ -200,4 +201,5 @@ class ToolWiring:
             task_svc=task_svc,
             session_resolver=session_resolver,
             tool_gate=tool_gate,
+            clock=clock,
         )
