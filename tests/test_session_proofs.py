@@ -19,3 +19,11 @@ def test_a_proof_vouches_for_its_session_only_while_issued() -> None:
 
     book.revoke("assistant--c1")
     assert book.verify("assistant--c1", renewed) is False
+
+
+def test_a_proof_that_is_not_even_ascii_is_simply_wrong() -> None:
+    # Non-ASCII on purpose: the header is whatever the caller sent, and a
+    # constant-time compare of str refuses such input — the book must not crash.
+    book = SessionProofBook()
+    book.issue("s")
+    assert book.verify("s", "пароль") is False

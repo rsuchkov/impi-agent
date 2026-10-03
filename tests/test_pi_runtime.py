@@ -652,3 +652,32 @@ async def test_a_dropped_sessions_proof_is_revoked() -> None:
     await rt.run_stateful(_profile(), "assistant--c1", "hi")
     await rt.drop_agent_sessions("assistant")
     assert proofs.revoked == ["assistant--c1"]
+
+
+async def test_a_timed_out_wait_for_the_agents_own_slot_releases_nothing() -> None:
+    # The agent's bound is full; waiting for it times out. The permit we never
+    # took must not be handed back — that would widen the bound by one per refusal.
+    held = FakeSession()
+    rt = _runtime_with(
+        [held, FakeSession(), FakeSession()], max_concurrent_sessions=4,
+        max_sessions_per_agent=1, evict_idle_on_pressure=False,
+    )
+    rt._acquire_timeout = 0.05
+    await rt.run_stateful(_profile(), "assistant--a", "hi")
+    held.busy = True
+    with pytest.raises(PiTimeout):
+        await rt.run_stateful(_profile(), "assistant--b", "hi")
+    with pytest.raises(PiTimeout):  # still full: nothing leaked back in
+        await rt.run_stateful(_profile(), "assistant--c", "hi")
+
+
+async def test_the_runtime_keys_a_session_the_way_the_tool_server_sees_it() -> None:
+    session = FakeSession()
+    rt = _runtime_with([session])
+    raw = "assistant--svc:john@x"  # a caller that did not coerce the id itself
+    await rt.run_stateful(_profile(), raw, "hi")
+    safe = _safe_session_id(raw)
+    assert safe in rt._sessions and raw not in rt._sessions
+    session.busy = True
+    assert await rt.cancel(raw) is True  # found under either spelling
+    assert rt.has_memory("assistant", safe) and rt.has_memory("assistant", raw)

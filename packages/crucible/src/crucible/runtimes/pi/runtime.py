@@ -149,7 +149,7 @@ class PiRuntime:
 
     def has_memory(self, agent: str, session_id: str) -> bool:
         """A live session, or memory on disk under the id the process was given."""
-        if session_id in self._sessions:
+        if safe_session_id(session_id) in self._sessions:
             return True
         if not self._session_dir:
             return False  # the runtime's own default directory: not ours to read
@@ -160,6 +160,7 @@ class PiRuntime:
         turn in flight is cancelled first; the conversation's lock then
         serialises this with any turn about to start, so the next one finds
         nothing and begins afresh."""
+        session_id = safe_session_id(session_id)
         await self.cancel(session_id)
         lock = self._locks.setdefault(session_id, asyncio.Lock())
         async with lock:
@@ -176,6 +177,7 @@ class PiRuntime:
         for the next one. A runtime that does not end the turn within the grace
         period is dropped instead — memory on disk is untouched, so the next
         turn still resumes the conversation, in a fresh process."""
+        session_id = safe_session_id(session_id)
         managed = self._sessions.get(session_id)
         if managed is None or not managed.session.busy:
             return False
@@ -204,7 +206,7 @@ class PiRuntime:
         """The pause the tool server takes while its gate waits on a person:
         the live session's own clock pause, or nothing if no such session is
         running (the call then costs the caller nothing either)."""
-        managed = self._sessions.get(session_id)
+        managed = self._sessions.get(safe_session_id(session_id))
         if managed is None:
             return contextlib.nullcontext()
         return managed.session.pause_clock()
@@ -222,6 +224,9 @@ class PiRuntime:
         images: Sequence[PromptImage] = (),
     ) -> PiResult:
         pi_profile = _require_pi_profile(profile)
+        # One spelling of the key everywhere: what the process is told, what the
+        # tool server sees in a call, and what cancel()/human_wait() are given.
+        session_id = safe_session_id(session_id)
         lock = self._locks.setdefault(session_id, asyncio.Lock())
         async with lock:
             managed = self._sessions.get(session_id)
@@ -345,16 +350,18 @@ class PiRuntime:
         deadline = self._acquire_timeout
         agent_permit = self._agent_semaphore(agent)
         self._waiting += 1
+        took_agent_permit = False
         try:
             if agent_permit is not None:
                 if agent_permit.locked():
                     await self._make_room(agent)
                 await asyncio.wait_for(agent_permit.acquire(), deadline)
+                took_agent_permit = True
             if self._semaphore.locked():
                 await self._make_room(None)
             await asyncio.wait_for(self._semaphore.acquire(), deadline)
         except TimeoutError as exc:
-            if agent_permit is not None and agent_permit.locked():
+            if agent_permit is not None and took_agent_permit:
                 # Only release what we actually took: the global wait is the one
                 # that timed out here, so the agent permit is ours.
                 agent_permit.release()
@@ -382,7 +389,7 @@ class PiRuntime:
             for key, managed in self._sessions.items()
             if (agent is None or managed.agent == agent)
             and not managed.session.busy
-            and not self._locks.setdefault(key, asyncio.Lock()).locked()
+            and not ((held := self._locks.get(key)) is not None and held.locked())
         ]
         if not idle:
             return

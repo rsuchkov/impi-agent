@@ -110,7 +110,8 @@ Say what it does and does not buy, rather than "it is isolated":
   variable from the engine's environment. A runtime in its own container does
   NOT inherit that; it gets its container's environment plus what the engine
   grants per spawn (model settings, `AGENT_NAME`, `TOOL_URL`, `TOOL_TOKEN`,
-  `AGENT_FILES_DIR`, session id). Anything else — `BROWSER_CDP_URL`, a variable
+  `AGENT_FILES_DIR`, the session id and its `TOOL_SESSION_PROOF`). Anything
+  else — `BROWSER_CDP_URL`, a variable
   an operator added to the `impi` service — has to be added to that agent's own
   service. This is the failure mode that announces nothing, so suspect it early.
 

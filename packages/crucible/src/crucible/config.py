@@ -162,14 +162,15 @@ class Settings(BaseSettings):
     # http gateway (request/turn API for programs that cannot hold a socket).
     # Started only when some agent runs on the "http" gateway; access is per
     # CALLER, via dynamic HTTP_CALLER_TOKEN__<NAME> keys (see http_callers()).
-    # 8425/8426 are the secret broker's; this one is next door.
+    # 8425/8426 are the secret broker's and 8427 the agent containers' relay;
+    # this one is next door.
     http_host: str = "0.0.0.0"
-    http_port: int = 8427
+    http_port: int = 8428
     # The longest a poll may wait for new events. Every waiting poll holds a
     # connection — and, behind a proxy, one of its workers.
     http_max_wait_s: float = 8.0
 
-    # Which chat gateway an agent runs on ("mattermost" | "slack" | "ws"). The
+    # Which chat gateway an agent runs on ("mattermost" | "slack" | "ws" | "http"). The
     # default for all agents; override per agent with AGENTS_GATEWAY__<AGENT>.
     gateway: str = "mattermost"
 

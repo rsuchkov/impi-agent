@@ -535,3 +535,18 @@ def test_promising_a_gate_and_not_wiring_one_is_a_composition_error(tmp_path: Pa
         dotenv_path=str(tmp_path / ".env"), tool_gate=gate,  # type: ignore[arg-type]
     )
     assert server is not None
+
+
+async def test_a_refusal_for_want_of_anyone_to_ask_is_filed_under_the_same_scope(
+    tmp_path: Path,
+) -> None:
+    rig = await _rig(tmp_path, 8555)
+    try:
+        # A session the store does not know: nowhere to post, nobody to ask.
+        assert await _call(rig, "dangerous", conversation="assistant--stranger") == 403
+        rows = await rig.store.list_audit()
+        assert [(r.decision, r.scope) for r in rows] == [
+            ("no_approver", tool_scope("dangerous", "assistant--stranger")),
+        ]
+    finally:
+        await _close(rig)

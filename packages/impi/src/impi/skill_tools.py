@@ -7,6 +7,7 @@ support agent's allowlist, with a hard in-handler guard. Installing runs someone
 else's scripts inside the engine, so it asks for confirmation in chat first.
 """
 
+import asyncio
 import os
 import shutil
 import signal
@@ -200,7 +201,7 @@ class InstallSkill(Tool):
         try:
             if args.get("bundled"):
                 source = str(bundled_skill(source))
-            with stage(source) as staged:
+            with await asyncio.to_thread(stage, source) as staged:
                 files = staged.files()
                 skill = staged.skill
                 origin = staged.source.describe()
@@ -238,7 +239,7 @@ class InstallSkill(Tool):
         try:
             if args.get("bundled"):
                 source = str(bundled_skill(source))
-            with stage(source) as staged:
+            with await asyncio.to_thread(stage, source) as staged:
                 files = [
                     {"path": path, "bytes": size, "executable": executable}
                     for path, size, executable in staged.files()

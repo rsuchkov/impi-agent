@@ -24,7 +24,7 @@ for your UI.
    HTTP_CALLER_AGENTS__MY_APP=helper,scribe   # optional; unset = all http agents
    ```
 3. Restart the engine. The hub starts only when some agent runs on `http`,
-   listening on `HTTP_HOST:HTTP_PORT` (default `0.0.0.0:8427`). Like the ws
+   listening on `HTTP_HOST:HTTP_PORT` (default `0.0.0.0:8428`; 8427 is the agent containers' relay). Like the ws
    hub's port it is not published by the compose files; publish it (or front it
    with your proxy) where your program can reach it.
 
@@ -62,11 +62,12 @@ caller, so two programs never reach each other's conversations.
 |---|---|---|
 | `unauthorized` | 401 | no accepted token |
 | `forbidden` | 403 | the agent does not exist on this hub, or this caller may not address it |
-| `not_found` | 404 | unknown turn, another person's turn, a retired control, nothing running to cancel |
+| `not_found` | 404 | unknown turn, another person's turn, a retired control, a question nobody waits on any more, nothing running to cancel, interactivity off |
 | `turn_in_progress` | 409 | this conversation already has a turn running; `turnId` names it |
 | `not_cancellable` | 409 | the turn cannot be interrupted here (no runtime behind it yet) |
 | `not_available` | 409 | a form was asked to open; forms are chat-only |
-| `validation` | 422 | a bad body or query value |
+| `validation` | 422 | a bad body or query value; `text` over 32 000 characters; a menu answer that is not one of its options |
+| `too_large` | 413 | the request body is over the cap (text-only: 1 MiB; with attachments on, a few files of `ATTACHMENT_MAX_MB` each) |
 
 ### `POST /v1/agents/{agent}/conversations/{conversation}/messages`
 
@@ -80,7 +81,7 @@ caller, so two programs never reach each other's conversations.
   returns the turn it started, not a second one.
 - `409 turn_in_progress` with `turnId` — follow that turn instead.
 
-`clientMessageId` is required (1–128 url-safe characters) and is what makes a
+`clientMessageId` is required (1–128 characters of `A-Za-z0-9_.:-`) and is what makes a
 submit idempotent; generate one per message, reuse it on retry. `text` may be
 empty only when files are attached — a photo is a message.
 
@@ -135,11 +136,18 @@ what other people wrote.
 {"postId": "…", "actionId": "yes", "value": "Allow"}
 ```
 
-`200 {"outcome": "resolved" | "redrawn" | "not_mine" | "not_allowed"}`. A click
-on a confirmation card for a tool call is answered by whoever is in the
+`200 {"outcome": "resolved" | "redrawn" | "not_mine" | "not_allowed"}`. A
+button answers with its own value (the body's `value` is ignored for it); a menu
+answers with one of its options, anything else is `422`. A click on a
+confirmation card for a tool call is answered by whoever is in the
 conversation — here, the caller's user; a request for a *credential* is
-addressed to named approvers and refuses everyone else (`not_allowed`). After a
-click the control is retired (`actions.retired`); clicking it again is `404`.
+addressed to named approvers by **user id**, which on this gateway is what the
+caller put in `X-User-Id` — so the program's claim about its user decides who
+may approve a credential, and refuses everyone else (`not_allowed`, the card
+stays live for them). After a click the control is retired (`actions.retired`);
+clicking it again is `404`, as is a click on a question nobody waits on any
+more (answered elsewhere, timed out, withdrawn) and any click on a turn that has
+ended.
 
 ### `GET /v1/agents/{agent}/conversations/{conversation}`
 
@@ -179,11 +187,15 @@ runtime slot is busy (`runtime: {alive, busy, capacity, waiting}` says which).
   the wait does not count against the turn's own timeout. Answer through the
   actions endpoint. Nobody answering in time refuses the call; cancelling the
   turn withdraws the card, and a click on a withdrawn card runs nothing.
-- **Chat-only things stay chat-only.** Forms (`open_form`) cannot open here —
-  the tool is advertised when interactivity is on, and a call is refused with a
-  logged warning. `send_ephemeral` and the channel-admin tools are not
-  advertised to an http agent. The tool-trace widget under a reply has no
-  message to sit under: the same tool events go to the journal instead.
+- **Chat-only things stay chat-only.** An http agent is not offered the
+  widgets it would fire and forget (`ask_user_buttons`, `ask_user_select`,
+  `open_screen`), nor forms (`open_form`): on a chat platform a click on such a
+  card starts a new turn, and a program polling a journal has no turn to follow
+  it in. What a caller answers is what blocks the turn — a confirmation card,
+  a yes/no the runtime asks (`ask_user_confirm`). `send_ephemeral` and the
+  channel-admin tools are not advertised either. The tool-trace widget under a
+  reply has no message to sit under: the same tool events go to the journal
+  instead. The journal is swept on every call, not only on new messages.
 - **Identity is the caller's claim.** `X-User-Id` is whatever the program says.
   Keep the token where only your server can read it, and never let a browser
   talk to the hub directly.
@@ -193,8 +205,8 @@ runtime slot is busy (`runtime: {alive, busy, capacity, waiting}` says which).
 ```python
 import asyncio, uuid, aiohttp
 
-ENGINE = "http://localhost:8427"
-HEADERS = {"Authorization": "Bearer …", "X-User-Id": "u-42", "X-Username": "vasya"}
+ENGINE = "http://localhost:8428"
+HEADERS = {"Authorization": "Bearer …", "X-User-Id": "u-42", "X-Username": "alice"}
 
 async def ask(session, text):
     body = {"clientMessageId": uuid.uuid4().hex, "text": text}
@@ -219,7 +231,7 @@ async def ask(session, text):
 
 async def main():
     async with aiohttp.ClientSession() as session:
-        print(await ask(session, "привет!"))
+        print(await ask(session, "hello!"))
 
 asyncio.run(main())
 ```

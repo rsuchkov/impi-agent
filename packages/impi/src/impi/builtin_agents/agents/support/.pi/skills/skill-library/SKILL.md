@@ -82,6 +82,12 @@ impi skill show <name>
 refuses while an agent still has it assigned — unassign first, so an agent is
 never left pointing at a skill that no longer exists.
 
+Both `install_skill` and `remove_skill` need a confirmation card, so with
+interactivity off (`INTEGRATIONS_ENABLED=false`) neither is in your tool list.
+That is not a fault: the operator does the same from the host — `impi skill
+install <source>` / `impi skill remove <name>` — and you still see the library
+with `list_skills`.
+
 ## 5. The operator's own paths
 
 They may prefer doing this themselves; these surfaces do the same thing:

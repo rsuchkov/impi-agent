@@ -104,6 +104,8 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
                         ui_bridge=interactions.ui_bridge)
     tools = ToolWiring(settings.tools, data_dir=settings.data_dir,
                        interactivity_on=settings.integrations.enabled)
+    # Trimmed: a real root also passes confirmations_on/tool_gate, clock,
+    # session_proofs and turns — see the composition notes below.
     factory = GatewayFactory(directory=registry, loop_guard=loop_guard,
                              dispatcher=interactions.dispatcher)
 
@@ -163,8 +165,9 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   enforces uniqueness), so an application may key whatever it holds per
   running turn by that id and resolve it from a tool.
 - **Say what the call would do, not what the model said.** A confirmed tool
-  should implement `describe(ctx, args) -> CallPreview | None` (`Describing`,
-  `crucible.tools`): the server calls it before the gate, with the same
+  should implement `describe(ctx, args) -> CallPreview | None` (`Describing` in
+  `crucible.tools`; `CallPreview`/`PreviewRow` in `crucible.approvals`): the
+  server calls it before the gate, inside the paused time, with the same
   context `execute` gets, and the card shows its rows — `Status: In Progress →
   Done`, the issue's title beside its key — instead of the raw arguments. Read
   the current state from the system there; the arguments are the model's

@@ -157,7 +157,7 @@ class PiRpcSession:
         turn = self._turn
         if turn is None:
             return False
-        await self.abort()
+        await self._safe_abort()  # a dead process cannot be told; the wait below says so
         try:
             await asyncio.wait_for(asyncio.shield(turn.future), timeout)
         except asyncio.TimeoutError:

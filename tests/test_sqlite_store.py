@@ -10,6 +10,8 @@ mechanism, not about what the store promises.
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from crucible.store.base import FormRecord, SchedulerHeartbeat
 from crucible.store.sqlite import SqliteSessionStore
 from tests.test_approval_store import _audit, _grant
@@ -220,3 +222,24 @@ async def test_migration_dates_the_answered_messages_of_an_old_db(tmp_path: Path
     # The undated row counts as older than anything: the first prune takes it.
     assert await store.prune_processed(before="2000-01-01T00:00:00+00:00") == 1
     assert store.mark_processed_sync("assistant", "ancient") is True
+
+
+def test_an_old_file_with_two_conversations_on_one_runtime_key_is_refused_by_name(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        "CREATE TABLE sessions (id INTEGER PRIMARY KEY, agent TEXT NOT NULL, "
+        "channel_id TEXT NOT NULL, conversation_id TEXT NOT NULL, kind TEXT NOT NULL, "
+        "runtime_session_id TEXT NOT NULL, created_at TEXT NOT NULL, last_active TEXT NOT NULL, "
+        "last_user_id TEXT NOT NULL DEFAULT '', UNIQUE (agent, conversation_id));"
+        "INSERT INTO sessions (agent, channel_id, conversation_id, kind, runtime_session_id, "
+        "created_at, last_active) VALUES "
+        "('assistant','ch','john@x','dm','assistant--john-x','t','t'),"
+        "('assistant','ch','john-x','dm','assistant--john-x','t','t');"
+    )
+    conn.commit()
+    conn.close()
+    with pytest.raises(RuntimeError, match="assistant/john@x.*sessions_cli delete"):
+        SqliteSessionStore(db)

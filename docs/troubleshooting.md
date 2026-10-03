@@ -121,8 +121,10 @@ locally instead of attempting a post.
 
 - The agent must **name the tool** in `runtime.tools` — it's an allowlist.
 - A typed tool is **dropped** (and logged) when the agent's gateway/config lacks a
-  capability it requires — e.g. channel-admin tools on a Slack agent, or widget/form
-  tools when `INTEGRATIONS_ENABLED=false`. Check the startup log for
+  capability it requires — e.g. channel-admin tools on a Slack agent, widget/form
+  tools when `INTEGRATIONS_ENABLED=false` or on the `http` gateway, and any tool
+  that needs confirming (`create_agent`, `install_skill`, `remove_skill`) when
+  interactivity is off — there is nobody to confirm it. Check the startup log for
   "tool … not advertised".
 - The whole typed-tool server is off if `TOOL_ENABLED=false`.
 - Skills need `read` + `bash` in `runtime.tools` to run.

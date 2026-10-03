@@ -558,3 +558,18 @@ async def test_a_turns_own_listener_wins_over_the_sessions() -> None:
 
     assert "tool_started" in turn_saw
     assert session_saw == []
+
+
+async def test_cancel_of_a_turn_on_a_dead_process_does_not_raise() -> None:
+    transport = FakeTransport()
+    session = PiRpcSession(transport)
+    session.start()
+    turn = asyncio.ensure_future(session.prompt("hi", timeout=5.0))
+    await _wait_until(lambda: "prompt" in transport.sent_types())
+    transport.closed = True  # stdin is gone: an abort cannot be delivered
+
+    assert await session.cancel(timeout=0.05) is False  # said, not raised
+    transport.closed = False
+    await session.close()
+    with pytest.raises(PiProcessError):
+        await turn

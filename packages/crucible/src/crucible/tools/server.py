@@ -60,6 +60,16 @@ _SESSION_HEADER = "X-Runtime-Session"
 _PROOF_HEADER = "X-Session-Proof"
 
 
+def _log_if_orphaned(task: "asyncio.Future[Any]") -> None:
+    """A tool that failed after its caller hung up has nobody to tell; say so
+    in the log rather than let asyncio complain about an unread exception."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None and not isinstance(exc, ToolError):
+        logger.warning("a tool failed after its caller had gone: %r", exc)
+
+
 class ToolServer:
     def __init__(
         self,
@@ -93,8 +103,8 @@ class ToolServer:
         self._file_svc = file_svc
         self._task_svc = task_svc
         self._session_resolver = session_resolver
-        # Asks a human before a tool that declares it runs. See the note in
-        # interactions/toolgate.py for why the runtime-side gate is not enough.
+        # Asks a human before a tool that declares it runs — the only gate there
+        # is; see interactions/toolgate.py for why it has to live here.
         self._tool_gate = tool_gate
         # Pauses the calling turn's timeout while the gate waits: the person
         # deciding is not the runtime being stuck. None = the turn keeps counting.
@@ -197,13 +207,15 @@ class ToolServer:
                 # "yes" on a human's behalf.
                 logger.warning("tool %s needs a confirmation and there is no gate", tool.name)
                 return web.json_response({"error": "cannot be confirmed here"}, status=403)
-            preview = await self._preview_of(tool, ctx, args)
             pause = (
                 self._clock.human_wait(runtime_session_id)
                 if self._clock is not None
                 else contextlib.nullcontext()
             )
             async with pause:
+                # The preview reads the system (a record, a repository) and is
+                # part of asking: it belongs to the paused time too.
+                preview = await self._preview_of(tool, ctx, args)
                 allowed = await self._tool_gate.confirm(
                     agent, tool.name, args, runtime_session_id=runtime_session_id,
                     preview=preview,
@@ -220,7 +232,9 @@ class ToolServer:
             # Once started, a tool runs to its end: a half-done write because
             # the caller hung up mid-way is worse than a finished one nobody
             # reads. (The wait for a person, above, is what cancellation is for.)
-            result = await asyncio.shield(tool.execute(ctx, args))
+            running = asyncio.ensure_future(tool.execute(ctx, args))
+            running.add_done_callback(_log_if_orphaned)
+            result = await asyncio.shield(running)
         except ToolError as exc:
             return web.json_response({"error": str(exc)}, status=400)
         except Exception:

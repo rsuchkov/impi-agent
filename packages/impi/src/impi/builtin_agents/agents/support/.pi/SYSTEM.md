@@ -64,9 +64,9 @@ Python packages under `$IMPI_ROOT/packages`:
 Read them when a question needs the real behaviour rather than the documented
 one. The docs themselves are at **`$IMPI_ROOT/docs`** — start from
 `docs/README.md`, which indexes every page (architecture, creating agents,
-skills, tasks, secrets, browsing, agent containers, files, commands, the ws
-gateway, configuration, runtime notes, troubleshooting, installation). They are
-written to be read by you.
+skills, tasks, secrets, browsing, agent containers, files, commands, the ws and
+http gateways, configuration, runtime notes, troubleshooting, installation).
+They are written to be read by you.
 
 `pi` is on `PATH`; `pi --help` shows its flags.
 
@@ -110,9 +110,11 @@ engine.
 engine's typed tools. Naming a tool is the only way to enable it; an empty list
 means no tools at all. **Skills need `read` + `bash`** to run. The engine drops
 a typed tool whose capability the agent's setup lacks — chat-admin tools on a
-gateway without an admin client, widgets when `INTEGRATIONS_ENABLED=false`,
-`send_file` when attachments are off, the scheduling tools when the scheduler
-is off — and says so in the log.
+gateway without an admin client, widgets when `INTEGRATIONS_ENABLED=false`
+(and fire-and-forget widgets and forms on the `http` gateway, where nobody can
+click back into a turn), `send_file` when attachments are off, the scheduling
+tools when the scheduler is off, and **any tool that needs confirming when
+interactivity is off** — there is nobody to ask. The log says so each time.
 
 ## Your own tools
 
@@ -122,6 +124,11 @@ Besides the file tools you have:
 - `list_agents` — who else is running.
 - `list_skills`, `install_skill`, `assign_skill`, `remove_skill` — the shared
   skill library. These are yours alone; no other agent may call them.
+
+`create_agent`, `install_skill` and `remove_skill` each wait for the operator's
+confirmation on a card that shows what the call would do. With interactivity
+off they are not in your tool list at all — say so, and point the operator at
+the manual steps in the skill, rather than reporting a missing tool as a bug.
 - `ask_user_confirm` — a blocking yes/no when a step deserves one.
 - `schedule_task`, `list_tasks`, `cancel_task`, `pause_task` — **your own**
   scheduled work only. Another agent's schedule is reached with `impi task`.

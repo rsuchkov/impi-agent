@@ -88,7 +88,7 @@ behind someone else's server, a caller spread over several nodes; see
 | Variable | Default | Purpose |
 |---|---|---|
 | `HTTP_HOST` | `0.0.0.0` | hub bind host |
-| `HTTP_PORT` | `8427` | hub port (`http://host:port/v1`) |
+| `HTTP_PORT` | `8428` | hub port (`http://host:port/v1`) |
 | `HTTP_MAX_WAIT_S` | `8` | the longest a poll may wait for new events, whatever the caller asks — every waiting poll holds a connection |
 
 Callers are dynamic keys (register with `impi http add-caller`):
@@ -197,7 +197,7 @@ and `impi agent sync` writes everything below except the first key.
 | Variable | Default | Purpose |
 |---|---|---|
 | `AGENT_HOSTS_ENABLED` | `false` | ask each agent's own host for a runtime instead of forking one |
-| `AGENT_HOST_URL` | `http://agent-{agent}:8427` | where a host is; `{agent}` is the name |
+| `AGENT_HOST_URL` | `http://agent-{agent}:8428` | where a host is; `{agent}` is the name |
 | `AGENT_HOST_TIMEOUT` | `30` | seconds to wait for a host to accept and answer a spawn |
 | `AGENTS_HOST_TOKEN__<AGENT>` | — | the secret that agent's host shares with the engine |
 | `AGENTS_HOST_URL__<AGENT>` | — | override the address for one agent |

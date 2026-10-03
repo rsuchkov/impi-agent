@@ -88,7 +88,7 @@ class FakeDirectory:
 
 
 SERVICES = {"portal": ("tok-portal", None), "narrow": ("tok-narrow", ("scribe",))}
-AUTH = {"Authorization": "Bearer tok-portal", "X-User-Id": "u-7", "X-Username": "roman"}
+AUTH = {"Authorization": "Bearer tok-portal", "X-User-Id": "u-7", "X-Username": "alice"}
 
 
 def _hub(port: int, **kw) -> tuple[HttpHub, FakeSink]:
@@ -151,7 +151,7 @@ async def test_a_message_becomes_a_turn_whose_journal_the_client_reads() -> None
             # The message reached the sink in the neutral shape, realm-namespaced.
             msg = sink.submitted[0]
             assert msg.conversation_id == "portal:c1" and msg.ref.message_id == "portal:m1"
-            assert msg.user_id == "u-7" and msg.username == "roman" and msg.is_dm
+            assert msg.user_id == "u-7" and msg.username == "alice" and msg.is_dm
 
             # Over: the conversation has no active turn, and the journal still answers.
             _, conv = await _get(s, 8480, "/v1/agents/helper/conversations/c1")
@@ -445,5 +445,163 @@ async def test_bad_query_values_are_validation_errors(wait: str) -> None:
             assert status in (200, 422)  # a negative wait is clamped; a word is refused
             if status == 422:
                 assert body["error"]["code"] == "validation"
+    finally:
+        await hub.stop()
+
+
+async def test_a_body_too_large_is_a_413_in_the_envelope() -> None:
+    hub, _ = _hub(8491)  # no attachment store: the text-only cap applies
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            status, body = await _post(s, 8491, MESSAGES, {"clientMessageId": "m1", "text": "x" * (1024 * 1024 + 10)})
+            assert status == 413 and body["error"]["code"] == "too_large"
+            async with s.get(_url(8491, "/no/such/route"), headers=AUTH) as r:
+                assert r.status == 404 and r.headers["X-Engine-Api-Version"] == "1.0"
+            status, body = await _post(s, 8491, MESSAGES, {"clientMessageId": "m1", "text": "hi"}, headers={})
+            assert status == 401  # before any parsing
+    finally:
+        await hub.stop()
+
+
+async def test_the_body_cap_follows_the_attachment_limit(tmp_path: Path) -> None:
+    hub, _ = _hub(8492, attachments=AttachmentStore(tmp_path, max_bytes=3_000_000, retention_days=1))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            payload = base64.b64encode(b"x" * 2_000_000).decode()
+            status, _ = await _post(s, 8492, MESSAGES, {
+                "clientMessageId": "m1", "text": "a big file",
+                "files": [{"name": "big.bin", "mime": "application/octet-stream", "data": payload}],
+            })
+            assert status == 202
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.parametrize("files", ["not-a-list", [{"data": "aGk="}], [{"name": "x"}], ["x"], 7])
+async def test_malformed_files_are_validation_errors(files) -> None:
+    hub, _ = _hub(8493)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            status, body = await _post(s, 8493, MESSAGES, {"clientMessageId": "m1", "text": "hi", "files": files})
+            assert status == 422 and body["error"]["code"] == "validation"
+    finally:
+        await hub.stop()
+
+
+async def test_an_answer_is_the_controls_value_not_the_callers() -> None:
+    answered = asyncio.Event()
+
+    async def asks(msg, chat):
+        from crucible.ports.chat.types import ACTION_SELECT, Choice
+
+        await chat.post_actions(
+            msg.ref, "Allow?",
+            [Action(id="yes", label="Allow", value="Allow", context={"token": "tk-1"}),
+             Action(id="how-long", label="For…", kind=ACTION_SELECT,
+                    options=Choice.of("5m", "15m"), context={"token": "tk-1"})],
+            callback_url="",
+        )
+        await answered.wait()
+        return TurnOutcome.ACTED
+
+    dispatcher = FakeDispatcher()
+    hub, _ = _hub(8494, script=asks, dispatcher=dispatcher)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8494, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            _, page = await _events(s, 8494, started["turnId"], after=1, wait=0.2)
+            post_id = page["events"][0]["postId"]
+            actions = f"/v1/turns/{started['turnId']}/actions"
+            status, body = await _post(s, 8494, actions, {"postId": post_id, "actionId": "how-long", "value": "1 year"})
+            assert status == 422  # not one of the menu's options
+            status, _ = await _post(s, 8494, actions, {"postId": post_id, "actionId": "yes", "value": "Deny"})
+            assert status == 200 and dispatcher.pending == [("tk-1", "Allow")]  # the button's own value
+            answered.set()
+    finally:
+        await hub.stop()
+
+
+async def test_a_card_left_over_from_a_finished_turn_answers_nobody() -> None:
+    async def asks_and_leaves(msg, chat):
+        await chat.post_actions(
+            msg.ref, "Pick one", [Action(id="a", label="A", value="a", context={"token": "tk-9"})],
+            callback_url="",
+        )
+        return TurnOutcome.ACTED  # the card stays up; the turn is over
+
+    dispatcher = FakeDispatcher()
+    hub, _ = _hub(8495, script=asks_and_leaves, dispatcher=dispatcher)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8495, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            events, final = await _drain(s, 8495, started["turnId"])
+            post_id = next(e["postId"] for e in events if e["type"] == "actions")
+            assert events[-1]["type"] == "turn.finished"
+            status, _ = await _post(s, 8495, f"/v1/turns/{started['turnId']}/actions",
+                                    {"postId": post_id, "actionId": "a"})
+            assert status == 404 and dispatcher.pending == []
+            # ...and the journal did not grow past its last event.
+            _, page = await _events(s, 8495, started["turnId"], after=len(events))
+            assert page["events"] == []
+    finally:
+        await hub.stop()
+
+
+async def test_a_question_nobody_waits_on_any_more_is_retired_not_answered() -> None:
+    hold = asyncio.Event()
+
+    async def asks(msg, chat):
+        await chat.post_actions(
+            msg.ref, "Allow?", [Action(id="yes", label="Allow", value="Allow", context={"token": "gone"})],
+            callback_url="",
+        )
+        await hold.wait()
+        return TurnOutcome.ACTED
+
+    dispatcher = FakeDispatcher()
+    dispatcher.resolves = False  # the token is no longer pending (timed out, withdrawn)
+    hub, _ = _hub(8496, script=asks, dispatcher=dispatcher)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8496, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            _, page = await _events(s, 8496, started["turnId"], after=1, wait=0.2)
+            post_id = page["events"][0]["postId"]
+            status, _ = await _post(s, 8496, f"/v1/turns/{started['turnId']}/actions",
+                                    {"postId": post_id, "actionId": "yes"})
+            assert status == 404
+            _, page = await _events(s, 8496, started["turnId"], after=2, wait=0.2)
+            assert page["events"][0]["type"] == "actions.retired" and page["status"] == "running"
+            hold.set()
+    finally:
+        await hub.stop()
+
+
+async def test_a_drawn_screen_does_not_make_the_turn_wait() -> None:
+    from crucible.ports.chat.types import Card
+
+    async def draws(msg, chat):
+        await chat.post_cards(msg.ref, [Card("a list", actions=(Action(id="n", label="Next", context={"screen": "s", "state": "1"}),))], callback_url="")
+        post = await chat.post_actions(msg.ref, "Allow?", [Action(id="y", label="Allow", value="Allow", context={"token": "t"})], callback_url="")
+        await asyncio.sleep(0.1)
+        await chat.retract(post, "done")
+        await asyncio.sleep(0.1)
+        return TurnOutcome.ACTED
+
+    hub, _ = _hub(8497, script=draws)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8497, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            _, page = await _events(s, 8497, started["turnId"], after=2, wait=0.2)  # cards, then actions
+            assert page["status"] == STATUS_AWAITING_INPUT
+            _, page = await _events(s, 8497, started["turnId"], after=3, wait=0.3)  # the retract
+            assert page["events"][0]["type"] == "actions.retired"
+            assert page["status"] == "running"  # the screen still up does not block
     finally:
         await hub.stop()

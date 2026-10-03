@@ -14,6 +14,7 @@ from slack_bolt.async_app import AsyncApp
 
 from crucible.attachments import AttachmentStore
 from crucible.gateways.dispatch import GatewayDispatcher
+from crucible.gateways.http import PROMPT_HINT as HTTP_PROMPT_HINT
 from crucible.gateways.http import HttpChatClient, HttpGateway, HttpHub
 from crucible.gateways.mattermost import (
     MattermostChatClient,
@@ -33,7 +34,7 @@ from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink, TrackedSink
 from crucible.ports.chat.gateway import Gateway
-from crucible.tools.base import CAP_EPHEMERAL
+from crucible.tools.base import CAP_EPHEMERAL, CAP_FORMS, CAP_WIDGETS
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,10 @@ class GatewayHandle:
     # imply (e.g. CAP_EPHEMERAL on Mattermost/Slack, absent on ws). Unioned into the
     # agent's cap set in ToolWiring.enroll.
     caps: frozenset[str] = frozenset()
+    # Capabilities this gateway kind cannot honour even when the deployment has
+    # them: a widget the agent fires and forgets, a form, on a transport where
+    # nothing can click back into a conversation. Subtracted in ToolWiring.enroll.
+    denied_caps: frozenset[str] = frozenset()
 
 
 class GatewayFactory:
@@ -204,5 +209,9 @@ class GatewayFactory:
 
         return GatewayHandle(
             chat=chat, admin=None, create_gateway=create_gateway,
-            prompt_hint="", needs_http_receiver=False,
+            prompt_hint=HTTP_PROMPT_HINT, needs_http_receiver=False,
+            # A caller reads a journal and answers what blocks the turn — a
+            # confirmation. A button the agent fires and forgets, or a form,
+            # would start a turn nobody tracks; those stay on chat platforms.
+            denied_caps=frozenset({CAP_WIDGETS, CAP_FORMS}),
         )

@@ -1,17 +1,13 @@
-"""ToolGate: the server-side half of "are you sure?" for a tool call.
+"""ToolGate: the "are you sure?" in front of a tool call.
 
-A tool may declare ``requires_confirmation``, and until now that was enforced in
-one place only — the runtime's tool extension, which asks before it makes the
-call. That gate is worth keeping for the latency it saves, but it cannot be the
-only one: the token the extension authenticates with lives in the agent's own
-environment, so a shell in that container can reach the tool server directly and
-skip the question entirely. This is the gate that cannot be skipped, because it
-sits inside the server that does the work.
+A tool may declare ``requires_confirmation``; this is the one place that asks.
+It sits inside the server that does the work, so it cannot be skipped: the
+token the runtime's tool extension authenticates with lives in the agent's own
+environment, and a shell in that container could reach the tool server directly
+— which is why the extension itself asks nothing. One call, one question.
 
-It also answers the complaint that made the old gate tiring to live with: it
-asked every single time. Here a human can say "yes, for the next fifteen
-minutes", and the window is the same kind of window a secret uses — same table,
-same ladder, same revocation.
+A human can say "yes, for the next fifteen minutes": the window is the same kind
+of window a secret uses — same table, same ladder, same revocation.
 
 Who may answer is deliberately *anyone in the conversation*, which is what the
 blocking confirm has always done. A tool call is addressed to the people
@@ -123,7 +119,7 @@ class ToolGate:
         if answer is None:
             # Nowhere to ask. Fail closed, and say so — an engine whose
             # interactivity is off should not be silently running gated tools.
-            await self._record(agent, tool, args, DECISION_NO_APPROVER, started, request_id)
+            await self._record(agent, scope, args, DECISION_NO_APPROVER, started, request_id)
             return False
         if not answer.allowed:
             decision = DECISION_TIMEOUT if answer.timed_out else DECISION_DENIED

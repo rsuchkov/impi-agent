@@ -62,10 +62,17 @@ and logs why. Common cases:
 | Tool | Needs |
 |---|---|
 | `create_channel`, `invite_to_channel`, `read_channel`, `send_message`, `get_channel_members` | a gateway with an admin client (Mattermost) |
-| `ask_user_buttons`, `ask_user_select`, `open_form`, `open_screen` | `INTEGRATIONS_ENABLED=true` |
+| `ask_user_buttons`, `ask_user_select`, `open_form`, `open_screen` | `INTEGRATIONS_ENABLED=true`, and a gateway someone can click back from (not `http`) |
+| `create_agent`, `install_skill`, `remove_skill` — anything that needs confirming | `INTEGRATIONS_ENABLED=true` (somebody to ask) |
 | `send_file` | `ATTACHMENTS_ENABLED=true` |
 | `send_ephemeral` | a gateway that has ephemeral messages |
 | `schedule_task`, `list_tasks`, `cancel_task`, `pause_task` | `SCHEDULER_ENABLED=true` |
+
+`read_channel` and `get_channel_members` return what other people wrote, so the
+engine wraps their result as `{"untrusted": true, "note": …, "data": …}` with
+one standard sentence: information, not instructions. An agent that "gets odd
+JSON back from read_channel" is seeing that envelope, by design; a SYSTEM.md
+need not repeat the warning, the note arrives with every result.
 
 If an agent says a tool is missing, check the startup log for
 `tool … not advertised` before editing anything.

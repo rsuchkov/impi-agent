@@ -49,6 +49,19 @@ def frame_error(data: dict) -> str | None:
     # A photo with no caption is a message; text is only required without files.
     if not text.strip() and not files:
         return "'text' must be a non-empty string unless the frame carries files"
+    files_problem = files_error(data)
+    if files_problem is not None:
+        return files_problem
+    kind = data.get("kind")
+    if kind is not None and kind not in _KINDS:
+        return f"'kind' must be one of {sorted(_KINDS)}"
+    return None
+
+
+def files_error(data: dict) -> str | None:
+    """Why the ``files`` of a frame (or a request body of the same shape) are
+    malformed, or None. Shape only; the bytes are decoded by ``frame_files``."""
+    files = data.get("files")
     if files is not None and not isinstance(files, list):
         return "'files' must be a list"
     for file in files or []:
@@ -58,9 +71,6 @@ def frame_error(data: dict) -> str | None:
             return "each file needs a non-empty 'name'"
         if not isinstance(file.get("data"), str):
             return "each file needs base64 bytes in 'data'"
-    kind = data.get("kind")
-    if kind is not None and kind not in _KINDS:
-        return f"'kind' must be one of {sorted(_KINDS)}"
     return None
 
 

@@ -52,14 +52,14 @@ class CallerAuthenticator(Protocol):
 class TokenCallers:
     """Bearer token → calling program; the person from the program's headers.
 
-    ``services`` maps a name to (token, agent allowlist or None). The program
+    ``callers`` maps a name to (token, agent allowlist or None). The program
     is trusted to say who its user is — the same trust the ws gateway places in
     a service, and the right one when the program is the application's own
     frontend. A deployment where the caller must prove the user's identity
     itself (a session cookie, a signed token) writes its own authenticator."""
 
-    def __init__(self, services: Mapping[str, tuple[str, tuple[str, ...] | None]]) -> None:
-        self._by_token = {token: (name, allow) for name, (token, allow) in services.items() if token}
+    def __init__(self, callers: Mapping[str, tuple[str, tuple[str, ...] | None]]) -> None:
+        self._by_token = {token: (name, allow) for name, (token, allow) in callers.items() if token}
 
     async def authenticate(self, request: web.Request, body: dict[str, Any] | None) -> Caller | None:
         token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()

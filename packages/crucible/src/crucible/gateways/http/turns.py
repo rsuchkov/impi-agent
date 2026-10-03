@@ -54,8 +54,12 @@ class Turn:
     journal: TurnJournal
     runtime_session_id: str = ""  # learned when the flow begins the turn
     # The controls this turn has put up, by post id, so a click can be matched
-    # to the action it names — and the token in that action's context.
+    # to the action it names — and the token in that action's context. Cleared
+    # when the turn ends: a card left over from a finished turn answers nobody.
     posted: dict[str, tuple[Action, ...]] = field(default_factory=dict)
+    # The posts the turn is waiting on (a confirmation card), as opposed to a
+    # screen it merely drew: the status says "awaiting input" while any is up.
+    blocking: set[str] = field(default_factory=set)
 
 
 class _Trace:
@@ -116,6 +120,8 @@ class HttpTurns:
         return turn, True
 
     def finish(self, turn: Turn, outcome: TurnOutcome) -> None:
+        turn.posted.clear()
+        turn.blocking.clear()
         turn.journal.emit(EV_TURN_FINISHED, outcome=outcome.name.lower())
         turn.journal.finish(STATUS_FAILED if outcome in _FAILED else STATUS_DONE)
         if self._active.get(turn.conversation) is turn:

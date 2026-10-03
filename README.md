@@ -63,7 +63,7 @@ flowchart TB
   GW -->|reply| U
 
   subgraph engine["engine"]
-    GW["gateway<br/>Mattermost · Slack · ws"] --> FLOW["AgentFlow"]
+    GW["gateway<br/>Mattermost · Slack · ws · http"] --> FLOW["AgentFlow"]
     FLOW --> RT["PiRuntime"]
     TS["tool-server"] --> FLOW
   end

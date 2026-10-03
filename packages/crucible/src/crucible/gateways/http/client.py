@@ -114,6 +114,7 @@ class HttpChatClient:
             return ""
         post_id = uuid.uuid4().hex
         turn.posted[post_id] = tuple(actions)
+        turn.blocking.add(post_id)
         turn.journal.emit(
             EV_ACTIONS, postId=post_id, text=text, actions=[_wire_action(a) for a in actions]
         )
@@ -125,8 +126,9 @@ class HttpChatClient:
         if turn is None:
             return
         turn.posted.pop(post_id, None)
+        turn.blocking.discard(post_id)
         turn.journal.emit(EV_ACTIONS_RETIRED, postId=post_id, text=text)
-        if not turn.posted:
+        if not turn.blocking:
             turn.journal.set_status(STATUS_RUNNING)
 
     async def post_cards(
@@ -149,6 +151,8 @@ class HttpChatClient:
     async def open_dialog(
         self, trigger_id: str, form: Form, *, submit_url: str, state: str
     ) -> None:
+        # Not reached in practice: forms are not advertised to an http agent
+        # (the gateway denies CAP_FORMS). Kept for the port's sake.
         logger.warning(
             "agent %s asked to open a form — not available on the HTTP gateway", self._agent
         )

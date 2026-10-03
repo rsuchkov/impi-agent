@@ -81,11 +81,11 @@ means the same thing wherever the agent's runtime runs.
 
 ## Per platform
 
-| | Mattermost | Slack | ws |
-|---|---|---|---|
-| Incoming files | native | needs the `files:read` scope | inline in the frame |
-| Message with no text | delivered (a photo alone is a message) | same | same |
-| `send_file` | uploads, then one post | `files.upload` (needs `files:write`) | a `file` frame |
+| | Mattermost | Slack | ws | http |
+|---|---|---|---|---|
+| Incoming files | native | needs the `files:read` scope | inline in the frame | inline in the request body |
+| Message with no text | delivered (a photo alone is a message) | same | same | same |
+| `send_file` | uploads, then one post | `files.upload` (needs `files:write`) | a `file` frame | a `file` event in the turn's journal |
 
 **Slack** attaches files to a `file_share` message; the bot downloads them with
 its own token, which requires the **`files:read`** scope on the app (add it in

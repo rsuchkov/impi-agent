@@ -68,11 +68,18 @@ no tools at all**. Two rules to remember:
   provide a capability it requires — e.g. widget tools when interactivity is
   disabled, or `send_ephemeral` on a gateway that can't post ephemeral messages.
   Capabilities per gateway: Mattermost and Slack provide channel administration
-  and ephemeral messages; the ws and http gateways provide neither (widgets
-  depend on interactivity being enabled; on http they reach the caller as
-  journal events, on ws they degrade to text; forms cannot open on either). So
-  a tool listed by an agent whose gateway lacks the capability simply isn't
-  advertised to it.
+  and ephemeral messages; the ws and http gateways provide neither. Widgets
+  depend on interactivity being enabled; on ws they degrade to text, and the
+  http gateway withholds the fire-and-forget ones and forms altogether (a
+  program polling a journal cannot follow the turn a click would start — only
+  what blocks the turn, a confirmation, is answered there). So a tool listed by
+  an agent whose gateway lacks the capability simply isn't advertised to it.
+  Tools that need confirming (`requires_confirmation`) are withheld when
+  interactivity is off: there is nobody to ask.
+  - **`read_channel` and `get_channel_members` return other people's text**,
+    wrapped as `{"untrusted": true, "note": …, "data": …}` with one standard
+    sentence telling the model it is information, not instructions. Your
+    own tool declares `returns_untrusted = True` for the same treatment.
   - **`send_ephemeral`** posts a message only one user sees (the turn's user by
     default, or a given `@username`). **Mattermost gates this behind the
     `create_post_ephemeral` permission**, which a bot account lacks by default —

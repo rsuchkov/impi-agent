@@ -17,7 +17,7 @@ receiver and a store, and no runtime at all.
 |---|---|---|
 | Ports | `crucible.ports.agent`, `crucible.ports.chat` | The Protocol contracts everything depends on (no implementations). |
 | Runtime | `crucible.runtimes.pi` | Drives `pi --mode rpc` over line-delimited JSON, one subprocess per conversation. |
-| Gateways | `crucible.gateways` | Chat-platform adapters (`mattermost`, `slack`) — the only code that imports a platform SDK. |
+| Gateways | `crucible.gateways` | The platform adapters (`mattermost`, `slack`) — the only code that imports a platform SDK — and two for your own programs: `ws` (a duplex socket) and `http` (a request/turn API). |
 | Flows | `crucible.flows` | Conversation orchestration: `AgentFlow` (a batch → one reply), `MessageCoalescer`. |
 | Tools | `crucible.tools` | The typed-tool framework: `@tool` registry, capability gating, an HTTP tool-server. |
 | Interactions | `crucible.interactions` | The widget/form callback machinery (dispatcher, receiver, UI bridge). Stateless: reads an `AgentPresence` the app owns. |

@@ -105,6 +105,8 @@ def test_http_callers_are_read_like_ws_services(monkeypatch) -> None:
     monkeypatch.setenv("HTTP_CALLER_TOKEN__MY_APP", "tok")
     monkeypatch.setenv("HTTP_CALLER_AGENTS__MY_APP", "helper, scribe")
     monkeypatch.setenv("HTTP_CALLER_TOKEN__OPEN", "tok2")
-    callers = _settings(dotenv_path="/dev/null").http_callers()
+    settings = _settings(dotenv_path="/dev/null")
+    assert settings.http_port == 8428  # 8427 is the agent containers' relay port
+    callers = settings.http_callers()
     assert callers["my-app"] == ("tok", ("helper", "scribe"))
     assert callers["open"] == ("tok2", None)  # unset allowlist = every http agent

@@ -58,6 +58,21 @@ An agent is skipped at startup, with a log line, when:
 A **new** agent needs a restart; agents are enumerated once at startup. Profile
 edits need only a reload.
 
+The **engine itself refuses to start** in two configurations, and says which in
+the first lines of `impi logs`:
+
+- on MongoDB, after an update that made `sessions.runtime_session_id` unique:
+  Mongo will not change an index in place, so the operator runs
+  `db.sessions.dropIndex("runtime_session_id_1")` once, then starts again
+  (`$IMPI_ROOT/docs/storage.md`);
+- `INTEGRATIONS_UI_TIMEOUT` at 270 or above: the runtime's tool extension gives
+  up on a call after 300 s, and a confirmation answered later would run a call
+  the model was already told had failed. Lower it.
+
+After that same update a `ws` agent **starts every conversation afresh once**:
+its session keys changed shape. That is expected, not a lost volume — the
+agent-containers skill's "forgot everything" diagnosis does not apply.
+
 ## 2. Turns fail
 
 - "pi process exited unexpectedly" — the error carries the exit code and the
@@ -73,6 +88,16 @@ edits need only a reload.
   names the tool, its arguments and how long it ran. It never shows a result,
   by design (`$IMPI_ROOT/docs/tool-trace.md`), so "what did the tool return"
   still has to come from the log.
+- "I am at capacity right now" — every runtime slot (`PI_MAX_CONCURRENT_SESSIONS`,
+  default 4) holds a turn in flight. Idle sessions do not cause this any more:
+  a full pool drops the longest-unused idle one for a new turn
+  (`PI_EVICT_IDLE_ON_PRESSURE`, log line `runtime full: dropping idle session …`),
+  and the evicted conversation resumes from disk on its next message — its
+  memory is not lost. Only when every slot is **busy** does a turn wait
+  `PI_ACQUIRE_TIMEOUT_S` (120) and then say so.
+- A confirmation card left waiting no longer ends the turn: the turn's timeout
+  stops while the gate waits. A turn that times out while a card is up has some
+  other cause.
 
 ## 3. A tool is missing or refused
 
@@ -89,7 +114,7 @@ In order:
 A tool added to a profile applies on **reload**; a `403 forbidden` right after
 an edit means the change was not applied yet.
 
-Two other 403s come from the confirmation gate, and both say so in the body:
+Four other 403s say what happened in the body. From the confirmation gate:
 
 - `declined by the user` — the tool declares `requires_confirmation`, the card
   went out, and the answer was Deny or nobody answered in time. A human can
@@ -102,6 +127,17 @@ Two other 403s come from the confirmation gate, and both say so in the body:
   engine log says `not advertised — gateway lacks confirmation`), so seeing
   this body means something other than the runtime made the call. Turn
   interactivity on, or drop the tool from that agent.
+- `abandoned by the caller` — the card was answered Allow, but the turn that
+  asked had already been cancelled or had hung up. Nothing ran; the ledger
+  says `abandoned`. Normal after an operator interrupted a turn.
+
+And from the session check:
+
+- `session not proven` — the call named a conversation without that process's
+  own `TOOL_SESSION_PROOF` (log: `named session … without its proof; refused`).
+  The engine's own runtime always has it; this is a stale process from before
+  a restart, or something in the agent's container calling the tool server by
+  hand. Not a configuration problem.
 
 ## 4. Widgets, forms or commands never arrive
 
@@ -109,6 +145,14 @@ These come back over HTTP, so the Mattermost server must be able to reach the
 receiver: `INTEGRATIONS_PUBLIC_URL` reachable from the server, its subnet in
 Mattermost's `AllowedUntrustedInternalConnections`, `INTEGRATIONS_ENABLED=true`.
 Slack needs none of this — it uses its socket.
+
+On the `http` gateway there is no chat to deliver to: a confirmation card is an
+`actions` event in the caller's journal and the caller's program answers it
+through the API; fire-and-forget widgets, forms, slash commands and the
+tool-trace widget do not exist there by design (`$IMPI_ROOT/docs/http-gateway.md`).
+"Nothing arrives" on http means the program is not polling the turn's events.
+Its `/readyz` answers 503 while the engine starts and while every runtime slot
+is busy.
 
 For a slash command specifically, the **chat-commands** skill has the log-line
 table (token mismatch, unresolvable default, no live presence, nothing at all).

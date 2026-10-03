@@ -25,6 +25,10 @@ ordinary turn, so "show me the skills" works without any registration at all.
 buttons are still the engine's. That is also the only route on Slack, where a
 custom slash command cannot run inside a thread.
 
+Slash commands and screens exist on Mattermost and Slack only. An agent on the
+`ws` or `http` gateway has no command surface: its callers are programs, and a
+program asks for things in the message itself.
+
 ## 2. Mattermost
 
 **Create the command** in System Console → Integrations → Slash Commands, or:

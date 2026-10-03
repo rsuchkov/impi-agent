@@ -37,12 +37,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_user_id TEXT NOT NULL DEFAULT '',  -- who last triggered a turn here
   UNIQUE (agent, conversation_id)
 );
--- The runtime key is looked up on its own (a tool call names only it), so two
--- conversations must never share one: the derivation guarantees it, the index
--- makes a drift in that guarantee fail loudly instead of merging two memories.
-CREATE UNIQUE INDEX IF NOT EXISTS sessions_runtime_session_id
-  ON sessions (runtime_session_id);
-
 -- agent registry snapshot (synced from profiles) + processed-post dedup:
 CREATE TABLE IF NOT EXISTS agents (
   name TEXT PRIMARY KEY, role TEXT, description TEXT,
@@ -115,6 +109,31 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin):
             self._migrate()
             self._conn.commit()
 
+    def _unique_runtime_key(self) -> None:
+        """The runtime key is looked up on its own (a tool call names only it),
+        so two conversations must never share one. The derivation guarantees it
+        for every row written from now on; an old file may hold two rows the
+        former, lossy coercion collided — those are named rather than silently
+        kept, since letting the engine run on them is what merged two memories."""
+        try:
+            self._conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS sessions_runtime_session_id "
+                "ON sessions (runtime_session_id)"
+            )
+        except sqlite3.IntegrityError as exc:
+            rows = self._conn.execute(
+                "SELECT runtime_session_id, agent, conversation_id FROM sessions "
+                "WHERE runtime_session_id IN (SELECT runtime_session_id FROM sessions "
+                "GROUP BY runtime_session_id HAVING COUNT(*) > 1) ORDER BY 1, 2, 3"
+            ).fetchall()
+            listed = "; ".join(f"{key}: {agent}/{conversation}" for key, agent, conversation in rows)
+            raise RuntimeError(
+                "two conversations share one runtime session key, which this version "
+                f"refuses to run with ({listed}). Delete one of each pair with "
+                "`python -m crucible.sessions_cli delete <agent> <conversation_id>` "
+                "and start again"
+            ) from exc
+
     def _create_app_tables(self) -> None:
         """Schema an application adds to this file. Empty here on purpose: the
         library's own facets are above, and a table only one application ever
@@ -124,6 +143,7 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin):
     def _migrate(self) -> None:
         """Add columns absent from DBs created by older versions. Guarded so a
         second run is a no-op (CREATE TABLE IF NOT EXISTS won't ALTER)."""
+        self._unique_runtime_key()
         cols = {row[1] for row in self._conn.execute("PRAGMA table_info(sessions)")}
         if "last_user_id" not in cols:
             self._conn.execute(

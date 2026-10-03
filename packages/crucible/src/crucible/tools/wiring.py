@@ -109,6 +109,7 @@ class ToolWiring:
     def enroll(
         self, spec: AgentSpec, admin: ChatAdmin | None,
         *, extra_caps: frozenset[str] = frozenset(),
+        denied_caps: frozenset[str] = frozenset(),
     ) -> None:
         # Its own name, whether or not it has typed tools: any program an agent
         # runs may need to know which agent it is running as — to pick a
@@ -124,11 +125,13 @@ class ToolWiring:
             self.admins[spec.name] = admin
         # base (widgets/forms) + chat-admin if the agent has an admin client +
         # whatever extra capabilities its gateway kind advertises (e.g. ephemeral).
+        # ...minus what the gateway cannot honour however the deployment is set
+        # (a fire-and-forget widget on a transport nobody can click back from).
         caps = (
             self.base_caps
             | (frozenset({CAP_CHAT_ADMIN}) if admin is not None else frozenset())
             | extra_caps
-        )
+        ) - denied_caps
         self.caps[spec.name] = caps
         advertised, dropped = _gate_tools(self.registry, spec.tools, caps)
         for name, missing in dropped.items():

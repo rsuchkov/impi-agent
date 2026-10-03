@@ -46,4 +46,8 @@ class SessionProofBook:
         """Whether ``proof`` is the one issued for ``session_id`` and still
         current. Compared in constant time; a session never issued one fails."""
         expected = self._by_session.get(session_id)
-        return expected is not None and hmac.compare_digest(expected, proof)
+        if expected is None:
+            return False
+        # Bytes, not str: compare_digest refuses non-ASCII strings with a
+        # TypeError, and a header is whatever the caller put there.
+        return hmac.compare_digest(expected.encode(), proof.encode())

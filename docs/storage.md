@@ -126,6 +126,16 @@ optimisation: they are what makes a claimed occurrence unable to fire twice and
 a replayed message a no-op. A deployment that dropped them would not slow down,
 it would double-fire.
 
+One of them changed shape once: `sessions.runtime_session_id` became **unique**
+(a tool call names that key alone, so two conversations must never share one).
+Mongo will not change an index's options in place, so a deployment from before
+the change has to drop the plain index by hand before updating — the engine
+refuses to start until it is gone:
+
+```
+db.sessions.dropIndex("runtime_session_id_1")
+```
+
 ## What stays on SQLite regardless
 
 The secret broker keeps its own database — policies, windows and its ledger —

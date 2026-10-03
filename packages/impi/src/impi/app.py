@@ -280,7 +280,7 @@ def _build_units(
         profiles.set_hint(spec.name, handle.prompt_hint)
         # must precede profiles.build (reads caps/env); handle.caps carries
         # gateway-kind capabilities like ephemeral.
-        tools.enroll(spec, handle.admin, extra_caps=handle.caps)
+        tools.enroll(spec, handle.admin, extra_caps=handle.caps, denied_caps=handle.denied_caps)
         if spec.name in engine_names:
             # Engine-owned agents (support) get the agents directory path (their
             # editable workspace) and the engine source root (read-only) so their
