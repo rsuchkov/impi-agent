@@ -2,6 +2,8 @@ import aiohttp
 import pytest
 
 import crucible.builtin_tools  # noqa: F401  # registers the generic ask/form tools
+import impi.skill_tools  # noqa: F401  # registers the skill tools the registry test lists
+import impi.task_tools  # noqa: F401  # registers the task tools the registry test lists
 from crucible.ports.chat.admin import ChannelMember
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.types import PostSnippet
