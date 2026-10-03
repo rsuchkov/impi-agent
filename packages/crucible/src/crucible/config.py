@@ -213,6 +213,10 @@ class Settings(BaseSettings):
     attachments_dir: str = ""  # default: {data_dir}/attachments
     attachment_max_mb: float = 20.0  # per file, both directions
     attachment_retention_days: int = 14  # 0 = keep forever
+    # How long the engine remembers having answered a message, so a redelivery
+    # (a reconnect replaying recent posts) is not answered twice. Days; a replay
+    # arrives within minutes, so this is generous. 0 = keep forever.
+    processed_posts_retention_days: int = 7
     # Per-image cap for showing a picture to the runtime directly: model backends
     # reject large inline images, and an oversized one is still readable by path.
     inline_image_max_mb: float = 4.0

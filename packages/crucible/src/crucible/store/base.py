@@ -550,6 +550,13 @@ class SessionStore(Protocol):
         (WS reconnects redeliver). Callers drop already-processed posts."""
         ...
 
+    async def prune_processed(self, *, before: str) -> int:
+        """Forget posts first seen before ``before`` (ISO8601 UTC). A replay
+        only ever arrives soon after the original, so the record is worth
+        keeping for days, not for the life of the deployment. Returns how many
+        were forgotten."""
+        ...
+
     async def close(self) -> None: ...
 
 

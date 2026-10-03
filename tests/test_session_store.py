@@ -165,3 +165,18 @@ async def test_touch_updates_last_user_when_given(store: Store) -> None:
         derive_runtime_session_id("assistant", "root1")
     )
     assert rec2 is not None and rec2.last_user_id == "u2"
+
+
+async def test_answered_messages_are_forgotten_after_their_retention(
+    store: Store, monkeypatch
+) -> None:
+    monkeypatch.setattr(clock, "now_iso", lambda: "2026-10-01T00:00:00+00:00")
+    assert await store.mark_processed("assistant", "old-post") is True
+    monkeypatch.setattr(clock, "now_iso", lambda: "2026-10-03T00:00:00+00:00")
+    assert await store.mark_processed("assistant", "newer-post") is True
+
+    forgotten = await store.prune_processed(before="2026-10-02T00:00:00+00:00")
+
+    assert forgotten == 1
+    assert await store.mark_processed("assistant", "old-post") is True  # forgotten: first sight again
+    assert await store.mark_processed("assistant", "newer-post") is False  # kept: still a replay

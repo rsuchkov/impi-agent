@@ -84,6 +84,19 @@ open(path, "w").write(text)
 EOF
 done
 uv lock --quiet
+# What the packages report at runtime has to be the number just stamped: they
+# read it from their installed metadata, so a stale install would ship a lie
+# and nothing else would notice until someone asked a running engine.
+uv sync --quiet
+for pkg in crucible impi; do
+    reported=$(uv run --no-sync python -c "import $pkg; print($pkg.__version__)")
+    if [ "$reported" != "$NEW" ]; then
+        echo "$pkg reports version $reported after stamping $NEW; aborting" >&2
+        # shellcheck disable=SC2086  # the list is a list: splitting is intended
+        git checkout -- VERSION CHANGELOG.md $PACKAGES uv.lock
+        exit 1
+    fi
+done
 
 # shellcheck disable=SC2086  # the list is a list: splitting is intended
 git add VERSION CHANGELOG.md $PACKAGES uv.lock

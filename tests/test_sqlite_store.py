@@ -201,3 +201,22 @@ async def test_two_rows_cannot_share_one_runtime_key(tmp_path: Path) -> None:
     except sqlite3.IntegrityError:
         return
     raise AssertionError("a second row took the runtime key of the first")
+
+
+async def test_migration_dates_the_answered_messages_of_an_old_db(tmp_path: Path) -> None:
+    db = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        "CREATE TABLE processed_posts (agent TEXT NOT NULL, post_id TEXT NOT NULL, "
+        "PRIMARY KEY (agent, post_id));"
+        "INSERT INTO processed_posts VALUES ('assistant', 'ancient');"
+    )
+    conn.commit()
+    conn.close()
+
+    store = SqliteSessionStore(db)
+    cols = {row[1] for row in store._conn.execute("PRAGMA table_info(processed_posts)")}
+    assert "seen_at" in cols
+    # The undated row counts as older than anything: the first prune takes it.
+    assert await store.prune_processed(before="2000-01-01T00:00:00+00:00") == 1
+    assert store.mark_processed_sync("assistant", "ancient") is True

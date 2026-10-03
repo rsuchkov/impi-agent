@@ -206,6 +206,43 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   working directory". A standalone app can also pass `cwd=` per turn on
   `run_stateful` for checkout-scoped runs.
 
+## Tools without a gateway
+
+An application can run agents with the engine's tools and no chat platform at
+all — a request/turn API of its own, a batch job, a test harness. The pieces it
+needs are the ones a bot needs minus the gateway:
+
+```python
+from crucible.ports.chat.directory import AgentInfo, StaticDirectory
+from crucible.tools import ToolWiring
+
+directory = StaticDirectory([AgentInfo(spec.name, spec.role, spec.description, "", "")])
+tools = ToolWiring(settings.tools, data_dir=settings.data_dir,
+                   interactivity_on=False, confirmations_on=True)
+tools.enroll(spec, None)                       # no admin client: no chat
+profile = replace(build_pi_profile(spec), env=tools.profile_env(spec) or {})
+runtime = PiRuntime(..., extra_extensions=[str(EXTENSION_PATH.resolve())])
+tool_server = tools.build_server(
+    directory=directory, interaction_svc=None, dotenv_path=settings.dotenv_path,
+    session_resolver=my_resolver,              # runtime session id -> (channel, user)
+    tool_gate=my_gate,                         # your ToolApproving: however you ask a person
+    clock=runtime,                             # the turn waits while they decide
+)
+```
+
+- `StaticDirectory` is the `AgentDirectory` for a roster fixed at composition.
+- `interaction_svc=None` turns the widget/form tools off; a tool that requires
+  them is not advertised.
+- `confirmations_on=True` with your own `ToolApproving` is how confirmation
+  works without a chat card: the server calls your gate, with the tool's
+  preview, and pauses the turn's clock through `clock=runtime` while it waits.
+- `session_resolver` maps the runtime session id a tool call carries back to
+  whatever you key your conversations by; it is the same id you passed to
+  `run_stateful`.
+- For tests without a `pi` binary, `tests/fakes/fake_transport.py` in this
+  repository is an in-process `PiTransport` you can copy: a reactor answers the
+  commands the session sends, and the session logic runs unchanged.
+
 ## Why not a `build_engine(config)`?
 
 Because apps diverge: a different app may want different interactivity, different

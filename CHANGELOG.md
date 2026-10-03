@@ -6,6 +6,17 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: the record of answered messages grew forever.** The engine keeps
+  the id of every message it has answered so a reconnect replaying recent posts
+  is not answered twice; nothing ever removed them. They are now dated and
+  forgotten at startup after `PROCESSED_POSTS_RETENTION_DAYS` (7); a replay
+  arrives within minutes, so nothing is lost.
+- **Fixed: `crucible.__version__` and `impi.__version__` said `0.1.0`.** Both
+  now read the installed package's version.
+- **For applications on the library:** `StaticDirectory` (an `AgentDirectory`
+  for a roster fixed at composition) and a documented "tools without a
+  gateway" composition — an agent with the engine's tools and confirmations
+  behind an API of your own, no chat platform required.
 - **The runtime can be operated, not only run.** For applications on the
   library, `PiRuntime` now also implements `RuntimeControl`: `has_memory`
   says whether a conversation would resume or start over (answered by the

@@ -19,6 +19,7 @@ import random
 import signal
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from importlib import metadata
 from pathlib import Path
 
@@ -608,6 +609,12 @@ async def run(settings: ImpiSettings) -> None:
     if app.tracer is not None:
         # Like the attachment sweep: old traces go at boot, not on a timer.
         await app.tracer.sweep()
+    if settings.processed_posts_retention_days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=settings.processed_posts_retention_days)
+        forgotten = await app.sessions.prune_processed(before=cutoff.isoformat(timespec="seconds"))
+        if forgotten:
+            logger.info("forgot %d answered message(s) older than %d days", forgotten,
+                        settings.processed_posts_retention_days)
     app.runtime.start()
     if app.tool_server is not None:
         # Up before the gateways: a pi turn may call a tool the moment it starts.

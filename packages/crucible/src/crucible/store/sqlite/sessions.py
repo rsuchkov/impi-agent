@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS agents (
   user_id TEXT, username TEXT, updated_at TEXT
 );
 CREATE TABLE IF NOT EXISTS processed_posts (
-  agent TEXT NOT NULL, post_id TEXT NOT NULL, PRIMARY KEY (agent, post_id)
+  agent TEXT NOT NULL, post_id TEXT NOT NULL,
+  seen_at TEXT NOT NULL DEFAULT '',  -- when first seen; what pruning goes by
+  PRIMARY KEY (agent, post_id)
 );
 
 -- widgets/forms awaiting a click:
@@ -127,6 +129,13 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin):
             self._conn.execute(
                 "ALTER TABLE sessions ADD COLUMN last_user_id TEXT NOT NULL DEFAULT ''"
             )
+        seen = {row[1] for row in self._conn.execute("PRAGMA table_info(processed_posts)")}
+        if "seen_at" not in seen:
+            # Rows from before the column have no date; the first prune takes
+            # them all, which is right — they are older than any retention.
+            self._conn.execute(
+                "ALTER TABLE processed_posts ADD COLUMN seen_at TEXT NOT NULL DEFAULT ''"
+            )
         form_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(pending_forms)")}
         if "post_id" not in form_cols:
             self._conn.execute(
@@ -160,6 +169,9 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin):
 
     async def get_by_runtime_session(self, runtime_session_id: str) -> SessionRecord | None:
         return await asyncio.to_thread(self.get_by_runtime_session_sync, runtime_session_id)
+
+    async def prune_processed(self, *, before: str) -> int:
+        return await asyncio.to_thread(self.prune_processed_sync, before)
 
     async def mark_processed(self, agent: str, post_id: str) -> bool:
         return await asyncio.to_thread(self.mark_processed_sync, agent, post_id)
@@ -317,11 +329,19 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin):
     def mark_processed_sync(self, agent: str, post_id: str) -> bool:
         with self._lock:
             cursor = self._conn.execute(
-                "INSERT OR IGNORE INTO processed_posts (agent, post_id) VALUES (?, ?)",
-                (agent, post_id),
+                "INSERT OR IGNORE INTO processed_posts (agent, post_id, seen_at) VALUES (?, ?, ?)",
+                (agent, post_id, clock.now_iso()),
             )
             self._conn.commit()
         return cursor.rowcount == 1
+
+    def prune_processed_sync(self, before: str) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM processed_posts WHERE seen_at < ?", (before,)
+            )
+            self._conn.commit()
+        return cursor.rowcount
 
     def upsert_agent_sync(self, info: AgentInfo) -> None:
         with self._lock:

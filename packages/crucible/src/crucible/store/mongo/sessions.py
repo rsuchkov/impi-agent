@@ -113,10 +113,21 @@ class MongoSessionStore(MongoTaskMixin, MongoApprovalMixin, MongoTraceMixin):
             # The pair IS the key, so the uniqueness needs no separate index and
             # the insert cannot half-succeed: a replayed post is a DuplicateKey,
             # which is the whole answer.
-            await db[PROCESSED].insert_one({"_id": f"{agent}\x00{post_id}"})
+            await db[PROCESSED].insert_one(
+                {"_id": f"{agent}\x00{post_id}", "seen_at": clock.now_iso()}
+            )
         except DuplicateKeyError:
             return False
         return True
+
+    async def prune_processed(self, *, before: str) -> int:
+        db = await self._ready()
+        # Documents from before the field existed have no date; they go too —
+        # older than any retention by definition.
+        result = await db[PROCESSED].delete_many(
+            {"$or": [{"seen_at": {"$lt": before}}, {"seen_at": {"$exists": False}}]}
+        )
+        return result.deleted_count
 
     # -- interactions and forms ------------------------------------------------
 

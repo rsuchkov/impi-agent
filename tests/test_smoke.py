@@ -4,8 +4,15 @@ import impi
 from impi.config import Settings
 
 
-def test_package_version():
-    assert impi.__version__
+def test_package_version_is_the_installed_one():
+    # Not a literal in the module: the release script stamps the pyprojects, and
+    # a second copy here is the one that went five releases saying 0.1.0.
+    from importlib import metadata
+
+    import crucible
+
+    assert impi.__version__ == metadata.version("impi")
+    assert crucible.__version__ == metadata.version("crucible")
 
 
 def test_settings_defaults():
