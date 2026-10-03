@@ -82,8 +82,16 @@ caller, so two programs never reach each other's conversations.
 
 `clientMessageId` is required (1–128 url-safe characters) and is what makes a
 submit idempotent; generate one per message, reuse it on retry. `text` may be
-empty only when files are attached. Files travel inline, base64, like on the
-ws gateway, and are saved as the agent's attachments.
+empty only when files are attached — a photo is a message.
+
+Files travel inline, base64, like on the ws gateway, and are handled like any
+other attachment ([files.md](files.md)): saved under the agent's files, named
+by path in the prompt, and a **picture is also shown to the model directly**
+(up to `INLINE_IMAGE_MAX_MB` each, a few per message). A file over
+`ATTACHMENT_MAX_MB` is logged and skipped; undecodable base64 is a `422`. All
+of it needs `ATTACHMENTS_ENABLED=true` — with attachments off, files in a
+request are ignored and the agent has no `send_file`. In the other direction,
+`send_file` becomes a `file` event, one per file.
 
 ### `GET /v1/turns/{turnId}/events?after=N&wait=S`
 
