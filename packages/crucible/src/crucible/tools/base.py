@@ -26,6 +26,11 @@ CAP_FORMS = "forms"  # modal forms
 CAP_EPHEMERAL = "ephemeral"  # messages visible only to one user (Mattermost + Slack)
 CAP_FILES = "files"  # sending a file into the conversation
 CAP_SCHEDULER = "scheduler"  # scheduling work for later
+# Someone to ask before a tool that declares ``requires_confirmation`` runs: a
+# gate is wired into the tool server. Implied by the flag rather than listed in
+# ``requires`` — a tool that must be confirmed is, by that fact, a tool that
+# needs a confirmer.
+CAP_CONFIRMATION = "confirmation"
 
 # What a tool that speaks for itself tells the model, appended to its advertised
 # description and returned beside its result. ONE wording for every such tool:
@@ -124,10 +129,13 @@ class Tool(Protocol):
     # it generically at wiring time and injects the instance as ctx.settings, so
     # a new configured tool never touches app.py. None = no config.
     settings_cls: ClassVar[type[BaseSettings] | None] = None
-    # When True, this tool must not run until the user has confirmed it — an
-    # enforced "approve before this action" the agent can't skip. Surfaced via the
-    # manifest so marking a tool needs no app.py edit; the runtime is responsible
-    # for gating the call on that confirmation.
+    # When True, this tool must not run until a human has confirmed it — an
+    # enforced "approve before this action" the agent can't skip. The tool
+    # server asks (through the gate the composition wired, CAP_CONFIRMATION)
+    # before it executes; the flag never reaches the runtime, which has no gate
+    # of its own to ask with. A deployment with no gate does not advertise the
+    # tool at all, the same way it withholds a tool whose gateway lacks a
+    # capability it requires.
     requires_confirmation: ClassVar[bool] = False
     # When True, this tool puts a message in front of the user itself, so what it
     # posts IS the agent's reply and the turn may end on the call. Declared rather

@@ -95,9 +95,12 @@ Two other 403s come from the confirmation gate, and both say so in the body:
   went out, and the answer was Deny or nobody answered in time. A human can
   answer **Allow for…** instead, which stops the questions for that agent and
   that tool until the window closes (`TOOL_MAX_GRANT_S` caps it).
-- `cannot be confirmed here` — the same tool, but this deployment has no way to
-  ask: interactivity is off, so there is nothing to post a card to. It fails
-  closed on purpose. Turn interactivity on, or drop the tool from that agent.
+- `cannot be confirmed here` — the same tool reached the server in a
+  deployment with no way to ask. Normally it cannot even get there: with
+  interactivity off such a tool is left out of the agent's tool list (the
+  engine log says `not advertised — gateway lacks confirmation`), so seeing
+  this body means something other than the runtime made the call. Turn
+  interactivity on, or drop the tool from that agent.
 
 ## 4. Widgets, forms or commands never arrive
 

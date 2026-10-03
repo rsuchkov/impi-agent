@@ -138,9 +138,14 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   a real widget — on Slack that additionally requires the app's Interactivity
   setup, and a failure is logged and declined. Off = declined locally, quietly.
 - **A confirmed tool needs a gate to confirm it.** If any of your tools declares
-  `requires_confirmation`, pass `tool_gate=` to `build_server`. Without one the
-  server refuses those calls rather than running them: a confirmation nobody can
-  answer is not a confirmation, and failing open would make the flag decorative.
+  `requires_confirmation`, build the wiring with `confirmations_on=True` and pass
+  `tool_gate=` to `build_server` — your own `ToolApproving`, or the one
+  `InteractionWiring` builds. The two go together, and `build_server` refuses one
+  without the other. With neither, such a tool is not advertised to the agent at
+  all: a confirmation nobody can answer is not a confirmation, and a tool that
+  is offered and then refused on every call only teaches the model to retry.
+  The runtime is never asked — the server's gate is the only one, so one call is
+  one question.
 - **Finding the conversation from inside a tool.** A tool call carries the
   runtime session id (`ToolContext.runtime_session_id`), and it is exactly the
   `runtime_session_id` of the conversation's `SessionRecord` — the engine sets

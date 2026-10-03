@@ -396,6 +396,10 @@ def build_app(settings: ImpiSettings) -> App:
         interactivity_on=settings.integrations.enabled,
         files_on=settings.attachments_enabled,
         scheduler_on=settings.scheduler.enabled,
+        # A tool that must be confirmed is advertised only where the gate that
+        # asks exists; with interactivity off it is left out of the agent's
+        # tool list rather than offered and refused on every call.
+        confirmations_on=interactions.tool_gate is not None,
     )
     profile_builder = ProfileBuilder(tools)
     # Where files people attach land. Swept once at startup so a long-running

@@ -6,6 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: a tool that needs confirming was asked about twice — or refused
+  before anyone was asked.** The runtime's tool extension used to put up its
+  own confirm for every such call and then the engine asked again with the
+  real card; where the runtime had no human to ask (a one-shot run, an
+  application without the UI bridge) its confirm answered "no" by itself and
+  the call never reached the engine. The extension no longer asks: the gate in
+  the tool server is the only one, and one call is one card. A deployment with
+  interactivity off no longer advertises such a tool at all (`create_agent`,
+  `install_skill`, `remove_skill` are withheld from the agent, with a log
+  line) instead of offering it and refusing every call. For applications on
+  the library: `ToolWiring(confirmations_on=True)` goes with `tool_gate=`, and
+  `build_server` refuses one without the other; `requires_confirmation` is no
+  longer written into the tool manifest.
 - **Fixed: two conversations could share one agent memory.** The runtime's
   session key is the conversation id with unsafe characters replaced, so
   `john@x` and `john-x` collapsed into one session — same memory, and a

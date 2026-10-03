@@ -24,7 +24,6 @@ interface ManifestEntry {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  requires_confirmation?: boolean;
   // Declared by the tool; the engine has already appended the matching sentence
   // to `description`, so nothing here has to act on it. Named so the shape of
   // the manifest stays readable next to what the engine writes.
@@ -95,20 +94,9 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
-  // Enforced confirmation (pattern B): the engine marks some tools sensitive in
-  // the manifest; before each such call we block the turn on ctx.ui.confirm
-  // (same UI bridge as ask_user_confirm) and refuse it if the user declines. The
-  // agent can't skip this — it's a pre-execution gate, not an opt-in tool.
-  const CONFIRM_TOOLS = new Set(
-    manifest.filter((t) => t.requires_confirmation).map((t) => t.name),
-  );
-  if (CONFIRM_TOOLS.size > 0) {
-    pi.on("tool_call", async (ev, ctx) => {
-      if (!CONFIRM_TOOLS.has(ev.toolName)) return;
-      const ok = await ctx.ui.confirm(`Approve action "${ev.toolName}"?`, "");
-      if (!ok) return { block: true, reason: "declined by user" };
-    });
-  }
+  // A tool that must be confirmed is confirmed by the engine, inside the tool
+  // server, before it runs — there is no gate here, so nothing in this
+  // process (or anything else holding the token) can be the one that asked.
 
   pi.registerTool({
     name: "ask_user_confirm",

@@ -291,9 +291,12 @@ are `WARD_*` and live in its container's environment, not here.
 
 ## Tool confirmations
 
-A tool that declares `requires_confirmation` is asked about before it runs, by
-the engine itself and not only by the runtime — a call that reaches the tool
-server directly is gated too.
+A tool that declares `requires_confirmation` is asked about before it runs — by
+the engine, inside the tool server, so a call that skips the runtime and reaches
+the server directly is gated all the same. The question is asked once, as a card
+in the conversation. It needs interactivity (`INTEGRATIONS_ENABLED=true`): with
+it off there is nobody to ask, and such a tool is left out of the agent's tool
+list rather than offered and refused.
 
 | Variable | Default | Purpose |
 |---|---|---|

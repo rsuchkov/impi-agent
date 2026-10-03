@@ -150,12 +150,15 @@ capabilities it `requires`). At runtime:
   widget/form services), and runs the tool.
 
 **Confirmation gating:** a tool may also declare `requires_confirmation`, and
-the check happens in the **server**, before `execute` — not only in the
-extension, because the extension's token lives in the agent's own environment
-and a shell in that container could call the tool server directly. The gate asks
-through the same approval primitive the secret broker uses, so a human can
-answer "once" or "for the next 15 minutes" (`TOOL_MAX_GRANT_S` caps the window).
-Where there is no way to ask, the call is refused rather than allowed.
+the check happens in the **server**, before `execute` — and only there. The
+extension's token lives in the agent's own environment, so a shell in that
+container could call the tool server directly: a gate in the extension would
+be one that can be walked around, and asking there as well would be asking
+twice. The gate asks through the same approval primitive the secret broker
+uses, so a human can answer "once" or "for the next 15 minutes"
+(`TOOL_MAX_GRANT_S` caps the window). The flag is a capability like any other
+(`CAP_CONFIRMATION`): a deployment with no gate does not advertise the tool,
+and the server still refuses a call that arrives for one.
 
 **Speaking tools:** a tool may declare `speaks_to_user` — it puts a message in
 front of the person itself, so what it posts IS the agent's reply and the turn

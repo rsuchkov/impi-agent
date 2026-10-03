@@ -18,8 +18,10 @@ import aiohttp
 import pytest
 
 from crucible.approvals import ANSWER_DENY, ANSWER_ONCE, APPROVAL_KEY, PendingApprovals
+from crucible.config import ToolSettings
 from crucible.interactions import toolgate
 from crucible.interactions.toolgate import ToolGate
+from crucible.ports.agent import AgentSpec
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.types import ACTION_SELECT, KIND_DM
 from crucible.store.base import KIND_TOOL
@@ -27,6 +29,7 @@ from crucible.store.sqlite import SqliteSessionStore
 from crucible.tools.base import Tool, ToolContext
 from crucible.tools.registry import ToolRegistry
 from crucible.tools.server import ToolServer
+from crucible.tools.wiring import ToolWiring
 
 AGENTS = [
     AgentInfo(name="assistant", role="r", description="", username="assistant", user_id="bot-1")
@@ -322,3 +325,53 @@ def test_arguments_cannot_forge_the_question(hostile: str) -> None:
     lines = card.splitlines()
     assert [ln for ln in lines if ln.startswith("**")] == ["**Arguments:**"]
     assert len([ln for ln in lines if set(ln) == {"`"}]) == 2  # exactly one block
+
+
+# --- advertising: a confirmed tool exists only where someone can confirm it -----
+
+
+def _wiring(tmp_path: Path, **flags) -> ToolWiring:
+    return ToolWiring(
+        ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
+        data_dir=str(tmp_path), interactivity_on=True, **flags,
+    )
+
+
+def _spec(tmp_path: Path) -> AgentSpec:
+    return AgentSpec(
+        name="assistant", display_name="A", role="r", description="d",
+        profile_dir=tmp_path, tools=("create_agent", "list_agents"),
+    )
+
+
+def test_a_confirmed_tool_is_not_advertised_without_a_gate(tmp_path: Path) -> None:
+    # Offered-and-refused is the worst of both: the model is told the tool exists
+    # and gets a 403 every time it tries. Without a gate the tool is simply absent.
+    without = _wiring(tmp_path)
+    without.enroll(_spec(tmp_path), None)
+    assert without.allowlists["assistant"] == frozenset({"list_agents"})
+
+    with_gate = _wiring(tmp_path, confirmations_on=True)
+    with_gate.enroll(_spec(tmp_path), None)
+    assert with_gate.allowlists["assistant"] == frozenset({"create_agent", "list_agents"})
+
+
+def test_promising_a_gate_and_not_wiring_one_is_a_composition_error(tmp_path: Path) -> None:
+    gate = object()  # any ToolApproving; never consulted here
+    promised = _wiring(tmp_path, confirmations_on=True)
+    with pytest.raises(ValueError, match="no tool_gate"):
+        promised.build_server(
+            directory=FakeDirectory(), interaction_svc=None, dotenv_path=str(tmp_path / ".env"),  # type: ignore[arg-type]
+        )
+    unpromised = _wiring(tmp_path)
+    with pytest.raises(ValueError, match="confirmations_on=False"):
+        unpromised.build_server(
+            directory=FakeDirectory(), interaction_svc=None,  # type: ignore[arg-type]
+            dotenv_path=str(tmp_path / ".env"), tool_gate=gate,  # type: ignore[arg-type]
+        )
+    # Both halves present: a server.
+    server = promised.build_server(
+        directory=FakeDirectory(), interaction_svc=None,  # type: ignore[arg-type]
+        dotenv_path=str(tmp_path / ".env"), tool_gate=gate,  # type: ignore[arg-type]
+    )
+    assert server is not None

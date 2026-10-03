@@ -64,7 +64,6 @@ class ToolRegistry:
                         "name": t.name,
                         "description": description,
                         "parameters": t.parameters,
-                        "requires_confirmation": t.requires_confirmation,
                         "speaks_to_user": t.speaks_to_user,
                     }
                 )

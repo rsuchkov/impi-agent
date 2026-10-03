@@ -321,12 +321,13 @@ def test_registry_manifest_carries_schema() -> None:
     cc = next(e for e in manifest if e["name"] == "create_channel")
     assert cc["parameters"]["required"] == ["display_name"]
     assert cc["description"]
-    assert cc["requires_confirmation"] is False  # no default tool is sensitive
 
 
-def test_manifest_carries_requires_confirmation() -> None:
-    # The confirmation gate is enforced from the manifest, so the flag must travel
-    # verbatim — tested with throwaway tools rather than a permanently-gated one.
+def test_the_manifest_does_not_carry_the_confirmation_flag() -> None:
+    # The confirmation is the tool server's to ask, once. A flag in the manifest
+    # would be an invitation for the runtime to ask too — which it used to, so
+    # every confirmed call was asked about twice, and refused outright wherever
+    # the runtime had no human to ask.
     from typing import ClassVar
 
     from crucible.tools.base import Tool
@@ -351,8 +352,8 @@ def test_manifest_carries_requires_confirmation() -> None:
 
     reg = ToolRegistry((_Sensitive, _Plain))  # type: ignore[arg-type]  # structural test doubles
     entries = {e["name"]: e for e in reg.manifest(("danger", "plain"))}
-    assert entries["danger"]["requires_confirmation"] is True
-    assert entries["plain"]["requires_confirmation"] is False
+    assert "requires_confirmation" not in entries["danger"]
+    assert "requires_confirmation" not in entries["plain"]
 
 
 def test_registry_knows_all_default_tools() -> None:
@@ -777,10 +778,17 @@ async def test_create_agent_requires_admin_token(tmp_path) -> None:
 
 
 def test_create_agent_is_confirmation_gated() -> None:
-    # The runtime's confirm gate reads the manifest flag — it must travel.
+    # Declared on the class, where the tool server reads it — and advertised
+    # only to an agent whose deployment has a gate to ask with.
+    from crucible.tools.base import CAP_CONFIRMATION
+    from crucible.tools.wiring import _gate_tools
+
+    assert CreateAgent.requires_confirmation is True
     reg = build_registry()
-    entry = next(e for e in reg.manifest(("create_agent",)))
-    assert entry["requires_confirmation"] is True
+    kept, dropped = _gate_tools(reg, ("create_agent",), frozenset())
+    assert kept == () and dropped == {"create_agent": frozenset({CAP_CONFIRMATION})}
+    kept, dropped = _gate_tools(reg, ("create_agent",), frozenset({CAP_CONFIRMATION}))
+    assert kept == ("create_agent",) and dropped == {}
 
 
 # --- send_ephemeral -----------------------------------------------------------

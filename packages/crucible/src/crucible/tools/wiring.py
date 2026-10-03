@@ -24,6 +24,7 @@ from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.tasks import TaskService
 from crucible.tools.base import (
     CAP_CHAT_ADMIN,
+    CAP_CONFIRMATION,
     CAP_FILES,
     CAP_FORMS,
     CAP_SCHEDULER,
@@ -51,9 +52,9 @@ def _gate_tools(
 ) -> tuple[tuple[str, ...], dict[str, frozenset[str]]]:
     """Split an agent's declared tools into (advertised, {dropped: missing caps}).
     A typed tool is dropped when the agent's gateway/config doesn't provide a
-    capability it requires (e.g. a channel-admin tool on a Slack agent). Names that
-    aren't typed tools (the runtime's own builtins, e.g. ``read``) are
-    ignored here."""
+    capability it requires (e.g. a channel-admin tool on a Slack agent), or when
+    it must be confirmed and nobody is wired to confirm it. Names that aren't
+    typed tools (the runtime's own builtins, e.g. ``read``) are ignored here."""
     kept: list[str] = []
     dropped: dict[str, frozenset[str]] = {}
     for name in tools:
@@ -61,6 +62,8 @@ def _gate_tools(
         if tool is None:
             continue
         missing = tool.requires - caps
+        if tool.requires_confirmation and CAP_CONFIRMATION not in caps:
+            missing = missing | {CAP_CONFIRMATION}
         if missing:
             dropped[name] = missing
         else:
@@ -72,6 +75,7 @@ class ToolWiring:
     def __init__(
         self, tools: ToolSettings, *, data_dir: str, interactivity_on: bool,
         files_on: bool = False, scheduler_on: bool = False,
+        confirmations_on: bool = False,
     ) -> None:
         self._tools = tools
         self.registry = build_registry() if tools.enabled else None
@@ -84,11 +88,16 @@ class ToolWiring:
         # Widgets/forms exist iff the integrations receiver is on; chat_admin only on
         # gateways that provide it (Mattermost, not Slack) — added per agent in enroll.
         # Files are a deployment-wide switch (a store + a directory), not a
-        # gateway trait — every transport can carry one.
+        # gateway trait — every transport can carry one. Confirmations too: a
+        # gate is one object for the whole server, so either every agent can
+        # have a tool confirmed or none can — and ``build_server`` checks that
+        # the gate promised here is the gate actually handed over.
+        self._confirmations_on = confirmations_on
         self.base_caps = (
             (frozenset({CAP_WIDGETS, CAP_FORMS}) if interactivity_on else frozenset())
             | (frozenset({CAP_FILES}) if files_on else frozenset())
             | (frozenset({CAP_SCHEDULER}) if scheduler_on else frozenset())
+            | (frozenset({CAP_CONFIRMATION}) if confirmations_on else frozenset())
         )
 
     @property
@@ -164,6 +173,19 @@ class ToolWiring:
     ) -> ToolServer | None:
         if self.registry is None:
             return None
+        # The capability advertised the tools; the gate is what answers for them.
+        # Promising one without the other is a composition error, and an error
+        # at startup beats a tool that is advertised and refused on every call.
+        if self._confirmations_on and tool_gate is None:
+            raise ValueError(
+                "ToolWiring(confirmations_on=True) advertised confirmed tools, "
+                "but build_server() was given no tool_gate to confirm them with"
+            )
+        if tool_gate is not None and not self._confirmations_on:
+            raise ValueError(
+                "build_server() was given a tool_gate, but ToolWiring was built "
+                "with confirmations_on=False, so no confirmed tool is advertised"
+            )
         return ToolServer(
             self.registry,
             directory=directory,

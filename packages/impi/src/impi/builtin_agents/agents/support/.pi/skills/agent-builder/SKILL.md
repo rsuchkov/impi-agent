@@ -84,7 +84,9 @@ about it. On the operator's host (`impi escape`) the hint names the command
 **With the `create_agent` tool (Mattermost, preferred):** call it with `name`,
 `role`, and optionally `display_name`, `description`, `system_prompt`. It creates
 the bot account, writes the profile skeleton, and stores the token — the operator
-confirms via a button before it runs. Afterwards edit the generated files as
+confirms via a card before it runs, once. If the tool is not in your tool list,
+the deployment has interactivity off and there is nobody to confirm it: say so
+and use the manual flow. Afterwards edit the generated files as
 needed and ask the operator to run **what the tool's `hint` says** — a restart in
 most deployments, `impi agent sync` where each agent has a container. If the tool
 reports a missing admin
