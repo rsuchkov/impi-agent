@@ -259,6 +259,19 @@ credential, is another user's credential.
   tool leaves a note for the code that started the turn; read `scope.flags`
   when `handle_batch` returns. Chat gateways set no scope: nothing on Slack or
   Mattermost belongs to one turn.
+- **An HTTP API for your own frontend** is what the `http` gateway is
+  (`crucible.gateways.http`, contract in [http-gateway.md](http-gateway.md)):
+  `HttpHub(host, port, callers, dispatcher=…, control=runtime)` plus, per
+  agent, `HttpChatClient(hub.turns, name)` as the chat client and `hub.turns`
+  as the flow's `tracer`; `GatewayFactory(http_hub=hub)` does this for a
+  `GatewayConfig(kind="http")`. The piece that is yours is `callers`, a
+  `CallerAuthenticator`: `TokenCallers` trusts a bearer token and two headers,
+  and an application whose users prove themselves otherwise (a session cookie
+  checked upstream) implements `authenticate(request, body) -> Caller | None`
+  itself — and builds the `Caller.turn` scope there, so a credential that came
+  with the request reaches the tools of that turn and nothing else. What a
+  dialog is and whether to keep one is the application's; the journal lives
+  ten minutes past the turn.
 - For tests without a `pi` binary, `tests/fakes/fake_transport.py` in this
   repository is an in-process `PiTransport` you can copy: a reactor answers the
   commands the session sends, and the session logic runs unchanged.

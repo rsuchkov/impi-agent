@@ -104,6 +104,9 @@ then tell the operator to:
      and `AGENTS_GATEWAY__<NAME>=slack`.
    - ws (the operator's own programs, no chat platform): `AGENTS_GATEWAY__<NAME>=ws`
      and a service token — see `$IMPI_ROOT/docs/ws-gateway.md`.
+   - http (a program that cannot hold a socket — a browser panel behind a
+     server): `AGENTS_GATEWAY__<NAME>=http` and a caller token from
+     `impi http add-caller <name>` — see `$IMPI_ROOT/docs/http-gateway.md`.
 3. **Restart** the engine — or, where each agent has a container of its own,
    `impi agent sync`, which builds the new one and starts it.
 

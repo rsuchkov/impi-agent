@@ -45,7 +45,8 @@ conversations between people and agents — and between agents.
 - **Files in both directions.** Attachments people send, files and screenshots
   agents send back. → [files.md](docs/files.md)
 - **Your own services.** Plug a program in over WebSocket as if it were another
-  chat platform. → [ws-gateway.md](docs/ws-gateway.md)
+  chat platform, or over a request/turn HTTP API when it cannot hold a socket.
+  → [ws-gateway.md](docs/ws-gateway.md), [http-gateway.md](docs/http-gateway.md)
 
 ## How it works
 
@@ -187,6 +188,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/files.md](docs/files.md) — files and photos, in both directions.
 - [docs/commands.md](docs/commands.md) — slash commands and shortcuts, and how to answer one privately.
 - [docs/ws-gateway.md](docs/ws-gateway.md) — plug your own service in over WebSocket.
+- [docs/http-gateway.md](docs/http-gateway.md) — the request/turn HTTP API for programs that cannot hold a socket.
 - [docs/storage.md](docs/storage.md) — where the engine's state lives, and what a backend does not move.
 - [docs/configuration.md](docs/configuration.md) — every `.env` / config knob.
 - [docs/runtime-notes.md](docs/runtime-notes.md) — the `pi` flags and facts the engine relies on.

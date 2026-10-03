@@ -98,8 +98,10 @@ runtime:
 Leave `provider`/`model` out unless an agent needs a **different** backend than
 the engine default — agents may run different models.
 
-An agent runs on one gateway: `mattermost`, `slack`, or `ws` (a WebSocket hub
-for the operator's own programs). Kinds mix freely in one engine.
+An agent runs on one gateway: `mattermost`, `slack`, `ws` (a WebSocket hub for
+the operator's own programs) or `http` (a request/turn API for programs that
+cannot hold a socket — a browser panel behind a server). Kinds mix freely in one
+engine.
 
 ## Tool gating (important)
 

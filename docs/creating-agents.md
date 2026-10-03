@@ -68,9 +68,11 @@ no tools at all**. Two rules to remember:
   provide a capability it requires — e.g. widget tools when interactivity is
   disabled, or `send_ephemeral` on a gateway that can't post ephemeral messages.
   Capabilities per gateway: Mattermost and Slack provide channel administration
-  and ephemeral messages; the ws gateway provides neither (widgets/forms depend
-  on interactivity being enabled). So a tool listed by an agent whose gateway
-  lacks the capability simply isn't advertised to it.
+  and ephemeral messages; the ws and http gateways provide neither (widgets
+  depend on interactivity being enabled; on http they reach the caller as
+  journal events, on ws they degrade to text; forms cannot open on either). So
+  a tool listed by an agent whose gateway lacks the capability simply isn't
+  advertised to it.
   - **`send_ephemeral`** posts a message only one user sees (the turn's user by
     default, or a given `@username`). **Mattermost gates this behind the
     `create_post_ephemeral` permission**, which a bot account lacks by default —
@@ -197,12 +199,14 @@ how you turn a bundled agent's skills on or off.
 ## Choosing a gateway
 
 By default an agent runs on `GATEWAY` (Mattermost). Override per agent with
-`AGENTS_GATEWAY__<AGENT>=slack` or `=ws`. A Slack agent needs Slack tokens
-instead of a Mattermost token (see [configuration.md](configuration.md)); the
-engine appends Slack formatting rules to that agent's system prompt
+`AGENTS_GATEWAY__<AGENT>=slack`, `=ws` or `=http`. A Slack agent needs Slack
+tokens instead of a Mattermost token (see [configuration.md](configuration.md));
+the engine appends Slack formatting rules to that agent's system prompt
 automatically. A `ws` agent talks to your own programs over the engine's
-WebSocket hub — no per-agent token; access is authorized by service tokens
-(see [ws-gateway.md](ws-gateway.md)). Kinds mix freely in one engine.
+WebSocket hub, an `http` agent over a request/turn API for programs that cannot
+hold a socket — neither has a per-agent token; access is authorized by the
+callers' own tokens (see [ws-gateway.md](ws-gateway.md),
+[http-gateway.md](http-gateway.md)). Kinds mix freely in one engine.
 
 ## Commands (slash commands / shortcuts)
 

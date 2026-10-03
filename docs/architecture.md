@@ -136,6 +136,11 @@ channel; with several agents present, only an explicit mention) and the
   interactions receiver).
 - **Slack** (Socket Mode) drives the same interaction dispatcher over its
   **socket** — no HTTP receiver needed.
+- **ws** is one duplex WebSocket per client service, replies pushed as frames.
+- **http** is a request/turn API: a message starts a turn, the turn's journal
+  is polled by cursor, a card is a journal event answered through the same
+  dispatcher, one turn per conversation at a time. For programs that cannot
+  hold a socket — see [http-gateway.md](http-gateway.md).
 
 The `GatewayFactory` that builds these lives in `crucible.gateways`; it takes a
 neutral `GatewayConfig` (which transport, which tokens). `impi` only resolves that

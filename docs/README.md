@@ -45,6 +45,8 @@ people. Keep them accurate to the code.
   the pattern for private, deterministic results (a handler beside the agent).
 - **[ws-gateway.md](ws-gateway.md)** — the WebSocket gateway for your own client
   services: the frame protocol, conversation isolation, a minimal client.
+- **[http-gateway.md](http-gateway.md)** — the request/turn HTTP API for programs
+  that cannot hold a socket: turns, journals, busy, idempotent submits, cards.
 - **[configuration.md](configuration.md)** — every configuration knob: the `.env`
   variables, their defaults, and what reads them.
 - **[installation.md](installation.md)** — deploying the engine in containers:

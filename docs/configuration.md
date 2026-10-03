@@ -81,8 +81,9 @@ Client services are dynamic keys (register with `impi ws add-service`):
 ## http gateway (request/turn API)
 
 A request/turn HTTP API for programs that cannot hold a socket open — a browser
-behind someone else's server, a caller spread over several nodes. Started only
-when some agent has `AGENTS_GATEWAY__<AGENT>=http`.
+behind someone else's server, a caller spread over several nodes; see
+[http-gateway.md](http-gateway.md). Started only when some agent has
+`AGENTS_GATEWAY__<AGENT>=http`.
 
 | Variable | Default | Purpose |
 |---|---|---|
