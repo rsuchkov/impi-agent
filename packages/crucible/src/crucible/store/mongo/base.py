@@ -1,5 +1,5 @@
 """Shared plumbing for the MongoDB backend: document conversion, collection
-names, and the lazy index build.
+names (and the prefix a deployment may put on them), and the lazy index build.
 
 Records go in as their own fields — the dataclasses are already flat documents,
 which is why this backend needed no reshaping of the port. Where the port's
@@ -11,9 +11,11 @@ ordering trick instead of a transaction, and both say so.
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import fields
 from typing import Any, TypeVar
 
+from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
 
 T = TypeVar("T")
@@ -34,6 +36,46 @@ TRACES = "tool_traces"
 # so there is nothing to choose between.
 HEARTBEAT_ID = 1
 
+# What a collection prefix may be made of. Mongo itself allows more; this keeps
+# a prefix something a person can read in a collection list and type into a
+# shell without quoting.
+_PREFIX = re.compile(r"[A-Za-z0-9_-]*")
+
+
+def check_prefix(prefix: str) -> str:
+    """The prefix, or a ValueError that says what is wrong with it — at
+    composition, not from the first query that creates a collection."""
+    if not _PREFIX.fullmatch(prefix):
+        raise ValueError(
+            f"collection prefix {prefix!r} may only contain letters, digits, '_' and '-' "
+            "(DB_COLLECTION_PREFIX)"
+        )
+    return prefix
+
+
+class Collections:
+    """The database seen through a collection-name prefix.
+
+    The names above are the *logical* ones — what the code and the docs say —
+    and a deployment that shares one database between several engines (or with
+    an application's own collections) gives each a prefix, so ``sessions``
+    is stored as ``engine_sessions``. Every access goes through ``__getitem__``
+    with a logical name, which is the one place the prefix is applied; the
+    backend's methods never see a physical name. Empty prefix = the names as
+    they are, which is the default and what every deployment so far has.
+    """
+
+    def __init__(self, db: AsyncDatabase, prefix: str = "") -> None:
+        self._db = db
+        self._prefix = check_prefix(prefix)
+
+    @property
+    def prefix(self) -> str:
+        return self._prefix
+
+    def __getitem__(self, name: str) -> AsyncCollection:
+        return self._db[f"{self._prefix}{name}"]
+
 
 def to_doc(record: object, **extra: Any) -> dict[str, Any]:
     """A frozen record as a document. Field names are kept verbatim so a person
@@ -50,7 +92,7 @@ def from_doc(cls: type[T], doc: dict[str, Any]) -> T:
     return cls(**{f.name: doc[f.name] for f in fields(cls)})  # type: ignore[arg-type,call-arg]
 
 
-async def create_indexes(db: AsyncDatabase) -> None:
+async def create_indexes(db: Collections) -> None:
     """Every uniqueness the port relies on, as an index.
 
     These are not an optimisation. Each one is load-bearing: they are what makes
@@ -88,11 +130,11 @@ class MongoBase:
     once rather than ten times.
     """
 
-    _db: AsyncDatabase
+    _db: Collections
     _indexed: bool
     _index_lock: asyncio.Lock
 
-    async def _ready(self) -> AsyncDatabase:
+    async def _ready(self) -> Collections:
         if self._indexed:
             return self._db
         async with self._index_lock:

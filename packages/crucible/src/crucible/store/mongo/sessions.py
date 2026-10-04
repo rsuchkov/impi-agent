@@ -29,6 +29,7 @@ from crucible.store.mongo.base import (
     INTERACTIONS,
     PROCESSED,
     SESSIONS,
+    Collections,
     from_doc,
     to_doc,
 )
@@ -43,9 +44,11 @@ class MongoSessionStore(MongoTaskMixin, MongoApprovalMixin, MongoTraceMixin):
     no thread to hop to and no sync core underneath.
     """
 
-    def __init__(self, url: str, database: str) -> None:
+    def __init__(self, url: str, database: str, *, prefix: str = "") -> None:
         self._client: AsyncMongoClient = AsyncMongoClient(url)
-        self._db = self._client[database]
+        # ``prefix`` goes on every collection name: for a database this engine
+        # shares with another one, or with the application's own collections.
+        self._db = Collections(self._client[database], prefix)
         self._indexed = False
         self._index_lock = asyncio.Lock()
 

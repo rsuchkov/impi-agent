@@ -316,7 +316,8 @@ def build_app(settings: ImpiSettings) -> App:
     engine_names = {spec.name for spec in engine_store.list()}
     profiles = CompositeProfileStore([user_store, engine_store])  # rejects duplicate names
     sessions = open_store(
-        settings.store_backend, name=settings.resolved_db_name, url=settings.db_url
+        settings.store_backend, name=settings.resolved_db_name, url=settings.db_url,
+        prefix=settings.db_collection_prefix,
     )
 
     # Resolve each agent's gateway config once, up front: it tells us which agents

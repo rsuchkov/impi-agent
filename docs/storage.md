@@ -74,6 +74,7 @@ directly in `conf/.env`:
 | `STORE_BACKEND` | `sqlite` | what kind: `sqlite` or `mongo` |
 | `DB_NAME` | `""` | which one: a file path on `sqlite` (default `{DATA_DIR}/impi.db`), a database name on `mongo` (default `impi`) |
 | `DB_URL` | `""` | where the server is; required on `mongo`, unused on `sqlite` |
+| `DB_COLLECTION_PREFIX` | `""` | on `mongo`, a prefix for every collection name (`sessions` → `engine_sessions`); letters, digits, `_` and `-`. Unused on `sqlite` |
 
 Three keys, and the first decides what the second means. Anything else a
 backend needs goes in `DB_URL`, which is where a connection string already
@@ -82,6 +83,13 @@ carries a replica set, TLS or credentials:
 ```sh
 DB_URL=mongodb://user:pass@a:27017,b:27017/?replicaSet=rs0&tls=true
 ```
+
+The fourth is for a database that is not this engine's alone — shared with
+another engine, or with an application's own collections — and is empty by
+default, so an existing deployment keeps its collection names. Set it before
+the first start: changing it later is the same as switching backends (below),
+the old collections stay where they were and nothing reads them. A library
+application passes it as `open_store(..., prefix=…)`.
 
 `DB_PATH` is the name `DB_NAME` had when SQLite was the only option. It still
 works — a deployment that set it keeps opening the same file — but rename it:

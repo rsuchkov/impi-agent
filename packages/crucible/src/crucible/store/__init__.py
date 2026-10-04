@@ -11,6 +11,7 @@ installed; MongoDB is for a deployment that wants its state outside the process
 and pulls in an optional dependency to get it.
 """
 
+import re
 from pathlib import Path
 
 from crucible.store.base import (
@@ -36,8 +37,14 @@ from crucible.store.base import (
 )
 from crucible.store.sqlite import SqliteSessionStore
 
+# Mirrors ``crucible.store.mongo.base.check_prefix`` without importing it — that
+# module pulls in pymongo, which this one must not.
+_COLLECTION_PREFIX = re.compile(r"[A-Za-z0-9_-]*")
 
-def open_store(backend: str = SQLITE, *, name: str | Path = "", url: str = "") -> Store:
+
+def open_store(
+    backend: str = SQLITE, *, name: str | Path = "", url: str = "", prefix: str = ""
+) -> Store:
     """Build the inventory a deployment asked for.
 
     Two arguments, and the backend decides what they mean: ``name`` is a file
@@ -45,6 +52,9 @@ def open_store(backend: str = SQLITE, *, name: str | Path = "", url: str = "") -
     is and is meaningless without one. That is the same shape the settings have,
     on purpose — a deployment names its database once and says what kind it is,
     rather than filling in one set of keys and leaving another set empty.
+    ``prefix`` goes on every collection name on a server backend, for a database
+    shared with another engine or with an application's own collections; a file
+    is nobody else's, so SQLite ignores it.
 
     Plain arguments rather than a settings object: the library must not know the
     shape of the application's configuration.
@@ -63,6 +73,13 @@ def open_store(backend: str = SQLITE, *, name: str | Path = "", url: str = "") -
         )
     if not url:
         raise ValueError("the mongo store backend needs a connection URL (DB_URL)")
+    if not _COLLECTION_PREFIX.fullmatch(prefix):
+        # Checked here as well as in the backend, so a bad prefix fails before
+        # the optional import, with the same sentence either way.
+        raise ValueError(
+            f"collection prefix {prefix!r} may only contain letters, digits, '_' and '-' "
+            "(DB_COLLECTION_PREFIX)"
+        )
     try:
         # Deferred on purpose, and the one place in the library that is. Naming
         # `crucible.store.mongo` at the top would import pymongo for everyone,
@@ -77,7 +94,7 @@ def open_store(backend: str = SQLITE, *, name: str | Path = "", url: str = "") -
             "the mongo store backend needs the 'mongo' extra: "
             "install crucible[mongo] (or add pymongo>=4.9)"
         ) from exc
-    return MongoSessionStore(url, str(name))
+    return MongoSessionStore(url, str(name), prefix=prefix)
 
 __all__ = [
     "SessionRecord",

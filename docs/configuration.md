@@ -142,6 +142,7 @@ An agent is present only if its token is set; a tokenless profile is skipped.
 | `STORE_BACKEND` | `sqlite` | what kind of database holds the inventory: `sqlite` or `mongo` — see [storage.md](storage.md) |
 | `DB_NAME` | `""` | which one: a file path on `sqlite` (default `{DATA_DIR}/impi.db`), a database name on `mongo` (default `impi`) |
 | `DB_URL` | `""` | where the server is; required on `mongo`, unused on `sqlite`. Connection options (replica set, TLS, credentials) go in this URL |
+| `DB_COLLECTION_PREFIX` | `""` | on `mongo`, a prefix for every collection name, for a database shared with another engine or an application; letters, digits, `_` and `-`. Unused on `sqlite` |
 
 `DB_PATH` is the name `DB_NAME` had when SQLite was the only option and still
 works, so a deployment that set it keeps opening the same file.

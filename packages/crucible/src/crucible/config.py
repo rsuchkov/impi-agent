@@ -221,6 +221,11 @@ class Settings(BaseSettings):
     # works, so a deployment that set it keeps opening the same file.
     db_name: str = Field(default="", validation_alias=AliasChoices("DB_NAME", "DB_PATH"))
     db_url: str = ""
+    # On a server backend, a prefix for every collection name — for a database
+    # shared with another engine or with an application's own collections.
+    # Empty keeps the plain names, so an existing deployment is untouched; a
+    # file backend ignores it.
+    db_collection_prefix: str = ""
 
     # Files people attach in chat, and files agents send back. Off = attachments
     # are ignored on the way in and no agent gets the send-a-file tool.

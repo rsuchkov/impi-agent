@@ -28,6 +28,12 @@ when a release is cut, and `impi update` shows the target version's section.
   and reports not ready while the turns already running finish;
   `hub.idle(timeout)` waits for them. The engine drains for `HTTP_DRAIN_S`
   (20) on shutdown.
+- **A Mongo inventory can live in a shared database.** `DB_COLLECTION_PREFIX`
+  (library: `open_store(..., prefix=…)`) puts a prefix on every collection
+  name, so two engines, or an engine and an application's own collections,
+  share one database without reading each other's `sessions`. Empty by
+  default: an existing deployment keeps its names. A prefix that would need
+  quoting in a shell is refused at startup.
 - **For applications on the library: a conversation the runtime forgot is
   replayed, not started mid-air.** With `AgentFlow(..., control=runtime)` the
   flow asks the runtime whether it still remembers a known conversation; when

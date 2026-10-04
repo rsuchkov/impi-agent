@@ -722,7 +722,8 @@ def _cmd_health(args: argparse.Namespace) -> int:
 def _store() -> Store:
     settings = _settings()
     return open_store(
-        settings.store_backend, name=settings.resolved_db_name, url=settings.db_url
+        settings.store_backend, name=settings.resolved_db_name, url=settings.db_url,
+        prefix=settings.db_collection_prefix,
     )
 
 

@@ -117,6 +117,7 @@ async def _run(args: argparse.Namespace) -> None:
         settings.store_backend,
         name=args.db or settings.resolved_db_name,
         url=settings.db_url,
+        prefix=settings.db_collection_prefix,
     )
     try:
         await args.func(settings, store, args)

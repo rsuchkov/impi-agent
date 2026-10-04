@@ -51,14 +51,15 @@ class SqliteBackend(StoreBackend):
 class MongoBackend(StoreBackend):
     name = "mongo"
 
-    def __init__(self, url: str, database: str) -> None:
+    def __init__(self, url: str, database: str, prefix: str = "") -> None:
         self._url = url
         self._database = database
+        self._prefix = prefix
 
     def open(self) -> Store:
         from crucible.store.mongo import MongoSessionStore
 
-        return MongoSessionStore(self._url, self._database)
+        return MongoSessionStore(self._url, self._database, prefix=self._prefix)
 
     def cleanup(self) -> None:
         from pymongo import MongoClient
