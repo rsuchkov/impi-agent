@@ -21,7 +21,7 @@ receiver and a store, and no runtime at all.
 | Flows | `crucible.flows` | Conversation orchestration: `AgentFlow` (a batch → one reply), `MessageCoalescer`. |
 | Tools | `crucible.tools` | The typed-tool framework: `@tool` registry, capability gating, an HTTP tool-server. |
 | Interactions | `crucible.interactions` | The widget/form callback machinery (dispatcher, receiver, UI bridge). Stateless: reads an `AgentPresence` the app owns. |
-| Approvals | `crucible.approvals` | Asking a human: who may answer, once / for a window / deny, and the containment that keeps a card's content from forging its structure. A leaf — it imports nothing else here. |
+| Approvals | `crucible.approvals` | Asking a human: who may answer, once / for a window / deny, and the containment that keeps a card's content from forging its structure. A leaf — it imports only the chat vocabulary and `containment`. |
 | Store | `crucible.store` | Persistence for sessions, interactions, forms, scheduled tasks, approval windows and the decision ledger. A port with two backends — SQLite in a file, or MongoDB on a server — chosen with `open_store`. |
 | Scheduler | `crucible.scheduler` | One ticker over the task tables: cron and one-shot runs, through ports. |
 | Skills | `crucible.skills` | The shared skill library as a plain file store. |
@@ -71,8 +71,9 @@ The rules, in plain terms:
 
 - The library never imports an application, and the applications never import
   each other.
-- **Asking a human is a leaf** — the approval primitive knows no other layer, so
-  a tool call and a request for a credential can both use it.
+- **Asking a human is a leaf** — the approval primitive knows only the chat
+  vocabulary and the containment helpers, no other layer, so a tool call and a
+  request for a credential can both use it.
 - The **core is platform-blind** — only the gateway adapters (and the app's
   composition root) may import a chat-platform SDK.
 - A **gateway** depends on chat ports only — not the runtime, flows, store, or profiles.

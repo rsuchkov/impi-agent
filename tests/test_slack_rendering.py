@@ -395,3 +395,29 @@ def test_a_confirmation_card_becomes_native_fields_with_hardened_values() -> Non
     # no longer applies — nothing is left to click.
     verdict = build_confirmation_blocks(card, [])
     assert [b["type"] for b in verdict] == ["section", "section", "section"]
+
+
+def test_slack_card_values_cannot_mention_link_or_break_their_code_span() -> None:
+    """mrkdwn reads `<…>` as a link or a mention and `&` as an entity even
+    inside a code span, and knows no fence longer than one backtick — so the
+    values are escaped for it, not only contained."""
+    from crucible.gateways.slack.rendering import build_confirmation_blocks
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    card = ApprovalCard(
+        agent="assistant", headline="wants to run dangerous.",
+        fields=(
+            PreviewRow("Action", "<!channel> see <https://evil.example|jira> & co"),
+            PreviewRow("Reason", "has a ` backtick"),
+            PreviewRow("Assignee", "", before="alice"),  # a change to nothing
+        ),
+        block_label="Arguments", block='{"url": "<https://evil.example>"}',
+        expires_at="2026-10-04T12:00:00+00:00",
+    )
+    blocks = build_confirmation_blocks(card, [Action(id="once", label="Allow once", value="once")])
+    fields = blocks[1]["fields"]
+    assert fields[0]["text"] == "*Action*\n`&lt;!channel&gt; see &lt;https://evil.example|jira&gt; &amp; co`"
+    assert fields[1]["text"] == "*Reason*\n`has a ˋ backtick`"  # one fence, kept inline
+    assert fields[2]["text"] == "*Assignee*\n`alice` → "
+    assert "&lt;https://evil.example&gt;" in blocks[2]["text"]["text"]
+    assert blocks[3]["elements"][0]["text"].startswith("Answer by <!date^1791115200^{date_short_pretty} at {time}|2026-10-04T12:00:00+00:00>")

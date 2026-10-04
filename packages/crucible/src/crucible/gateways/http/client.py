@@ -148,15 +148,13 @@ class HttpChatClient:
         if turn is None:
             return ""
         post_id = uuid.uuid4().hex
-        turn.posted[post_id] = tuple(actions)
-        turn.blocking.add(post_id)
         # The card as data: a program draws the headline, a before → after
         # diff, a danger style and a countdown itself. Nothing rendered here.
         turn.journal.emit(
             EV_CONFIRMATION, postId=post_id, **_wire_card(card),
             actions=[_wire_action(a) for a in actions],
         )
-        turn.journal.set_status(STATUS_AWAITING_INPUT)
+        self._settle(turn, post_id, tuple(actions))
         return post_id
 
     async def update_confirmation(
@@ -175,10 +173,18 @@ class HttpChatClient:
             EV_CONFIRMATION_UPDATED, postId=post_id, **_wire_card(card),
             actions=[_wire_action(a) for a in answers],
         )
+        self._settle(turn, post_id, answers)
+
+    @staticmethod
+    def _settle(turn, post_id: str, answers: tuple[Action, ...]) -> None:
+        """What a card with these controls means for the turn: something to
+        click blocks it (awaiting_input); nothing to click — a notice, a verdict
+        — does not, and the post stays known so a later rewrite still finds it."""
+        turn.posted[post_id] = answers
         if answers:
-            turn.posted[post_id] = answers
+            turn.blocking.add(post_id)
+            turn.journal.set_status(STATUS_AWAITING_INPUT)
             return
-        turn.posted.pop(post_id, None)
         turn.blocking.discard(post_id)
         if not turn.blocking:
             turn.journal.set_status(STATUS_RUNNING)

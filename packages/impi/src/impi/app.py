@@ -648,6 +648,17 @@ async def _supervise(
             backoff = min(backoff * 2, 60.0)
 
 
+def stop_on_sigterm(task: asyncio.Task | None = None) -> None:
+    """Make SIGTERM cancel ``task`` (the current one by default) and nothing
+    else. Raising KeyboardInterrupt from a signal handler — the old way — made
+    ``asyncio.run`` cancel every task at once on the way out, so a shutdown that
+    meant to wait for running turns found none left to wait for."""
+    target = task or asyncio.current_task()
+    if target is None:
+        raise RuntimeError("stop_on_sigterm needs a running task")
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, target.cancel)
+
+
 async def run(settings: ImpiSettings) -> None:
     app = build_app(settings)
     if app.tracer is not None:
@@ -685,6 +696,12 @@ async def run(settings: ImpiSettings) -> None:
             signal.SIGHUP,
             lambda: asyncio.create_task(app.reloader.reload(identities)),
         )
+        # SIGTERM (`make stop`, a container runtime, Kubernetes) ends THIS task
+        # only, so the finally below runs while every other task — the turns in
+        # flight — is still alive, which is what lets the http hub drain. The
+        # same shutdown Ctrl+C gets, since asyncio.run cancels the main task on
+        # SIGINT too.
+        stop_on_sigterm()
         # N supervised WS loops in one process, plus the scheduler's tick — each
         # isolated from the others. The scheduler goes here rather than into a
         # detached task on purpose: a background task whose exception nobody

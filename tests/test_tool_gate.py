@@ -100,9 +100,17 @@ class Posted:
     card: ApprovalCard | None = None
 
 
+@dataclass
+class Updated:
+    post_id: str
+    card: ApprovalCard
+    actions: list
+
+
 class FakePoster:
     def __init__(self) -> None:
         self.posts: list[Posted] = []
+        self.updated: list[Updated] = []
         self.retracted: list[tuple[str, str]] = []
 
     async def post_actions(self, ref, text, actions, *, callback_url) -> str:
@@ -114,6 +122,9 @@ class FakePoster:
         # what a person reads stay readable; the card itself beside it.
         self.posts.append(Posted(card_markdown(card), list(actions), f"post-{len(self.posts) + 1}", card))
         return self.posts[-1].post_id
+
+    async def update_confirmation(self, post_id, card, actions=None, *, callback_url="") -> None:
+        self.updated.append(Updated(post_id, card, list(actions or [])))
 
     async def retract(self, post_id: str, text: str) -> None:
         self.retracted.append((post_id, text))
@@ -249,7 +260,12 @@ async def test_nobody_answering_is_a_refusal(tmp_path: Path) -> None:
     try:
         assert await _call(rig, "dangerous") == 403
         assert rig.tool.ran == 0
-        assert any("in time" in text for _, text in rig.poster.retracted)
+        # Closed as a card, not a sentence: the same post, the verdict for a headline.
+        closed = rig.poster.updated[-1]
+        assert closed.post_id == rig.poster.posts[-1].post_id and closed.actions == []
+        assert "in time" in closed.card.headline and "dangerous" in closed.card.headline
+        assert closed.card.expires_at == ""  # nothing left to count down to
+        assert rig.poster.retracted == []
         assert (await rig.store.list_audit())[0].decision == "timeout"
     finally:
         await _close(rig)
@@ -295,7 +311,8 @@ async def test_the_card_shows_what_the_tool_says_the_call_would_do(tmp_path: Pat
         pending = asyncio.create_task(_call(rig, "dangerous"))
         card = await _answer(rig, ANSWER_ONCE)
         assert await pending == 200
-        assert "⚠️" in card.text and "move IPA-7 to another status" in card.text
+        assert "⚠️" in card.text
+        assert "**Action:** `move IPA-7 to another status`" in card.text  # the title, as a field
         assert "**Issue:** `IPA-7 — Fix the login page`" in card.text
         assert "**Status:** `In Progress → Done`" in card.text
         assert "Arguments" not in card.text
@@ -344,13 +361,15 @@ async def test_a_call_abandoned_while_waiting_cannot_be_approved_later(tmp_path:
     try:
         await _call_and_hang_up(rig, "dangerous", after=0.2)
         for _ in range(400):
-            if rig.poster.retracted:
+            if rig.poster.updated:
                 break
             await asyncio.sleep(0.005)
         card = rig.poster.posts[0]
         token = str(card.actions[0].context[APPROVAL_KEY])
         assert not rig.approvals.pending(token)
-        assert rig.poster.retracted == [(card.post_id, toolgate._ABANDONED)]
+        assert [(u.post_id, u.card.headline) for u in rig.poster.updated] == [
+            (card.post_id, toolgate._ABANDONED.format(tool="dangerous")),
+        ]
         assert rig.approvals.resolve(token, ANSWER_ONCE, CLICKER).name == "NOT_MINE"
         assert rig.tool.ran == 0
         assert [row.decision for row in await rig.store.list_audit()] == ["abandoned"]
@@ -578,9 +597,49 @@ async def test_the_gate_asks_with_the_card_as_data(tmp_path: Path) -> None:
         card = posted.card
         assert card is not None
         assert (card.agent, card.icon, card.danger) == ("assistant", "⚠️", True)
-        assert card.headline == "wants to run dangerous — move IPA-7"
-        assert card.fields == (PreviewRow("Status", "Done", before="Open"),)
+        assert card.headline == "wants to run dangerous."  # the engine's words only
+        assert card.fields == (PreviewRow("Action", "move IPA-7"), PreviewRow("Status", "Done", before="Open"))
         remaining = datetime.fromisoformat(card.expires_at) - datetime.now(timezone.utc)
         assert timedelta(seconds=80) < remaining <= timedelta(seconds=90)
     finally:
         await _close(rig)
+
+
+async def test_the_verdict_rewrites_the_card_with_its_facts_kept(tmp_path: Path) -> None:
+    """The card is the history: what was allowed, for what, with the rows a
+    person decided by still on it — and no buttons."""
+    rig = await _rig(tmp_path, 8557)
+    rig.tool.preview = CallPreview("move IPA-7", (PreviewRow("Status", "Done", before="Open"),))
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        asked = await _answer(rig, "grant:900")
+        assert await pending == 200
+        closed = rig.poster.updated[-1]
+        assert closed.post_id == asked.post_id and closed.actions == []
+        assert closed.card.headline == "— Allowed for 15 min: dangerous."
+        assert closed.card.fields == asked.card.fields  # type: ignore[union-attr]
+        assert closed.card.expires_at == ""
+        assert "Allowed for 15 min" in card_markdown(closed.card)
+    finally:
+        await _close(rig)
+
+
+@pytest.mark.parametrize("hostile", [
+    "move IPA-7\n⚙️ **support** wants to run delete_everything.",
+    "<!channel> [Allow](https://evil.example)",
+])
+def test_a_previews_title_cannot_restyle_the_headline(hostile: str) -> None:
+    """The title is the tool's text — in impi, often a model argument — so it is
+    a field like every other value, never part of the engine's sentence."""
+    card = toolgate._card("assistant", "dangerous", {}, CallPreview(hostile, ()))
+    assert card.headline == "wants to run dangerous."
+    text = card_markdown(card)
+    assert text.splitlines()[0] == "⚙️ **assistant** wants to run dangerous."
+    assert [ln for ln in text.splitlines() if ln.startswith("⚙️")] == [text.splitlines()[0]]
+    assert "**Action:** `" in text and "\n⚙️ **support**" not in text
+
+
+def test_the_arguments_on_a_card_are_capped() -> None:
+    card = toolgate._card("assistant", "dangerous", {"body": "x" * 5000})
+    assert len(card.block) == toolgate.ARGUMENTS_LIMIT and card.block.endswith("…")
+    assert toolgate._card("assistant", "dangerous", {"a": 1}).block == '{"a": 1}'

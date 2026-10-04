@@ -156,6 +156,7 @@ class HttpHub:
     # -- lifecycle ------------------------------------------------------------
 
     async def start(self) -> None:
+        self._draining = False  # a hub started again takes messages again
         app = web.Application(
             middlewares=[self._envelope, *self._middlewares], client_max_size=self._max_body
         )
@@ -304,12 +305,17 @@ class HttpHub:
         body = await self.body(request)
         caller = await self.caller(request, body)
         agent, sink, chat = self._agent(request, caller)
-        if self._draining:
-            raise Refusal(503, "draining", "this engine is shutting down; send the message elsewhere")
         conversation_id = request.match_info["conversation"]
         client_message_id = str(body.get("clientMessageId") or "")
         if not _CLIENT_ID.match(client_message_id):
             raise Refusal(422, "validation", "`clientMessageId` is required: 1-128 url-safe characters")
+        conversation = self.conversation_key(caller, conversation_id)
+        # Draining refuses NEW turns. The retry of a message this hub already
+        # answered is not one: it gets its turn id back, as it would have
+        # without the drain, so the client follows the turn here instead of
+        # starting it again elsewhere.
+        if self._draining and self.turns.known(conversation, client_message_id) is None:
+            raise Refusal(503, "draining", "this engine is shutting down; send the message elsewhere")
         text = body.get("text")
         if not isinstance(text, str) or len(text) > MAX_TEXT:
             raise Refusal(422, "validation", f"`text` must be a string of at most {MAX_TEXT} characters")
@@ -323,7 +329,6 @@ class HttpHub:
         if not text.strip() and not files:
             raise Refusal(422, "validation", "`text` must not be empty unless files are attached")
 
-        conversation = self.conversation_key(caller, conversation_id)
         self._sweep()
         if (running := self.turns.active(conversation)) is not None and \
                 running.client_message_id != client_message_id:
@@ -336,6 +341,10 @@ class HttpHub:
         stored = ()
         if files and self._attachments is not None:
             stored = await self._attachments.save_many(agent, conversation, files)
+        # Checked again past the only await above: a drain that began while the
+        # files were saved must not be followed by a turn `idle()` never saw.
+        if self._draining and self.turns.known(conversation, client_message_id) is None:
+            raise Refusal(503, "draining", "this engine is shutting down; send the message elsewhere")
         try:
             turn, created = self.turns.start(
                 agent=agent, conversation=conversation, owner=caller.owner,
@@ -364,8 +373,10 @@ class HttpHub:
             is_dm=True,
             mentioned=True,
             # The hub's turn id travels on the scope: a flow or a tool that keeps
-            # a transcript of its own then shares a key with the journal.
-            turn=replace(caller.turn, turn_id=turn.id) if caller.turn is not None
+            # a transcript of its own then shares a key with the journal. Fresh
+            # flags: `replace` would hand the authenticator's own set to the
+            # turn, and a flag a tool left would then outlive it.
+            turn=replace(caller.turn, turn_id=turn.id, flags=set()) if caller.turn is not None
             else TurnScope(turn_id=turn.id),
             attachments=tuple(stored),
         )

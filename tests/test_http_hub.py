@@ -459,15 +459,15 @@ def test_a_hub_rejects_nothing_it_does_not_understand_in_the_contract() -> None:
     assert API_VERSION == "1.0"
 
 
-@pytest.mark.parametrize("wait", ["abc", "-1"])
-async def test_bad_query_values_are_validation_errors(wait: str) -> None:
+@pytest.mark.parametrize(("wait", "expected"), [("abc", 422), ("-1", 200)])
+async def test_bad_query_values_are_validation_errors(wait: str, expected: int) -> None:
     hub, _ = _hub(8490)
     await hub.start()
     try:
         async with aiohttp.ClientSession() as s:
             _, started = await _post(s, 8490, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
             status, body = await _get(s, 8490, f"/v1/turns/{started['turnId']}/events?wait={wait}")
-            assert status in (200, 422)  # a negative wait is clamped; a word is refused
+            assert status == expected  # a negative wait is clamped; a word is refused
             if status == 422:
                 assert body["error"]["code"] == "validation"
     finally:
@@ -691,10 +691,13 @@ async def test_the_turns_id_rides_on_the_messages_scope() -> None:
     from crucible.gateways.http import Caller
     from crucible.ports.turn import TurnScope, TurnSecrets
 
+    # One scope object for the caller, as an authenticator that caches what it
+    # resolved for a token would hand back.
+    shared = TurnScope("", TurnSecrets({"cookie": "c"}), {"locale": "ru"})
+
     class _WithScope:
         async def authenticate(self, request, body):
-            return Caller(realm="portal", user_id="u-1",
-                          turn=TurnScope("", TurnSecrets({"cookie": "c"}), {"locale": "ru"}))
+            return Caller(realm="portal", user_id="u-1", turn=shared)
 
     seen: list[IncomingMessage] = []
 
@@ -715,6 +718,13 @@ async def test_the_turns_id_rides_on_the_messages_scope() -> None:
             assert scope is not None and scope.turn_id == started["turnId"]
             assert scope.secrets.get("cookie") == "c" and scope.attributes == {"locale": "ru"}  # kept
             assert any(e["type"] == "message" for e in events)
+            # A flag a tool leaves is this turn's: the next turn of the same
+            # caller — the same scope object from the authenticator — starts clean.
+            scope.flag("session_expired")
+            _, again = await _post(s, 8500, MESSAGES, {"clientMessageId": "m2", "text": "more"},
+                                   headers={"Authorization": "Bearer any"})
+            await _drain(s, 8500, again["turnId"])
+            assert seen[1].turn is not None and seen[1].turn.flags == set()
     finally:
         await hub.stop()
 
@@ -914,5 +924,80 @@ async def test_an_updated_confirmation_is_the_same_post_rewritten_as_data() -> N
                                     {"postId": card["postId"], "actionId": "yes"})
             assert status == 404
             go_on.set()
+    finally:
+        await hub.stop()
+
+
+async def test_a_card_with_nothing_to_click_does_not_hold_the_turn() -> None:
+    """A notice or a verdict is a card too — told, not asked. The turn keeps
+    running, and the post stays known so a later rewrite still finds it."""
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    go_on = asyncio.Event()
+
+    async def tells(msg, chat):
+        post_id = await chat.post_confirmation(
+            msg.ref, ApprovalCard(agent="helper", headline="took a secret automatically.", icon="🤖"),
+            [], callback_url="",
+        )
+        await chat.update_confirmation(
+            post_id, ApprovalCard(agent="helper", headline="took a secret automatically.",
+                                  fields=(PreviewRow("Times", "2 so far"),)),
+        )
+        await go_on.wait()
+        return TurnOutcome.ACTED
+
+    hub, _ = _hub(8506, script=tells)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8506, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            _, page = await _events(s, 8506, started["turnId"], after=1, wait=0.3)
+            kinds = [e["type"] for e in page["events"]]
+            assert kinds == ["confirmation", "confirmation.updated"]
+            assert page["events"][0]["actions"] == [] and page["status"] == STATUS_RUNNING
+            assert page["events"][1]["fields"] == [{"label": "Times", "value": "2 so far", "before": ""}]
+            go_on.set()
+    finally:
+        await hub.stop()
+
+
+async def test_a_retry_during_a_drain_finds_the_turn_it_started() -> None:
+    """Draining refuses new turns, not the retry of a message already answered:
+    a client that lost the 202 must follow its turn here, not start it again
+    on another pod."""
+    release = asyncio.Event()
+
+    async def slow(msg, chat):
+        await release.wait()
+        return TurnOutcome.ACTED
+
+    hub, _ = _hub(8507, script=slow)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8507, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            hub.drain()
+            status, body = await _post(s, 8507, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            assert (status, body["turnId"]) == (200, started["turnId"])
+            status, body = await _post(s, 8507, MESSAGES, {"clientMessageId": "m2", "text": "new"})
+            assert status == 503 and body["error"]["code"] == "draining"
+            release.set()
+    finally:
+        await hub.stop()
+
+
+async def test_a_hub_started_again_takes_messages_again() -> None:
+    hub, _ = _hub(8508)
+    await hub.start()
+    hub.drain()
+    await hub.stop()
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            status, _ = await _get(s, 8508, "/readyz", headers={})
+            assert status == 200
+            status, _ = await _post(s, 8508, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
+            assert status == 202
     finally:
         await hub.stop()

@@ -37,4 +37,7 @@ def card_markdown(card: ApprovalCard) -> str:
         (one_line(row.label), f"{row.before} → {row.value}" if row.before else row.value)
         for row in card.fields
     ]
-    return render_card(headline, fields, block_label=card.block_label, block=card.block)
+    text = render_card(headline, fields, block_label=card.block_label, block=card.block)
+    if card.expires_at:
+        text += f"\n\n_Answer by {one_line(card.expires_at)}_"
+    return text

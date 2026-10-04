@@ -140,6 +140,11 @@ class HttpTurns:
 
     # -- looking up --------------------------------------------------------------
 
+    def known(self, conversation: str, client_message_id: str) -> Turn | None:
+        """The turn this message already started, if it is still remembered."""
+        turn_id = self._by_message.get((conversation, client_message_id))
+        return self._by_id.get(turn_id) if turn_id is not None else None
+
     def get(self, turn_id: str) -> Turn | None:
         return self._by_id.get(turn_id)
 

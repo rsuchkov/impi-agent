@@ -176,7 +176,7 @@ async def test_post_actions_renders_interactive_buttons() -> None:
     name, kwargs = driver.calls[0]
     assert name == "create_post"
     act = kwargs["props"]["attachments"][0]["actions"][0]
-    assert act["type"] == "button"  # без type MM выкинет integration
+    assert act["type"] == "button"  # without a type MM drops the integration
     assert act["integration"]["url"].endswith("/interact")
     assert act["integration"]["context"] == {"interaction": "i1", "token": "t1", "value": "yes"}
     assert kwargs["root_id"] == "root1"

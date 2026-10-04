@@ -122,7 +122,7 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `runtime_unavailable`, `agent_error`, `empty_answer` — or a flag a tool left on the turn (`session_expired`, whatever the application defines), after the answer; `text` is a sentence for a person, `code` is for you |
 | `actions` | `postId`, `text`, `actions[]` | a question with controls — what the runtime asks mid-turn (`ask_user_confirm`); the turn waits (`awaiting_input`) |
 | `confirmation` | `postId`, `agent`, `icon`, `headline`, `fields[{label, value, before}]`, `block {label, text} \| null`, `danger`, `expiresAt`, `actions[]` | a request for a yes, as data — a tool that needs confirming, a credential an agent asks for. Nothing is rendered: draw the headline, the facts (a `before` means a change), the verbatim block (a command line, raw arguments — show it as written), a warning when `danger`, a countdown to `expiresAt`; the turn waits (`awaiting_input`) |
-| `confirmation.updated` | `postId`, the same fields as `confirmation`, `actions[]` | that card rewritten — the verdict once it is answered or has expired, a notice folding another occurrence into itself (a `Times` field). Redraw the post; empty `actions` means nothing is left to click and the turn no longer waits |
+| `confirmation.updated` | `postId`, the same fields as `confirmation`, `actions[]` | that card rewritten — the verdict once it is answered, has expired or was withdrawn (a tool call or a credential alike), a notice folding another occurrence into itself (a `Times` field). Redraw the post; empty `actions` means nothing is left to click and the turn no longer waits. A `confirmation` posted with empty `actions` in the first place is a notice: told, not asked, and the turn does not wait |
 | `actions.retired` | `postId`, `text` | the controls of an `actions` post are gone; show `text` in their place |
 | `cards` | `postId`, `cards[{text, accent, actions[]}]` | a message built from cards; the same `postId` again means redraw it |
 | `file` | `name`, `mime`, `data` (base64), `text` | a file the agent sent (the caption rides with the first) |
@@ -150,7 +150,7 @@ caller put in `X-User-Id` — so the program's claim about its user decides who
 may approve a credential, and refuses everyone else (`not_allowed`, the card
 stays live for them). After a click the control is retired — an `actions`
 post with `actions.retired`, a `confirmation` with `confirmation.updated`
-carrying the verdict; clicking it again is `404`, as is a click on a question nobody waits on any
+carrying the verdict and no actions; clicking it again is `404`, as is a click on a question nobody waits on any
 more (answered elsewhere, timed out, withdrawn) and any click on a turn that has
 ended.
 
@@ -171,7 +171,7 @@ The agents this caller may address: `{"agents": [{"name", "role", "description"}
 
 ### `GET /healthz`, `GET /readyz`, `GET /stats`
 
-Unauthenticated. `readyz` is `503` only while the engine starts — **not** while
+Unauthenticated. `readyz` is `503` only while the engine starts or drains — **not** while
 every runtime slot is busy. A full pool is a busy pod, not a broken one: a new
 turn waits for a slot or evicts an idle session, and a load balancer that took
 the pod out of rotation (a Kubernetes readiness probe does exactly that) would
@@ -201,16 +201,24 @@ hub = HttpHub(..., routes=[web.get("/v1/me/{conversation}/dialog", dialog)],
 
 Your routes get the contract's error envelope and version header; your
 middlewares run on every route, the engine's included; `hub.max_body` is the
-request-size cap in force.
+request-size cap in force. Your middlewares run *inside* the envelope: a
+refusal raised by a handler (401, 404, 409, 503, your own `hub.refuse`) passes
+through them as an exception and becomes a response only in the envelope, so
+code after `await handler(request)` in your middleware sees successes only —
+catch `Refusal` there if an error response needs your header too.
 
 ## Draining a pod
 
 Before a pod stops, `hub.drain()` makes it refuse new messages (`503
 draining`) and report not ready, while polls, answers and cancels keep working
 and the turns already running finish; `await hub.idle(timeout)` waits for
-them (False when some still run). The engine does this itself on shutdown,
-for `HTTP_DRAIN_S` seconds (20); keep the orchestrator's grace period above
-that — a turn waiting on a confirmation can take minutes.
+them (False when some still run). A retry of a message this pod already
+answered is not a new message: it gets its turn id back as usual, so a client
+that lost the first response follows its turn here instead of starting it
+again elsewhere. The engine does this itself on shutdown — on SIGTERM, which is
+what a container runtime sends, as on Ctrl+C — for `HTTP_DRAIN_S` seconds (20);
+keep the orchestrator's grace period above that — a turn waiting on a
+confirmation can take minutes.
 
 ## Semantics worth knowing
 

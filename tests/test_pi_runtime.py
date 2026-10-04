@@ -552,6 +552,28 @@ async def test_has_memory_sees_a_live_session_or_a_file_on_disk(tmp_path: Path) 
     assert rt.has_memory("other", "assistant--c1") is False  # another agent's directory
 
 
+async def test_memory_the_runtime_cannot_see_counts_as_remembered(tmp_path: Path) -> None:
+    """False means "start over" to the flow, which then replays the whole
+    conversation; a runtime that merely cannot look must not say it."""
+    from crucible.runtimes.pi.hosts import HostRouter, LocalHost
+
+    # No session directory of its own: pi keeps the files where it likes.
+    assert _runtime_with([]).has_memory("assistant", "assistant--c1") is True
+
+    # An agent hosted elsewhere keeps its sessions in its own container.
+    class Elsewhere:
+        async def open(self, request):
+            raise AssertionError("not spawned here")
+
+        async def aclose(self) -> None:
+            pass
+
+    hosts = HostRouter(LocalHost(), {"remote": Elsewhere()})
+    rt = _runtime_with([], session_dir=str(tmp_path), hosts=hosts)
+    assert rt.has_memory("remote", "remote--c1") is True
+    assert rt.has_memory("assistant", "assistant--c1") is False  # ours, and nothing there
+
+
 async def test_reset_ends_the_process_frees_its_slot_and_deletes_the_memory(
     tmp_path: Path,
 ) -> None:

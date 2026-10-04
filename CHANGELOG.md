@@ -14,11 +14,25 @@ when a release is cut, and `impi update` shows the target version's section.
   fields** instead of a text blob, the http gateway as a `confirmation` event
   a client renders itself (a before → after diff, a danger style, a
   countdown). The secret broker's credential card takes the same route, and so
-  do its verdict and its auto-grant notice: the answered card is rewritten as a
-  card (http: `confirmation.updated`), not struck through as a sentence. For
-  chat clients built on the library: new `ChatClient.post_confirmation` and
-  `update_confirmation` verbs; `docs/architecture.md` now says which verb
-  carries the model's words and which the engine's structure.
+  does every verdict — the tool gate's and the broker's — and the broker's
+  auto-grant notice: the answered card is rewritten as a card (http:
+  `confirmation.updated`), not struck through as a sentence. On Slack the
+  values are escaped for mrkdwn as well as contained, and the deadline is shown
+  in the reader's own time zone. A preview's title is now a field of the card
+  (`Action`), not part of the headline, so the headline is the engine's words
+  alone. **Breaks:** a `ChatClient` of your own must implement two new verbs,
+  `post_confirmation` and `update_confirmation` (`crucible.approvals.card_markdown`
+  gives the text form if the platform has nothing better); and
+  `CallPreview`/`PreviewRow` moved from `crucible.approvals` to
+  `crucible.ports.chat.types` — `crucible.approvals.preview` is gone, so a tool
+  with a `describe()` updates its import. `docs/architecture.md` now says
+  which verb carries the model's words and which the engine's structure.
+- **The http gateway's `/readyz` no longer says "not ready" under load.** It
+  answered 503 while every runtime slot was busy; a Kubernetes readiness probe
+  then took the pod out of rotation and moved its users — mid-turn — to a pod
+  with none of their state. Ready now means "up": 503 only while starting or
+  draining. The runtime's slots and the turns in flight are on a new
+  `GET /stats`.
 - **The http gateway serves an application's own routes and drains before
   stopping.** `HttpHub(routes=…, middlewares=…)` puts the application's
   endpoints on the hub's port under the same error envelope and version header
@@ -26,14 +40,27 @@ when a release is cut, and `impi update` shows the target version's section.
   `hub.caller()`, `hub.conversation_key()` and `hub.refuse()` for what the
   hub's own handlers have. `hub.drain()` refuses new messages (`503 draining`)
   and reports not ready while the turns already running finish;
-  `hub.idle(timeout)` waits for them. The engine drains for `HTTP_DRAIN_S`
-  (20) on shutdown.
-- **A Mongo inventory can live in a shared database.** `DB_COLLECTION_PREFIX`
-  (library: `open_store(..., prefix=…)`) puts a prefix on every collection
-  name, so two engines, or an engine and an application's own collections,
-  share one database without reading each other's `sessions`. Empty by
-  default: an existing deployment keeps its names. A prefix that would need
-  quoting in a shell is refused at startup.
+  `hub.idle(timeout)` waits for them; the retry of a message already answered
+  here still gets its turn id. The engine drains for `HTTP_DRAIN_S` (20) on
+  shutdown — on SIGTERM too, which is what a container runtime sends: it used
+  to cancel every task at once and the drain had nothing left to wait for.
+- **For applications on the http gateway: an authenticator can say why.**
+  Raising `CallerRefused(status, code, message, **extra)` from
+  `CallerAuthenticator.authenticate` answers in the hub's own error envelope —
+  an expired session, a mismatched identity, a caller over its rate — where
+  before only a plain 401 was possible. `TokenCallers` now compares tokens in
+  constant time.
+- **For applications on the http gateway: the turn's id reaches the flow and
+  the tools.** The hub fills `TurnScope.turn_id` with the id the caller polls,
+  so a flow that keeps a transcript of its own can key each entry by it — and a
+  client reloading mid-turn can tell a stored answer from the one it is still
+  replaying, instead of showing it twice. A flag a tool leaves on that scope is
+  the turn's own: the next turn of the same caller starts without it.
+- **For applications on the library: a note a tool leaves on the turn reaches
+  the person.** A tool can `flag` the turn's scope ("the session has
+  expired"); the flow now posts one notice per flag once the turn is over —
+  after the answer, or after the failure notice — with the flag as the
+  notice's code and the sentence from `AgentFlow(flag_notices=…)` as its text.
 - **For applications on the library: a conversation the runtime forgot is
   replayed, not started mid-air.** With `AgentFlow(..., control=runtime)` the
   flow asks the runtime whether it still remembers a known conversation; when
@@ -43,29 +70,16 @@ when a release is cut, and `impi update` shows the target version's section.
   — a direct message, anything over the http gateway — a new
   `HistorySource` port (`crucible.ports.chat`) lets the application supply its
   own transcript, and a `ContextSource` puts who is asking ahead of the message
-  every turn. impi wires the runtime in, so a reset Mattermost or Slack thread
+  every turn. The runtime answers "forgotten" only for memory it owns and can
+  see; a session kept elsewhere (an agent in its own container) counts as
+  remembered. impi wires the runtime in, so a reset Mattermost or Slack thread
   gets its history back on the next turn.
-- **For applications on the library: a note a tool leaves on the turn reaches
-  the person.** A tool can `flag` the turn's scope ("the session has
-  expired"); the flow now posts one notice per flag once the turn is over —
-  after the answer, or after the failure notice — with the flag as the
-  notice's code and the sentence from `AgentFlow(flag_notices=…)` as its text.
-- **For applications on the http gateway: the turn's id reaches the flow and
-  the tools.** The hub fills `TurnScope.turn_id` with the id the caller polls,
-  so a flow that keeps a transcript of its own can key each entry by it — and a
-  client reloading mid-turn can tell a stored answer from the one it is still
-  replaying, instead of showing it twice.
-- **The http gateway's `/readyz` no longer says "not ready" under load.** It
-  answered 503 while every runtime slot was busy; a Kubernetes readiness probe
-  then took the pod out of rotation and moved its users — mid-turn — to a pod
-  with none of their state. Ready now means "up": 503 only while starting. The
-  runtime's slots and the turns in flight are on a new `GET /stats`.
-- **For applications on the http gateway: an authenticator can say why.**
-  Raising `CallerRefused(status, code, message, **extra)` from
-  `CallerAuthenticator.authenticate` answers in the hub's own error envelope —
-  an expired session, a mismatched identity, a caller over its rate — where
-  before only a plain 401 was possible. `TokenCallers` now compares tokens in
-  constant time.
+- **A Mongo inventory can live in a shared database.** `DB_COLLECTION_PREFIX`
+  (library: `open_store(..., prefix=…)`) puts a prefix on every collection
+  name, so two engines, or an engine and an application's own collections,
+  share one database without reading each other's `sessions`. Empty by
+  default: an existing deployment keeps its names. A prefix that would need
+  quoting in a shell is refused at startup.
 
 ## v0.18.0 — 2026-10-04
 

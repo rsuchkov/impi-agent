@@ -58,8 +58,8 @@ An agent is skipped at startup, with a log line, when:
 A **new** agent needs a restart; agents are enumerated once at startup. Profile
 edits need only a reload.
 
-The **engine itself refuses to start** in two configurations, and says which in
-the first lines of `impi logs`:
+The **engine itself refuses to start** in three configurations, and says which
+in the first lines of `impi logs`:
 
 - on MongoDB, after an update that made `sessions.runtime_session_id` unique:
   Mongo will not change an index in place, so the operator runs
@@ -68,6 +68,9 @@ the first lines of `impi logs`:
 - `INTEGRATIONS_UI_TIMEOUT` at 270 or above: the runtime's tool extension gives
   up on a call after 300 s, and a confirmation answered later would run a call
   the model was already told had failed. Lower it.
+- on MongoDB, a `DB_COLLECTION_PREFIX` with a character outside letters,
+  digits, `_` and `-`: the prefix goes on every collection name and must read
+  in a shell without quoting (`$IMPI_ROOT/docs/storage.md`).
 
 After that same update a `ws` agent **starts every conversation afresh once**:
 its session keys changed shape. That is expected, not a lost volume — the
@@ -146,9 +149,9 @@ receiver: `INTEGRATIONS_PUBLIC_URL` reachable from the server, its subnet in
 Mattermost's `AllowedUntrustedInternalConnections`, `INTEGRATIONS_ENABLED=true`.
 Slack needs none of this — it uses its socket.
 
-On the `http` gateway there is no chat to deliver to: a confirmation card is an
-`actions` event in the caller's journal and the caller's program answers it
-through the API; fire-and-forget widgets, forms, slash commands and the
+On the `http` gateway there is no chat to deliver to: a confirmation card is a
+`confirmation` event in the caller's journal (the runtime's own yes/no questions
+are `actions` events) and the caller's program answers it through the API; fire-and-forget widgets, forms, slash commands and the
 tool-trace widget do not exist there by design (`$IMPI_ROOT/docs/http-gateway.md`).
 "Nothing arrives" on http means the program is not polling the turn's events.
 Its `/readyz` answers 503 only while the engine starts; how loaded it is —

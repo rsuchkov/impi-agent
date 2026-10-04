@@ -179,9 +179,12 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   ApprovalCard, actions)` — and each channel draws it: Mattermost as Markdown
   (`crucible.approvals.card_markdown`, hardened by `containment`), Slack as
   native Block Kit fields, the http gateway as a `confirmation` event. Once
-  answered, the same post is rewritten with the verdict as a card again
-  (`update_confirmation`, no actions left). A chat client of your own
-  implements both verbs the same way; the table in
+  answered, expired or withdrawn, the same post is rewritten with the verdict
+  as a card again (`update_confirmation`, no actions left), its facts still on
+  it. The preview's `title` is the card's first field (`Action`), not part of
+  the headline: the headline is the engine's sentence, every value is the
+  tool's text and takes the channel's hardening. A chat client of your own
+  must implement both verbs; the table in
   [architecture.md](architecture.md#gateways) says which verb carries the
   model's words and which carries the engine's structure.
 - **Mark what strangers wrote.** A tool whose result quotes other people —
@@ -209,7 +212,12 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   the runtime starts from nothing. Hand the flow `AgentFlow(..., control=runtime)`
   and it asks `has_memory` on every turn of a known conversation; when the
   answer is no, the turn is a first turn again — the thread or the channel is
-  replayed from the platform as it would be for a new session. A **direct
+  replayed from the platform as it would be for a new session. "No" is the
+  runtime's word for memory it owns and cannot find; memory it cannot see at
+  all — pi's own default directory when the runtime was given no
+  `session_dir`, an agent hosted in its own container — counts as remembered,
+  because a wrong "no" replays the history into a session that has it, on
+  every turn. A **direct
   message has no thread to read back**, and over the http gateway nothing does,
   so for those the flow asks the application: `AgentFlow(..., history=…)`, a
   `HistorySource` (`crucible.ports.chat`) whose `recent(agent, msg)` returns the

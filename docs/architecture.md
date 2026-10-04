@@ -154,8 +154,8 @@ text for a channel — that is the adapter's call.
 | `post_reply`, `post_notice` | the model's answer / the engine's sentence, Markdown | adapter converts the markup | replies; coded notices |
 | `post_actions` | model prose + options | adapter draws the controls under the text | questions the *model* asks (`ask_user_confirm`, `ask_user_select`) |
 | `post_confirmation` | an `ApprovalCard` — who asks, what for, fields, a verbatim block, danger, deadline | adapter: Markdown on Mattermost, Block Kit fields on Slack, a `confirmation` event on http | the tool gate; the secret broker's request and its auto-grant notice (no actions: told, not asked) |
-| `update_confirmation` | the same card rewritten — a verdict, a folded notice | same adapter, same message | answered or expired confirmations; a run of auto-grants folded into one message |
-| `retract` | one sentence in place of the controls | adapter | a model question that is no longer open |
+| `update_confirmation` | the same card rewritten — a verdict, a folded notice | same adapter, same message | a confirmation answered, expired or withdrawn (the tool gate's and the broker's alike); a run of auto-grants folded into one message |
+| `retract` | one sentence in place of the controls | adapter | a model question (`post_actions`) that is no longer open |
 | `post_cards` / `update_cards` | `Card`s with Markdown text and actions | adapter | screens (`ScreenRegistry`); a richer structured form is a later version |
 
 The `GatewayFactory` that builds these lives in `crucible.gateways`; it takes a
@@ -242,8 +242,9 @@ enabled). A tool the agent can't back is dropped from its manifest and allowlist
 ## Asking a human (`crucible.approvals`)
 
 One primitive, two consumers: a tool call that needs confirming, and a request
-for a credential. It is a leaf layer — it imports nothing else in the library —
-and holds three things: a registry of waiting requests (`token -> Future`, with
+for a credential. It is a leaf layer — it imports only the chat vocabulary
+(`ports.chat.types`) and `containment`, never the engine — and holds three
+things: a registry of waiting requests (`token -> Future`, with
 the set of people entitled to answer, empty meaning anyone in the conversation),
 the three answers a card offers (once / for a window / deny), and the safe
 rendering of the card itself, which lets a caller supply content and never

@@ -43,9 +43,9 @@ All frames are JSON text messages.
 // deliver a message to an agent; conversation_id is YOUR key (e.g. the
 // correspondent's id) — distinct ids never share agent memory
 {"type": "message", "agent": "helper", "conversation_id": "user-42",
- "text": "привет",
+ "text": "hello",
  "user_id": "u42",        // optional
- "username": "vasya",     // optional
+ "username": "alice",     // optional
  "message_id": "m-1",     // optional; supply stable ids to dedupe redeliveries
  "kind": "dm",            // optional: dm (default) | thread | channel
  // optional attachments, bytes inline (your service may share no filesystem
@@ -118,7 +118,7 @@ async def main():
             await ws.send_json({"type": "agents"})
             await ws.send_json({
                 "type": "message", "agent": "helper",
-                "conversation_id": "user-42", "text": "привет!",
+                "conversation_id": "user-42", "text": "hello!",
             })
             async for msg in ws:
                 frame = json.loads(msg.data)

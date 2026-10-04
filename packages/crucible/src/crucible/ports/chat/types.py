@@ -152,8 +152,9 @@ class ApprovalCard:
     fields, a JSON event — so nothing here is rendered.
 
     ``agent`` and ``headline`` are the engine's sentence ("wants to run
-    jira_transition_issue — move IPA-7"); ``fields`` are what the call would do
-    (a ``before`` where it changes something); ``block`` is a verbatim piece the
+    transition_issue.") and nothing the caller wrote goes in them; ``fields``
+    are what the call would do (its one-line title, then a ``before`` where it
+    changes something); ``block`` is a verbatim piece the
     person must read as written — a command line, the raw arguments — under
     ``block_label``; ``danger`` asks for a warning; ``expires_at`` (ISO-8601
     UTC) is until when the question stands. Values may be the caller's text:

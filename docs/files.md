@@ -11,7 +11,7 @@ Every attached file is downloaded before the turn starts and named in the
 prompt, right under the message it came with:
 
 ```
-[@roman · 2026-08-07 10:12 UTC]: what's wrong here?
+[@alice · 2026-08-07 10:12 UTC]: what's wrong here?
 [attached] screen.png — image/png, 214 KB — /app/data/attachments/assistant/dm1x…/f7k…-screen.png
 ```
 

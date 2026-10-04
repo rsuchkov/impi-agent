@@ -4,16 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import signal
 
 from impi.app import run
 from impi.config import load_settings
 
 logger = logging.getLogger(__name__)
-
-
-def _raise_keyboard_interrupt(signum: int, frame: object) -> None:
-    raise KeyboardInterrupt
 
 
 def main() -> None:
@@ -22,13 +17,13 @@ def main() -> None:
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    # `make stop` sends SIGTERM; route it through the same graceful shutdown as
-    # Ctrl+C so run()'s finally closes the runtime and terminates every pi
-    # subprocess instead of orphaning them (the CPU-runaway lesson).
-    signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
+    # Ctrl+C and SIGTERM (`make stop`, a container runtime) both end run()'s
+    # main task — see `stop_on_sigterm` in app.py — so its finally closes the
+    # runtime and terminates every pi subprocess instead of orphaning them (the
+    # CPU-runaway lesson), with the turns in flight given their drain time.
     try:
         asyncio.run(run(settings))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("bye")
 
 

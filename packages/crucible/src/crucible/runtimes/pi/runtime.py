@@ -148,11 +148,19 @@ class PiRuntime:
     # -- public API (RuntimeControl) ----------------------------------------
 
     def has_memory(self, agent: str, session_id: str) -> bool:
-        """A live session, or memory on disk under the id the process was given."""
+        """A live session, or memory on disk under the id the process was given.
+
+        True as well when the memory is not this process's to read — the
+        runtime's own default directory, an agent hosted elsewhere whose
+        sessions live in its container. "Cannot see it" is not "forgot it": a
+        caller that treats False as a conversation to start over must hear it
+        only when the runtime knows, or it replays the history into a session
+        that already has it, on every turn.
+        """
         if safe_session_id(session_id) in self._sessions:
             return True
-        if not self._session_dir:
-            return False  # the runtime's own default directory: not ours to read
+        if not self._session_dir or agent in self._hosts.remote_agents:
+            return True
         return bool(self._files_of(agent, session_id))
 
     async def reset(self, agent: str, session_id: str) -> None:

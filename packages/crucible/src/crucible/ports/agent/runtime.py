@@ -154,7 +154,9 @@ class RuntimeControl(Protocol):
         """Whether the runtime still remembers this conversation — a live
         session, or its memory on disk — so a caller can tell a resumed
         conversation from one that starts over, without knowing where or how
-        the runtime keeps it."""
+        the runtime keeps it. False only when the runtime KNOWS the memory is
+        gone; memory it cannot see (kept elsewhere) counts as remembered, so a
+        caller may act on False without second-guessing it."""
         ...
 
     async def reset(self, agent: str, session_id: str) -> None:
