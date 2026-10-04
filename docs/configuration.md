@@ -90,6 +90,7 @@ behind someone else's server, a caller spread over several nodes; see
 | `HTTP_HOST` | `0.0.0.0` | hub bind host |
 | `HTTP_PORT` | `8428` | hub port (`http://host:port/v1`) |
 | `HTTP_MAX_WAIT_S` | `8` | the longest a poll may wait for new events, whatever the caller asks — every waiting poll holds a connection |
+| `HTTP_DRAIN_S` | `20` | on shutdown, how long the hub lets its running turns finish after it stopped taking new messages; keep the orchestrator's grace period above it |
 
 Callers are dynamic keys (register with `impi http add-caller`):
 `HTTP_CALLER_TOKEN__<NAME>` — the program's bearer token;

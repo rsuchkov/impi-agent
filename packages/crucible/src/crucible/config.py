@@ -169,6 +169,10 @@ class Settings(BaseSettings):
     # The longest a poll may wait for new events. Every waiting poll holds a
     # connection — and, behind a proxy, one of its workers.
     http_max_wait_s: float = 8.0
+    # On shutdown, how long to let the turns running on the hub finish after it
+    # stopped taking new ones. A turn waiting on a confirmation can take minutes;
+    # keep the orchestrator's grace period above this.
+    http_drain_s: float = 20.0
 
     # Which chat gateway an agent runs on ("mattermost" | "slack" | "ws" | "http"). The
     # default for all agents; override per agent with AGENTS_GATEWAY__<AGENT>.

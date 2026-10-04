@@ -284,7 +284,11 @@ credential, is another user's credential.
   with the application's own status and code in the hub's error envelope
   (`jira_session_invalid`, `identity_mismatch`, `rate_limited`, …). What a
   dialog is and whether to keep one is the application's; the journal lives
-  ten minutes past the turn.
+  ten minutes past the turn. Your own endpoints (a transcript, "new dialog")
+  go on the hub's port through `HttpHub(routes=…, middlewares=…)`, with
+  `hub.caller()`, `hub.conversation_key()` and `hub.refuse()` for what the
+  hub's handlers have; `hub.drain()` / `await hub.idle(timeout)` are the
+  shutdown pair — see [http-gateway.md](http-gateway.md).
 - For tests without a `pi` binary, `tests/fakes/fake_transport.py` in this
   repository is an in-process `PiTransport` you can copy: a reactor answers the
   commands the session sends, and the session logic runs unchanged.

@@ -16,11 +16,12 @@ types and fields it does not know.
 import asyncio
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
 from aiohttp import web
+from aiohttp.typedefs import Middleware
 
 from crucible.approvals import APPROVAL_KEY, ApprovalOutcome
 from crucible.attachments import AttachmentStore
@@ -74,6 +75,8 @@ class HttpHub:
         dispatcher: GatewayDispatcher | None = None,
         control: RuntimeControl | None = None,
         max_wait_s: float = 8.0,
+        routes: Sequence[web.RouteDef] = (),
+        middlewares: Sequence[Middleware] = (),
     ) -> None:
         self._host = host
         self._port = port
@@ -94,18 +97,68 @@ class HttpHub:
             if attachments is not None
             else _TEXT_ONLY_BODY_BYTES
         )
+        # An application's own routes, on this port: the contract's envelope and
+        # version header apply to them too, and `caller()`/`conversation_key()`
+        # give them what the hub's handlers have. (Users pinned to a pod by a
+        # consistent hash of one ip:port must find the application's routes on
+        # the same port as the engine's.)
+        self._routes = list(routes)
+        self._middlewares = list(middlewares)
         self._settling: set[asyncio.Task[None]] = set()
         self._runner: web.AppRunner | None = None
         self._started = False
+        self._draining = False
 
     def register_agent(self, agent: str, sink: TrackedSink, chat: HttpChatClient) -> None:
         """Called by the gateway factory for every agent living on this hub."""
         self._agents[agent] = (sink, chat)
 
+    # -- for an application's own routes ----------------------------------------
+
+    @property
+    def max_body(self) -> int:
+        """The request-body cap the hub was built with, in bytes."""
+        return self._max_body
+
+    @staticmethod
+    def conversation_key(caller: Caller, conversation_id: str) -> str:
+        """The engine-side key of a caller's conversation — what `HttpTurns`
+        and the session store know it by."""
+        return _conversation_key(caller, conversation_id)
+
+    @staticmethod
+    def refuse(status: int, code: str, message: str, **extra: Any) -> Refusal:
+        """The exception a route raises to answer in the hub's error envelope."""
+        return Refusal(status, code, message, **extra)
+
+    # -- draining ---------------------------------------------------------------
+
+    def drain(self) -> None:
+        """Stop taking new messages (503 `draining`; polls, answers and cancels
+        still work) and report not ready, so a load balancer moves new users
+        elsewhere while the turns already running here finish."""
+        self._draining = True
+        logger.info("http hub draining: no new turns")
+
+    @property
+    def draining(self) -> bool:
+        return self._draining
+
+    async def idle(self, timeout: float) -> bool:
+        """Wait until no turn runs on this hub; False if some still do after
+        ``timeout`` seconds."""
+        try:
+            await asyncio.wait_for(self.turns.idle.wait(), timeout)
+        except asyncio.TimeoutError:
+            return False
+        return True
+
     # -- lifecycle ------------------------------------------------------------
 
     async def start(self) -> None:
-        app = web.Application(middlewares=[self._envelope], client_max_size=self._max_body)
+        app = web.Application(
+            middlewares=[self._envelope, *self._middlewares], client_max_size=self._max_body
+        )
         app.router.add_get("/healthz", self._healthz)
         app.router.add_get("/readyz", self._readyz)
         app.router.add_get("/stats", self._stats)
@@ -115,6 +168,7 @@ class HttpHub:
         app.router.add_post("/v1/agents/{agent}/conversations/{conversation}/cancel", self._cancel)
         app.router.add_get("/v1/turns/{turn}/events", self._events)
         app.router.add_post("/v1/turns/{turn}/actions", self._action)
+        app.add_routes(self._routes)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         await web.TCPSite(self._runner, self._host, self._port).start()
@@ -163,13 +217,13 @@ class HttpHub:
         response.headers[_VERSION_HEADER] = API_VERSION
         return response
 
-    async def _caller(self, request: web.Request, body: dict[str, Any] | None) -> Caller:
+    async def caller(self, request: web.Request, body: dict[str, Any] | None) -> Caller:
         caller = await self._callers.authenticate(request, body)
         if caller is None:
             raise Refusal(401, "unauthorized", "the request carries no accepted credentials")
         return caller
 
-    async def _body(self, request: web.Request) -> dict[str, Any]:
+    async def body(self, request: web.Request) -> dict[str, Any]:
         # Nothing of a stranger's is parsed: no credentials at all is answered
         # before the body is read. (Whether they are GOOD credentials is the
         # authenticator's call, made after parsing — a credential may travel in
@@ -225,6 +279,8 @@ class HttpHub:
         users away from the turns running on it. Load is on /stats."""
         if not self._started:
             return web.json_response({"ready": False, "reason": "starting"}, status=503)
+        if self._draining:
+            return web.json_response({"ready": False, "reason": "draining"}, status=503)
         return web.json_response({"ready": True})
 
     async def _stats(self, request: web.Request) -> web.Response:
@@ -234,7 +290,7 @@ class HttpHub:
         return web.json_response({"runtime": runtime, "turns": {"active": self.turns.active_count()}})
 
     async def _list_agents(self, request: web.Request) -> web.Response:
-        caller = await self._caller(request, None)
+        caller = await self.caller(request, None)
         infos = {a.name: a for a in self._directory.list_agents()} if self._directory else {}
         agents = [
             {"name": name, "role": infos[name].role if name in infos else "",
@@ -245,9 +301,11 @@ class HttpHub:
         return web.json_response({"agents": agents})
 
     async def _post_message(self, request: web.Request) -> web.Response:
-        body = await self._body(request)
-        caller = await self._caller(request, body)
+        body = await self.body(request)
+        caller = await self.caller(request, body)
         agent, sink, chat = self._agent(request, caller)
+        if self._draining:
+            raise Refusal(503, "draining", "this engine is shutting down; send the message elsewhere")
         conversation_id = request.match_info["conversation"]
         client_message_id = str(body.get("clientMessageId") or "")
         if not _CLIENT_ID.match(client_message_id):
@@ -265,7 +323,7 @@ class HttpHub:
         if not text.strip() and not files:
             raise Refusal(422, "validation", "`text` must not be empty unless files are attached")
 
-        conversation = _conversation_key(caller, conversation_id)
+        conversation = self.conversation_key(caller, conversation_id)
         self._sweep()
         if (running := self.turns.active(conversation)) is not None and \
                 running.client_message_id != client_message_id:
@@ -336,7 +394,7 @@ class HttpHub:
         self.turns.sweep(asyncio.get_running_loop().time())
 
     async def _events(self, request: web.Request) -> web.Response:
-        caller = await self._caller(request, None)
+        caller = await self.caller(request, None)
         self._sweep()
         turn = self._owned_turn(request, caller)
         after = self._after(request)
@@ -349,20 +407,20 @@ class HttpHub:
         })
 
     async def _get_conversation(self, request: web.Request) -> web.Response:
-        caller = await self._caller(request, None)
+        caller = await self.caller(request, None)
         self._agent(request, caller)
         self._sweep()
         conversation_id = request.match_info["conversation"]
-        turn = self.turns.active(_conversation_key(caller, conversation_id))
+        turn = self.turns.active(self.conversation_key(caller, conversation_id))
         active = None
         if turn is not None and turn.owner == caller.owner:
             active = {"turnId": turn.id, "status": turn.journal.status, "cursor": turn.journal.cursor}
         return web.json_response({"conversationId": conversation_id, "activeTurn": active})
 
     async def _cancel(self, request: web.Request) -> web.Response:
-        caller = await self._caller(request, None)
+        caller = await self.caller(request, None)
         self._agent(request, caller)
-        turn = self.turns.active(_conversation_key(caller, request.match_info["conversation"]))
+        turn = self.turns.active(self.conversation_key(caller, request.match_info["conversation"]))
         if turn is None or turn.owner != caller.owner:
             raise Refusal(404, "not_found", "no turn is running in this conversation")
         if self._control is None or not turn.runtime_session_id:
@@ -371,8 +429,8 @@ class HttpHub:
         return web.json_response({"turnId": turn.id, "cancelled": cancelled})
 
     async def _action(self, request: web.Request) -> web.Response:
-        body = await self._body(request)
-        caller = await self._caller(request, body)
+        body = await self.body(request)
+        caller = await self.caller(request, body)
         turn = self._owned_turn(request, caller)
         if self._dispatcher is None:
             raise Refusal(404, "not_found", "interactivity is off on this engine")

@@ -736,3 +736,87 @@ async def test_a_caller_without_a_scope_still_gets_the_turn_id() -> None:
             assert len(next(e for e in events if e["type"] == "message")["messageId"]) == 32
     finally:
         await hub.stop()
+
+
+# -- an application's own routes, and draining ------------------------------------
+
+
+async def test_an_applications_routes_live_on_the_hubs_port_under_its_envelope() -> None:
+    from aiohttp import web
+
+    hub_holder: list[HttpHub] = []
+
+    async def dialog(request: web.Request) -> web.Response:
+        hub = hub_holder[0]
+        caller = await hub.caller(request, None)  # 401 in the envelope without a token
+        key = hub.conversation_key(caller, request.match_info["conversation"])
+        if request.query.get("missing"):
+            raise hub.refuse(404, "no_dialog", "nothing stored yet", conversationKey=key)
+        return web.json_response({"key": key, "user": caller.user_id, "cap": hub.max_body})
+
+    @web.middleware
+    async def served_by(request, handler):
+        response = await handler(request)
+        response.headers["X-Served-By"] = "pod-7"
+        return response
+
+    sink = FakeSink()
+    hub = HttpHub(
+        "127.0.0.1", 8502, TokenCallers(SERVICES), directory=FakeDirectory(), max_wait_s=0.2,
+        routes=[web.get("/v1/me/{conversation}/dialog", dialog)], middlewares=[served_by],
+    )
+    hub_holder.append(hub)
+    hub.register_agent("helper", sink, HttpChatClient(hub.turns, "helper"))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(_url(8502, "/v1/me/c1/dialog"), headers=AUTH) as r:
+                body = await r.json()
+                assert r.status == 200 and body == {"key": "portal:c1", "user": "u-7", "cap": 1024 * 1024}
+                assert r.headers["X-Served-By"] == "pod-7"
+                assert r.headers["X-Engine-Api-Version"] == "1.0"
+            async with s.get(_url(8502, "/v1/me/c1/dialog?missing=1"), headers=AUTH) as r:
+                assert r.status == 404
+                assert await r.json() == {"error": {"code": "no_dialog", "message": "nothing stored yet"},
+                                          "conversationKey": "portal:c1"}
+            async with s.get(_url(8502, "/v1/me/c1/dialog"), headers={}) as r:
+                assert r.status == 401 and (await r.json())["error"]["code"] == "unauthorized"
+            # The hub's own routes carry the application's middleware too.
+            async with s.get(_url(8502, "/healthz")) as r:
+                assert r.headers["X-Served-By"] == "pod-7"
+    finally:
+        await hub.stop()
+
+
+async def test_a_draining_hub_takes_no_new_turns_but_finishes_the_running_ones() -> None:
+    release = asyncio.Event()
+
+    async def slow(msg, chat):
+        await release.wait()
+        await chat.post_reply(msg.ref, "done")
+        return TurnOutcome.REPLIED
+
+    hub, _ = _hub(8503, script=slow)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8503, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            assert await hub.idle(0.05) is False  # a turn is running
+
+            hub.drain()
+            status, body = await _post(s, 8503, "/v1/agents/helper/conversations/c2/messages",
+                                       {"clientMessageId": "m2", "text": "new"})
+            assert status == 503 and body["error"]["code"] == "draining"
+            status, body = await _get(s, 8503, "/readyz", headers={})
+            assert status == 503 and body["reason"] == "draining"
+            # Those already here are still served: polls, and the turn itself.
+            status, page = await _events(s, 8503, started["turnId"], after=0, wait=0)
+            assert status == 200 and page["status"] == "running"
+
+            waiter = asyncio.ensure_future(hub.idle(2.0))
+            release.set()
+            assert await waiter is True
+            events, _ = await _drain(s, 8503, started["turnId"])
+            assert events[-1]["outcome"] == "replied"
+    finally:
+        await hub.stop()

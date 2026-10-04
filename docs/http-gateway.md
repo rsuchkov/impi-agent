@@ -66,6 +66,7 @@ caller, so two programs never reach each other's conversations.
 | `turn_in_progress` | 409 | this conversation already has a turn running; `turnId` names it |
 | `not_cancellable` | 409 | the turn cannot be interrupted here (no runtime behind it yet) |
 | `not_available` | 409 | a form was asked to open; forms are chat-only |
+| `draining` | 503 | the engine is shutting down and takes no new messages; polls and answers still work |
 | `validation` | 422 | a bad body or query value; `text` over 32 000 characters; a menu answer that is not one of its options |
 | *(the authenticator's own)* | any | an application's `CallerAuthenticator` may answer with a status and code of its own (`CallerRefused`) — a session that expired, an identity that does not match, a caller over its rate; same envelope |
 | `too_large` | 413 | the request body is over the cap (text-only: 1 MiB; with attachments on, a few files of `ATTACHMENT_MAX_MB` each) |
@@ -175,6 +176,38 @@ move its users away from the turns running on it — with a per-user consistent
 hash, onto a pod that has none of their state. Load belongs to whoever scales
 or watches: `stats` answers `{"runtime": {alive, busy, capacity, waiting} |
 null, "turns": {"active"}}`.
+
+## Routes of your own
+
+An application usually has a few endpoints beside the engine's — the transcript
+its panel draws after a reload, a "new dialog" button. They belong on the
+**same port**: a load balancer that pins a user to a pod does it per
+`ip:port`, so a second port would send the same user to a different pod,
+away from their running turn. Hand them to the hub:
+
+```python
+async def dialog(request):
+    caller = await hub.caller(request, None)          # 401 in the envelope when unknown
+    key = hub.conversation_key(caller, request.match_info["conversation"])
+    ...
+    raise hub.refuse(404, "no_dialog", "nothing stored yet")   # your own code, same envelope
+
+hub = HttpHub(..., routes=[web.get("/v1/me/{conversation}/dialog", dialog)],
+              middlewares=[served_by])
+```
+
+Your routes get the contract's error envelope and version header; your
+middlewares run on every route, the engine's included; `hub.max_body` is the
+request-size cap in force.
+
+## Draining a pod
+
+Before a pod stops, `hub.drain()` makes it refuse new messages (`503
+draining`) and report not ready, while polls, answers and cancels keep working
+and the turns already running finish; `await hub.idle(timeout)` waits for
+them (False when some still run). The engine does this itself on shutdown,
+for `HTTP_DRAIN_S` seconds (20); keep the orchestrator's grace period above
+that — a turn waiting on a confirmation can take minutes.
 
 ## Semantics worth knowing
 

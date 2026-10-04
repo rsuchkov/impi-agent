@@ -6,6 +6,15 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The http gateway serves an application's own routes and drains before
+  stopping.** `HttpHub(routes=…, middlewares=…)` puts the application's
+  endpoints on the hub's port under the same error envelope and version header
+  (a user pinned to a pod by a consistent hash must find them there), with
+  `hub.caller()`, `hub.conversation_key()` and `hub.refuse()` for what the
+  hub's own handlers have. `hub.drain()` refuses new messages (`503 draining`)
+  and reports not ready while the turns already running finish;
+  `hub.idle(timeout)` waits for them. The engine drains for `HTTP_DRAIN_S`
+  (20) on shutdown.
 - **For applications on the library: a note a tool leaves on the turn reaches
   the person.** A tool can `flag` the turn's scope ("the session has
   expired"); the flow now posts one notice per flag once the turn is over —

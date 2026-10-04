@@ -697,6 +697,11 @@ async def run(settings: ImpiSettings) -> None:
         if app.ws_hub is not None:
             await app.ws_hub.stop()
         if app.http_hub is not None:
+            # Stop taking new turns, let the running ones finish, then close.
+            app.http_hub.drain()
+            if not await app.http_hub.idle(settings.http_drain_s):
+                logger.warning("http hub: turns still running after %.0fs; closing anyway",
+                               settings.http_drain_s)
             await app.http_hub.stop()
         if app.integrations is not None:
             await app.integrations.stop()

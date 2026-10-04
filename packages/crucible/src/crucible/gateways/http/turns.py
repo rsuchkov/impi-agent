@@ -11,6 +11,7 @@ Also the flow's ``TurnTracer``: the runtime's tool events for a turn go into
 that turn's journal, which is how the client gets "searching…" while it waits.
 """
 
+import asyncio
 import logging
 import uuid
 from collections import OrderedDict
@@ -88,6 +89,9 @@ class HttpTurns:
         self._remembered = remembered
         self._by_id: dict[str, Turn] = {}
         self._active: dict[str, Turn] = {}  # conversation -> its running turn
+        # Set while nothing runs; what a hub draining before shutdown waits on.
+        self.idle = asyncio.Event()
+        self.idle.set()
         # (conversation, client message id) -> turn id, bounded: a retry of a
         # message from a while ago is the same turn, one from an hour ago is new.
         self._by_message: OrderedDict[tuple[str, str], str] = OrderedDict()
@@ -113,6 +117,7 @@ class HttpTurns:
         )
         self._by_id[turn_id] = turn
         self._active[conversation] = turn
+        self.idle.clear()
         self._by_message[(conversation, client_message_id)] = turn_id
         while len(self._by_message) > self._remembered:
             self._by_message.popitem(last=False)
@@ -126,6 +131,8 @@ class HttpTurns:
         turn.journal.finish(STATUS_FAILED if outcome in _FAILED else STATUS_DONE)
         if self._active.get(turn.conversation) is turn:
             del self._active[turn.conversation]
+        if not self._active:
+            self.idle.set()
 
     def abandon(self, turn: Turn) -> None:
         """The turn never ran (the sink refused, or the engine is stopping)."""
