@@ -55,7 +55,7 @@ from crucible.interactions import (
 from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.loopguard import LoopGuard
-from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec
+from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec, RuntimeControl
 from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.reloader import ProfileReloader
 from crucible.runtimes.pi import (
@@ -229,6 +229,7 @@ def _build_unit(
     handle: GatewayHandle,
     *,
     runtime: AgentRuntime,
+    control: RuntimeControl,
     sessions: SessionStore,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
@@ -244,6 +245,9 @@ def _build_unit(
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
         turns=turns,
+        # A conversation the runtime has forgotten (sessions wiped, an operator's
+        # reset) gets its thread replayed again instead of starting mid-air.
+        control=control,
     )
     coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
     # Record the agent's live presence in the app-owned registry; interactions read
@@ -259,6 +263,7 @@ def _build_units(
     *,
     settings: ImpiSettings,
     runtime: AgentRuntime,
+    control: RuntimeControl,
     sessions: SessionStore,
     gateway_factory: GatewayFactory,
     tools: ToolWiring,
@@ -292,7 +297,7 @@ def _build_units(
         units.append(
             _build_unit(
                 spec, handle,
-                runtime=runtime, sessions=sessions, profiles=profiles,
+                runtime=runtime, control=control, sessions=sessions, profiles=profiles,
                 interactions=interactions, sinks_by_agent=sinks_by_agent,
                 inline_image_max_bytes=int(settings.inline_image_max_mb * 1024 * 1024),
                 # An http agent's tool activity goes to the caller's journal, not
@@ -489,7 +494,7 @@ def build_app(settings: ImpiSettings) -> App:
     )
     units = _build_units(
         specs, configs, engine_names,
-        settings=settings, runtime=runtime, sessions=sessions,
+        settings=settings, runtime=runtime, control=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools,
         profiles=profile_builder, interactions=interactions, sinks_by_agent=sinks_by_agent,
         tracer=tracer, http_turns=http_hub.turns if http_hub else None, turns=turns,

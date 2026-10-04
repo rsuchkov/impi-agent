@@ -201,7 +201,29 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   keeps the session for the next one — the turn returns with what it had, or
   the session is dropped if the runtime would not stop, with memory on disk
   untouched; `stats()` gives alive / busy / capacity / waiting for a readiness
-  check. A flow needs none of this, which is why it is a second Protocol.
+  check. A flow needs none of this to run a turn, which is why it is a second
+  Protocol — but see the next point for the one question a flow may ask it.
+- **Replaying a conversation the runtime forgot.** The runtime's memory is a
+  session on its disk; a pod rescheduled without that disk, an idle session
+  evicted, an operator's `reset` all leave a conversation the store knows and
+  the runtime starts from nothing. Hand the flow `AgentFlow(..., control=runtime)`
+  and it asks `has_memory` on every turn of a known conversation; when the
+  answer is no, the turn is a first turn again — the thread or the channel is
+  replayed from the platform as it would be for a new session. A **direct
+  message has no thread to read back**, and over the http gateway nothing does,
+  so for those the flow asks the application: `AgentFlow(..., history=…)`, a
+  `HistorySource` (`crucible.ports.chat`) whose `recent(agent, msg)` returns the
+  earlier messages as `PostSnippet`s, oldest first, from the transcript you
+  keep (keyed, say, by the `turn_id` the hub gave each turn). It is asked only
+  when the platform had nothing, and only on a turn the runtime starts from
+  nothing — the first turn of a new conversation included, since the
+  conversation may be older than the engine's record of it. The runtime's own
+  earlier replies belong in it too: it has none of them.
+  `AgentFlow(..., context=…)`, a `ContextSource`, is the other half — who is
+  asking (`preamble(agent, msg)`: the person's role, the system they are signed
+  in to), put in a `[context: who is asking]` block ahead of the history and
+  the message, every turn, an empty string adding nothing. The runtime cannot
+  learn either from the message itself.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base

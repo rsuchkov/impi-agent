@@ -224,7 +224,10 @@ that — a turn waiting on a confirmation can take minutes.
   duplicate`, since the message id was answered before. Nothing runs twice.
 - **The journal is not a transcript.** It lives ten minutes past the turn. The
   agent's memory of the conversation is the runtime's and survives; what the
-  person *saw* is yours to keep if you want to show it again.
+  person *saw* is yours to keep if you want to show it again — and to hand back
+  to the engine as a `HistorySource` when the runtime has lost its copy (see
+  "Replaying a conversation the runtime forgot" in
+  [building-an-app.md](building-an-app.md)).
 - **Confirmations work.** A tool that needs confirming puts a `confirmation`
   event in the journal and the turn waits — for up to `INTEGRATIONS_UI_TIMEOUT`, and
   the wait does not count against the turn's own timeout. Answer through the

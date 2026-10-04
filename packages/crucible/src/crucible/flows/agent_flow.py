@@ -21,9 +21,11 @@ from crucible.ports.agent import (
     AgentRuntime,
     AgentTimeout,
     PromptImage,
+    RuntimeControl,
     notice_for,
 )
 from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.context import ContextSource, HistorySource
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
@@ -43,6 +45,9 @@ NOTICE_EMPTY_ANSWER = "empty_answer"
 _MAX_BACKFILL_CHARS = 6000
 _CHANNEL_BACKFILL_LIMIT = 20
 _FIRST_TURN_HEADER = "[context: earlier conversation]"
+# Who is asking, from the application: ahead of everything else, since it frames
+# both the history and the message.
+_PREAMBLE_HEADER = "[context: who is asking]"
 # Later turns: what people said in this conversation while the agent wasn't
 # addressed (in a channel it only runs when mentioned, so those messages never
 # reached it as a turn).
@@ -123,6 +128,9 @@ class AgentFlow:
         tracer: TurnTracer | None = None,
         turns: TurnBinding | None = None,
         flag_notices: Mapping[str, str] | None = None,
+        control: RuntimeControl | None = None,
+        history: HistorySource | None = None,
+        context: ContextSource | None = None,
     ) -> None:
         self._runtime = runtime
         self._profile = profile
@@ -136,6 +144,17 @@ class AgentFlow:
         # has expired"): flag -> sentence. A flag with no sentence is still
         # reported, as itself — the code is what a program acts on.
         self._flag_notices = dict(flag_notices or {})
+        # Asked, on a conversation the store already knows, whether the runtime
+        # still remembers it. None = trust the store: a known conversation is a
+        # remembered one.
+        self._control = control
+        # Where the conversation is kept when the platform cannot hand it back
+        # (a direct message over http has no thread to read). Consulted only on
+        # a turn the runtime starts from nothing, and only when the platform
+        # had nothing to replay.
+        self._history = history
+        # Who is asking, from the application, ahead of the message. Every turn.
+        self._context = context
         self._own_user_id = ""
         self._inline_image_max_bytes = inline_image_max_bytes
         self._max_inline_images = max_inline_images
@@ -205,11 +224,19 @@ class AgentFlow:
         created: bool,
         chat: ChatClient,
     ) -> TurnOutcome:
+        # A first turn for the runtime is not only a conversation the store has
+        # never seen: a session the runtime has forgotten (evicted, wiped with
+        # the pod's disk, reset by an operator) also starts from nothing, and
+        # replaying the history then is what keeps the conversation one.
+        first_turn = created or (
+            self._control is not None
+            and not self._control.has_memory(self._agent_name, record.runtime_session_id)
+        )
         # On a later turn, last_active is still the PREVIOUS turn's end (touch()
         # runs after the turn, and get_or_create doesn't refresh it) — exactly the
         # cursor for "what was said while we weren't addressed".
-        since = None if created else _parse_iso(record.last_active)
-        prompt = await self._render_prompt(fresh, chat, first_turn=created, since=since)
+        since = None if first_turn else _parse_iso(record.last_active)
+        prompt = await self._render_prompt(fresh, chat, first_turn=first_turn, since=since)
         images = await self._inline_images(fresh)
 
         # Only a real message can wear the "working on it" mark. A synthetic
@@ -293,11 +320,21 @@ class AgentFlow:
         history-injection API) in two shapes: on the FIRST turn of a session with
         prior history, the whole transcript; on later turns, only what was posted
         since our last reply — in a channel the agent only runs when mentioned, so
-        anything said in between never reached it as a turn."""
+        anything said in between never reached it as a turn. The transcript comes
+        from the platform (the thread, the channel) when it has one, else from
+        the application's ``HistorySource``; who is asking, from its
+        ``ContextSource``, goes ahead of everything."""
         anchor = msgs[-1]
         parts: list[str] = []
         batch_ids = {m.ref.message_id for m in msgs}
+        if self._context is not None:
+            preamble = await self._context.preamble(self._agent_name, anchor)
+            if preamble:
+                parts.append(f"{_PREAMBLE_HEADER}\n{preamble}\n[/context]")
         snippets = await self._backfill_snippets(anchor, chat)
+        if first_turn and not snippets and self._history is not None:
+            # The platform had nothing to give back; the application may.
+            snippets = await self._history.recent(self._agent_name, anchor)
         if not first_turn:
             snippets = self._since(snippets, since)
         if snippets:

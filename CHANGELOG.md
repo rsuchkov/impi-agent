@@ -28,6 +28,17 @@ when a release is cut, and `impi update` shows the target version's section.
   and reports not ready while the turns already running finish;
   `hub.idle(timeout)` waits for them. The engine drains for `HTTP_DRAIN_S`
   (20) on shutdown.
+- **For applications on the library: a conversation the runtime forgot is
+  replayed, not started mid-air.** With `AgentFlow(..., control=runtime)` the
+  flow asks the runtime whether it still remembers a known conversation; when
+  it does not (a pod rescheduled without its disk, an evicted session, an
+  operator's reset) the turn is treated as a first turn and the thread or
+  channel is backfilled again. For conversations the platform cannot hand back
+  — a direct message, anything over the http gateway — a new
+  `HistorySource` port (`crucible.ports.chat`) lets the application supply its
+  own transcript, and a `ContextSource` puts who is asking ahead of the message
+  every turn. impi wires the runtime in, so a reset Mattermost or Slack thread
+  gets its history back on the next turn.
 - **For applications on the library: a note a tool leaves on the turn reaches
   the person.** A tool can `flag` the turn's scope ("the session has
   expired"); the flow now posts one notice per flag once the turn is over —

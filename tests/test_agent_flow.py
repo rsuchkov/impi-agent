@@ -976,3 +976,181 @@ async def test_a_flag_with_no_sentence_is_reported_as_itself_even_on_a_failed_tu
     assert chat.notice_codes == ["timeout", "quota_hit"]  # the failure first, then the note
     assert chat.notices[1][1] == "quota_hit"
     await store.close()
+
+
+# -- a conversation the runtime forgot -------------------------------------------
+
+
+class FakeControl:
+    """A runtime's memory as the flow asks about it."""
+
+    def __init__(self, *, remembers: bool) -> None:
+        self.remembers = remembers
+        self.asked: list[tuple[str, str]] = []
+
+    def has_memory(self, agent: str, session_id: str) -> bool:
+        self.asked.append((agent, session_id))
+        return self.remembers
+
+    async def reset(self, agent: str, session_id: str) -> None:
+        pass
+
+    async def cancel(self, session_id: str) -> bool:
+        return False
+
+    def stats(self):
+        raise AssertionError("not asked here")
+
+
+class FakeHistory:
+    def __init__(self, snippets: list[PostSnippet]) -> None:
+        self.snippets = snippets
+        self.asked: list[tuple[str, str]] = []
+
+    async def recent(self, agent: str, msg: IncomingMessage) -> list[PostSnippet]:
+        self.asked.append((agent, msg.conversation_id))
+        return self.snippets
+
+
+class FakeContext:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    async def preamble(self, agent: str, msg: IncomingMessage) -> str:
+        return self.text
+
+
+def _dm2(text: str, post: str) -> IncomingMessage:
+    return IncomingMessage(
+        ref=ConversationRef(channel_id="dm1", conversation_id="dm1", message_id=post),
+        text=text, user_id="u1", username="roman", kind=KIND_DM, is_dm=True,
+    )
+
+
+EARLIER = [
+    PostSnippet(message_id="h1", username="roman", text="what is the status of IPA-7?"),
+    PostSnippet(message_id="h2", username="assistant", text="IPA-7 is In Progress."),
+]
+
+
+async def test_a_dm_the_runtime_forgot_is_replayed_from_the_applications_history(
+    tmp_path: Path,
+) -> None:
+    """A direct message has no thread to read back; when the runtime has lost the
+    session (wiped with the pod's disk, reset by an operator), the application's
+    transcript is the only copy — and the flow asks for it."""
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    control, history = FakeControl(remembers=True), FakeHistory(EARLIER)
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=control,
+                     history=history)
+    chat = FakeChat()
+    try:
+        await flow.handle(_dm2("what is the status of IPA-7?", "p1"), chat)
+        assert control.asked == []  # a conversation the store never saw starts fresh anyway
+        assert history.asked == [("assistant", "dm1")]  # ...and may already have a past
+
+        control.remembers = False  # the runtime lost it between the turns
+        history.snippets = EARLIER + [
+            PostSnippet(message_id="p2", username="roman", text="and who owns it?"),
+        ]
+        await flow.handle(_dm2("and who owns it?", "p2"), chat)
+        assert control.asked == [("assistant", "assistant--dm1")]
+        prompt = runtime.calls[1][1]
+        assert prompt.startswith("[context: earlier conversation]\n")
+        assert "[@roman]: what is the status of IPA-7?" in prompt
+        assert "[@assistant]: IPA-7 is In Progress." in prompt  # its own words too: it has none
+        assert prompt.count("and who owns it?") == 1  # the current message is not replayed
+        assert prompt.endswith("[@roman]: and who owns it?")
+    finally:
+        await store.close()
+
+
+async def test_a_dm_the_runtime_remembers_is_not_replayed(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    history = FakeHistory(EARLIER)
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant",
+                     control=FakeControl(remembers=True), history=history)
+    chat = FakeChat()
+    try:
+        await flow.handle(_dm2("first", "p1"), chat)
+        await flow.handle(_dm2("second", "p2"), chat)
+        assert runtime.calls[1][1] == "[@roman]: second"
+        assert len(history.asked) == 1  # the first turn only
+    finally:
+        await store.close()
+
+
+async def test_the_platforms_own_history_wins_over_the_applications(tmp_path: Path) -> None:
+    """A thread can be read back from the platform; the application's copy is
+    for conversations that cannot."""
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    history = FakeHistory(EARLIER)
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", history=history)
+    chat = FakeChat()
+    chat.thread_posts["root1"] = [
+        PostSnippet(message_id="root1", username="roman", text="thread root message"),
+    ]
+    try:
+        await flow.handle(_thread_msg(), chat)
+        assert "thread root message" in runtime.calls[0][1]
+        assert "IPA-7" not in runtime.calls[0][1] and history.asked == []
+    finally:
+        await store.close()
+
+
+async def test_a_forgotten_thread_is_backfilled_again_from_the_platform(tmp_path: Path) -> None:
+    """No history source needed for a thread: the forgotten session simply gets
+    the whole thread again instead of only what was posted since."""
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    control = FakeControl(remembers=True)
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=control)
+    chat = FakeChat()
+    chat.thread_posts["root1"] = [
+        PostSnippet(message_id="root1", username="roman", text="thread root message",
+                    timestamp=_at(-3600)),
+    ]
+    try:
+        await flow.handle(_thread_msg(post="p2"), chat)
+        control.remembers = False
+        await flow.handle(_thread_msg(post="p3"), chat)
+        second = runtime.calls[1][1]
+        assert "[context: earlier conversation]" in second and "thread root message" in second
+        assert "posted since your last reply" not in second
+    finally:
+        await store.close()
+
+
+async def test_who_is_asking_goes_ahead_of_history_and_message(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant",
+                     history=FakeHistory(EARLIER),
+                     context=FakeContext("Signed in to Jira as roman (project IPA, developer)."))
+    chat = FakeChat()
+    try:
+        await flow.handle(_dm2("and who owns it?", "p2"), chat)
+        prompt = runtime.calls[0][1]
+        who, earlier, said = (
+            prompt.index("[context: who is asking]\nSigned in to Jira as roman"),
+            prompt.index("[context: earlier conversation]"),
+            prompt.index("[@roman]: and who owns it?"),
+        )
+        assert who < earlier < said
+        assert prompt.count("[/context]") == 2
+    finally:
+        await store.close()
+
+
+async def test_an_empty_preamble_adds_nothing(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", context=FakeContext(""))
+    try:
+        await flow.handle(_dm2("hello", "p1"), FakeChat())
+        assert runtime.calls[0][1] == "[@roman]: hello"
+    finally:
+        await store.close()
