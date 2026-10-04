@@ -142,6 +142,22 @@ channel; with several agents present, only an explicit mention) and the
   dispatcher, one turn per conversation at a time. For programs that cannot
   hold a socket — see [http-gateway.md](http-gateway.md).
 
+**Who renders what.** The port draws a line between words the *model* wrote
+and structure the *engine* produced, and each `ChatClient` verb sits on one
+side of it. Prose crosses the port as Markdown and the adapter converts it
+(Slack mrkdwn, plain text on ws); structure crosses as data and the adapter
+draws it in the platform's own idiom. Neutral code never renders a card to
+text for a channel — that is the adapter's call.
+
+| Verb | Carries | Rendered by | Used for |
+|---|---|---|---|
+| `post_reply`, `post_notice` | the model's answer / the engine's sentence, Markdown | adapter converts the markup | replies; coded notices |
+| `post_actions` | model prose + options | adapter draws the controls under the text | questions the *model* asks (`ask_user_confirm`, `ask_user_select`) |
+| `post_confirmation` | an `ApprovalCard` — who asks, what for, fields, a verbatim block, danger, deadline | adapter: Markdown on Mattermost, Block Kit fields on Slack, a `confirmation` event on http | the tool gate; the secret broker's request and its auto-grant notice (no actions: told, not asked) |
+| `update_confirmation` | the same card rewritten — a verdict, a folded notice | same adapter, same message | answered or expired confirmations; a run of auto-grants folded into one message |
+| `retract` | one sentence in place of the controls | adapter | a model question that is no longer open |
+| `post_cards` / `update_cards` | `Card`s with Markdown text and actions | adapter | screens (`ScreenRegistry`); a richer structured form is a later version |
+
 The `GatewayFactory` that builds these lives in `crucible.gateways`; it takes a
 neutral `GatewayConfig` (which transport, which tokens). `impi` only resolves that
 config from its own settings (`impi/gateways.py` — `resolve_gateway`), so the
@@ -187,7 +203,11 @@ and the server still refuses a call that arrives for one. What the card shows
 is the tool's own account of the call when it has one (`Tool.describe` →
 `CallPreview`, rows with a before and an after), and the raw arguments when it
 has not — the arguments are what the model asked for, and the model reads text
-other people wrote.
+other people wrote. The card itself crosses the chat port as data
+(`ApprovalCard`, via `ChatClient.post_confirmation`) and is drawn by the
+adapter: Markdown on Mattermost, Block Kit fields on Slack, a `confirmation`
+event on http — the secret broker's credential card takes the same route, and
+so does the verdict it is rewritten to (`update_confirmation`).
 
 **Speaking tools:** a tool may declare `speaks_to_user` — it puts a message in
 front of the person itself, so what it posts IS the agent's reply and the turn

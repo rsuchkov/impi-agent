@@ -380,7 +380,10 @@ Three answers:
 - **Deny** — refuses this request. The next one asks again.
 
 Nobody answering is a refusal: after `WARD_APPROVAL_TIMEOUT_S` (120s by
-default) the request fails closed and the card is struck out. Keep that timeout
+default) the request fails closed and the card is rewritten with the refusal.
+Either way the card stays as the record — the verdict, the secret, the exact
+command — drawn the way the channel draws cards (on Slack, native fields; on
+Mattermost, Markdown). Keep that timeout
 well under the agent's own turn timeout — the wait blocks a command inside a
 turn, and a turn that dies waiting is worse than a refusal.
 

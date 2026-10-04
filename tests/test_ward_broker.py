@@ -20,8 +20,15 @@ from crucible.approvals import (
     APPROVAL_KEY,
     ApprovalOutcome,
     PendingApprovals,
+    card_markdown,
 )
-from crucible.ports.chat.types import ACTION_SELECT, Action, ConversationRef
+from crucible.ports.chat.types import (
+    ACTION_SELECT,
+    Action,
+    ApprovalCard,
+    ConversationRef,
+    PreviewRow,
+)
 from crucible.store.base import (
     DECISION_APPROVED_GRANT,
     DECISION_APPROVED_ONCE,
@@ -120,17 +127,34 @@ class Posted:
     text: str
     actions: list[Action]
     post_id: str
+    card: ApprovalCard | None = None  # set when the post was a confirmation
+
+
+@dataclass
+class Updated:
+    post_id: str
+    card: ApprovalCard
+    actions: list[Action]
 
 
 class FakePoster:
     def __init__(self) -> None:
         self.posts: list[Posted] = []
+        self.updated: list[Updated] = []
         self.retracted: list[tuple[str, str]] = []
 
     async def post_actions(self, ref, text, actions, *, callback_url) -> str:
         post_id = f"post-{len(self.posts) + 1}"
         self.posts.append(Posted(ref, text, list(actions), post_id))
         return post_id
+
+    async def post_confirmation(self, ref, card, actions, *, callback_url) -> str:
+        post_id = f"post-{len(self.posts) + 1}"
+        self.posts.append(Posted(ref, card_markdown(card), list(actions), post_id, card))
+        return post_id
+
+    async def update_confirmation(self, post_id, card, actions=None, *, callback_url="") -> None:
+        self.updated.append(Updated(post_id, card, list(actions or [])))
 
     async def retract(self, post_id: str, text: str) -> None:
         self.retracted.append((post_id, text))
@@ -277,6 +301,9 @@ async def test_the_card_shows_the_agent_the_reference_and_the_exact_command(
         card = await _answer(rig, ANSWER_DENY)
         await pending
 
+        # Posted as data, drawn by the channel: the fields are the request's own.
+        assert card.card is not None and card.card.icon == "🔐"
+        assert card.card.block_label == "Command" and card.card.expires_at
         assert "assistant" in card.text
         assert "vault://github-token" in card.text
         assert "push release" in card.text
@@ -556,7 +583,9 @@ async def test_a_denial_and_a_silence_are_recorded_apart(tmp_path: Path) -> None
         assert [row.decision for row in await rig.store.list_audit()] == [
             DECISION_TIMEOUT, DECISION_DENIED,
         ]
-        assert any("in time" in text for _, text in rig.poster.retracted)
+        # The card is rewritten with the verdict — still a card, not a sentence.
+        assert any("in time" in u.card.headline for u in rig.poster.updated)
+        assert rig.poster.retracted == []
     finally:
         await rig.store.close()
 
@@ -693,7 +722,7 @@ async def test_a_card_cannot_be_answered_twice(tmp_path: Path) -> None:
         assert rig.approvals.resolve(_token(card), "grant:3600", APPROVER) is ApprovalOutcome.NOT_MINE
         assert await rig.store.list_grants(now=T0, kind=KIND_SECRET) == []
         # And the message says what happened, so a stale card can't mislead.
-        assert any("Allowed once" in text for _, text in rig.poster.retracted)
+        assert any("Allowed once" in u.card.headline for u in rig.poster.updated)
     finally:
         await rig.store.close()
 
@@ -767,10 +796,12 @@ async def test_the_answered_card_keeps_the_command_it_approved(tmp_path: Path) -
         )
         await _answer(rig, "grant:900")
         await pending
-        answered = rig.poster.retracted[-1][1]
-        assert "Allowed for 15 min" in answered
-        assert "gh release create v1.2.0" in answered
-        assert "vault://github-token" in answered
+        answered = rig.poster.updated[-1]
+        assert answered.post_id == rig.poster.posts[-1].post_id
+        assert answered.actions == []  # nothing left to click
+        assert "Allowed for 15 min" in answered.card.headline
+        assert answered.card.block == "gh release create v1.2.0"
+        assert answered.card.fields == (PreviewRow("Secret", "vault://github-token"),)
     finally:
         await rig.store.close()
 
@@ -788,8 +819,12 @@ async def test_the_answered_card_contains_the_command_it_cannot_be_forged_by(
         pending = asyncio.create_task(rig.broker.lease(_request(command=hostile)))
         await _answer(rig, ANSWER_DENY)
         await pending
-        answered = rig.poster.retracted[-1][1]
-        lines = answered.splitlines()
+        answered = rig.poster.updated[-1].card
+        # As data: the argv is the block and nothing else, the one field is real.
+        assert answered.fields == (PreviewRow("Secret", "vault://github-token"),)
+        assert "vault://innocent" in answered.block and "Denied" in answered.headline
+        # And drawn as Markdown, the block stays one fenced block.
+        lines = card_markdown(answered).splitlines()
         fences = [i for i, line in enumerate(lines) if set(line) == {"`"}]
         assert len(fences) == 2  # one block, opened and closed by the engine
         assert lines[-1] == lines[fences[-1]]  # nothing rendered after it
@@ -798,7 +833,6 @@ async def test_the_answered_card_contains_the_command_it_cannot_be_forged_by(
         outside = lines[: fences[0]] + lines[fences[-1] + 1 :]
         assert sum(line.startswith("**Secret:**") for line in outside) == 1
         assert "vault://innocent" not in "\n".join(outside)
-        assert "Denied" in answered
     finally:
         await rig.store.close()
 
@@ -886,8 +920,11 @@ async def test_a_run_of_grants_folds_into_one_notice(tmp_path: Path) -> None:
             await rig.broker.lease(_request(command=("gh", "release", "create", "v1")))
 
         assert len(rig.poster.posts) == 1  # one message, edited twice
-        assert len(rig.poster.retracted) == 2
-        assert "3 so far" in rig.poster.retracted[-1][1]
+        notice = rig.poster.posts[0]
+        assert notice.card is not None and notice.actions == []  # told, not asked
+        assert notice.card.headline == "took a secret automatically."
+        assert len(rig.poster.updated) == 2
+        assert PreviewRow("Times", "3 so far") in rig.poster.updated[-1].card.fields
     finally:
         await rig.store.close()
 

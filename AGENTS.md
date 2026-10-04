@@ -22,7 +22,7 @@ directly: every agent turn is delegated to the external
 | `make stop` | stop the engine and sweep orphaned `pi` children |
 | `make reload` | hot-reload agent profiles (re-read every `agent.yaml` + `.pi/`) |
 | `make test` | `uv run pytest` |
-| `make lint` | ruff + import-linter (layer boundaries) + pyright |
+| `make lint` | ruff + import-linter (layer boundaries) + the two text checks in `scripts/` + pyright |
 | `make relay-lint` | `go vet` + `gofmt` over the browser relay (skipped without Go) |
 | `make relay-test` | `go test -race` over the browser relay (skipped without Go) |
 | `make installer-lint` | shellcheck + `bash -n` over `install.sh` / `installer/` |
@@ -115,6 +115,14 @@ duplicate architecture here.
   violation that is genuinely too costly to fix goes in that script's `ALLOWED`
   with its reason, and the check fails again if the line stops offending.
 
+- **No module of nothing but imports.** A module whose body is only `import`
+  statements (a docstring and an `__all__` aside) is a second name for things
+  defined elsewhere: readers go there and find a signpost, two import paths
+  drift apart, and it outlives its reason. Import from where a thing lives.
+  The one facade a package gets is its `__init__.py`. Checked by
+  `scripts/check_facades.py` (part of `make lint`), with the same `ALLOWED`
+  escape hatch for a facade kept on purpose for a while.
+
 - **English only in code** — strings, logs, comments, docstrings. Exceptions:
   intentional non-ASCII test data (mark it `# Non-ASCII on purpose`); an agent's own
   personality in its `.pi/SYSTEM.md` may be any language.
@@ -136,7 +144,8 @@ duplicate architecture here.
   the test asserts.
 
 - **Boundaries are enforced.** `make lint` runs ruff (incl. import sorting),
-  import-linter (the layer contracts), and pyright (basic). Keep it green.
+  import-linter (the layer contracts), `check_names` and `check_facades` (the
+  text rules above), and pyright (basic). Keep it green.
 
 ## Testing
 

@@ -30,16 +30,14 @@ from typing import Any
 
 from crucible.approvals import (
     Approval,
-    CallPreview,
     PendingApprovals,
     approval_actions,
     humanize,
-    render_card,
     windows,
 )
-from crucible.containment import one_line
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.service import conversation_ref
+from crucible.ports.chat.types import ApprovalCard, CallPreview
 from crucible.store.base import (
     DECISION_ABANDONED,
     DECISION_APPROVED_GRANT,
@@ -157,10 +155,13 @@ class ToolGate:
         future = self._approvals.register(
             token, kind=KIND_TOOL, principal=agent, scopes=(tool,)
         )
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=self._timeout)
+        ).isoformat(timespec="seconds")
         try:
-            post_id = await poster.post_actions(
+            post_id = await poster.post_confirmation(
                 conversation_ref(record),
-                _card(agent, tool, args, preview),
+                _card(agent, tool, args, preview, expires_at=expires_at),
                 approval_actions(token, offers=windows(ceiling_s=self._max_grant_s)),
                 callback_url=self._callback_url,
             )
@@ -257,26 +258,33 @@ def _arguments(args: dict[str, Any]) -> str:
 
 
 def _card(
-    agent: str, tool: str, args: dict[str, Any], preview: CallPreview | None = None
-) -> str:
-    """With a preview: what the tool says the call would do, row by row, a
-    change shown as ``before → after``. Without one: the arguments, verbatim.
-    Labels are the tool's text and values may be the model's, so both pass
-    through the card's hardening."""
+    agent: str,
+    tool: str,
+    args: dict[str, Any],
+    preview: CallPreview | None = None,
+    *,
+    expires_at: str = "",
+) -> ApprovalCard:
+    """The request as data. With a preview: what the tool says the call would
+    do, row by row, a change as ``before → value``. Without one: the arguments,
+    verbatim, as the card's block. Each channel renders it; the values are the
+    model's and go through the channel's hardening there."""
     if preview is None:
-        return render_card(
-            f"⚙️ **{agent}** wants to run `{tool}`.",
-            [],
+        return ApprovalCard(
+            agent=agent,
+            headline=f"wants to run {tool}.",
             block_label="Arguments" if args else "",
             block=_arguments(args) if args else "",
+            expires_at=expires_at,
         )
-    mark = "⚠️" if preview.danger else "⚙️"
-    title = f"{mark} **{agent}** wants to run `{tool}` — {one_line(preview.title)}"
-    fields = [
-        (one_line(row.label), f"{row.before} → {row.value}" if row.before else row.value)
-        for row in preview.rows
-    ]
-    return render_card(title, fields)
+    return ApprovalCard(
+        agent=agent,
+        headline=f"wants to run {tool} — {preview.title}",
+        icon="⚠️" if preview.danger else "⚙️",
+        fields=preview.rows,
+        danger=preview.danger,
+        expires_at=expires_at,
+    )
 
 
 def _verdict(agent: str, tool: str, answer: Approval) -> str:

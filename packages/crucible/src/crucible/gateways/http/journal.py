@@ -23,7 +23,9 @@ EV_TOOL_STARTED = "tool.started"
 EV_TOOL_FINISHED = "tool.finished"
 EV_MESSAGE = "message"
 EV_NOTICE = "notice"
-EV_ACTIONS = "actions"  # a message with controls (a confirmation card, a question)
+EV_ACTIONS = "actions"  # a question with controls (what the runtime asks mid-turn)
+EV_CONFIRMATION = "confirmation"  # a request for a yes, as data: who asks, what for, the facts
+EV_CONFIRMATION_UPDATED = "confirmation.updated"  # the same post rewritten: a verdict, a folded notice
 EV_ACTIONS_RETIRED = "actions.retired"  # its controls are gone; `text` replaces it
 EV_CARDS = "cards"  # a message built from cards; the same postId again = redraw it
 EV_FILE = "file"

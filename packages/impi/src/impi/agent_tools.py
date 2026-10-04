@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 from typing import Any, ClassVar
 
-from crucible.approvals.preview import CallPreview, PreviewRow
+from crucible.ports.chat.types import CallPreview, PreviewRow
 from crucible.tools.base import Tool, ToolContext, ToolError
 from crucible.tools.registry import tool
 from impi.provisioning import (

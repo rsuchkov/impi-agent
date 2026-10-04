@@ -6,6 +6,7 @@ from typing import Any, BinaryIO, cast
 
 from mattermostautodriver import AsyncTypedDriver
 
+from crucible.approvals.card import card_markdown
 from crucible.gateways.mattermost.dialogs import build_dialog
 from crucible.gateways.mattermost.events import PROPS_KEY, post_time
 from crucible.ports.chat.admin import ChannelMember
@@ -15,6 +16,7 @@ from crucible.ports.chat.types import (
     ACTION_USER_SELECT,
     PICKER_KINDS,
     Action,
+    ApprovalCard,
     Card,
     ConversationRef,
     Form,
@@ -229,7 +231,12 @@ class MattermostChatClient:
     # -- Interactive widgets (ChatClient) -----------------------------------
 
     async def post_actions(
-        self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str
+        self,
+        ref: ConversationRef,
+        text: str,
+        actions: list[Action],
+        *,
+        callback_url: str,
     ) -> str:
         post = await self._driver.posts.create_post(
             channel_id=ref.channel_id,
@@ -238,6 +245,30 @@ class MattermostChatClient:
             props={"attachments": [{"actions": _attachment_actions(actions, callback_url)}]},
         )
         return post["id"]
+
+    async def post_confirmation(
+        self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        # Mattermost draws Markdown natively: the card's text form, with the
+        # answers as the message's attachment buttons.
+        return await self.post_actions(ref, card_markdown(card), actions, callback_url=callback_url)
+
+    async def update_confirmation(
+        self,
+        post_id: str,
+        card: ApprovalCard,
+        actions: list[Action] | None = None,
+        *,
+        callback_url: str = "",
+    ) -> None:
+        attachments = (
+            [{"actions": _attachment_actions(list(actions), callback_url)}] if actions else []
+        )
+        await self._driver.posts.patch_post(
+            post_id,
+            message=card_markdown(card),
+            props={"attachments": attachments},  # type: ignore[arg-type]
+        )
 
     async def post_cards(
         self, ref: ConversationRef, cards: list[Card], *, callback_url: str

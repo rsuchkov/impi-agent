@@ -17,7 +17,7 @@ from typing import Any, ClassVar
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from crucible.approvals.preview import CallPreview, PreviewRow
+from crucible.ports.chat.types import CallPreview, PreviewRow
 from crucible.skills import (
     SkillError,
     SkillLibrary,

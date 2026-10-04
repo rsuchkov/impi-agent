@@ -5,6 +5,7 @@ from typing import Protocol
 
 from crucible.ports.chat.types import (
     Action,
+    ApprovalCard,
     Card,
     ConversationRef,
     Form,
@@ -75,6 +76,29 @@ class ChatClient(Protocol):
         """Post ``text`` with clickable ``actions`` as the agent. Each action, when
         clicked, makes the platform POST to ``callback_url`` with the action's
         ``context``. Returns the posted message id."""
+        ...
+
+    async def post_confirmation(
+        self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        """Put a request for a human's yes in front of them: the card as data,
+        drawn the way this platform draws things (Markdown, native fields, a
+        structured event), with ``actions`` as its answers. Returns the posted
+        message id, which ``retract`` later retires."""
+        ...
+
+    async def update_confirmation(
+        self,
+        post_id: str,
+        card: ApprovalCard,
+        actions: list[Action] | None = None,
+        *,
+        callback_url: str = "",
+    ) -> None:
+        """Rewrite a posted confirmation with new data — the verdict once it is
+        answered, a notice folding another occurrence into itself. No
+        ``actions`` means nothing is left to click. Best-effort, like ``retract``:
+        a platform hiccup here must not undo a decision already made."""
         ...
 
     async def retract(self, post_id: str, text: str) -> None:

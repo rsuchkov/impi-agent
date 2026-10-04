@@ -218,6 +218,28 @@ async def test_a_credential_request_is_answered_by_its_approver_and_refused_to_a
     assert stand.web.all("chat_update") == []  # the broker rewrites its own card
 
 
+async def test_the_verdict_rewrites_the_slack_card_as_fields_without_buttons(stand: Stand) -> None:
+    """What the broker's rewrite looks like on Slack: the same message edited
+    in place, drawn from the verdict card — native fields, the argv in a code
+    block, and no actions block left to click."""
+    from crucible.gateways.slack.client import MESSAGE_ID_SEP
+    from ward.card import verdict_card
+
+    await stand.chat.update_confirmation(
+        f"{DM}{MESSAGE_ID_SEP}1.1",
+        verdict_card(
+            "Allowed for 15 min", "assistant",
+            references=("vault://github-token",), command=("gh", "release", "create", "v1"),
+        ),
+    )
+    update = stand.web.last("chat_update")
+    assert update["channel"] == DM and update["ts"] == "1.1"
+    assert update["text"].startswith("🔐 *assistant* — Allowed for 15 min.")
+    assert update["blocks"][1]["fields"] == [{"type": "mrkdwn", "text": "*Secret*\n`vault://github-token`"}]
+    assert "gh release create v1" in update["blocks"][2]["text"]["text"]
+    assert not [b for b in update["blocks"] if b["type"] == "actions"]
+
+
 def test_the_slack_encoding_of_a_form_button_is_the_token_alone() -> None:
     """A spec travelling through the platform would be a spec the platform
     could rewrite; on Slack the value is JSON and the form is a token in it."""

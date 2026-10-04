@@ -6,6 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A confirmation card is data, drawn by the channel.** The engine used to
+  render the card to Markdown for every platform. It now hands the card over
+  as what it is — who asks, what for, the facts with before and after, a
+  verbatim block, a danger flag, a deadline — and each gateway draws it its
+  own way: Mattermost as Markdown as before, **Slack as native Block Kit
+  fields** instead of a text blob, the http gateway as a `confirmation` event
+  a client renders itself (a before → after diff, a danger style, a
+  countdown). The secret broker's credential card takes the same route, and so
+  do its verdict and its auto-grant notice: the answered card is rewritten as a
+  card (http: `confirmation.updated`), not struck through as a sentence. For
+  chat clients built on the library: new `ChatClient.post_confirmation` and
+  `update_confirmation` verbs; `docs/architecture.md` now says which verb
+  carries the model's words and which the engine's structure.
 - **The http gateway serves an application's own routes and drains before
   stopping.** `HttpHub(routes=…, middlewares=…)` puts the application's
   endpoints on the hub's port under the same error envelope and version header

@@ -166,14 +166,24 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   running turn by that id and resolve it from a tool.
 - **Say what the call would do, not what the model said.** A confirmed tool
   should implement `describe(ctx, args) -> CallPreview | None` (`Describing` in
-  `crucible.tools`; `CallPreview`/`PreviewRow` in `crucible.approvals`): the
+  `crucible.tools`; `CallPreview`/`PreviewRow` in `crucible.ports.chat.types`,
+  the chat vocabulary, since a preview travels with the card): the
   server calls it before the gate, inside the paused time, with the same
   context `execute` gets, and the card shows its rows — `Status: In Progress →
   Done`, the issue's title beside its key — instead of the raw arguments. Read
   the current state from the system there; the arguments are the model's
   account, and the model reads text other people wrote. `danger=True` puts a
   warning on the card. A `describe` that raises is logged and the card falls
-  back to the arguments, so a preview can never block the decision.
+  back to the arguments, so a preview can never block the decision. The gate
+  puts the request on the wire as data — `ChatClient.post_confirmation(ref,
+  ApprovalCard, actions)` — and each channel draws it: Mattermost as Markdown
+  (`crucible.approvals.card_markdown`, hardened by `containment`), Slack as
+  native Block Kit fields, the http gateway as a `confirmation` event. Once
+  answered, the same post is rewritten with the verdict as a card again
+  (`update_confirmation`, no actions left). A chat client of your own
+  implements both verbs the same way; the table in
+  [architecture.md](architecture.md#gateways) says which verb carries the
+  model's words and which carries the engine's structure.
 - **Mark what strangers wrote.** A tool whose result quotes other people —
   messages, documents, tickets, search results — declares
   `returns_untrusted = True`. The registry then appends one standard sentence to

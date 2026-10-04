@@ -28,7 +28,7 @@ from crucible.approvals import (
 )
 from crucible.containment import command_line
 from crucible.ports.chat.admin import ChatAdmin
-from crucible.ports.chat.types import ConversationRef
+from crucible.ports.chat.types import ApprovalCard, ConversationRef
 from crucible.store.base import (
     DECISION_APPROVED_GRANT,
     DECISION_APPROVED_ONCE,
@@ -41,7 +41,7 @@ from crucible.store.base import (
     ApprovalStore,
 )
 from ward.approvers import Approvers
-from ward.card import approval_text, notice_text, verdict_text
+from ward.card import approval_card, notice_card, verdict_card
 from ward.decisions import (
     DECISION_AUTO,
     DECISION_AUTO_COMMAND,
@@ -78,7 +78,7 @@ class Folded:
 
 # The card is rewritten once it has been answered, so a second click finds no
 # buttons and the ledger cannot disagree with what the message says happened.
-# What it is rewritten TO is built by `verdict_text` — it keeps the command,
+# What it is rewritten TO is built by `verdict_card` — it keeps the command,
 # which is what makes the message readable as history rather than as a receipt.
 _EXPIRED = "Nobody answered in time"
 
@@ -265,14 +265,18 @@ class SecretBroker:
         ref = ConversationRef(
             channel_id=channel, conversation_id=channel, message_id=channel
         )
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=self._timeout)
+        ).isoformat(timespec="seconds")
         try:
-            post_id = await poster.post_actions(
+            post_id = await poster.post_confirmation(
                 ref,
-                approval_text(
+                approval_card(
                     request.agent,
                     references=request.references,
                     reason=request.reason[:_MAX_REASON],
                     command=request.command,
+                    expires_at=expires_at,
                 ),
                 approval_actions(token, offers=offers),
                 callback_url=self._callback_url,
@@ -286,9 +290,9 @@ class SecretBroker:
             answer = await asyncio.wait_for(future, timeout=self._timeout)
         except TimeoutError:
             self._approvals.discard(token)
-            await self._rewrite(poster, post_id, _verdict_line(request, None))
+            await self._rewrite(poster, post_id, _verdict_of(request, None))
             return Approval(allowed=False, timed_out=True)
-        await self._rewrite(poster, post_id, _verdict_line(request, answer))
+        await self._rewrite(poster, post_id, _verdict_of(request, answer))
         return answer
 
     async def _approval_conversation(self, agent: str, approvers: frozenset[str]) -> str:
@@ -308,13 +312,14 @@ class SecretBroker:
         return ""
 
     @staticmethod
-    async def _rewrite(poster, post_id: str, text: str) -> None:
-        """Retire the card. Best-effort: the decision has already been made, and
-        a platform hiccup here must not undo it."""
+    async def _rewrite(poster, post_id: str, card: ApprovalCard) -> None:
+        """Retire the card by rewriting it with the verdict — still a card, so the
+        channel draws it the same way. Best-effort: the decision has already
+        been made, and a platform hiccup here must not undo it."""
         if not post_id:
             return
         try:
-            await poster.retract(post_id, text)
+            await poster.update_confirmation(post_id, card)
         except Exception:
             logger.warning("could not retire the approval card %s", post_id, exc_info=True)
 
@@ -372,7 +377,7 @@ class SecretBroker:
         now = time.monotonic()
         seen = self._notices.get(key)
         repeats = seen.repeats + 1 if seen and now < seen.until else 1
-        text = notice_text(
+        card = notice_card(
             request.agent,
             references=request.references,
             command=request.command,
@@ -384,12 +389,11 @@ class SecretBroker:
         )
         try:
             if seen is not None and now < seen.until:
-                await poster.retract(seen.post_id, text)
+                await poster.update_confirmation(seen.post_id, card)
                 self._notices[key] = Folded(seen.post_id, repeats, seen.until)
                 return
-            post_id = await poster.post_actions(
-                ref, text, [], callback_url=self._callback_url
-            )
+            # A card with nothing to click: the human is told, not asked.
+            post_id = await poster.post_confirmation(ref, card, [], callback_url=self._callback_url)
         except Exception:
             logger.warning("could not report an automatic grant", exc_info=True)
             return
@@ -493,7 +497,7 @@ def _summarize(decisions: dict[str, str]) -> str:
     return DECISION_AUTO
 
 
-def _verdict_line(request: LeaseRequest, answer: Approval | None) -> str:
+def _verdict_of(request: LeaseRequest, answer: Approval | None) -> ApprovalCard:
     """The answered card. ``None`` means nobody answered in time."""
     if answer is None:
         verdict = f"⌛ {_EXPIRED}, so the request was refused"
@@ -503,6 +507,6 @@ def _verdict_line(request: LeaseRequest, answer: Approval | None) -> str:
         verdict = f"Allowed for {humanize(answer.grant_s)}"
     else:
         verdict = "Allowed once"
-    return verdict_text(
+    return verdict_card(
         verdict, request.agent, references=request.references, command=request.command
     )

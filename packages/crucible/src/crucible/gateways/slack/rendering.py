@@ -15,6 +15,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from crucible.containment import code_block, code_span, one_line
 from crucible.gateways.slack.formatter import markdown_to_mrkdwn
 from crucible.ports.chat.types import (
     ACTION_CHANNEL_SELECT,
@@ -22,6 +23,7 @@ from crucible.ports.chat.types import (
     ACTION_USER_SELECT,
     PICK_FIELD_BY_KIND,
     Action,
+    ApprovalCard,
     Card,
     Form,
     FormField,
@@ -98,6 +100,45 @@ def build_action_blocks(text: str, actions: list[Action]) -> list[dict[str, Any]
         {"type": "section", "text": {"type": "mrkdwn", "text": text or " "}},
         _actions_block(actions),
     ]
+
+
+# Block Kit allows ten fields in a section; a card with more continues in a
+# second section rather than losing rows.
+_FIELDS_PER_SECTION = 10
+
+
+def build_confirmation_blocks(card: ApprovalCard, actions: list[Action]) -> list[dict[str, Any]]:
+    """An ``ApprovalCard`` as native blocks: headline, the facts as the
+    section's fields (label over value, a change as ``before → value``), the
+    verbatim block as a code section, the deadline as context, then the
+    answers. Values are the caller's text and go through the same hardening as
+    the Markdown form; labels and the headline are the engine's."""
+    headline = f"{card.icon} *{card.agent}* {one_line(card.headline)}"
+    blocks: list[dict[str, Any]] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": headline}},
+    ]
+    fields = [
+        {
+            "type": "mrkdwn",
+            "text": f"*{one_line(row.label)}*\n"
+            + (f"{code_span(row.before)} → {code_span(row.value)}" if row.before else code_span(row.value)),
+        }
+        for row in card.fields
+        if row.value
+    ]
+    for start in range(0, len(fields), _FIELDS_PER_SECTION):
+        blocks.append({"type": "section", "fields": fields[start : start + _FIELDS_PER_SECTION]})
+    if card.block:
+        label = f"*{one_line(card.block_label)}*\n" if card.block_label else ""
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": label + code_block(card.block)}})
+    if card.expires_at and actions:
+        blocks.append({
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"Answer by {one_line(card.expires_at)}"}],
+        })
+    if actions:  # an answered card has nothing left to click
+        blocks.append(_actions_block(actions))
+    return blocks
 
 
 def build_card_blocks(cards: list[Card]) -> list[dict[str, Any]]:

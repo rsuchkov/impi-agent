@@ -214,3 +214,17 @@ def test_preformatted_survives_the_slack_converter() -> None:
     # the converter as itself.
     block = preformatted('{\n  "a": "**not bold**"\n}', lang="json")
     assert markdown_to_mrkdwn(block) == block
+
+
+def test_a_cards_markdown_form_is_the_familiar_card() -> None:
+    from crucible.approvals import card_markdown
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    card = ApprovalCard(
+        agent="assistant", headline="wants to run dangerous — move IPA-7", icon="⚠️",
+        fields=(PreviewRow("Issue", "IPA-7 — Fix login"), PreviewRow("Status", "Done", before="Open")),
+    )
+    text = card_markdown(card)
+    assert text.splitlines()[0] == "⚠️ **assistant** wants to run dangerous — move IPA-7"
+    assert "**Issue:** `IPA-7 — Fix login`" in text
+    assert "**Status:** `Open → Done`" in text

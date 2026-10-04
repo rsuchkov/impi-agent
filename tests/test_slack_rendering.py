@@ -367,3 +367,31 @@ def test_converting_is_not_done_twice_on_the_same_string() -> None:
     once = markdown_to_mrkdwn("**omni**")
     assert once == "*omni*"
     assert markdown_to_mrkdwn(once) == "_omni_"  # exactly what must not happen
+
+
+def test_a_confirmation_card_becomes_native_fields_with_hardened_values() -> None:
+    from crucible.gateways.slack.rendering import build_confirmation_blocks
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    card = ApprovalCard(
+        agent="assistant", headline="is asking for a secret.", icon="🔐",
+        fields=(PreviewRow("Secret", "github-token"), PreviewRow("Reason", "push\nrelease *now*")),
+        block_label="Command", block="gh release create v1",
+        expires_at="2026-10-04T12:00:00+00:00",
+    )
+    allow = Action(id="once", label="Allow once", value="once", context={"approval": "ap-1"})
+    blocks = build_confirmation_blocks(card, [allow])
+
+    assert blocks[0]["text"]["text"] == "🔐 *assistant* is asking for a secret."
+    fields = blocks[1]["fields"]
+    assert fields[0]["text"] == "*Secret*\n`github-token`"
+    assert "\n" not in fields[1]["text"].split("\n", 1)[1]  # the reason cannot add a line
+    assert "`pushrelease *now*`" in fields[1]["text"]  # the line break is gone, not turned into a gap
+    assert blocks[2]["text"]["text"].startswith("*Command*\n```")
+    assert blocks[3]["type"] == "context" and "2026-10-04" in blocks[3]["elements"][0]["text"]
+    assert blocks[4]["type"] == "actions"
+
+    # Answered: the same card without the buttons, and without a deadline that
+    # no longer applies — nothing is left to click.
+    verdict = build_confirmation_blocks(card, [])
+    assert [b["type"] for b in verdict] == ["section", "section", "section"]

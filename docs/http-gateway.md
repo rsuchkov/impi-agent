@@ -120,8 +120,10 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | `tool.finished` | `callId`, `tool`, `ok` | it ended |
 | `message` | `messageId`, `format: "markdown"`, `text` | the agent's answer |
 | `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `runtime_unavailable`, `agent_error`, `empty_answer` — or a flag a tool left on the turn (`session_expired`, whatever the application defines), after the answer; `text` is a sentence for a person, `code` is for you |
-| `actions` | `postId`, `text`, `actions[]` | a message with controls — a confirmation card, a question; the turn waits (`awaiting_input`) |
-| `actions.retired` | `postId`, `text` | its controls are gone; show `text` in their place |
+| `actions` | `postId`, `text`, `actions[]` | a question with controls — what the runtime asks mid-turn (`ask_user_confirm`); the turn waits (`awaiting_input`) |
+| `confirmation` | `postId`, `agent`, `icon`, `headline`, `fields[{label, value, before}]`, `block {label, text} \| null`, `danger`, `expiresAt`, `actions[]` | a request for a yes, as data — a tool that needs confirming, a credential an agent asks for. Nothing is rendered: draw the headline, the facts (a `before` means a change), the verbatim block (a command line, raw arguments — show it as written), a warning when `danger`, a countdown to `expiresAt`; the turn waits (`awaiting_input`) |
+| `confirmation.updated` | `postId`, the same fields as `confirmation`, `actions[]` | that card rewritten — the verdict once it is answered or has expired, a notice folding another occurrence into itself (a `Times` field). Redraw the post; empty `actions` means nothing is left to click and the turn no longer waits |
+| `actions.retired` | `postId`, `text` | the controls of an `actions` post are gone; show `text` in their place |
 | `cards` | `postId`, `cards[{text, accent, actions[]}]` | a message built from cards; the same `postId` again means redraw it |
 | `file` | `name`, `mime`, `data` (base64), `text` | a file the agent sent (the caption rides with the first) |
 | `turn.finished` | `outcome` | the last event: `replied`, `acted` (a tool answered for it), `empty`, `duplicate`, `timeout`, `error` |
@@ -146,8 +148,9 @@ conversation — here, the caller's user; a request for a *credential* is
 addressed to named approvers by **user id**, which on this gateway is what the
 caller put in `X-User-Id` — so the program's claim about its user decides who
 may approve a credential, and refuses everyone else (`not_allowed`, the card
-stays live for them). After a click the control is retired (`actions.retired`);
-clicking it again is `404`, as is a click on a question nobody waits on any
+stays live for them). After a click the control is retired — an `actions`
+post with `actions.retired`, a `confirmation` with `confirmation.updated`
+carrying the verdict; clicking it again is `404`, as is a click on a question nobody waits on any
 more (answered elsewhere, timed out, withdrawn) and any click on a turn that has
 ended.
 
@@ -222,8 +225,8 @@ that — a turn waiting on a confirmation can take minutes.
 - **The journal is not a transcript.** It lives ten minutes past the turn. The
   agent's memory of the conversation is the runtime's and survives; what the
   person *saw* is yours to keep if you want to show it again.
-- **Confirmations work.** A tool that needs confirming puts an `actions` card
-  in the journal and the turn waits — for up to `INTEGRATIONS_UI_TIMEOUT`, and
+- **Confirmations work.** A tool that needs confirming puts a `confirmation`
+  event in the journal and the turn waits — for up to `INTEGRATIONS_UI_TIMEOUT`, and
   the wait does not count against the turn's own timeout. Answer through the
   actions endpoint. Nobody answering in time refuses the call; cancelling the
   turn withdraws the card, and a click on a withdrawn card runs nothing.

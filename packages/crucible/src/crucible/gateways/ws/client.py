@@ -8,8 +8,10 @@ simply don't declare the ask_user_*/open_form tools)."""
 
 import logging
 
+from crucible.approvals.card import card_markdown
 from crucible.ports.chat.types import (
     Action,
+    ApprovalCard,
     Card,
     ConversationRef,
     Form,
@@ -70,7 +72,12 @@ class WsChatClient:
     # -- Interactive widgets: not part of the ws protocol (v1) -----------------
 
     async def post_actions(
-        self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str
+        self,
+        ref: ConversationRef,
+        text: str,
+        actions: list[Action],
+        *,
+        callback_url: str,
     ) -> str:
         logger.warning(
             "ws agent %s asked to post a widget — unsupported on this gateway; "
@@ -79,8 +86,26 @@ class WsChatClient:
         await self._hub.send(self._agent, ref.conversation_id, "notice", text)
         return ""
 
+    async def post_confirmation(
+        self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        # No controls on this transport: the card arrives as its text form, and
+        # nobody can answer it here — the same degradation as post_actions.
+        logger.warning(
+            "ws agent %s asked for a confirmation — unsupported on this gateway; "
+            "sending the card as plain text", self._agent,
+        )
+        await self._hub.send(self._agent, ref.conversation_id, "notice", card_markdown(card))
+        return ""
+
     async def retract(self, post_id: str, text: str) -> None:
         pass
+
+    async def update_confirmation(
+        self, post_id: str, card: ApprovalCard, actions: list[Action] | None = None,
+        *, callback_url: str = "",
+    ) -> None:
+        pass  # nothing was posted to rewrite (see post_confirmation)
 
     async def post_cards(
         self, ref: ConversationRef, cards: list[Card], *, callback_url: str

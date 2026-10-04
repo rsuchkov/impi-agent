@@ -63,6 +63,7 @@ lint:
 	uv run ruff check packages tests scripts
 	uv run lint-imports
 	uv run python scripts/check_names.py
+	uv run python scripts/check_facades.py
 	uv run pyright
 
 # The browser relay is Go, so it sits outside ruff/pyright/pytest. The image

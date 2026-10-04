@@ -8,16 +8,19 @@ import re
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
+from crucible.approvals.card import card_markdown
 from crucible.gateways.slack.events import ts_time
 from crucible.gateways.slack.formatter import markdown_to_mrkdwn
 from crucible.gateways.slack.rendering import (
     build_action_blocks,
     build_card_blocks,
+    build_confirmation_blocks,
     build_modal_view,
 )
 from crucible.ports.chat.admin import ChannelMember
 from crucible.ports.chat.types import (
     Action,
+    ApprovalCard,
     Card,
     ConversationRef,
     Form,
@@ -167,7 +170,12 @@ class SlackChatClient:
     # -- Interactive widgets (ChatClient) -----------------------------------
 
     async def post_actions(
-        self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str
+        self,
+        ref: ConversationRef,
+        text: str,
+        actions: list[Action],
+        *,
+        callback_url: str,
     ) -> str:
         # callback_url is unused: Socket Mode delivers clicks over the WebSocket,
         # routed by action_id, not to a URL.
@@ -181,6 +189,34 @@ class SlackChatClient:
             blocks=build_action_blocks(text, actions),
         )
         return f"{resp.get('channel', ref.channel_id)}{MESSAGE_ID_SEP}{resp.get('ts', '')}"
+
+    async def post_confirmation(
+        self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        # Native Block Kit: the headline as a section, the facts as its fields,
+        # the verbatim block as a code section, the answers as buttons. The
+        # text form travels as the notification fallback.
+        resp = await self._client.chat_postMessage(
+            channel=ref.channel_id,
+            thread_ts=ref.thread_root_id or None,
+            text=markdown_to_mrkdwn(card_markdown(card)),
+            blocks=build_confirmation_blocks(card, actions),
+        )
+        return f"{resp.get('channel', ref.channel_id)}{MESSAGE_ID_SEP}{resp.get('ts', '')}"
+
+    async def update_confirmation(
+        self,
+        post_id: str,
+        card: ApprovalCard,
+        actions: list[Action] | None = None,
+        *,
+        callback_url: str = "",
+    ) -> None:
+        await self._rewrite(
+            post_id,
+            markdown_to_mrkdwn(card_markdown(card)),
+            build_confirmation_blocks(card, list(actions or [])),
+        )
 
     async def retract(self, post_id: str, text: str) -> None:
         # Converted HERE rather than inside _rewrite: the other caller passes

@@ -15,6 +15,7 @@ from crucible.gateways.http.journal import (
     STATUS_AWAITING_INPUT,
     STATUS_DONE,
     STATUS_FAILED,
+    STATUS_RUNNING,
 )
 from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.ports.agent.runtime import RuntimeStats
@@ -818,5 +819,100 @@ async def test_a_draining_hub_takes_no_new_turns_but_finishes_the_running_ones()
             assert await waiter is True
             events, _ = await _drain(s, 8503, started["turnId"])
             assert events[-1]["outcome"] == "replied"
+    finally:
+        await hub.stop()
+
+
+async def test_a_confirmation_arrives_as_data_not_as_a_rendered_card() -> None:
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    hold = asyncio.Event()
+
+    async def asks(msg, chat):
+        await chat.post_confirmation(
+            msg.ref,
+            ApprovalCard(
+                agent="helper", headline="wants to run jira_transition_issue — move IPA-7 to Done",
+                icon="⚠️", fields=(PreviewRow("Status", "Done", before="Open"),),
+                block_label="Arguments", block='{"key": "IPA-7"}', danger=True,
+                expires_at="2026-10-04T12:00:00+00:00",
+            ),
+            [Action(id="yes", label="Allow", value="Allow", context={"token": "tk"})],
+            callback_url="",
+        )
+        await hold.wait()
+        return TurnOutcome.ACTED
+
+    dispatcher = FakeDispatcher()
+    hub, _ = _hub(8504, script=asks, dispatcher=dispatcher)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8504, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            _, page = await _events(s, 8504, started["turnId"], after=1, wait=0.2)
+            card = page["events"][0]
+            assert card["type"] == "confirmation" and "text" not in card
+            assert card["agent"] == "helper" and card["icon"] == "⚠️" and card["danger"] is True
+            assert card["headline"] == "wants to run jira_transition_issue — move IPA-7 to Done"
+            assert card["fields"] == [{"label": "Status", "value": "Done", "before": "Open"}]
+            assert card["block"] == {"label": "Arguments", "text": '{"key": "IPA-7"}'}
+            assert card["expiresAt"] == "2026-10-04T12:00:00+00:00"
+            assert card["actions"][0]["id"] == "yes" and page["status"] == STATUS_AWAITING_INPUT
+            # Answered like any card: by postId and actionId.
+            status, _ = await _post(s, 8504, f"/v1/turns/{started['turnId']}/actions",
+                                    {"postId": card["postId"], "actionId": "yes"})
+            assert status == 200 and dispatcher.pending == [("tk", "Allow")]
+            hold.set()
+    finally:
+        await hub.stop()
+
+
+async def test_an_updated_confirmation_is_the_same_post_rewritten_as_data() -> None:
+    """The verdict is a card too: the client replaces the post it drew, and with
+    no actions left the turn is no longer waiting on a human."""
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    answered, go_on = asyncio.Event(), asyncio.Event()
+
+    async def asks(msg, chat):
+        post_id = await chat.post_confirmation(
+            msg.ref, ApprovalCard(agent="helper", headline="is asking for a secret."),
+            [Action(id="yes", label="Allow", value="Allow", context={"token": "tk"})],
+            callback_url="",
+        )
+        await answered.wait()
+        await chat.update_confirmation(
+            post_id,
+            ApprovalCard(
+                agent="helper", headline="— Allowed once.", icon="🔐",
+                fields=(PreviewRow("Secret", "github-token"),),
+                block_label="Command", block="gh release create v1",
+            ),
+        )
+        await go_on.wait()  # the turn is still running: what does the client see meanwhile?
+        return TurnOutcome.ACTED
+
+    hub, _ = _hub(8505, script=asks)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8505, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            _, page = await _events(s, 8505, started["turnId"], after=1, wait=0.2)
+            card = page["events"][0]
+            assert card["type"] == "confirmation" and page["status"] == STATUS_AWAITING_INPUT
+            answered.set()
+            _, page = await _events(s, 8505, started["turnId"], after=2, wait=0.5)
+            assert page["status"] == STATUS_RUNNING  # nobody is waited on any more
+            updated = next(e for e in page["events"] if e["type"] == "confirmation.updated")
+            assert updated["postId"] == card["postId"]
+            assert updated["headline"] == "— Allowed once." and updated["actions"] == []
+            assert updated["fields"] == [{"label": "Secret", "value": "github-token", "before": ""}]
+            assert updated["block"] == {"label": "Command", "text": "gh release create v1"}
+            assert "actions.retired" not in [e["type"] for e in page["events"]]
+            # Answering the retired post is refused: nothing is pending on it.
+            status, _ = await _post(s, 8505, f"/v1/turns/{started['turnId']}/actions",
+                                    {"postId": card["postId"], "actionId": "yes"})
+            assert status == 404
+            go_on.set()
     finally:
         await hub.stop()

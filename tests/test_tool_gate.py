@@ -22,15 +22,20 @@ from crucible.approvals import (
     ANSWER_DENY,
     ANSWER_ONCE,
     APPROVAL_KEY,
-    CallPreview,
     PendingApprovals,
-    PreviewRow,
+    card_markdown,
 )
 from crucible.config import ToolSettings
 from crucible.interactions import toolgate
 from crucible.interactions.toolgate import ToolGate, tool_scope
 from crucible.ports.chat.directory import AgentInfo
-from crucible.ports.chat.types import ACTION_SELECT, KIND_DM
+from crucible.ports.chat.types import (
+    ACTION_SELECT,
+    KIND_DM,
+    ApprovalCard,
+    CallPreview,
+    PreviewRow,
+)
 from crucible.store.base import KIND_TOOL
 from crucible.store.sqlite import SqliteSessionStore
 from crucible.tools.base import CAP_CONFIRMATION, Tool, ToolContext
@@ -92,6 +97,7 @@ class Posted:
     text: str
     actions: list
     post_id: str
+    card: ApprovalCard | None = None
 
 
 class FakePoster:
@@ -101,6 +107,12 @@ class FakePoster:
 
     async def post_actions(self, ref, text, actions, *, callback_url) -> str:
         self.posts.append(Posted(text, list(actions), f"post-{len(self.posts) + 1}"))
+        return self.posts[-1].post_id
+
+    async def post_confirmation(self, ref, card, actions, *, callback_url) -> str:
+        # The text form, as a chat platform would show it, so the assertions on
+        # what a person reads stay readable; the card itself beside it.
+        self.posts.append(Posted(card_markdown(card), list(actions), f"post-{len(self.posts) + 1}", card))
         return self.posts[-1].post_id
 
     async def retract(self, post_id: str, text: str) -> None:
@@ -305,7 +317,7 @@ async def test_a_preview_that_fails_leaves_the_arguments_on_the_card(tmp_path: P
         pending = asyncio.create_task(_call(rig, "dangerous"))
         card = await _answer(rig, ANSWER_ONCE)
         assert await pending == 200  # the decision was still possible
-        assert "⚙️" in card.text and "`dangerous`" in card.text
+        assert "⚙️" in card.text and "wants to run dangerous" in card.text
     finally:
         await _close(rig)
 
@@ -486,7 +498,7 @@ async def test_the_card_names_the_agent_and_the_tool(tmp_path: Path) -> None:
 def test_arguments_cannot_forge_the_question(hostile: str) -> None:
     """The arguments are the caller's, so they go through the same hardening as
     a secret request's command line."""
-    card = toolgate._card("assistant", "dangerous", {"payload": hostile})
+    card = card_markdown(toolgate._card("assistant", "dangerous", {"payload": hostile}))
     # The label appears once as a LINE; inside the block it is literal text,
     # which is containment rather than censorship.
     lines = card.splitlines()
@@ -548,5 +560,27 @@ async def test_a_refusal_for_want_of_anyone_to_ask_is_filed_under_the_same_scope
         assert [(r.decision, r.scope) for r in rows] == [
             ("no_approver", tool_scope("dangerous", "assistant--stranger")),
         ]
+    finally:
+        await _close(rig)
+
+
+async def test_the_gate_asks_with_the_card_as_data(tmp_path: Path) -> None:
+    """The gate renders nothing: the card goes out as data — who asks, what
+    for, the facts, the deadline — and each channel draws it its own way."""
+    from datetime import datetime, timedelta, timezone
+
+    rig = await _rig(tmp_path, 8556, timeout_s=90.0)
+    rig.tool.preview = CallPreview("move IPA-7", (PreviewRow("Status", "Done", before="Open"),), danger=True)
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        posted = await _answer(rig, ANSWER_ONCE)
+        assert await pending == 200
+        card = posted.card
+        assert card is not None
+        assert (card.agent, card.icon, card.danger) == ("assistant", "⚠️", True)
+        assert card.headline == "wants to run dangerous — move IPA-7"
+        assert card.fields == (PreviewRow("Status", "Done", before="Open"),)
+        remaining = datetime.fromisoformat(card.expires_at) - datetime.now(timezone.utc)
+        assert timedelta(seconds=80) < remaining <= timedelta(seconds=90)
     finally:
         await _close(rig)

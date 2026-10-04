@@ -7,7 +7,8 @@ where the hardening and its rationale live.
 
 from collections.abc import Sequence
 
-from crucible.containment import code_block, code_span
+from crucible.containment import code_block, code_span, one_line
+from crucible.ports.chat.types import ApprovalCard
 
 
 def render_card(
@@ -25,3 +26,15 @@ def render_card(
         lines.append(f"**{block_label}:**" if block_label else "")
         lines.append(code_block(block))
     return "\n".join(lines)
+
+
+def card_markdown(card: ApprovalCard) -> str:
+    """An ``ApprovalCard`` as Markdown — what a chat platform shows, and the
+    text form any channel may fall back to. The agent's name and the engine's
+    headline are structure; every field value and the block are content."""
+    headline = f"{card.icon} **{card.agent}** {one_line(card.headline)}"
+    fields = [
+        (one_line(row.label), f"{row.before} → {row.value}" if row.before else row.value)
+        for row in card.fields
+    ]
+    return render_card(headline, fields, block_label=card.block_label, block=card.block)

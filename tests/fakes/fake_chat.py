@@ -2,6 +2,7 @@
 
 from crucible.ports.chat.types import (
     Action,
+    ApprovalCard,
     Card,
     ConversationRef,
     Form,
@@ -17,6 +18,8 @@ class FakeChat:
         self.reply_hops: list[int] = []  # hop_depth of each reply, positionally
         self.notices: list[tuple[ConversationRef, str]] = []
         self.notice_codes: list[str] = []  # beside `notices`, in the same order
+        self.posted_confirmations: list[tuple[ConversationRef, ApprovalCard, list[Action]]] = []
+        self.updated_confirmations: list[tuple[str, ApprovalCard, list[Action]]] = []
         self.reactions: list[tuple[str, str]] = []  # ("+eyes"/"-eyes", message_id)
         self.thread_posts: dict[str, list[PostSnippet]] = {}  # root_id -> thread
         self.recent_posts: dict[str, list[PostSnippet]] = {}  # channel_id -> history
@@ -63,10 +66,27 @@ class FakeChat:
         self.posted_files.append((ref, files, text))
 
     async def post_actions(
-        self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str
+        self,
+        ref: ConversationRef,
+        text: str,
+        actions: list[Action],
+        *,
+        callback_url: str,
     ) -> str:
         self.posted_actions.append((ref, text, actions, callback_url))
         return "widget-post-id"
+
+    async def post_confirmation(
+        self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        self.posted_confirmations.append((ref, card, actions))
+        return f"confirm-{len(self.posted_confirmations)}"
+
+    async def update_confirmation(
+        self, post_id: str, card: ApprovalCard, actions: list[Action] | None = None,
+        *, callback_url: str = "",
+    ) -> None:
+        self.updated_confirmations.append((post_id, card, list(actions or [])))
 
     async def retract(self, post_id: str, text: str) -> None:
         self.retracted.append((post_id, text))

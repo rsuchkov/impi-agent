@@ -7,7 +7,7 @@ needs.
 
 from typing import Any, Protocol
 
-from crucible.approvals.preview import CallPreview
+from crucible.ports.chat.types import CallPreview
 
 
 class ToolApproving(Protocol):

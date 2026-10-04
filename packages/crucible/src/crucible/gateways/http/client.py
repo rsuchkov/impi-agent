@@ -16,6 +16,8 @@ from crucible.gateways.http.journal import (
     EV_ACTIONS,
     EV_ACTIONS_RETIRED,
     EV_CARDS,
+    EV_CONFIRMATION,
+    EV_CONFIRMATION_UPDATED,
     EV_FILE,
     EV_MESSAGE,
     EV_NOTICE,
@@ -25,6 +27,7 @@ from crucible.gateways.http.journal import (
 from crucible.gateways.http.turns import HttpTurns, Turn
 from crucible.ports.chat.types import (
     Action,
+    ApprovalCard,
     Card,
     ConversationRef,
     Form,
@@ -34,6 +37,18 @@ from crucible.ports.chat.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _wire_card(card: ApprovalCard) -> dict:
+    return {
+        "agent": card.agent,
+        "icon": card.icon,
+        "headline": card.headline,
+        "fields": [{"label": r.label, "value": r.value, "before": r.before} for r in card.fields],
+        "block": {"label": card.block_label, "text": card.block} if card.block else None,
+        "danger": card.danger,
+        "expiresAt": card.expires_at,
+    }
 
 
 def _wire_action(action: Action) -> dict:
@@ -107,7 +122,12 @@ class HttpChatClient:
     # -- interactive: real here, answered through the hub's actions endpoint -----
 
     async def post_actions(
-        self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str
+        self,
+        ref: ConversationRef,
+        text: str,
+        actions: list[Action],
+        *,
+        callback_url: str,
     ) -> str:
         turn = self._turn(ref, "a card")
         if turn is None:
@@ -120,6 +140,48 @@ class HttpChatClient:
         )
         turn.journal.set_status(STATUS_AWAITING_INPUT)
         return post_id
+
+    async def post_confirmation(
+        self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        turn = self._turn(ref, "a confirmation")
+        if turn is None:
+            return ""
+        post_id = uuid.uuid4().hex
+        turn.posted[post_id] = tuple(actions)
+        turn.blocking.add(post_id)
+        # The card as data: a program draws the headline, a before → after
+        # diff, a danger style and a countdown itself. Nothing rendered here.
+        turn.journal.emit(
+            EV_CONFIRMATION, postId=post_id, **_wire_card(card),
+            actions=[_wire_action(a) for a in actions],
+        )
+        turn.journal.set_status(STATUS_AWAITING_INPUT)
+        return post_id
+
+    async def update_confirmation(
+        self,
+        post_id: str,
+        card: ApprovalCard,
+        actions: list[Action] | None = None,
+        *,
+        callback_url: str = "",
+    ) -> None:
+        turn = self._turn_of_post(post_id)
+        if turn is None:
+            return
+        answers = tuple(actions or ())
+        turn.journal.emit(
+            EV_CONFIRMATION_UPDATED, postId=post_id, **_wire_card(card),
+            actions=[_wire_action(a) for a in answers],
+        )
+        if answers:
+            turn.posted[post_id] = answers
+            return
+        turn.posted.pop(post_id, None)
+        turn.blocking.discard(post_id)
+        if not turn.blocking:
+            turn.journal.set_status(STATUS_RUNNING)
 
     async def retract(self, post_id: str, text: str) -> None:
         turn = self._turn_of_post(post_id)

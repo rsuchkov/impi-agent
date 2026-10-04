@@ -21,12 +21,12 @@ from typing import Any
 from aiohttp import web
 
 from crucible.approvals.ports import ToolApproving
-from crucible.approvals.preview import CallPreview
 from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
+from crucible.ports.chat.types import CallPreview
 from crucible.ports.tasks import TaskService
 from crucible.ports.turn import TurnScopes
 from crucible.tools.base import (
