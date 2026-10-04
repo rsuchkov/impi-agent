@@ -17,6 +17,7 @@ import asyncio
 import logging
 import re
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from aiohttp import web
@@ -39,6 +40,7 @@ from crucible.ports.chat.types import (
     ConversationRef,
     IncomingMessage,
 )
+from crucible.ports.turn import TurnScope
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +305,10 @@ class HttpHub:
             kind=KIND_DM,
             is_dm=True,
             mentioned=True,
-            turn=caller.turn,
+            # The hub's turn id travels on the scope: a flow or a tool that keeps
+            # a transcript of its own then shares a key with the journal.
+            turn=replace(caller.turn, turn_id=turn.id) if caller.turn is not None
+            else TurnScope(turn_id=turn.id),
             attachments=tuple(stored),
         )
         try:

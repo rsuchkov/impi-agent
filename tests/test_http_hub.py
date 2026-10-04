@@ -684,3 +684,55 @@ async def test_token_callers_accept_only_the_exact_token() -> None:
     assert await callers.authenticate(req("tok-porta"), None) is None
     assert await callers.authenticate(req("тёкен"), None) is None  # Non-ASCII on purpose
     assert await callers.authenticate(req(""), None) is None
+
+
+async def test_the_turns_id_rides_on_the_messages_scope() -> None:
+    from crucible.gateways.http import Caller
+    from crucible.ports.turn import TurnScope, TurnSecrets
+
+    class _WithScope:
+        async def authenticate(self, request, body):
+            return Caller(realm="portal", user_id="u-1",
+                          turn=TurnScope("", TurnSecrets({"cookie": "c"}), {"locale": "ru"}))
+
+    seen: list[IncomingMessage] = []
+
+    async def record(msg, chat):
+        seen.append(msg)
+        await chat.post_reply(msg.ref, "stored as well")
+        return TurnOutcome.REPLIED
+
+    hub = HttpHub("127.0.0.1", 8500, _WithScope(), directory=FakeDirectory(), max_wait_s=0.2)
+    hub.register_agent("helper", FakeSink(record), HttpChatClient(hub.turns, "helper"))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8500, MESSAGES, {"clientMessageId": "m1", "text": "hi"},
+                                     headers={"Authorization": "Bearer any"})
+            events, _ = await _drain(s, 8500, started["turnId"])
+            scope = seen[0].turn
+            assert scope is not None and scope.turn_id == started["turnId"]
+            assert scope.secrets.get("cookie") == "c" and scope.attributes == {"locale": "ru"}  # kept
+            assert any(e["type"] == "message" for e in events)
+    finally:
+        await hub.stop()
+
+
+async def test_a_caller_without_a_scope_still_gets_the_turn_id() -> None:
+    seen: list[IncomingMessage] = []
+
+    async def record(msg, chat):
+        seen.append(msg)
+        await chat.post_reply(msg.ref, "ok")
+        return TurnOutcome.REPLIED
+
+    hub, _ = _hub(8501, script=record)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8501, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
+            events, _ = await _drain(s, 8501, started["turnId"])
+            assert seen[0].turn is not None and seen[0].turn.turn_id == started["turnId"]
+            assert len(next(e for e in events if e["type"] == "message")["messageId"]) == 32
+    finally:
+        await hub.stop()

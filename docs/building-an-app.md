@@ -272,7 +272,11 @@ credential, is another user's credential.
   and an application whose users prove themselves otherwise (a session cookie
   checked upstream) implements `authenticate(request, body) -> Caller | None`
   itself — and builds the `Caller.turn` scope there, so a credential that came
-  with the request reaches the tools of that turn and nothing else. `None` is
+  with the request reaches the tools of that turn and nothing else. The hub
+  fills `TurnScope.turn_id` with the turn's id (and builds a bare scope when the
+  authenticator gave none), so a flow or tool keeping a transcript can key it by
+  the same id the client polls — and leave out, on a reload, the stored answer
+  of a turn the client is still replaying from its journal. `None` is
   the plain 401; raising `CallerRefused(status, code, message, **extra)` answers
   with the application's own status and code in the hub's error envelope
   (`jira_session_invalid`, `identity_mismatch`, `rate_limited`, …). What a

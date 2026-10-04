@@ -6,6 +6,11 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **For applications on the http gateway: the turn's id reaches the flow and
+  the tools.** The hub fills `TurnScope.turn_id` with the id the caller polls,
+  so a flow that keeps a transcript of its own can key each entry by it — and a
+  client reloading mid-turn can tell a stored answer from the one it is still
+  replaying, instead of showing it twice.
 - **The http gateway's `/readyz` no longer says "not ready" under load.** It
   answered 503 while every runtime slot was busy; a Kubernetes readiness probe
   then took the pod out of rotation and moved its users — mid-turn — to a pod
