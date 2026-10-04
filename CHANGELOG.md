@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.19.0 — 2026-10-04
+
 - **A confirmation card is data, drawn by the channel.** The engine used to
   render the card to Markdown for every platform. It now hands the card over
   as what it is — who asks, what for, the facts with before and after, a
