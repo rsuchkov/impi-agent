@@ -18,6 +18,7 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     PostSnippet,
 )
+from crucible.ports.turn import TurnScope
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.session import PiResult
@@ -915,4 +916,63 @@ async def test_every_notice_names_its_kind(tmp_path: Path) -> None:
         await flow.handle(message("say something", post), chat)
 
     assert chat.notice_codes == [NOTICE_TIMEOUT, NOTICE_QUOTA, "empty_answer"]
+    await store.close()
+
+
+# -- flags a tool leaves on the turn --------------------------------------------
+
+
+def _scoped(text: str, post: str) -> tuple[IncomingMessage, TurnScope]:
+    from dataclasses import replace
+
+    scope = TurnScope("t-1")
+    msg = _dm(text)
+    return replace(msg, ref=replace(msg.ref, message_id=post), turn=scope), scope
+
+
+async def test_a_flag_left_by_a_tool_is_reported_after_the_answer(tmp_path: Path) -> None:
+    from crucible.turns import TurnRegistry
+
+    registry = TurnRegistry()
+
+    class _ToolFlags(FakeRuntime):
+        async def run_stateful(self, profile, session_id, message, **kw):
+            scope = registry.current(session_id)
+            assert scope is not None
+            scope.flag("session_expired")  # what a tool does mid-turn
+            return await super().run_stateful(profile, session_id, message, **kw)
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(
+        _ToolFlags(), PROFILE, store, agent_name="assistant", turns=registry,
+        flag_notices={"session_expired": "Your Jira session has expired — reload the page."},
+    )
+    chat = FakeChat()
+    msg, _ = _scoped("do it", "p1")
+    assert await flow.handle(msg, chat) is TurnOutcome.REPLIED
+    assert chat.replies == [(msg.ref, "agent answer")]
+    assert chat.notices == [(msg.ref, "Your Jira session has expired — reload the page.")]
+    assert chat.notice_codes == ["session_expired"]
+    await store.close()
+
+
+async def test_a_flag_with_no_sentence_is_reported_as_itself_even_on_a_failed_turn(
+    tmp_path: Path,
+) -> None:
+    from crucible.turns import TurnRegistry
+
+    registry = TurnRegistry()
+
+    class _FlagsThenDies(FakeRuntime):
+        async def run_stateful(self, profile, session_id, message, **kw):
+            registry.current(session_id).flag("quota_hit")  # type: ignore[union-attr]
+            raise PiTimeout("slow")
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(_FlagsThenDies(), PROFILE, store, agent_name="assistant", turns=registry)
+    chat = FakeChat()
+    msg, _ = _scoped("do it", "p1")
+    assert await flow.handle(msg, chat) is TurnOutcome.TIMEOUT
+    assert chat.notice_codes == ["timeout", "quota_hit"]  # the failure first, then the note
+    assert chat.notices[1][1] == "quota_hit"
     await store.close()

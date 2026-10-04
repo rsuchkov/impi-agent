@@ -8,6 +8,7 @@ can merge messages that arrived during a long turn into a single turn/reply.
 import asyncio
 import contextlib
 import logging
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -121,6 +122,7 @@ class AgentFlow:
         max_inline_images: int = DEFAULT_MAX_INLINE_IMAGES,
         tracer: TurnTracer | None = None,
         turns: TurnBinding | None = None,
+        flag_notices: Mapping[str, str] | None = None,
     ) -> None:
         self._runtime = runtime
         self._profile = profile
@@ -130,6 +132,10 @@ class AgentFlow:
         # Where a message's TurnScope is bound for the length of its turn, so the
         # tools the turn calls can read it. None = messages here carry none.
         self._turns = turns
+        # What to say for a flag a tool left on the turn's scope ("the session
+        # has expired"): flag -> sentence. A flag with no sentence is still
+        # reported, as itself — the code is what a program acts on.
+        self._flag_notices = dict(flag_notices or {})
         self._own_user_id = ""
         self._inline_image_max_bytes = inline_image_max_bytes
         self._max_inline_images = max_inline_images
@@ -181,6 +187,24 @@ class AgentFlow:
             self._agent_name, anchor.channel_id, anchor.conversation_id, anchor.kind,
             user_id=anchor.user_id,
         )
+        outcome = await self._turn(fresh, anchor, record, created, chat)
+        if anchor.turn is not None and anchor.turn.flags:
+            # After the answer or the failure notice: a tool's note about the turn
+            # ("your session expired") reads as the footnote it is.
+            for flag in sorted(anchor.turn.flags):
+                await chat.post_notice(
+                    anchor.ref, self._flag_notices.get(flag, flag), code=flag
+                )
+        return outcome
+
+    async def _turn(
+        self,
+        fresh: list[IncomingMessage],
+        anchor: IncomingMessage,
+        record: SessionRecord,
+        created: bool,
+        chat: ChatClient,
+    ) -> TurnOutcome:
         # On a later turn, last_active is still the PREVIOUS turn's end (touch()
         # runs after the turn, and get_or_create doesn't refresh it) — exactly the
         # cursor for "what was said while we weren't addressed".

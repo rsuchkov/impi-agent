@@ -6,6 +6,11 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **For applications on the library: a note a tool leaves on the turn reaches
+  the person.** A tool can `flag` the turn's scope ("the session has
+  expired"); the flow now posts one notice per flag once the turn is over —
+  after the answer, or after the failure notice — with the flag as the
+  notice's code and the sentence from `AgentFlow(flag_notices=…)` as its text.
 - **For applications on the http gateway: the turn's id reaches the flow and
   the tools.** The hub fills `TurnScope.turn_id` with the id the caller polls,
   so a flow that keeps a transcript of its own can key each entry by it — and a

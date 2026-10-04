@@ -259,9 +259,12 @@ credential, is another user's credential.
   the conversation's session for exactly the turn, and a tool reads
   `ctx.turn` or `ctx.require_secret("cookie")` — a `ToolError` that tells the
   model to stop when there is none. `scope.flag("session_expired")` is how a
-  tool leaves a note for the code that started the turn; read `scope.flags`
-  when `handle_batch` returns. Chat gateways set no scope: nothing on Slack or
-  Mattermost belongs to one turn.
+  tool leaves a note for the turn: when the turn is over — answered or failed —
+  the flow posts one notice per flag, with the flag as its `code` and the
+  sentence from `AgentFlow(flag_notices={"session_expired": "…"})` as its text
+  (the flag itself when none is given). A program reading the journal acts on
+  the code; a person reads the sentence. Chat gateways set no scope: nothing on
+  Slack or Mattermost belongs to one turn.
 - **An HTTP API for your own frontend** is what the `http` gateway is
   (`crucible.gateways.http`, contract in [http-gateway.md](http-gateway.md)):
   `HttpHub(host, port, callers, dispatcher=…, control=runtime)` plus, per

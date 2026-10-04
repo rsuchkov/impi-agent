@@ -118,7 +118,7 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | `tool.started` | `callId`, `tool` | a tool began |
 | `tool.finished` | `callId`, `tool`, `ok` | it ended |
 | `message` | `messageId`, `format: "markdown"`, `text` | the agent's answer |
-| `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `runtime_unavailable`, `agent_error`, `empty_answer`; `text` is a sentence for a person, `code` is for you |
+| `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `runtime_unavailable`, `agent_error`, `empty_answer` — or a flag a tool left on the turn (`session_expired`, whatever the application defines), after the answer; `text` is a sentence for a person, `code` is for you |
 | `actions` | `postId`, `text`, `actions[]` | a message with controls — a confirmation card, a question; the turn waits (`awaiting_input`) |
 | `actions.retired` | `postId`, `text` | its controls are gone; show `text` in their place |
 | `cards` | `postId`, `cards[{text, accent, actions[]}]` | a message built from cards; the same `postId` again means redraw it |
