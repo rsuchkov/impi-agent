@@ -24,7 +24,7 @@ from aiohttp import web
 from crucible.approvals import APPROVAL_KEY, ApprovalOutcome
 from crucible.attachments import AttachmentStore
 from crucible.gateways.dispatch import GatewayDispatcher
-from crucible.gateways.http.auth import Caller, CallerAuthenticator
+from crucible.gateways.http.auth import Caller, CallerAuthenticator, Refusal
 from crucible.gateways.http.client import HttpChatClient
 from crucible.gateways.http.journal import EV_ACTIONS_RETIRED, STATUS_RUNNING
 from crucible.gateways.http.turns import HttpTurns, Turn, TurnInProgress
@@ -52,14 +52,6 @@ MAX_TEXT = 32_000
 _TEXT_ONLY_BODY_BYTES = 1024 * 1024
 _FILES_PER_BODY = 4
 _SEP = ":"
-
-
-class _ApiError(Exception):
-    def __init__(self, status: int, code: str, message: str, **extra: Any) -> None:
-        super().__init__(message)
-        self.status = status
-        self.code = code
-        self.extra = extra
 
 
 def _conversation_key(caller: Caller, conversation_id: str) -> str:
@@ -143,7 +135,8 @@ class HttpHub:
         """One shape for every error, the version on every answer."""
         try:
             response = await handler(request)
-        except _ApiError as exc:
+        except Refusal as exc:
+            # The hub's own refusals and an authenticator's CallerRefused alike.
             response = web.json_response(
                 {"error": {"code": exc.code, "message": str(exc)}, **exc.extra}, status=exc.status
             )
@@ -170,7 +163,7 @@ class HttpHub:
     async def _caller(self, request: web.Request, body: dict[str, Any] | None) -> Caller:
         caller = await self._callers.authenticate(request, body)
         if caller is None:
-            raise _ApiError(401, "unauthorized", "the request carries no accepted credentials")
+            raise Refusal(401, "unauthorized", "the request carries no accepted credentials")
         return caller
 
     async def _body(self, request: web.Request) -> dict[str, Any]:
@@ -179,26 +172,26 @@ class HttpHub:
         # authenticator's call, made after parsing — a credential may travel in
         # the body.)
         if not request.headers.get("Authorization", "").strip():
-            raise _ApiError(401, "unauthorized", "the request carries no credentials")
+            raise Refusal(401, "unauthorized", "the request carries no credentials")
         try:
             data = await request.json()
         except ValueError as exc:
-            raise _ApiError(422, "validation", "the body is not valid JSON") from exc
+            raise Refusal(422, "validation", "the body is not valid JSON") from exc
         if not isinstance(data, dict):
-            raise _ApiError(422, "validation", "the body must be a JSON object")
+            raise Refusal(422, "validation", "the body must be a JSON object")
         return data
 
     def _agent(self, request: web.Request, caller: Caller) -> tuple[str, TrackedSink, HttpChatClient]:
         agent = request.match_info["agent"]
         entry = self._agents.get(agent)
         if entry is None or (caller.agents is not None and agent not in caller.agents):
-            raise _ApiError(403, "forbidden", f"no agent {agent!r} for this caller")
+            raise Refusal(403, "forbidden", f"no agent {agent!r} for this caller")
         return agent, entry[0], entry[1]
 
     def _owned_turn(self, request: web.Request, caller: Caller) -> Turn:
         turn = self.turns.get(request.match_info["turn"])
         if turn is None or turn.owner != caller.owner:
-            raise _ApiError(404, "not_found", "no such turn")
+            raise Refusal(404, "not_found", "no such turn")
         return turn
 
     def _wait(self, request: web.Request) -> float:
@@ -206,7 +199,7 @@ class HttpHub:
         try:
             wait = float(raw)
         except ValueError as exc:
-            raise _ApiError(422, "validation", "`wait` must be a number of seconds") from exc
+            raise Refusal(422, "validation", "`wait` must be a number of seconds") from exc
         return max(0.0, min(wait, self._max_wait_s))
 
     @staticmethod
@@ -215,7 +208,7 @@ class HttpHub:
         try:
             return max(0, int(raw))
         except ValueError as exc:
-            raise _ApiError(422, "validation", "`after` must be an integer") from exc
+            raise Refusal(422, "validation", "`after` must be an integer") from exc
 
     # -- handlers -------------------------------------------------------------
 
@@ -253,25 +246,25 @@ class HttpHub:
         conversation_id = request.match_info["conversation"]
         client_message_id = str(body.get("clientMessageId") or "")
         if not _CLIENT_ID.match(client_message_id):
-            raise _ApiError(422, "validation", "`clientMessageId` is required: 1-128 url-safe characters")
+            raise Refusal(422, "validation", "`clientMessageId` is required: 1-128 url-safe characters")
         text = body.get("text")
         if not isinstance(text, str) or len(text) > MAX_TEXT:
-            raise _ApiError(422, "validation", f"`text` must be a string of at most {MAX_TEXT} characters")
+            raise Refusal(422, "validation", f"`text` must be a string of at most {MAX_TEXT} characters")
         files_problem = files_error(body)
         if files_problem is not None:
-            raise _ApiError(422, "validation", files_problem)
+            raise Refusal(422, "validation", files_problem)
         try:
             files = frame_files(body)
         except ValueError as exc:
-            raise _ApiError(422, "validation", str(exc)) from exc
+            raise Refusal(422, "validation", str(exc)) from exc
         if not text.strip() and not files:
-            raise _ApiError(422, "validation", "`text` must not be empty unless files are attached")
+            raise Refusal(422, "validation", "`text` must not be empty unless files are attached")
 
         conversation = _conversation_key(caller, conversation_id)
         self._sweep()
         if (running := self.turns.active(conversation)) is not None and \
                 running.client_message_id != client_message_id:
-            raise _ApiError(
+            raise Refusal(
                 409, "turn_in_progress", "this conversation already has a turn running",
                 turnId=running.id,
             )
@@ -286,7 +279,7 @@ class HttpHub:
                 client_message_id=client_message_id,
             )
         except TurnInProgress as exc:  # another request of this conversation won the race
-            raise _ApiError(
+            raise Refusal(
                 409, "turn_in_progress", "this conversation already has a turn running",
                 turnId=exc.turn_id,
             ) from exc
@@ -363,9 +356,9 @@ class HttpHub:
         self._agent(request, caller)
         turn = self.turns.active(_conversation_key(caller, request.match_info["conversation"]))
         if turn is None or turn.owner != caller.owner:
-            raise _ApiError(404, "not_found", "no turn is running in this conversation")
+            raise Refusal(404, "not_found", "no turn is running in this conversation")
         if self._control is None or not turn.runtime_session_id:
-            raise _ApiError(409, "not_cancellable", "this turn cannot be interrupted here")
+            raise Refusal(409, "not_cancellable", "this turn cannot be interrupted here")
         cancelled = await self._control.cancel(turn.runtime_session_id)
         return web.json_response({"turnId": turn.id, "cancelled": cancelled})
 
@@ -374,13 +367,13 @@ class HttpHub:
         caller = await self._caller(request, body)
         turn = self._owned_turn(request, caller)
         if self._dispatcher is None:
-            raise _ApiError(404, "not_found", "interactivity is off on this engine")
+            raise Refusal(404, "not_found", "interactivity is off on this engine")
         post_id = str(body.get("postId") or "")
         action_id = str(body.get("actionId") or "")
         posted = turn.posted.get(post_id)
         action = next((a for a in posted or () if a.id == action_id), None)
         if action is None:
-            raise _ApiError(404, "not_found", "no such control; it may have been retired")
+            raise Refusal(404, "not_found", "no such control; it may have been retired")
         # The value is the control's, not the caller's: a button carries its
         # own, a menu offers a fixed set. What the card showed is what is answered.
         if action.kind == ACTION_BUTTON:
@@ -388,7 +381,7 @@ class HttpHub:
         else:
             value = str(body.get("value") or "")
             if action.options and value not in {c.value for c in action.options}:
-                raise _ApiError(422, "validation", "`value` is not one of the control's options")
+                raise Refusal(422, "validation", "`value` is not one of the control's options")
         context: Mapping[str, Any] = action.context
         if context.get(APPROVAL_KEY):
             outcome = self._dispatcher.resolve_approval(str(context[APPROVAL_KEY]), value, caller.user_id)
@@ -401,7 +394,7 @@ class HttpHub:
             )
             return web.json_response({"outcome": "redrawn"})
         if context.get("form"):
-            raise _ApiError(409, "not_available", "forms cannot be opened on this gateway")
+            raise Refusal(409, "not_available", "forms cannot be opened on this gateway")
         # What remains is a request the turn is blocked on — a confirmation, a
         # question the runtime asked. Widgets the agent fires and forgets are
         # not advertised on this gateway, so a token nobody waits on is a card
@@ -409,7 +402,7 @@ class HttpHub:
         token = str(context.get("token", ""))
         if not self._dispatcher.resolve_pending(token, value):
             self._retire(turn, post_id, "These controls are no longer active.")
-            raise _ApiError(404, "not_found", "nothing is waiting for this answer any more")
+            raise Refusal(404, "not_found", "nothing is waiting for this answer any more")
         self._retire(turn, post_id, f"You chose: {value}" if value else "Answered.")
         return web.json_response({"outcome": "resolved"})
 

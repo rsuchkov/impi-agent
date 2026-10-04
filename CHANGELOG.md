@@ -6,7 +6,12 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **For applications on the http gateway: an authenticator can say why.**
+  Raising `CallerRefused(status, code, message, **extra)` from
+  `CallerAuthenticator.authenticate` answers in the hub's own error envelope —
+  an expired session, a mismatched identity, a caller over its rate — where
+  before only a plain 401 was possible. `TokenCallers` now compares tokens in
+  constant time.
 
 ## v0.18.0 — 2026-10-04
 

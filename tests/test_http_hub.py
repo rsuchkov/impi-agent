@@ -605,3 +605,58 @@ async def test_a_drawn_screen_does_not_make_the_turn_wait() -> None:
             assert page["status"] == "running"  # the screen still up does not block
     finally:
         await hub.stop()
+
+
+async def test_an_authenticator_may_refuse_with_its_own_status_and_code() -> None:
+    from crucible.gateways.http import CallerRefused
+
+    class _Refuses:
+        async def authenticate(self, request, body):
+            if request.headers.get("X-User-Id") == "over-quota":
+                raise CallerRefused(429, "rate_limited", "too many messages; wait a few minutes",
+                                    retryAfter=60)
+            return None
+
+    sink = FakeSink()
+    hub = HttpHub("127.0.0.1", 8498, _Refuses(), directory=FakeDirectory(), max_wait_s=0.2)
+    hub.register_agent("helper", sink, HttpChatClient(hub.turns, "helper"))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            status, body = await _post(s, 8498, MESSAGES, {"clientMessageId": "m1", "text": "hi"},
+                                       headers={"Authorization": "Bearer x", "X-User-Id": "over-quota"})
+            assert status == 429
+            assert body == {"error": {"code": "rate_limited", "message": "too many messages; wait a few minutes"},
+                            "retryAfter": 60}
+            async with s.post(_url(8498, MESSAGES), json={"clientMessageId": "m1", "text": "hi"},
+                              headers={"Authorization": "Bearer x", "X-User-Id": "over-quota"}) as r:
+                assert r.headers["X-Engine-Api-Version"] == "1.0"
+            status, body = await _post(s, 8498, MESSAGES, {"clientMessageId": "m1", "text": "hi"},
+                                       headers={"Authorization": "Bearer x", "X-User-Id": "someone"})
+            assert status == 401  # None still means the plain refusal
+    finally:
+        await hub.stop()
+
+
+async def test_token_callers_accept_only_the_exact_token() -> None:
+    callers = TokenCallers({"portal": ("tok-portal", None), "narrow": ("tok-narrow", ("scribe",))})
+
+    from typing import cast
+
+    from aiohttp import web
+
+    class _Request:
+        def __init__(self, token: str) -> None:
+            self.headers = {"Authorization": f"Bearer {token}"}
+
+    def req(token: str) -> web.Request:
+        return cast(web.Request, _Request(token))  # only the headers are read
+
+    portal = await callers.authenticate(req("tok-portal"), None)
+    narrow = await callers.authenticate(req("tok-narrow"), None)
+    assert portal is not None and portal.realm == "portal"
+    assert narrow is not None and narrow.agents == ("scribe",)
+    assert await callers.authenticate(req("tok-portal-and-more"), None) is None
+    assert await callers.authenticate(req("tok-porta"), None) is None
+    assert await callers.authenticate(req("тёкен"), None) is None  # Non-ASCII on purpose
+    assert await callers.authenticate(req(""), None) is None

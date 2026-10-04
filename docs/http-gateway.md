@@ -67,6 +67,7 @@ caller, so two programs never reach each other's conversations.
 | `not_cancellable` | 409 | the turn cannot be interrupted here (no runtime behind it yet) |
 | `not_available` | 409 | a form was asked to open; forms are chat-only |
 | `validation` | 422 | a bad body or query value; `text` over 32 000 characters; a menu answer that is not one of its options |
+| *(the authenticator's own)* | any | an application's `CallerAuthenticator` may answer with a status and code of its own (`CallerRefused`) — a session that expired, an identity that does not match, a caller over its rate; same envelope |
 | `too_large` | 413 | the request body is over the cap (text-only: 1 MiB; with attachments on, a few files of `ATTACHMENT_MAX_MB` each) |
 
 ### `POST /v1/agents/{agent}/conversations/{conversation}/messages`

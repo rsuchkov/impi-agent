@@ -272,7 +272,10 @@ credential, is another user's credential.
   and an application whose users prove themselves otherwise (a session cookie
   checked upstream) implements `authenticate(request, body) -> Caller | None`
   itself — and builds the `Caller.turn` scope there, so a credential that came
-  with the request reaches the tools of that turn and nothing else. What a
+  with the request reaches the tools of that turn and nothing else. `None` is
+  the plain 401; raising `CallerRefused(status, code, message, **extra)` answers
+  with the application's own status and code in the hub's error envelope
+  (`jira_session_invalid`, `identity_mismatch`, `rate_limited`, …). What a
   dialog is and whether to keep one is the application's; the journal lives
   ten minutes past the turn.
 - For tests without a `pi` binary, `tests/fakes/fake_transport.py` in this

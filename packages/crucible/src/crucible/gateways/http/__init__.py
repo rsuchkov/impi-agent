@@ -14,7 +14,13 @@ hub.py     — the aiohttp server shared by every agent on the gateway
 gateway.py — per-agent lifecycle shim (identity + park-until-stop)
 """
 
-from crucible.gateways.http.auth import Caller, CallerAuthenticator, TokenCallers
+from crucible.gateways.http.auth import (
+    Caller,
+    CallerAuthenticator,
+    CallerRefused,
+    Refusal,
+    TokenCallers,
+)
 from crucible.gateways.http.client import HttpChatClient
 from crucible.gateways.http.gateway import HttpGateway
 from crucible.gateways.http.hub import HttpHub
@@ -27,9 +33,11 @@ __all__ = [
     "PROMPT_HINT",
     "Caller",
     "CallerAuthenticator",
+    "CallerRefused",
     "HttpChatClient",
     "HttpGateway",
     "HttpHub",
     "HttpTurns",
+    "Refusal",
     "TokenCallers",
 ]

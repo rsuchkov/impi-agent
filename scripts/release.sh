@@ -87,7 +87,7 @@ uv lock --quiet
 # What the packages report at runtime has to be the number just stamped: they
 # read it from their installed metadata, so a stale install would ship a lie
 # and nothing else would notice until someone asked a running engine.
-uv sync --quiet
+uv sync --all-extras --quiet
 for pkg in crucible impi; do
     reported=$(uv run --no-sync python -c "import $pkg; print($pkg.__version__)")
     if [ "$reported" != "$NEW" ]; then
