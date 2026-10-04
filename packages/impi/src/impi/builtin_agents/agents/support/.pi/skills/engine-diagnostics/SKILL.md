@@ -151,8 +151,8 @@ On the `http` gateway there is no chat to deliver to: a confirmation card is an
 through the API; fire-and-forget widgets, forms, slash commands and the
 tool-trace widget do not exist there by design (`$IMPI_ROOT/docs/http-gateway.md`).
 "Nothing arrives" on http means the program is not polling the turn's events.
-Its `/readyz` answers 503 while the engine starts and while every runtime slot
-is busy.
+Its `/readyz` answers 503 only while the engine starts; how loaded it is —
+runtime slots, turns in flight — is on `/stats`.
 
 For a slash command specifically, the **chat-commands** skill has the log-line
 table (token mismatch, unresolvable default, no live presence, nothing at all).

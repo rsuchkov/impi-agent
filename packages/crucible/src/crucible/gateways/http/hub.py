@@ -106,6 +106,7 @@ class HttpHub:
         app = web.Application(middlewares=[self._envelope], client_max_size=self._max_body)
         app.router.add_get("/healthz", self._healthz)
         app.router.add_get("/readyz", self._readyz)
+        app.router.add_get("/stats", self._stats)
         app.router.add_get("/v1/agents", self._list_agents)
         app.router.add_post("/v1/agents/{agent}/conversations/{conversation}/messages", self._post_message)
         app.router.add_get("/v1/agents/{agent}/conversations/{conversation}", self._get_conversation)
@@ -216,17 +217,19 @@ class HttpHub:
         return web.json_response({"ok": True})
 
     async def _readyz(self, request: web.Request) -> web.Response:
+        """Ready means able to take a request — not idle. A full runtime pool is
+        a busy pod, not a broken one: a new turn waits for a slot or evicts an
+        idle session, and a load balancer that took the pod out would move its
+        users away from the turns running on it. Load is on /stats."""
         if not self._started:
             return web.json_response({"ready": False, "reason": "starting"}, status=503)
-        if self._control is not None:
-            stats = self._control.stats()
-            if stats.busy >= stats.capacity:
-                return web.json_response(
-                    {"ready": False, "reason": "every runtime slot is busy", "runtime": stats.__dict__},
-                    status=503,
-                )
-            return web.json_response({"ready": True, "runtime": stats.__dict__})
         return web.json_response({"ready": True})
+
+    async def _stats(self, request: web.Request) -> web.Response:
+        """How loaded this hub is, for whoever scales or watches it: the
+        runtime's slots and the turns in flight here."""
+        runtime = self._control.stats().__dict__ if self._control is not None else None
+        return web.json_response({"runtime": runtime, "turns": {"active": self.turns.active_count()}})
 
     async def _list_agents(self, request: web.Request) -> web.Response:
         caller = await self._caller(request, None)

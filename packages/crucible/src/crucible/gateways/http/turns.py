@@ -139,6 +139,9 @@ class HttpTurns:
     def active(self, conversation: str) -> Turn | None:
         return self._active.get(conversation)
 
+    def active_count(self) -> int:
+        return len(self._active)
+
     def posted_in(self):
         """The running turns — where a post id can still be acted on."""
         return list(self._active.values())

@@ -6,6 +6,11 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The http gateway's `/readyz` no longer says "not ready" under load.** It
+  answered 503 while every runtime slot was busy; a Kubernetes readiness probe
+  then took the pod out of rotation and moved its users — mid-turn — to a pod
+  with none of their state. Ready now means "up": 503 only while starting. The
+  runtime's slots and the turns in flight are on a new `GET /stats`.
 - **For applications on the http gateway: an authenticator can say why.**
   Raising `CallerRefused(status, code, message, **extra)` from
   `CallerAuthenticator.authenticate` answers in the hub's own error envelope —

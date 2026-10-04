@@ -373,19 +373,43 @@ async def test_cancel_interrupts_the_running_turns_session() -> None:
         await hub.stop()
 
 
-async def test_readiness_follows_the_runtimes_capacity() -> None:
+async def test_readiness_is_not_load() -> None:
+    """A pod whose every runtime slot is busy is a busy pod, not a broken one:
+    taking it out of the endpoints would move its users away from the turns
+    running on it. Load is reported on /stats for whoever scales."""
+    release = asyncio.Event()
+
+    async def slow(msg, chat):
+        await release.wait()
+        return TurnOutcome.REPLIED
+
     control = FakeControl()
-    hub, _ = _hub(8488, control=control)
+    hub, _ = _hub(8488, control=control, script=slow)
     await hub.start()
     try:
         async with aiohttp.ClientSession() as s:
             status, body = await _get(s, 8488, "/healthz", headers={})
             assert (status, body) == (200, {"ok": True})
+            control.busy = 2  # every slot taken
             status, body = await _get(s, 8488, "/readyz", headers={})
-            assert status == 200 and body["ready"] is True and body["runtime"]["capacity"] == 2
-            control.busy = 2
-            status, body = await _get(s, 8488, "/readyz", headers={})
-            assert status == 503 and body["ready"] is False
+            assert (status, body) == (200, {"ready": True})
+            await _post(s, 8488, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
+            status, body = await _get(s, 8488, "/stats", headers={})
+            assert status == 200
+            assert body["runtime"] == {"alive": 2, "busy": 2, "capacity": 2, "waiting": 0}
+            assert body["turns"] == {"active": 1}
+            release.set()
+    finally:
+        await hub.stop()
+
+
+async def test_stats_without_a_runtime_control_still_count_turns() -> None:
+    hub, _ = _hub(8499)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            status, body = await _get(s, 8499, "/stats", headers={})
+            assert (status, body) == (200, {"runtime": None, "turns": {"active": 0}})
     finally:
         await hub.stop()
 

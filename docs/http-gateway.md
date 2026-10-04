@@ -165,10 +165,16 @@ memory. `404` when nothing is running.
 
 The agents this caller may address: `{"agents": [{"name", "role", "description"}]}`.
 
-### `GET /healthz`, `GET /readyz`
+### `GET /healthz`, `GET /readyz`, `GET /stats`
 
-Unauthenticated. `readyz` is `503` while the engine starts and while every
-runtime slot is busy (`runtime: {alive, busy, capacity, waiting}` says which).
+Unauthenticated. `readyz` is `503` only while the engine starts — **not** while
+every runtime slot is busy. A full pool is a busy pod, not a broken one: a new
+turn waits for a slot or evicts an idle session, and a load balancer that took
+the pod out of rotation (a Kubernetes readiness probe does exactly that) would
+move its users away from the turns running on it — with a per-user consistent
+hash, onto a pod that has none of their state. Load belongs to whoever scales
+or watches: `stats` answers `{"runtime": {alive, busy, capacity, waiting} |
+null, "turns": {"active"}}`.
 
 ## Semantics worth knowing
 
