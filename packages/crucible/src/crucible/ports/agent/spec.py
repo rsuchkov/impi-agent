@@ -28,3 +28,10 @@ class AgentSpec:
     # bare names the runtime resolves to its own skill layout. No ambient
     # discovery — an agent gets exactly these.
     skills: tuple[str, ...] = ()
+    # Names of variables in the ENGINE's environment that this agent's runtime
+    # process may inherit, beside the base set every process gets (PATH, HOME,
+    # locale, proxies, certificates). A runtime process is handed what the
+    # engine grants it, never everything the engine happens to hold: the
+    # difference is the engine's entire secret set. Globs are allowed
+    # (``MYSERVICE_*``).
+    env: tuple[str, ...] = ()

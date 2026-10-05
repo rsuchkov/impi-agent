@@ -131,6 +131,7 @@ as defaults — set only the ones you need.
 | `AGENTS_SLACK_APP_TOKEN__<AGENT>` | that agent's Slack app-level token |
 | `AGENTS_GATEWAY__<AGENT>` | that agent's gateway (`mattermost` \| `slack` \| `ws` \| `http`) |
 | `AGENTS_SKILLS__<AGENT>` | override that agent's skills (CSV of names; empty = none; unset = its `agent.yaml`) |
+| `AGENTS_ENV__<AGENT>` | override the engine environment variables that agent's process inherits (CSV of names, `*` allowed; empty = none beyond the base set; unset = its `agent.yaml` `runtime.env`) |
 
 An agent is present only if its token is set; a tokenless profile is skipped.
 
@@ -181,6 +182,7 @@ See [tasks.md](tasks.md) for what a task is and how a missed run is handled.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PI_BIN` | `pi` | path to the `pi` CLI (assumed on `PATH`) |
+| `RUNTIME_ENV`, `RUNTIME_ENV__<AXIS>` | `""` | names (CSV, `*` allowed) of the engine's own environment variables every agent's process inherits beside the base set (`PATH`, `HOME`, locale, proxies, certificate bundles, `PI_*`). Each compose overlay that puts a variable into the engine's environment for the agents declares it under its own `RUNTIME_ENV__` key (`RUNTIME_ENV__BROWSER=BROWSER_CDP_URL`, `RUNTIME_ENV__SECRETS=SECRET_BROKER_*`); nothing else the engine holds reaches a process. The bundled `support` agent inherits everything. Every process also gets `PI_OFFLINE=1`: no version check at startup |
 | `PI_SESSION_DIR` | `""` | `pi` session storage; default `{DATA_DIR}/pi-sessions` (per-agent subdirs) |
 | `PI_TIMEOUT` | `180` | per-turn timeout (s) when `agent.yaml` omits `runtime.timeout` |
 | `PI_MAX_CONCURRENT_SESSIONS` | `4` | max concurrent `pi` subprocesses |

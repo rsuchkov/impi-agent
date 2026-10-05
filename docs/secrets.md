@@ -573,7 +573,9 @@ or simply unopened, how many policies exist, and when the last request was.
 
 Both programs are configured by two variables the compose overlay puts in the
 engine container's environment — `SECRET_BROKER_URL` and
-`SECRET_BROKER_CERTS_DIR` — and work the rest out: an agent presents
+`SECRET_BROKER_CERTS_DIR` — and names under `RUNTIME_ENV__SECRETS`, which is
+what hands them to every agent's process (an agent inherits only what the
+engine grants). They work the rest out: an agent presents
 `<certs>/<its own name>.crt`, the operator presents `<certs>/operator.crt`, and
 both verify the broker against `<certs>/ca.crt`. The engine's part in that is one
 generic fact it gives every agent, `AGENT_NAME`; it holds no setting that so much

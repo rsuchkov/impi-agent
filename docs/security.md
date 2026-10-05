@@ -95,7 +95,8 @@ The honest summary, for an agent that has a shell:
 | its own profile, memory, files | yes | yes |
 | another agent's profile and memory | yes | no |
 | another agent's broker certificate | yes | no |
-| the engine's `.env` (every chat token) | yes | no |
+| the engine's `.env` (every chat token), with `read` | yes | no |
+| the engine's tokens in its own environment | no (granted names only) | no |
 | another process's tool token / session proof | yes | only its own processes |
 | the chat server directly (not through tools) | yes | no |
 | the model provider's credential | yes | yes (shared) |
@@ -177,6 +178,8 @@ decisions an operator makes.
 | control | what it does |
 |---|---|
 | the tool allowlist (`runtime.tools`) | a tool not named does not exist for the agent — built-ins included |
+| the process environment is granted, not inherited | a user's agent gets a base set plus the names the deployment (`RUNTIME_ENV__*`) and its profile (`runtime.env`) grant; the engine's tokens never reach it. `support` is the exception, as part of the engine |
+| `PI_OFFLINE=1` on every runtime process | no version check or other startup network call from the runtime |
 | explicit skills (`--no-skills` + the profile's list) | no ambient discovery; a skill's scripts run only for agents given it |
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
 | per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks |

@@ -32,6 +32,7 @@ runtime:
   timeout: 180            # seconds per turn
   tools: [read, bash]     # the single capability allowlist (see "Tool gating")
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
+  env: [MYSERVICE_*]      # optional; engine environment variables its process inherits
   packages:               # OPTIONAL, and only with agent containers (see below)
     apt: [ffmpeg]
 ```
@@ -202,6 +203,32 @@ Skills are **toggleable per agent without editing `agent.yaml`** via the
 `AGENTS_SKILLS__<AGENT>` environment variable (CSV of names): a set value replaces
 the profile's list, empty disables all, unset keeps the profile's list. This is
 how you turn a bundled agent's skills on or off.
+
+## What the agent's process inherits
+
+An agent's runtime is started with the environment the engine **grants** it,
+not the environment the engine happens to hold — the difference is every chat
+token and caller token in `conf/.env`. Three sources, in order:
+
+- a base set every process gets: `PATH`, `HOME`, the user, locale and time
+  zone, the proxy variables, the certificate bundles (`SSL_CERT_FILE`,
+  `NODE_EXTRA_CA_CERTS`) and the runtime's own `PI_*` knobs;
+- what the deployment names for every agent: `RUNTIME_ENV` (CSV) and every
+  `RUNTIME_ENV__<AXIS>` key in the engine's environment — the browser overlay
+  declares `BROWSER_CDP_URL` that way, the secret-store overlay
+  `SECRET_BROKER_*`;
+- what the profile names in `runtime.env` (a list of names, `*` allowed),
+  replaceable from `.env` with `AGENTS_ENV__<AGENT>` exactly as
+  `AGENTS_SKILLS__<AGENT>` replaces skills.
+
+On top of that come the engine's own grants: the tool server's address and
+token, the session id and its proof, `AGENT_NAME`, `AGENT_FILES_DIR`, and the
+model settings (`LLM_*`) when a custom endpoint is configured. A skill that
+reads a variable of its own from the engine's environment names it in
+`runtime.env`, or the operator names it once in `RUNTIME_ENV`; otherwise the
+skill sees it unset. The bundled `support` agent is part of the engine and
+inherits everything, because the engine's own CLI it runs needs the engine's
+settings.
 
 ## Choosing a gateway
 

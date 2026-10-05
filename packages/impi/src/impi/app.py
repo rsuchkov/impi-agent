@@ -198,8 +198,12 @@ class ProfileBuilder:
     ``build_profile``, on every hot-reload (re-reading live hints/caps/env).
     """
 
-    def __init__(self, tools: ToolWiring) -> None:
+    def __init__(self, tools: ToolWiring, *, engine_owned: frozenset[str] = frozenset()) -> None:
         self._tools = tools
+        # Agents that are part of the engine (support): their processes inherit
+        # the engine's whole environment, as the CLI they run does. Everyone
+        # else inherits the base set plus what their profile names.
+        self._engine_owned = engine_owned
         self.hints: dict[str, str] = {}  # agent -> its gateway's formatting rules
 
     def set_hint(self, name: str, hint: str) -> None:
@@ -211,7 +215,9 @@ class ProfileBuilder:
         # text in it is not instructions; a gateway's formatting rules follow.
         hint = self.hints.get(spec.name, "")
         suffix = "\n\n".join(part for part in (ENVELOPE_NOTE, hint) if part)
-        base = dataclasses.replace(base, append_system_prompt=suffix)
+        base = dataclasses.replace(
+            base, append_system_prompt=suffix, inherit_all=spec.name in self._engine_owned
+        )
         env = self._tools.profile_env(spec)
         if env is None:
             return base
@@ -409,6 +415,7 @@ def build_app(settings: ImpiSettings) -> App:
         evict_idle_on_pressure=settings.pi_evict_idle_on_pressure,
         session_proofs=session_proofs,
         extra_env=build_pi_env(settings),
+        inherit=settings.runtime_env(),
         extra_extensions=build_pi_extensions(settings),
         ui_bridge=interactions.ui_bridge,
         hosts=build_agent_hosts(settings, specs),
@@ -431,7 +438,7 @@ def build_app(settings: ImpiSettings) -> App:
         # tool list rather than offered and refused on every call.
         confirmations_on=interactions.tool_gate is not None,
     )
-    profile_builder = ProfileBuilder(tools)
+    profile_builder = ProfileBuilder(tools, engine_owned=frozenset(engine_names))
     # Where files people attach land. Swept once at startup so a long-running
     # deployment doesn't accumulate them forever.
     attachments: AttachmentStore | None = None

@@ -442,3 +442,13 @@ _not_ordered() { run restore_is_ordered "$1"; [ "$status" -ne 0 ]; }
     restore_is_ordered "podman 5.8.2"
     restore_is_ordered ""               # unknown: the container probe has the last word
 }
+
+# --- what the overlays hand to the agents' processes ---------------------------------
+
+@test "the browser overlay names BROWSER_CDP_URL for the agents under a RUNTIME_ENV__ key" {
+    grep -q '^ *RUNTIME_ENV__BROWSER: BROWSER_CDP_URL' "$BATS_TEST_DIRNAME/../../deploy/compose.browser.yaml"
+}
+
+@test "the secret-store overlay names SECRET_BROKER_* for the agents under a RUNTIME_ENV__ key" {
+    grep -q '^ *RUNTIME_ENV__SECRETS: "SECRET_BROKER_\*"' "$BATS_TEST_DIRNAME/../../deploy/compose.ward.yaml"
+}

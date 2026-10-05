@@ -72,6 +72,12 @@ class SpawnRequest:
     # host in another container, the difference between the two is the engine's
     # entire secret set.
     env: Mapping[str, str] = field(default_factory=dict)
+    # Names (globs allowed) of THIS process's environment variables the child
+    # may inherit beside the base set a local host always passes; meaningful
+    # only to a host that shares this environment. ``inherit_all`` hands the
+    # whole environment over, for an agent that is part of the engine.
+    inherit: tuple[str, ...] = ()
+    inherit_all: bool = False
     # Env entries whose value is a FILE this side wrote and the process must be
     # able to read (the tool manifest, today). A local host passes the path
     # through; a remote one ships the content and points the variable at its own

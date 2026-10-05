@@ -176,3 +176,33 @@ def test_empty_repo_raises(tmp_path: Path) -> None:
 def test_missing_agents_dir_raises(tmp_path: Path) -> None:
     with pytest.raises(ProfileError, match="agents/"):
         FsProfileStore(tmp_path, library=None)
+
+
+def _yaml_with_env(value: str) -> str:
+    return GOOD_YAML.replace("tools: [list_agents]", f"tools: [read, bash]\n  env: {value}")
+
+
+def test_runtime_env_names_what_the_agent_inherits(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_env("[BROWSER_CDP_URL, MYSERVICE_*]"))
+    assert FsProfileStore(tmp_path, library=None).get("assistant").env == (
+        "BROWSER_CDP_URL", "MYSERVICE_*",
+    )
+
+
+def test_runtime_env_absent_means_nothing_beyond_the_base_set(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", GOOD_YAML)
+    assert FsProfileStore(tmp_path, library=None).get("assistant").env == ()
+
+
+def test_runtime_env_refuses_what_is_not_a_variable_name(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_env("['$(id)', OK]"))
+    with pytest.raises(ProfileError, match="runtime.env"):
+        FsProfileStore(tmp_path, library=None).get("assistant")
+
+
+def test_env_override_replaces_the_agent_yaml_list(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_env("[BROWSER_CDP_URL]"))
+    store = FsProfileStore(tmp_path, env_override=lambda name: ("OTHER",), library=None)
+    assert store.get("assistant").env == ("OTHER",)
+    store = FsProfileStore(tmp_path, env_override=lambda name: (), library=None)
+    assert store.get("assistant").env == ()

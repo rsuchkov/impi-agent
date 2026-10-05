@@ -416,18 +416,42 @@ class Settings(BaseSettings):
         else the global `gateway` default."""
         return self._token(f"AGENTS_GATEWAY__{agent.upper().replace('-', '_')}") or self.gateway
 
-    def skills_for(self, agent: str) -> tuple[str, ...] | None:
-        """Per-agent skills override: AGENTS_SKILLS__<AGENT> (CSV, env or .env).
-        None means the key is unset (keep the agent.yaml list); a set value — even
-        empty — REPLACES it (empty => the agent gets no skills). Unlike _token(),
-        this distinguishes "unset" from "set to empty"."""
-        key = f"AGENTS_SKILLS__{agent.upper().replace('-', '_')}"
+    def env_for(self, agent: str) -> tuple[str, ...] | None:
+        """Per-agent override of the environment names it inherits:
+        AGENTS_ENV__<AGENT> (CSV, env or .env). None = unset (keep the
+        agent.yaml list); a set value, even empty, replaces it."""
+        return self._csv_override(f"AGENTS_ENV__{agent.upper().replace('-', '_')}")
+
+    def runtime_env(self) -> tuple[str, ...]:
+        """Names (or globs) of the engine's own environment variables every
+        runtime process inherits, beside the base set: RUNTIME_ENV (CSV) plus
+        every RUNTIME_ENV__<AXIS> key, so each piece of a deployment that puts
+        a variable into the engine's environment for the agents' sake — a
+        browser's address, a broker's — declares it under a key of its own,
+        and nothing has to merge one list."""
+        names: list[str] = []
+        sources: list[tuple[str, str]] = [
+            *((k, v) for k, v in self._dotenv.items()), *((k, v) for k, v in os.environ.items())
+        ]
+        for key, raw in sources:
+            if key == "RUNTIME_ENV" or key.startswith("RUNTIME_ENV__"):
+                names += [n.strip() for n in raw.split(",") if n.strip()]
+        return tuple(dict.fromkeys(names))
+
+    def _csv_override(self, key: str) -> tuple[str, ...] | None:
         raw = os.environ.get(key)
         if raw is None:
             raw = self._dotenv.get(key)
         if raw is None:
             return None
         return tuple(s.strip() for s in raw.split(",") if s.strip())
+
+    def skills_for(self, agent: str) -> tuple[str, ...] | None:
+        """Per-agent skills override: AGENTS_SKILLS__<AGENT> (CSV, env or .env).
+        None means the key is unset (keep the agent.yaml list); a set value — even
+        empty — REPLACES it (empty => the agent gets no skills). Unlike _token(),
+        this distinguishes "unset" from "set to empty"."""
+        return self._csv_override(f"AGENTS_SKILLS__{agent.upper().replace('-', '_')}")
 
     def command_tokens_for(self, agent: str) -> tuple[str, ...]:
         """Verification tokens of the slash commands this agent accepts:

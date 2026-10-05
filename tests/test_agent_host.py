@@ -388,3 +388,46 @@ async def test_closing_the_session_stops_the_process(tmp_path: Path) -> None:
     finally:
         await host.aclose()
         await rig.stop()
+
+
+# --- what a child process inherits ------------------------------------------------
+
+
+def test_the_engines_secrets_stay_out_of_the_child(tmp_path: Path, monkeypatch) -> None:
+    """A child gets the base set and what it was granted; a token the engine
+    happens to hold is not among them."""
+    profile, library = _dirs(tmp_path)
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setenv("LC_ALL", "C.UTF-8")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy:3128")
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", "/elsewhere")
+    monkeypatch.setenv("AGENTS_MM_TOKEN__ASSISTANT", "chat-token")
+    monkeypatch.setenv("HTTP_CALLER_TOKEN__PORTAL", "caller-token")
+    env = _environment(_request(profile, library))
+    assert env["PATH"] == "/usr/bin" and env["LC_ALL"] == "C.UTF-8"
+    assert env["HTTPS_PROXY"] == "http://proxy:3128"
+    assert env["PI_CODING_AGENT_DIR"] == "/elsewhere"
+    assert env["TOOL_TOKEN"] == "t0ken"  # granted
+    assert "AGENTS_MM_TOKEN__ASSISTANT" not in env
+    assert "HTTP_CALLER_TOKEN__PORTAL" not in env
+
+
+def test_a_name_the_request_inherits_is_handed_over_globs_included(tmp_path: Path, monkeypatch) -> None:
+    profile, library = _dirs(tmp_path)
+    monkeypatch.setenv("BROWSER_CDP_URL", "http://browser:9222")
+    monkeypatch.setenv("SECRET_BROKER_URL", "https://ward:8425")
+    monkeypatch.setenv("SECRET_BROKER_CERTS_DIR", "/certs")
+    monkeypatch.setenv("SECRET_OTHER", "no")
+    env = _environment(_request(profile, library, inherit=("BROWSER_CDP_URL", "SECRET_BROKER_*")))
+    assert env["BROWSER_CDP_URL"] == "http://browser:9222"
+    assert env["SECRET_BROKER_URL"] == "https://ward:8425"
+    assert env["SECRET_BROKER_CERTS_DIR"] == "/certs"
+    assert "SECRET_OTHER" not in env
+
+
+def test_a_process_that_is_part_of_the_engine_inherits_everything(tmp_path: Path, monkeypatch) -> None:
+    profile, library = _dirs(tmp_path)
+    monkeypatch.setenv("AGENTS_MM_TOKEN__ASSISTANT", "chat-token")
+    env = _environment(_request(profile, library, inherit_all=True))
+    assert env["AGENTS_MM_TOKEN__ASSISTANT"] == "chat-token"
+    assert env["TOOL_TOKEN"] == "t0ken"

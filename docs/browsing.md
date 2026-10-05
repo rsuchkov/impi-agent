@@ -75,9 +75,10 @@ playwright-cli click f3e6        # a ref from the snapshot
 playwright-cli detach
 ```
 
-`BROWSER_CDP_URL` is in the engine's environment when this axis is on, and
-absent when it is not — which is how an agent tells "no browser here" from "the
-browser is broken".
+`BROWSER_CDP_URL` is in an agent's environment when this axis is on (the
+overlay puts it in the engine's and names it under `RUNTIME_ENV__BROWSER`, which
+is what hands it to every agent's process), and absent when it is not — which
+is how an agent tells "no browser here" from "the browser is broken".
 
 `snapshot` returns the page as an accessibility tree with a ref on every
 element, and `click`/`fill`/`hover` take those refs. That is the part worth

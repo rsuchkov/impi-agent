@@ -1,5 +1,7 @@
 """Settings.integrations public-url resolution (auto / default / explicit)."""
 
+import os
+
 import pytest
 from pydantic import ValidationError
 
@@ -128,3 +130,24 @@ def test_the_secret_sits_between_the_public_url_and_the_endpoint() -> None:
 def test_a_secret_that_is_not_path_safe_is_refused(bad: str) -> None:
     with pytest.raises(ValidationError, match="INTEGRATIONS_SECRET"):
         _settings(integrations_secret=bad)
+
+
+def test_env_for_mirrors_skills_for(monkeypatch) -> None:
+    monkeypatch.delenv("AGENTS_ENV__MY_AGENT", raising=False)
+    assert _no_dotenv().env_for("my-agent") is None
+    monkeypatch.setenv("AGENTS_ENV__MY_AGENT", "A, B_*")
+    assert _no_dotenv().env_for("my-agent") == ("A", "B_*")
+    monkeypatch.setenv("AGENTS_ENV__MY_AGENT", "")
+    assert _no_dotenv().env_for("my-agent") == ()
+
+
+def test_runtime_env_collects_every_axis_key(monkeypatch) -> None:
+    """Each overlay that puts a variable into the engine's environment for the
+    agents declares it under its own RUNTIME_ENV__ key; nothing merges a list."""
+    for key in [k for k in os.environ if k.startswith("RUNTIME_ENV")]:
+        monkeypatch.delenv(key, raising=False)
+    assert _no_dotenv().runtime_env() == ()
+    monkeypatch.setenv("RUNTIME_ENV", "A, B")
+    monkeypatch.setenv("RUNTIME_ENV__BROWSER", "BROWSER_CDP_URL")
+    monkeypatch.setenv("RUNTIME_ENV__SECRETS", "SECRET_BROKER_*, A")
+    assert set(_no_dotenv().runtime_env()) == {"A", "B", "BROWSER_CDP_URL", "SECRET_BROKER_*"}

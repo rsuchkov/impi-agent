@@ -420,3 +420,21 @@ async def test_a_slack_only_deployment_mints_no_secret(tmp_path: Path) -> None:
     finally:
         await app.units[0].gateway.stop()
         await app.sessions.close()
+
+
+def test_only_the_engines_own_agent_inherits_the_whole_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """support is part of the engine and runs its CLI; a user's agent gets the
+    base set plus what its profile and the deployment name."""
+    monkeypatch.setenv("AGENTS_MM_TOKEN__SUPPORT", "support-token")
+    app = build_app(_settings(tmp_path))
+    try:
+        by_name = {unit.spec.name: unit.flow._profile for unit in app.units}
+        assistant, support = by_name["assistant"], by_name["support"]
+        assert isinstance(assistant, PiProfile) and isinstance(support, PiProfile)
+        assert assistant.inherit_all is False
+        assert support.inherit_all is True
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()

@@ -5,6 +5,7 @@ that builds a command line, because the flags name paths on THIS filesystem — 
 host elsewhere is handed the request and builds its own.
 """
 
+import fnmatch
 import logging
 import os
 from pathlib import Path
@@ -97,10 +98,33 @@ def _profile_args(request: SpawnRequest) -> list[str]:
     return args
 
 
-def _environment(request: SpawnRequest) -> dict[str, str] | None:
-    """This process's environment plus what the request grants. None when the
-    request grants nothing, so the child simply inherits."""
-    if not request.env and not request.env_files:
-        return None
+# What a child process gets from this one without asking: where programs are,
+# who it runs as, locale and time zone, how to reach the network, which
+# certificates to trust, and the runtime's own knobs. Everything else in the
+# engine's environment — every token it holds — stays here unless a name is
+# granted.
+INHERITED_ALWAYS = (
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP",
+    "LANG", "LANGUAGE", "LC_*", "TZ", "TERM", "COLORTERM",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+    "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED",
+    "PI_*",
+)
+
+
+def _environment(request: SpawnRequest) -> dict[str, str]:
+    """What the child is started with: the base set and the names the request
+    inherits, taken from this process's environment, then what the request
+    grants. The whole environment only for a process that is part of the
+    engine (``inherit_all``)."""
     granted = {name: str(path) for name, path in request.env_files.items()}
-    return {**os.environ, **request.env, **granted}
+    if request.inherit_all:
+        return {**os.environ, **request.env, **granted}
+    patterns = (*INHERITED_ALWAYS, *request.inherit)
+    inherited = {
+        name: value
+        for name, value in os.environ.items()
+        if any(fnmatch.fnmatchcase(name, pattern) for pattern in patterns)
+    }
+    return {**inherited, **request.env, **granted}

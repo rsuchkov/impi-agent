@@ -89,9 +89,11 @@ services:
     # server, the secret broker and everything else that lives there.
     networks: [default, browser]
     environment:
-      # Read by the browser tool an agent runs. Agents inherit it because their
-      # processes inherit this container's environment.
+      # Read by the browser tool an agent runs. An agent's process inherits
+      # only what the engine grants, so the second line is what hands it over:
+      # the engine forwards every name listed under a RUNTIME_ENV__* key.
       BROWSER_CDP_URL: "http://browser:9222"
+      RUNTIME_ENV__BROWSER: BROWSER_CDP_URL
 
 networks:
   # Declared, though every other file in this deployment gets it implicitly.

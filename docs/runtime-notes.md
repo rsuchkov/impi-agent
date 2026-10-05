@@ -53,8 +53,14 @@ For each agent, provider and model are resolved in order:
 
 ## Environment forwarded into `pi`
 
-The subprocess env is layered: the process env, then the engine's shared extra env,
-then the agent's per-agent env, then a per-session value.
+The subprocess env is built, not inherited: a base set taken from the engine's
+environment (`PATH`, `HOME`, the user, locale and time zone, proxies, certificate
+bundles, `PI_*`), then the names the deployment (`RUNTIME_ENV`,
+`RUNTIME_ENV__<AXIS>`) and the profile (`runtime.env`) grant, then the engine's
+shared extra env, then the agent's per-agent env, then a per-session value.
+Everything else the engine holds stays in the engine. An engine-owned agent
+(`support`) inherits the whole environment instead. Every process also gets
+`PI_OFFLINE=1`, which stops `pi`'s startup version check and nothing else.
 
 - `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` (and `NODE_TLS_REJECT_UNAUTHORIZED`
   when `LLM_VERIFY_SSL=false`) — only when a custom endpoint is configured; consumed

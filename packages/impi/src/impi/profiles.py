@@ -52,6 +52,7 @@ def open_profile_stores(
         default_provider=settings.default_provider,
         default_model=settings.default_model,
         skills_override=settings.skills_for,
+        env_override=settings.env_for,
         library=library.path_if_present,
     )
     engine_store = FsProfileStore(
@@ -60,6 +61,7 @@ def open_profile_stores(
         default_provider=settings.support_provider or settings.default_provider,
         default_model=settings.support_model or settings.default_model,
         skills_override=settings.skills_for,
+        env_override=settings.env_for,
         library=library.path_if_present,
     )
     return user_store, engine_store

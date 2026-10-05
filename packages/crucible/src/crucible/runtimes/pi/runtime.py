@@ -45,6 +45,9 @@ logger = logging.getLogger(__name__)
 # The per-session secret's name in the process environment: beside
 # RUNTIME_SESSION_ID, and what lets the tool server believe that id.
 SESSION_PROOF_ENV = "TOOL_SESSION_PROOF"
+# Granted to every process, wherever it runs. PI_OFFLINE stops the runtime's
+# startup network calls (its version check); a model call is not one of them.
+_BASE_ENV = {"PI_OFFLINE": "1"}
 
 # (profile, session_id_or_None, cwd_or_None) -> a started session. No listener
 # here on purpose: events are a per-turn concern and travel with each prompt.
@@ -87,6 +90,7 @@ class PiRuntime:
         cancel_grace: float = 10.0,
         session_proofs: SessionProofs | None = None,
         extra_env: dict[str, str] | None = None,
+        inherit: tuple[str, ...] = (),
         extra_extensions: list[str] | None = None,
         session_factory: SessionFactory | None = None,
         ui_bridge: UiBridge | None = None,
@@ -101,6 +105,9 @@ class PiRuntime:
         # Forwarded into every pi subprocess. .env is read by pydantic only, so
         # pi children would not otherwise see it.
         self._extra_env = extra_env or {}
+        # Engine environment names every agent's process inherits, on top of
+        # what its own profile names.
+        self._inherit = tuple(inherit)
         # Loaded via `-e` on every spawn. Provider extensions must load early
         # (before project trust), so they go here rather than in profile settings.
         self._extra_extensions = extra_extensions or []
@@ -447,7 +454,7 @@ class PiRuntime:
         # What the host's OWN environment holds is the host's business; this is
         # only what the engine grants.
         safe_id = safe_session_id(session_id) if session_id else None
-        env = {**self._extra_env, **profile.env}
+        env = {**_BASE_ENV, **self._extra_env, **profile.env}
         if safe_id:
             env["RUNTIME_SESSION_ID"] = safe_id
             if self._proofs is not None:
@@ -462,6 +469,8 @@ class PiRuntime:
             model=profile.model,
             append_system_prompt=profile.append_system_prompt,
             env=env,
+            inherit=(*self._inherit, *profile.inherit),
+            inherit_all=profile.inherit_all,
             env_files={name: Path(value) for name, value in profile.env_files.items()},
             session_dir=Path(self._session_dir) if self._session_dir else None,
             extensions=tuple(self._extra_extensions),

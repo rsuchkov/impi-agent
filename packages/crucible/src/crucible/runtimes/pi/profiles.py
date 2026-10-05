@@ -38,6 +38,11 @@ class PiProfile:
     # path is only meaningful where it was written: a host with its own
     # filesystem is handed the content and writes its own copy.
     env_files: Mapping[str, str] = field(default_factory=dict)
+    # Names (globs allowed) of the engine's environment variables this agent's
+    # processes inherit beside the base set; ``inherit_all`` hands over the
+    # whole environment instead — for an agent that is part of the engine.
+    inherit: tuple[str, ...] = ()
+    inherit_all: bool = False
     # Extra text appended to the agent's system prompt (--append-system-prompt),
     # e.g. gateway-specific response-formatting rules. "" = nothing appended.
     append_system_prompt: str = ""
@@ -56,6 +61,7 @@ def build_pi_profile(spec: AgentSpec) -> PiProfile:
         skills=tuple(_resolve_skill(s, spec.profile_dir) for s in spec.skills),
         provider=spec.provider,
         model=spec.model,
+        inherit=spec.env,
     )
 
 

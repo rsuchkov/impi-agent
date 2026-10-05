@@ -703,3 +703,43 @@ async def test_the_runtime_keys_a_session_the_way_the_tool_server_sees_it() -> N
     session.busy = True
     assert await rt.cancel(raw) is True  # found under either spelling
     assert rt.has_memory("assistant", safe) and rt.has_memory("assistant", raw)
+
+
+async def _capture_env(monkeypatch, profile, **runtime_kwargs) -> dict:
+    captured: dict = {}
+
+    async def fake_spawn(pi_bin, args, *, cwd, env=None):
+        captured["env"] = env
+        return SimpleNamespace()
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", fake_spawn)
+    rt = PiRuntime(**runtime_kwargs)
+    await rt._spawn_session(profile, "assistant--T1")
+    return captured["env"]
+
+
+async def test_every_process_runs_offline_at_startup(monkeypatch) -> None:
+    """The runtime's own version check is a network call the engine does not
+    want made on every spawn; a model call is not a startup call."""
+    env = await _capture_env(monkeypatch, _profile())
+    assert env["PI_OFFLINE"] == "1"
+
+
+async def test_the_runtime_forwards_the_engines_inherited_names_and_the_profiles(monkeypatch) -> None:
+    monkeypatch.setenv("BROWSER_CDP_URL", "http://browser:9222")
+    monkeypatch.setenv("MYSERVICE_URL", "http://svc")
+    monkeypatch.setenv("UNRELATED_TOKEN", "x")
+    profile = PiProfile(name="assistant", config_dir=Path("agents") / "assistant", timeout=5.0,
+                        inherit=("MYSERVICE_*",))
+    env = await _capture_env(monkeypatch, profile, inherit=("BROWSER_CDP_URL",))
+    assert env["BROWSER_CDP_URL"] == "http://browser:9222"
+    assert env["MYSERVICE_URL"] == "http://svc"
+    assert "UNRELATED_TOKEN" not in env
+
+
+async def test_a_profile_that_is_part_of_the_engine_inherits_everything(monkeypatch) -> None:
+    monkeypatch.setenv("UNRELATED_TOKEN", "x")
+    profile = PiProfile(name="support", config_dir=Path("agents") / "support", timeout=5.0,
+                        inherit_all=True)
+    env = await _capture_env(monkeypatch, profile)
+    assert env["UNRELATED_TOKEN"] == "x"

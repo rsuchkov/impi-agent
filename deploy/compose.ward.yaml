@@ -113,12 +113,14 @@ services:
   impi:
     # The engine itself knows nothing about any of this. These two variables are
     # read by `secret-exec`, the tool an agent runs, which ships in its image;
-    # agents inherit them because their processes inherit this container's
-    # environment, and which identity to present each one works out from the
-    # agent's own name.
+    # which identity to present each one works out from the agent's own name.
+    # An agent's process inherits only what the engine grants, so the third
+    # line is what hands the two over: the engine forwards every name listed
+    # under a RUNTIME_ENV__* key.
     environment:
       SECRET_BROKER_URL: "https://ward:8425"
       SECRET_BROKER_CERTS_DIR: /app/conf/certs
+      RUNTIME_ENV__SECRETS: "SECRET_BROKER_*"
     volumes:
       # The AGENTS' identities, and only theirs. The operator's is deliberately
       # elsewhere: this container is where the agents run, so a certificate here

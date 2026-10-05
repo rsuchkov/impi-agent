@@ -177,22 +177,22 @@ useful: it reads the engine's docs and answers questions about the deployment.
 
 Three sources, and the first is the one that changes when you turn this on.
 
-A runtime started as a child of the engine inherits **the engine's whole
-environment**, and always has. A runtime started in the agent's own container
-inherits **that container's** environment instead, plus only what the engine
-explicitly grants for this spawn: the model settings, its own `AGENT_NAME`,
-`TOOL_URL`, `TOOL_TOKEN` and `AGENT_FILES_DIR`, and the session id with its
-proof. Files a
+A runtime started as a child of the engine gets a base set from the engine's
+environment (`PATH`, `HOME`, locale, proxies, certificate bundles, `PI_*`) plus
+the names the deployment and the profile grant (`RUNTIME_ENV__*`,
+`runtime.env` — see [creating-agents.md](creating-agents.md)); the engine's
+tokens never reach it. A runtime started in the agent's own container inherits
+**that container's** environment instead. In both cases the engine then grants
+what is this spawn's: the model settings, its own `AGENT_NAME`, `TOOL_URL`,
+`TOOL_TOKEN` and `AGENT_FILES_DIR`, and the session id with its proof. Files a
 variable points at — the tool manifest — travel as content and are rewritten to
 the host's own path, because a path only means something where it was written.
 
-That is a real improvement (the engine's `.env` no longer sits in every agent's
-process) and a real migration hazard, because it cuts both ways: **anything an
-agent quietly relied on from the engine's environment is gone.** A skill reading
-`BROWSER_CDP_URL`, or a variable an operator added to the `impi` service in
-`compose.d/`, worked before and stops working here until it is added to that
-agent's own service. Nothing announces it — the agent simply behaves as if the
-thing were not configured.
+The migration hazard is the second source: a variable an operator added to the
+`impi` service in `compose.d/` and named in `RUNTIME_ENV` reaches an agent in
+the engine, and stops reaching it here until it is added to that agent's own
+service. Nothing announces it — the agent simply behaves as if the thing were
+not configured.
 
 ## When something doesn't work
 

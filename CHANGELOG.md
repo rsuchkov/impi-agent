@@ -54,6 +54,20 @@ when a release is cut, and `impi update` shows the target version's section.
   agent's system prompt. **Breaks:** the shape of the envelope changed, and
   every agent's system prompt gained a suffix; an application on `crucible`
   that parses the prompt or asserts its exact text updates accordingly.
+- **An agent's process inherits what the engine grants, not everything the
+  engine holds.** A runtime started as a child of the engine used to get the
+  engine's whole environment — every chat token, every caller token. It now
+  gets a base set (`PATH`, `HOME`, the user, locale, proxies, certificate
+  bundles, `PI_*`), the names the deployment grants (`RUNTIME_ENV`, and one
+  `RUNTIME_ENV__<AXIS>` key per compose overlay: the browser overlay names
+  `BROWSER_CDP_URL`, the secret-store overlay `SECRET_BROKER_*`), the names
+  the profile grants (`runtime.env` in `agent.yaml`, or `AGENTS_ENV__<AGENT>`
+  in `.env`), and the engine's own grants as before. The bundled `support`
+  agent, being part of the engine, still inherits everything. Every runtime
+  process also gets `PI_OFFLINE=1`: no version check on startup. **Breaks:** a
+  skill that read a variable of its own from the engine's environment sees it
+  unset until it is named in `runtime.env` or `RUNTIME_ENV`; a deployment
+  whose `compose.d/` drop-in adds variables for the agents names them there.
 
 ## v0.19.0 — 2026-10-04
 
