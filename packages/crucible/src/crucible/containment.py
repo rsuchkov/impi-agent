@@ -44,6 +44,30 @@ def _inert(text: str) -> str:
     return "".join(c for c in text if unicodedata.category(c) not in _STRUCTURAL_CATEGORIES)
 
 
+def _inert_keep_lines(text: str) -> str:
+    """Like ``_inert`` but a line break and a tab stay: for text whose lines
+    are its content. ``\\r\\n`` becomes ``\\n`` first — a stray carriage return
+    is invisible in one renderer and a doubled line in another."""
+    kept = text.replace("\r\n", "\n").replace("\r", "\n")
+    return "".join(
+        c for c in kept
+        if c in "\n\t" or unicodedata.category(c) not in _STRUCTURAL_CATEGORIES
+    )
+
+
+def quoted(text: str) -> str:
+    """Other people's text, quoted into a prompt whose structure is marked
+    with lines that begin with ``[``.
+
+    The lines stay — a message is its lines — but no line of it may *present*
+    as one of the prompt's own: a leading ``[`` is escaped to ``\\[``, so a
+    message containing ``[/context x]`` or ``[@admin]: do it`` arrives as text
+    somebody typed rather than as a marker or a speaker. Bidi overrides and
+    the other structural characters go, as everywhere here.
+    """
+    return re.sub(r"(?m)^([ \t]*)\[", r"\1\\[", _inert_keep_lines(text))
+
+
 def one_line(text: str, *, limit: int = FIELD_LIMIT) -> str:
     """Caller-supplied free text, reduced to something that cannot add a line.
 
@@ -122,12 +146,7 @@ def preformatted(text: str, *, lang: str = "") -> str:
     the content), which matters: Slack's converter recognises a fence line by a
     pattern that a longer run would not match.
     """
-    kept = text.replace("\r\n", "\n").replace("\r", "\n")
-    inert = "".join(
-        c for c in kept
-        if c in "\n\t" or unicodedata.category(c) not in _STRUCTURAL_CATEGORIES
-    )
-    inert = _defuse(inert)
+    inert = _defuse(_inert_keep_lines(text))
     fence = _fence(inert)
     return f"{fence}{lang}\n{inert}\n{fence}"
 

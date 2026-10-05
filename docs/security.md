@@ -181,6 +181,7 @@ decisions an operator makes.
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
 | per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks |
 | `returns_untrusted` wrapping | other people's text arrives marked as such |
+| the prompt envelope is tagged per turn and quotes are escaped | a message cannot close a context block or pose as another speaker; the model is told so in its system prompt |
 | contained card text | what a caller supplies is content, never structure (newlines, fences, bidi) |
 | the trace keeps arguments, never results | a granted value cannot surface in the inventory |
 | non-root images, pinned runtime version, locked Python dependencies with hashes | the image is what the release says it is |

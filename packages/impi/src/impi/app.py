@@ -33,7 +33,7 @@ import impi.skill_tools  # noqa: E402,F401
 import impi.task_tools  # noqa: E402,F401
 from crucible.approvals import PendingApprovals
 from crucible.attachments import AttachmentStore
-from crucible.flows.agent_flow import AgentFlow
+from crucible.flows.agent_flow import ENVELOPE_NOTE, AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import (
     GatewayConfig,
@@ -207,9 +207,11 @@ class ProfileBuilder:
 
     def build(self, spec: AgentSpec) -> AgentProfile:
         base = build_pi_profile(spec)
+        # Every agent is told how its prompt is framed and that the quoted
+        # text in it is not instructions; a gateway's formatting rules follow.
         hint = self.hints.get(spec.name, "")
-        if hint:
-            base = dataclasses.replace(base, append_system_prompt=hint)
+        suffix = "\n\n".join(part for part in (ENVELOPE_NOTE, hint) if part)
+        base = dataclasses.replace(base, append_system_prompt=suffix)
         env = self._tools.profile_env(spec)
         if env is None:
             return base

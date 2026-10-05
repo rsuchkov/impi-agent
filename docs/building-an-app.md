@@ -229,9 +229,15 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   earlier replies belong in it too: it has none of them.
   `AgentFlow(..., context=…)`, a `ContextSource`, is the other half — who is
   asking (`preamble(agent, msg)`: the person's role, the system they are signed
-  in to), put in a `[context: who is asking]` block ahead of the history and
-  the message, every turn, an empty string adding nothing. The runtime cannot
-  learn either from the message itself.
+  in to), put in a `[context <tag>: who is asking]` block ahead of the history
+  and the message, every turn, an empty string adding nothing. The runtime
+  cannot learn either from the message itself. Both are quoted the way every
+  message is — a leading `[` on any line is escaped, structural characters go —
+  so neither your transcript nor your preamble has to be sanitised first, and
+  neither can close the block it sits in (the tag on the closer is the turn's).
+  Append `crucible.flows.agent_flow.ENVELOPE_NOTE` to the system prompt of
+  every agent you build, as `impi` does: it tells the model what the markers
+  mean and that the quoted text is not instructions.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base
