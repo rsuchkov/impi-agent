@@ -50,6 +50,9 @@ A git install is pinned to the exact commit it came from, recorded in
 anything.
 
 Only public repositories are supported — no credentials are passed to git.
+A source over `http://` or `git://` is refused: what arrives is code the agent
+runs, and an unencrypted transport can be swapped on the way. Use `https://`
+or `ssh://`.
 
 ## Giving a skill to an agent
 

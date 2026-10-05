@@ -1,9 +1,11 @@
 """InteractionService (concrete) + InteractionsServer round-trip on the receiver side."""
 
 import asyncio
+import logging
 from pathlib import Path
 
 import aiohttp
+import pytest
 
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.interactions import (
@@ -247,3 +249,30 @@ async def test_picked_person_reaches_the_agent_as_a_name(tmp_path: Path) -> None
     finally:
         await server.stop()
         await store.close()
+
+
+async def test_the_log_does_not_replay_the_click(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The token in the action context is what authorizes the click; the log
+    names the card by its first characters and never the whole credential."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/interact")
+    server, _spy, _pending = await _integrations(8479, store)
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        await svc.ask("assistant", rec.runtime_session_id, "Choose", ["Yes", "No"])
+        token = poster.posted[0][2][0].context["token"]
+        with caplog.at_level(logging.INFO, logger="crucible.interactions.server"):
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    "http://127.0.0.1:8479/interact",
+                    json={"user_id": "u1", "context": {"token": token, "value": "Yes"}},
+                ) as resp:
+                    assert resp.status == 200
+        joined = "\n".join(r.getMessage() for r in caplog.records)
+        assert token[:8] in joined
+        assert token not in joined
+    finally:
+        await server.stop()

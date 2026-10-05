@@ -15,6 +15,18 @@ when a release is cut, and `impi update` shows the target version's section.
   `SECURITY.md` at the root says how to report a vulnerability and what counts
   as one. The bundled `support` agent points at the page for "can agent X
   reach Y" questions.
+- **The log names things without replaying them.** A click on a card used to
+  be logged with its whole token, which is the credential the click carries;
+  it is now the first eight characters. A slash command's text used to be
+  logged at INFO; now the fact of the command is, and the text only at DEBUG.
+- **Every token is compared in constant time.** The WebSocket gateway and the
+  tool server looked a presented token up in a dictionary; they now compare
+  it against every registered one the way the http gateway already did, and a
+  token that is not ASCII is refused rather than crashing the request.
+- **Skill sources over `http://` and `git://` are refused.** A skill is code
+  the agent runs, and an unencrypted transport can be swapped on the way.
+  **Breaks:** `impi skill install` of such a URL now fails with a message
+  naming the fix; use `https://` or `ssh://`.
 
 ## v0.19.0 — 2026-10-04
 

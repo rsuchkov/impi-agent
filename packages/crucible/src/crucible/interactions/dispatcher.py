@@ -190,7 +190,12 @@ class InteractionDispatcher:
             synthetic=True,  # engine-generated from a command, not typed
         )
         target.sink.submit(msg, target.chat)
-        logger.info("command for %s in %s by %s: %r", agent, conversation_id, user_id, text)
+        # What was typed is the person's, and a log is kept: the fact of the
+        # command at INFO, its text only when someone asked for everything.
+        logger.info(
+            "command for %s in %s by %s (%d chars)", agent, conversation_id, user_id, len(text)
+        )
+        logger.debug("command text for %s: %r", agent, text)
         return ActionResult.FED
 
     async def open_screen(

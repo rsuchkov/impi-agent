@@ -1,8 +1,10 @@
 """Slash commands over the HTTP receiver: /command/{agent} → a private turn."""
 
+import logging
 from pathlib import Path
 
 import aiohttp
+import pytest
 
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.interactions import (
@@ -303,6 +305,25 @@ async def test_an_admitted_screen_is_posted_and_answers_with_nothing(
         assert status == 200 and body == {}  # the card IS the answer
         assert screen.rendered == 1
         assert len(chat.posted_cards) == 1
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_the_log_records_the_command_but_not_its_text(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """What was typed is the person's: the log keeps that a command ran, for whom
+    and how long it was; the text itself only at DEBUG."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, _spy = await _server(8499, store)
+    try:
+        with caplog.at_level(logging.INFO, logger="crucible.interactions.dispatcher"):
+            status, _ = await _post(8499, "assistant", THREAD_PAYLOAD)
+        assert status == 200
+        joined = "\n".join(r.getMessage() for r in caplog.records)
+        assert "command for assistant" in joined
+        assert "коротко" not in joined
     finally:
         await server.stop()
         await store.close()

@@ -378,3 +378,11 @@ async def test_remove_skill_describes_what_would_be_deleted(tmp_path: Path) -> N
     assert rows["Skill"] == "greek-tutor"
     assert rows["Still assigned to"] == "greek-teacher"
     assert await RemoveSkill().describe(_tool_ctx(tmp_path), {"name": "ghost"}) is None
+
+
+def test_parse_source_refuses_an_unencrypted_transport() -> None:
+    """A skill is code the agent runs; a source that can be swapped on the way
+    is refused by name, not left to fall through as unrecognized."""
+    for spec in ("http://example.com/team/skills.git", "git://example.com/team/skills.git"):
+        with pytest.raises(SkillError, match="unencrypted"):
+            parse_source(spec)

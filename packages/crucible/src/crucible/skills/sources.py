@@ -24,7 +24,11 @@ from crucible.skills.models import SKILL_FILE, SOURCE_FILE, Skill, SkillSource
 _GIT_TIMEOUT = 120.0
 # owner/repo[/sub/dir][@ref] — the shorthand Hermes and Claude both use.
 _SHORTHAND = re.compile(r"^(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)(?P<path>(?:/[\w.\-/]+)?)$")
-_URL_SCHEMES = ("https://", "http://", "ssh://", "git://", "file://", "git@")
+_URL_SCHEMES = ("https://", "ssh://", "file://", "git@")
+# Refused by name rather than falling through to "unrecognized": a source over
+# an unencrypted transport can be swapped on the way, and what arrives is code
+# the agent runs.
+_UNENCRYPTED_SCHEMES = ("http://", "git://")
 
 
 @dataclass
@@ -71,6 +75,11 @@ def parse_source(spec: str) -> SkillSource:
     if not spec:
         raise SkillError("empty skill source")
     location, ref = _split_ref(spec)
+    if location.startswith(_UNENCRYPTED_SCHEMES):
+        raise SkillError(
+            f"{location}: refused — an unencrypted source cannot be trusted; "
+            f"use https:// or ssh://"
+        )
     if location.startswith(_URL_SCHEMES):
         # A full URL has no room for a subdirectory, so it goes in the fragment:
         # https://host/team/skills.git#skills/greek-tutor@main

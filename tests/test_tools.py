@@ -1300,3 +1300,19 @@ async def test_a_session_id_without_its_proof_is_refused() -> None:
     assert forged[0] == 403 and forged[1] == {"error": "session not proven"}
     assert bare[0] == 403
     assert stateless == (200, {"result": {"session": ""}})
+
+
+async def test_server_refuses_a_token_that_is_not_ascii_without_crashing() -> None:
+    """The header is whatever the caller put there; a 500 on a byte would be a
+    way to tell tokens apart."""
+    server, _ = await _server(8469)
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8469/tool/list_agents",
+                json={},
+                headers={"X-Tool-Token": "тайна".encode().decode("latin-1")},
+            ) as resp:
+                assert resp.status == 401
+    finally:
+        await server.stop()

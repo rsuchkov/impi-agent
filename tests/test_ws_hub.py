@@ -326,3 +326,22 @@ async def test_a_file_sent_while_offline_is_buffered_like_a_reply() -> None:
             await ws.close()
     finally:
         await hub.stop()
+
+
+async def test_a_token_that_is_not_ascii_is_refused_not_crashed() -> None:
+    """The header is whatever the caller put there; the comparison must answer
+    401 to it, not 500 — a crash on a byte is a way to tell tokens apart."""
+    hub = _hub(8489, {"probe": ("good-token", None)})
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            try:
+                await session.ws_connect(
+                    "http://127.0.0.1:8489/ws",
+                    headers={"Authorization": "Bearer " + "тайна".encode().decode("latin-1")},
+                )
+                raise AssertionError("expected WSServerHandshakeError")
+            except aiohttp.WSServerHandshakeError as exc:
+                assert exc.status == 401
+    finally:
+        await hub.stop()

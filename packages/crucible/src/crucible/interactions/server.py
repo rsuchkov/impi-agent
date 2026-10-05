@@ -129,7 +129,9 @@ class InteractionsServer:
         cb = self._codec.parse_action(body)
         # One line per callback — confirms the platform actually reached us (the
         # platform->host hop is the usual failure point for widget callbacks).
-        logger.info("interact callback: token=%s form=%s", cb.token, bool(cb.form_token))
+        # The token is the credential the click carries; eight characters say
+        # which card without letting the log replay the click.
+        logger.info("interact callback: token=%s form=%s", cb.token[:8], bool(cb.form_token))
 
         # A request for AUTHORIZATION — a credential, a gated tool call. First,
         # because it is the only click whose answer may depend on WHO sent it;

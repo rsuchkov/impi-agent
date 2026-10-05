@@ -14,6 +14,7 @@ the store it opens, and an agent reaches it over mutual TLS.
 
 import asyncio
 import contextlib
+import hmac
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -141,8 +142,19 @@ class ToolServer:
             await self._runner.cleanup()
             self._runner = None
 
+    def _agent_for(self, presented: str) -> str | None:
+        """Constant-time per token, every token compared: a lookup that stops
+        at the first match tells a guesser how far it got. Bytes, not str —
+        compare_digest refuses a non-ASCII str, and a header is whatever the
+        caller put there."""
+        found = None
+        for token, agent in self._tokens.items():
+            if hmac.compare_digest(token.encode(), presented.encode()):
+                found = agent
+        return found
+
     async def _handle(self, request: web.Request) -> web.Response:
-        agent = self._tokens.get(request.headers.get(_TOKEN_HEADER, ""))
+        agent = self._agent_for(request.headers.get(_TOKEN_HEADER, ""))
         if agent is None:
             return web.json_response({"error": "unauthorized"}, status=401)
 
