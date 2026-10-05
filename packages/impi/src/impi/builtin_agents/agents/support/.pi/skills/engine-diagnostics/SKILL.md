@@ -10,6 +10,12 @@ and each has a cheap check that tells you which one you are in.
 
 Reference: `$IMPI_ROOT/docs/troubleshooting.md`.
 
+When the question is "can agent X reach Y" or "is this safe" rather than "why
+is this broken", the answer is in `$IMPI_ROOT/docs/security.md`: the four
+boundaries, what an agent with a shell can reach in the default deployment
+versus a container per agent, where data and credentials live, the known
+limits. Quote it rather than reasoning it out.
+
 ## 0. What you can see from where you are
 
 You run inside the engine's own process tree, so:

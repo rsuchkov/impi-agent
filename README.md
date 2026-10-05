@@ -34,6 +34,8 @@ conversations between people and agents — and between agents.
 - **Secrets an agent can use but never read.** A broker in its own container
   holds the credential, asks a human, and hands the value to a process — never
   into the model's context. → [secrets.md](docs/secrets.md)
+- **An honest account of the boundaries.** What the engine protects, what it
+  does not, and what a deployment adds. → [security.md](docs/security.md)
 - **A real browser.** Headless Chrome in a container of its own, driven over
   `playwright-cli`, on a network that cannot reach the chat server.
   → [browsing.md](docs/browsing.md)
@@ -182,6 +184,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/skills.md](docs/skills.md) — the shared skill library and `/skills`.
 - [docs/tasks.md](docs/tasks.md) — scheduled and recurring work, and why a run didn't happen.
 - [docs/secrets.md](docs/secrets.md) — credentials an agent can use but never read.
+- [docs/security.md](docs/security.md) — the boundaries, where data and credentials go, the hardening checklist.
 - [docs/browsing.md](docs/browsing.md) — a real browser the agents drive, and what isolates it.
 - [docs/agent-containers.md](docs/agent-containers.md) — a container per agent, and what that isolates.
 - [docs/tool-trace.md](docs/tool-trace.md) — the message above a reply that lists the tools the turn ran.

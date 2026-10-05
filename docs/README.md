@@ -22,6 +22,10 @@ people. Keep them accurate to the code.
 - **[secrets.md](secrets.md)** — credentials an agent can use but never read:
   the approval card, policies and time-boxed windows, the ledger, and an honest
   account of what the broker protects against and what it doesn't.
+- **[security.md](security.md)** — what the engine protects and what it does
+  not: the four boundaries, where data and credentials go and for how long,
+  what an agent with a shell can reach in each deployment shape, the hardening
+  checklist, and the known limits.
 - **[browsing.md](browsing.md)** — a real browser the agents drive: what the
   empty profile and the separate network buy, what the tool's own checks do not,
   the limits (no downloads, one browser shared by every agent), and how to turn

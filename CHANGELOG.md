@@ -6,7 +6,15 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The boundaries, written down in one place.** `docs/security.md` says what
+  the engine protects and what it does not: the four lines it draws (model ↔
+  engine, agent process ↔ engine, agent ↔ agent, deployment ↔ outside), what
+  enforces each and what it does not hold against; where data and credentials
+  go and for how long; what an agent with a shell can reach by default versus
+  in a container of its own; the hardening checklist; the known limits. A
+  `SECURITY.md` at the root says how to report a vulnerability and what counts
+  as one. The bundled `support` agent points at the page for "can agent X
+  reach Y" questions.
 
 ## v0.19.0 — 2026-10-04
 
