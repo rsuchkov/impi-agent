@@ -81,6 +81,7 @@ from impi.profiles import (
     build_pi_env,
     open_profile_stores,
 )
+from impi.provisioning import ensure_receiver_secret
 from impi.registry import RegistryService
 from impi.scheduling import PresenceNotifier, RuntimePromptRunner, SinkTurnDispatcher
 from impi.skill_screen import SkillScreen
@@ -328,6 +329,9 @@ def build_app(settings: ImpiSettings) -> App:
     needs_receiver = any(
         cfg is not None and needs_http_receiver(cfg.kind) for cfg in configs.values()
     )
+    # A receiver with no secret trusts every callback on arrival; a deployment
+    # that needs one gets a secret minted on its first start.
+    settings = ensure_receiver_secret(settings, needs_receiver=needs_receiver)
 
     # The app owns the registry of live agent presences (agent -> AgentSink); the
     # loop fills it, the interaction collaborators read it lazily via MappingPresence.

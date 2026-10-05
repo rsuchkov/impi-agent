@@ -7,14 +7,23 @@ its widget/form callbacks at this server. It is transport-neutral: an injected
 on 0.0.0.0 (the platform reaches it from its own network); separate from the
 localhost tool server on purpose — only this door is exposed, and only for
 callbacks.
+
+The platform is the only party meant to reach it, and a platform's callback
+carries no signature — the click says who clicked and the receiver has to
+believe it. So the proof that a request came from the platform is the URL
+itself: a secret segment on every path, handed to the platform when a card is
+posted or a command registered, and checked here before anything is routed.
+Off that path the receiver answers 403 and nothing else.
 """
 
+import hmac
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from aiohttp import web
 
 from crucible.approvals import ApprovalOutcome
+from crucible.config import callback_path
 from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import InteractionDispatcher
 from crucible.interactions.presence import AgentPresence
@@ -76,6 +85,7 @@ class InteractionsServer:
         *,
         host: str = "0.0.0.0",
         port: int = 8423,
+        secret: str = "",
         dialog_submit_url: str = "",
         command_tokens: CommandTokens | None = None,
         agents: LiveAgents | None = None,
@@ -86,6 +96,7 @@ class InteractionsServer:
         self._presence = presence
         self._host = host
         self._port = port
+        self._secret = secret
         self._dialog_submit_url = dialog_submit_url
         self._command_tokens = command_tokens
         self._agents = agents
@@ -100,21 +111,50 @@ class InteractionsServer:
         )
 
     async def start(self) -> None:
-        app = web.Application()
-        app.router.add_post("/interact", self._interact)
-        app.router.add_post("/dialog", self._dialog)
+        # With a secret, every route lives under it and the guard runs before
+        # any handler; without one the bare routes answer, and the log says
+        # what that means.
+        app = web.Application(middlewares=[self._guard] if self._secret else [])
+        segment = "{secret}" if self._secret else ""
+        app.router.add_post(callback_path("interact", secret=segment), self._interact)
+        app.router.add_post(callback_path("dialog", secret=segment), self._dialog)
         # Slash commands are per-agent: the platform's command is registered with
         # the agent's own URL, so the path says whom to run.
-        app.router.add_post("/command/{agent}", self._command)
+        app.router.add_post(callback_path("command/{agent}", secret=segment), self._command)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         await web.TCPSite(self._runner, self._host, self._port).start()
+        shape = callback_path("", secret="<secret>" if self._secret else "").rstrip("/")
         logger.info(
-            "integrations receiver on http://%s:%d (/interact, /dialog, /command/{agent}); "
-            "/command/%s -> %s",
-            self._host, self._port, DEFAULT_AGENT_PATH,
+            "integrations receiver on http://%s:%d (%s/interact, %s/dialog, "
+            "%s/command/{agent}); /command/%s -> %s",
+            self._host, self._port, shape, shape, shape, DEFAULT_AGENT_PATH,
             self._agent_for(DEFAULT_AGENT_PATH) or "nothing (name one with AGENT_NAME)",
         )
+        if not self._secret:
+            logger.warning(
+                "the receiver has no secret: every callback that reaches port %d is "
+                "trusted on arrival — set INTEGRATIONS_SECRET (docs/commands.md)",
+                self._port,
+            )
+
+    @web.middleware
+    async def _guard(
+        self, request: web.Request, handler: Callable[[web.Request], Awaitable[web.StreamResponse]]
+    ) -> web.StreamResponse:
+        """The one check that stands in for a signature: the path's secret
+        segment. Runs for every request, including those no route matched —
+        a bare ``/interact`` is as much \"off the path\" as a wrong secret."""
+        presented = request.match_info.get("secret", "")
+        if not hmac.compare_digest(self._secret.encode(), presented.encode()):
+            logger.warning(
+                "callback to %s refused: not on the receiver's secret path — a card "
+                "posted or a slash command registered before INTEGRATIONS_SECRET was "
+                "set or changed still points at the old URL (docs/commands.md)",
+                request.path,
+            )
+            return web.json_response({"error": "forbidden"}, status=403)
+        return await handler(request)
 
     async def stop(self) -> None:
         if self._runner is not None:

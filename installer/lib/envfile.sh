@@ -32,6 +32,21 @@ env_set() {
     rm -f "$tmp"
 }
 
+# rand_hex BYTES — password/secret material without relying on openssl.
+rand_hex() {
+    od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'
+}
+
+# ensure_secret KEY FILE — a fresh secret under KEY unless one is already
+# there. Prints the key's name when it minted one, nothing otherwise, so a
+# caller can say what changed.
+ensure_secret() {
+    local key=$1 file=$2
+    [ -n "$(env_get "$key" "$file")" ] && return 0
+    env_set "$key" "$(rand_hex 16)" "$file"
+    printf '%s\n' "$key"
+}
+
 # env_get KEY FILE -> prints the value (empty if absent); strips one layer of
 # surrounding single/double quotes.
 env_get() {
@@ -64,6 +79,9 @@ write_interactivity_env() {
     fi
     [ "$gateway" = mattermost ] || return 0
     env_set INTEGRATIONS_PORT 8423 "$env_file"
+    # The receiver's secret: a segment of every callback URL, so only the
+    # Mattermost that was handed the URL can reach the endpoints behind it.
+    ensure_secret INTEGRATIONS_SECRET "$env_file" >/dev/null
     if [ "$mm_mode" = codeploy ]; then
         env_set INTEGRATIONS_PUBLIC_URL "http://impi:8423" "$env_file"
     else
@@ -90,4 +108,24 @@ write_ward_env() {
     fi
     env_set WARD_MATTERMOST_URL "$mm_url" "$env_file"
     env_set WARD_MATTERMOST_TOKEN "" "$env_file"
+    # The broker's receiver has a secret of its own; the broker cannot write
+    # its env file, so it is minted here and nowhere else.
+    ensure_secret WARD_CALLBACK_SECRET "$env_file" >/dev/null
+}
+
+# ensure_callback_secrets ENV_FILE WARD_ENV_FILE — the migration for a
+# deployment installed before the receivers had secrets: mint what is
+# missing, on the files that exist and need one (a Mattermost receiver is
+# configured; a broker talks to Mattermost). Prints one line per key minted,
+# so the wrapper can tell the operator what to re-register.
+ensure_callback_secrets() {
+    local env_file=$1 ward_env=$2
+    if [ -e "$env_file" ] && [ -n "$(env_get INTEGRATIONS_PUBLIC_URL "$env_file")" ] \
+        && [ "$(env_get INTEGRATIONS_ENABLED "$env_file")" != false ]; then
+        ensure_secret INTEGRATIONS_SECRET "$env_file"
+    fi
+    if [ -e "$ward_env" ] && [ -n "$(env_get WARD_MATTERMOST_URL "$ward_env")" ]; then
+        ensure_secret WARD_CALLBACK_SECRET "$ward_env"
+    fi
+    return 0
 }

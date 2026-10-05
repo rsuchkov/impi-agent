@@ -385,3 +385,34 @@ async def test_build_app_puts_an_agent_on_the_http_hub(tmp_path: Path, monkeypat
         assert hasattr(sink, "submit_tracked")
     finally:
         await app.sessions.close()
+
+
+def test_a_missing_receiver_secret_is_minted_into_the_env_file(tmp_path: Path) -> None:
+    """A Mattermost deployment that starts without one gets a secret written to
+    its own .env and a receiver built under it — buttons keep working after an
+    upgrade, and the log says what to re-register."""
+    settings = _settings(tmp_path)
+    assert settings.integrations_secret == ""
+    app = build_app(settings)
+    try:
+        written = Path(settings.dotenv_path).read_text()
+        assert "INTEGRATIONS_SECRET=" in written
+        minted = written.split("INTEGRATIONS_SECRET=")[1].splitlines()[0]
+        assert len(minted) >= 16
+        assert app.integrations is not None
+        assert app.integrations._secret == minted
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()
+
+
+async def test_a_slack_only_deployment_mints_no_secret(tmp_path: Path) -> None:
+    settings = _settings(tmp_path).model_copy(
+        update={"gateway": "slack", "slack_bot_token": "xoxb-x", "slack_app_token": "xapp-x"}
+    )
+    app = build_app(settings)
+    try:
+        assert not Path(settings.dotenv_path).exists()
+    finally:
+        await app.units[0].gateway.stop()
+        await app.sessions.close()

@@ -109,6 +109,7 @@ class InteractionWiring:
             self.receiver = InteractionsServer(
                 self.dispatcher, codec, presence,
                 host=integrations.host, port=integrations.port,
+                secret=integrations.secret,
                 dialog_submit_url=integrations.dialog_url,
                 command_tokens=command_tokens,
                 # Enough to answer /command/default without the app restating

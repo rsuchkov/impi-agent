@@ -69,4 +69,9 @@ def test_the_engine_settings_carry_no_broker_knobs(tmp_path: Path) -> None:
     """A settings field is how this would creep back: someone adds SECRET_BROKER_URL
     "just so the engine can tell whether the feature is on"."""
     settings = _settings(tmp_path)
-    assert not [name for name in type(settings).model_fields if "secret" in name.lower()]
+    # The receiver's own secret is the engine's (a segment of its callback
+    # path); what must not appear is anything naming the broker.
+    assert not [
+        name for name in type(settings).model_fields
+        if "broker" in name.lower() or name.lower().startswith("secret_")
+    ]

@@ -5,11 +5,6 @@ port_free() {
     ! (exec 9<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
 }
 
-# rand_hex BYTES — password/secret material without relying on openssl.
-rand_hex() {
-    od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'
-}
-
 # preflight MODE — prints a check table; dies on any hard failure.
 # MODE: codeploy | external | slack (decides which ports must be free).
 preflight() {

@@ -1,5 +1,8 @@
 """Settings.integrations public-url resolution (auto / default / explicit)."""
 
+import pytest
+from pydantic import ValidationError
+
 from crucible.config import Settings, _detect_lan_ip
 
 
@@ -110,3 +113,18 @@ def test_http_callers_are_read_like_ws_services(monkeypatch) -> None:
     callers = settings.http_callers()
     assert callers["my-app"] == ("tok", ("helper", "scribe"))
     assert callers["open"] == ("tok2", None)  # unset allowlist = every http agent
+
+
+def test_the_secret_sits_between_the_public_url_and_the_endpoint() -> None:
+    ints = _settings(
+        integrations_public_url="http://h:8423/", integrations_secret="k2Xy8qLmN0pRsTuVwZ"
+    ).integrations
+    assert ints.interact_url == "http://h:8423/k2Xy8qLmN0pRsTuVwZ/interact"
+    assert ints.dialog_url == "http://h:8423/k2Xy8qLmN0pRsTuVwZ/dialog"
+    assert ints.command_url("assistant") == "http://h:8423/k2Xy8qLmN0pRsTuVwZ/command/assistant"
+
+
+@pytest.mark.parametrize("bad", ["a/b-c-d-e-f-g-h-i-j", "with space and more", "short"])
+def test_a_secret_that_is_not_path_safe_is_refused(bad: str) -> None:
+    with pytest.raises(ValidationError, match="INTEGRATIONS_SECRET"):
+        _settings(integrations_secret=bad)

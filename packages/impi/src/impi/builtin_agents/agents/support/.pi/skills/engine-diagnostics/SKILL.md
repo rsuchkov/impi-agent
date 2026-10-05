@@ -155,6 +155,13 @@ receiver: `INTEGRATIONS_PUBLIC_URL` reachable from the server, its subnet in
 Mattermost's `AllowedUntrustedInternalConnections`, `INTEGRATIONS_ENABLED=true`.
 Slack needs none of this — it uses its socket.
 
+A click or command that **arrives and is answered 403** with the log line
+`not on the receiver's secret path` is the other case: the receiver answers
+only under `<INTEGRATIONS_PUBLIC_URL>/<INTEGRATIONS_SECRET>/…`, and the URL
+the platform holds predates the secret. Slash commands must be re-registered
+with the URL `impi health` prints; cards posted before the secret existed stay
+dead. The broker's receiver has the same rule under `WARD_CALLBACK_SECRET`.
+
 On the `http` gateway there is no chat to deliver to: a confirmation card is a
 `confirmation` event in the caller's journal (the runtime's own yes/no questions
 are `actions` events) and the caller's program answers it through the API; fire-and-forget widgets, forms, slash commands and the

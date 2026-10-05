@@ -114,6 +114,7 @@ check "conf/.env has the agent token" grep -q '^AGENTS_MM_TOKEN__ASSISTANT=' "$E
 check "conf/.env has the support token" grep -q '^AGENTS_MM_TOKEN__SUPPORT=' "$E2E_HOME/conf/.env"
 check "conf/.env has the widget callback URL" \
     grep -q '^INTEGRATIONS_PUBLIC_URL=http://impi:8423$' "$E2E_HOME/conf/.env"
+check "conf/.env has the receiver secret" grep -q '^INTEGRATIONS_SECRET=.\{16,\}$' "$E2E_HOME/conf/.env"
 env_mode() { p=$(stat -c '%a' "$E2E_HOME/conf/.env" 2>/dev/null || stat -f '%Lp' "$E2E_HOME/conf/.env"); [ "$p" = 600 ]; }
 check "conf/.env is 0600" env_mode
 check "agent profile scaffolded" test -f "$E2E_HOME/agents/agents/assistant/agent.yaml"

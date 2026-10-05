@@ -8,6 +8,16 @@ setup() {
     mkdir -p "$WORK"
 }
 
+@test "rand_hex yields the requested number of hex bytes" {
+    out=$(rand_hex 16)
+    [ "${#out}" -eq 32 ]
+    [[ "$out" =~ ^[0-9a-f]+$ ]]
+}
+
+@test "rand_hex output varies" {
+    [ "$(rand_hex 8)" != "$(rand_hex 8)" ]
+}
+
 @test "env_set creates the file with mode 600" {
     env_set KEY value "$WORK/.env"
     [ "$(cat "$WORK/.env")" = "KEY=value" ]
@@ -89,6 +99,42 @@ setup() {
     [ "$(env_get INTEGRATIONS_PUBLIC_URL "$WORK/.env")" = "http://10.0.0.9:8423" ]
 }
 
+@test "interactivity: a Mattermost receiver gets a secret, and keeps it on a re-run" {
+    write_interactivity_env mattermost yes codeploy "" "$WORK/.env"
+    first=$(env_get INTEGRATIONS_SECRET "$WORK/.env")
+    [ "${#first}" -eq 32 ]
+    write_interactivity_env mattermost yes codeploy "" "$WORK/.env"
+    [ "$(env_get INTEGRATIONS_SECRET "$WORK/.env")" = "$first" ]
+}
+
+@test "interactivity: Slack gets no receiver secret" {
+    write_interactivity_env slack yes slack "" "$WORK/.env"
+    [ ! -e "$WORK/.env" ]
+}
+
+@test "ensure_callback_secrets mints what an older deployment lacks and nothing else" {
+    printf 'INTEGRATIONS_PUBLIC_URL=http://impi:8423\n' > "$WORK/.env"
+    printf 'WARD_MATTERMOST_URL=http://mattermost:8065\n' > "$WORK/ward.env"
+    run ensure_callback_secrets "$WORK/.env" "$WORK/ward.env"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = INTEGRATIONS_SECRET ]
+    [ "${lines[1]}" = WARD_CALLBACK_SECRET ]
+    [ -n "$(env_get INTEGRATIONS_SECRET "$WORK/.env")" ]
+    [ -n "$(env_get WARD_CALLBACK_SECRET "$WORK/ward.env")" ]
+    # a second pass changes nothing and says so by printing nothing
+    run ensure_callback_secrets "$WORK/.env" "$WORK/ward.env"
+    [ -z "$output" ]
+}
+
+@test "ensure_callback_secrets leaves a Slack deployment and a switched-off receiver alone" {
+    printf 'INTEGRATIONS_ENABLED=false\nINTEGRATIONS_PUBLIC_URL=http://impi:8423\n' > "$WORK/.env"
+    printf 'WARD_GATEWAY=slack\n' > "$WORK/ward.env"
+    run ensure_callback_secrets "$WORK/.env" "$WORK/ward.env"
+    [ -z "$output" ]
+    ! grep -q SECRET "$WORK/.env"
+    ! grep -q SECRET "$WORK/ward.env"
+}
+
 @test "interactivity: any gateway without widgets is switched off, and nothing else is written" {
     write_interactivity_env slack no slack "" "$WORK/.env"
     [ "$(env_get INTEGRATIONS_ENABLED "$WORK/.env")" = false ]
@@ -97,9 +143,11 @@ setup() {
 
 # --- the broker's env file ---------------------------------------------------------
 
-@test "ward on Mattermost: the server, an empty bot token, the approvers" {
+@test "ward on Mattermost: the server, an empty bot token, the approvers, a receiver secret" {
     write_ward_env mattermost "alice,bob" "http://mattermost:8065" "$WORK/ward.env"
     [ "$(env_get WARD_APPROVERS "$WORK/ward.env")" = "alice,bob" ]
+    secret=$(env_get WARD_CALLBACK_SECRET "$WORK/ward.env")
+    [ "${#secret}" -eq 32 ]
     [ "$(env_get WARD_MATTERMOST_URL "$WORK/ward.env")" = "http://mattermost:8065" ]
     grep -q '^WARD_MATTERMOST_TOKEN=' "$WORK/ward.env"
     ! grep -q 'WARD_GATEWAY\|WARD_SLACK' "$WORK/ward.env" || false
@@ -113,6 +161,7 @@ setup() {
     grep -q '^WARD_SLACK_APP_TOKEN=' "$WORK/ward.env"
     run grep 'MATTERMOST' "$WORK/ward.env"
     [ "$status" -ne 0 ]
+    ! grep -q '^WARD_CALLBACK_SECRET=' "$WORK/ward.env"
 }
 
 @test "ward's file is the broker's own: mode 600, nothing in the engine's env" {

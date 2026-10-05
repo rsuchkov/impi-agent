@@ -27,6 +27,19 @@ when a release is cut, and `impi update` shows the target version's section.
   the agent runs, and an unencrypted transport can be swapped on the way.
   **Breaks:** `impi skill install` of such a URL now fails with a message
   naming the fix; use `https://` or `ssh://`.
+- **The Mattermost callback receivers answer only under a secret path.** A
+  click, a modal submission or a slash command arrives as a plain POST that
+  carries no signature and names its own user; the receiver used to believe
+  it on arrival. Every callback URL now carries a secret segment —
+  `<INTEGRATIONS_PUBLIC_URL>/<INTEGRATIONS_SECRET>/interact`, `/dialog`,
+  `/command/<agent>` — and the receiver answers 403 off it. The engine mints
+  `INTEGRATIONS_SECRET` into `conf/.env` on its first start (the installer
+  and `impi start` do too); the broker's receiver has `WARD_CALLBACK_SECRET`
+  in `conf/ward.env`. `impi health` and `impi doctor` say whether the secrets
+  are set. Slack is unaffected (its clicks come down the socket).
+  **Breaks:** every slash command registered with Mattermost — the agents'
+  and `/ward` — must be re-registered under the new URL (`impi health` prints
+  it), and the buttons on cards posted before the upgrade answer 403.
 
 ## v0.19.0 — 2026-10-04
 

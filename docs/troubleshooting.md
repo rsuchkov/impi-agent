@@ -103,6 +103,13 @@ must be able to POST back to the receiver:
 
 Confirm `INTEGRATIONS_ENABLED=true`.
 
+- **A click or a slash command answers 403, and the log says `not on the
+  receiver's secret path`** — the receiver lives under `INTEGRATIONS_SECRET`
+  and the URL the platform holds does not have it: the command was registered
+  before the secret existed or changed, or the card was posted before. Re-register
+  the command with the URL `impi health` prints; cards posted before the change
+  stay dead. The broker's receiver has the same rule with `WARD_CALLBACK_SECRET`.
+
 **The modal never opens on Mattermost.** The log carries
 `Mattermost refused the dialog (field types: …)`. Usually the server is older
 than a control the form uses: `multiselect` needs **11.0**, `date`/`datetime`

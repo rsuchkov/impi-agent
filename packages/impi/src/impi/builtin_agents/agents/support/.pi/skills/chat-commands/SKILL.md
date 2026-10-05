@@ -40,9 +40,12 @@ mmctl command create <team> --title Summarize --trigger-word summarize \
 
 Request method must be **POST**. `<URL>` is one of:
 
-- `<INTEGRATIONS_PUBLIC_URL>/command/<agent>` — the path names the agent, because
-  a Mattermost payload does not say which bot it is meant for;
-- `<INTEGRATIONS_PUBLIC_URL>/command/default` — the engine picks: the only agent
+- `<INTEGRATIONS_PUBLIC_URL>/<INTEGRATIONS_SECRET>/command/<agent>` — the path
+  names the agent, because a Mattermost payload does not say which bot it is
+  meant for; the secret segment is what says the request came from Mattermost
+  (the receiver answers 403 off it). `impi health` prints the exact URL; the
+  secret is in `$DOTENV_PATH`, minted by the engine on its first start;
+- `<INTEGRATIONS_PUBLIC_URL>/<INTEGRATIONS_SECRET>/command/default` — the engine picks: the only agent
   running, or the one `AGENT_NAME` names when several run. The startup log line
   `/command/default -> <agent>` says which.
 

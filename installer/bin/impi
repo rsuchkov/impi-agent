@@ -32,27 +32,12 @@ die() { bad "$*"; exit 1; }
 . "$REPO/installer/lib/compose.sh"
 # shellcheck source=../lib/files.sh
 . "$REPO/installer/lib/files.sh"
+# env_set / env_get / the receiver secrets — the installer's own, so the two
+# can never write a .env file differently.
+# shellcheck source=../lib/envfile.sh
+. "$REPO/installer/lib/envfile.sh"
 # shellcheck source=../lib/escape.sh
 . "$REPO/installer/lib/escape.sh"
-
-env_set() { # KEY VALUE FILE — truncate-in-place (inode survives mounts)
-    local key=$1 value=$2 file=$3 tmp="${3}.tmp.$$"
-    case "$value" in
-        *[![:alnum:]_@%+=:,./-]*)  # quote for bash-sourceability
-            value=$(printf '%s' "$value" | sed -e 's/[\\"$`]/\\&/g')
-            value="\"$value\""
-            ;;
-    esac
-    [ -e "$file" ] || { : >"$file"; chmod 600 "$file"; }
-    ENV_SET_KEY="$key" ENV_SET_VALUE="$value" awk '
-        BEGIN { done = 0; key = ENVIRON["ENV_SET_KEY"]; value = ENVIRON["ENV_SET_VALUE"] }
-        index($0, key "=") == 1 { if (!done) { print key "=" value; done = 1 }; next }
-        { print }
-        END { if (!done) print key "=" value }
-    ' "$file" >"$tmp"
-    cat "$tmp" >"$file"
-    rm -f "$tmp"
-}
 
 confirm() { # "Question" default(y|n)
     local q=$1 d=${2:-y} a hint
@@ -68,6 +53,28 @@ confirm() { # "Question" default(y|n)
 
 # The drop-in directory is created on demand (an installation made before it
 # existed has none) and carries the note explaining what it is for.
+# A deployment installed before the callback receivers had secrets gets them
+# here, on the next start or update. Minting is silent; what is not silent is
+# that every slash command registered with Mattermost now points at the wrong
+# URL, so each key minted comes with the one thing the operator must do.
+mint_callback_secrets() {
+    local minted
+    minted=$(ensure_callback_secrets "$IMPI_HOME/conf/.env" "$IMPI_HOME/conf/ward.env")
+    [ -n "$minted" ] || return 0
+    for _key in $minted; do
+        case "$_key" in
+            INTEGRATIONS_SECRET)
+                ok "minted INTEGRATIONS_SECRET: the engine's receiver now answers only under"
+                printf '  <INTEGRATIONS_PUBLIC_URL>/<secret>/... — re-register every slash command\n'
+                printf '  with that URL (docs/commands.md); cards posted before this answer 403\n' ;;
+            WARD_CALLBACK_SECRET)
+                ok "minted WARD_CALLBACK_SECRET: the broker's receiver now answers only under"
+                printf '  http://ward:8426/<secret>/... — re-register the /ward command with\n'
+                printf '  that URL (docs/secrets.md)\n' ;;
+        esac
+    done
+}
+
 ensure_dropin_dir() {
     mkdir -p "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
     [ -f "$IMPI_HOME/$COMPOSE_DROPIN_DIR/README.md" ] \
@@ -432,6 +439,7 @@ cmd_update() {
     fi
     ward_reminder
     ensure_dropin_dir
+    mint_callback_secrets
     # By rename, not in place: this script is the file being replaced, and bash
     # is still reading it (see install_executable).
     install_executable "$REPO/installer/bin/impi" "$HOME/.local/bin/impi"
@@ -476,6 +484,23 @@ cmd_doctor() {
         fi
     else
         bad "missing $IMPI_HOME/conf/.env"
+    fi
+    # The receivers' secrets: a callback off the secret path is refused, so a
+    # missing one means every click is trusted on arrival.
+    if [ -n "$(env_get INTEGRATIONS_PUBLIC_URL "$IMPI_HOME/conf/.env")" ] \
+        && [ "$(env_get INTEGRATIONS_ENABLED "$IMPI_HOME/conf/.env")" != false ]; then
+        if [ -n "$(env_get INTEGRATIONS_SECRET "$IMPI_HOME/conf/.env")" ]; then
+            ok "receiver secret: set (commands register under <INTEGRATIONS_PUBLIC_URL>/<secret>/command/<agent>)"
+        else
+            bad "receiver secret missing (INTEGRATIONS_SECRET) — \`impi start\` mints one; then re-register slash commands"
+        fi
+    fi
+    if [ "${IMPI_VAULT:-0}" = 1 ] && [ -n "$(env_get WARD_MATTERMOST_URL "$IMPI_HOME/conf/ward.env")" ]; then
+        if [ -n "$(env_get WARD_CALLBACK_SECRET "$IMPI_HOME/conf/ward.env")" ]; then
+            ok "broker receiver secret: set (/ward registers under http://ward:8426/<secret>/command/ward)"
+        else
+            bad "broker receiver secret missing (WARD_CALLBACK_SECRET) — \`impi start\` mints one; then re-register /ward"
+        fi
     fi
     if engine_logged "app built:"; then
         ok "engine reported readiness (app built)"
@@ -585,7 +610,7 @@ migrate_compose_env
 case "${1:-}" in
     status)    shift; cmd_status "$@" ;;
     logs)      shift; cmd_logs "$@" ;;
-    start)     shift; compose up -d; ok "started"; ward_reminder ;;
+    start)     shift; mint_callback_secrets; compose up -d; ok "started"; ward_reminder ;;
     stop)      shift; compose stop; ok "stopped" ;;
     restart)   shift; cmd_restart ;;
     reload)    shift; cmd_reload ;;

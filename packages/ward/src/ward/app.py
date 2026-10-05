@@ -104,6 +104,13 @@ class _Mattermost:
         )
         self.chat = MattermostChatClient(self.driver)
         self.callback_url = settings.interact_url
+        if not settings.callback_secret:
+            logger.warning(
+                "the broker's receiver has no secret: every callback that reaches port %d "
+                "is trusted on arrival — set WARD_CALLBACK_SECRET in conf/ward.env "
+                "(docs/secrets.md)",
+                settings.callback_port,
+            )
 
     async def sign_in(self) -> str:
         me = await self.driver.login()
@@ -118,6 +125,7 @@ class _Mattermost:
             presence,  # type: ignore[arg-type]
             host=self._settings.callback_host,
             port=self._settings.callback_port,
+            secret=self._settings.callback_secret,
             dialog_submit_url=self._settings.dialog_url,
             command_tokens=lambda _agent: self._settings.tokens,
         )

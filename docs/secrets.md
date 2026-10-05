@@ -72,6 +72,11 @@ Three consequences worth stating plainly:
 - The card is posted by the broker's own bot. Get used to that account: a
   compromised agent can draw a card that looks like one, but it cannot post as
   the broker.
+- A click reaches the broker on a path only Mattermost was told
+  (`WARD_CALLBACK_SECRET`). A callback carries no signature and says who
+  clicked; the secret path is what makes that claim worth checking against
+  the approver list. Without it, anything that reaches the broker's port can
+  approve as anyone.
 
 ## Setting it up
 
@@ -428,8 +433,10 @@ opens it, and "why was my agent refused" is a question you have while holding a
 phone. So a subset of the operator surface lives in chat.
 
 On Mattermost, register a slash command pointing at the broker's receiver
-(`http://ward:8426/command/ward`, trigger word `ward`), and put the token it
-mints into `conf/ward.env` as `WARD_COMMAND_TOKENS`. No token, no surface: the
+(`http://ward:8426/<WARD_CALLBACK_SECRET>/command/ward`, trigger word `ward` —
+the secret is in `conf/ward.env`, written by the installer or minted by
+`impi start`), and put the token it mints into `conf/ward.env` as
+`WARD_COMMAND_TOKENS`. No token, no surface: the
 receiver refuses a command it has no token for, which is what keeps this off
 until you turn it on.
 

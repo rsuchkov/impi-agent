@@ -7,13 +7,14 @@ injects it by constructor — tests construct their own without env games.
 from __future__ import annotations
 
 import os
+import re
 import socket
 from functools import cached_property
 from pathlib import Path
 from typing import ClassVar
 
 from dotenv import dotenv_values
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The backend names, spelled out rather than imported. `crucible.store` owns the
@@ -59,6 +60,19 @@ class ToolSettings(BaseModel):
         return self.public_url or f"http://{self.server_host}:{self.server_port}"
 
 
+# The receiver's secret: a segment of every callback path, so the platform that
+# was given the URL is the only party that can reach the endpoints behind it.
+# Path-safe by construction — letters, digits, `-` and `_`, sixteen at least.
+RECEIVER_SECRET_RE = re.compile(r"[A-Za-z0-9_-]{16,}")
+
+
+def callback_path(endpoint: str, *, secret: str = "") -> str:
+    """Where an endpoint of the receiver lives: ``/<secret>/<endpoint>`` when a
+    secret is set, the bare ``/<endpoint>`` when none is. The one rule both the
+    URLs handed to the platform and the receiver's own routes are built from."""
+    return f"/{secret}/{endpoint}" if secret else f"/{endpoint}"
+
+
 class IntegrationsSettings(BaseModel):
     """The outbound-callback receiver for widgets. Binds 0.0.0.0 (MM reaches it
     from its container); ``public_url`` is what MM actually calls back to."""
@@ -67,6 +81,8 @@ class IntegrationsSettings(BaseModel):
     host: str
     port: int
     public_url: str  # e.g. http://host.containers.internal:8423
+    # Empty = the bare endpoints, trusted on arrival. See Settings.integrations_secret.
+    secret: str = ""
     ui_timeout: float  # blocking UI request: seconds to await the human before default-reject
 
     @property
@@ -86,7 +102,7 @@ class IntegrationsSettings(BaseModel):
 
     def _endpoint(self, path: str) -> str:
         # Safe join: a trailing slash on public_url must not double up.
-        return f"{self.public_url.rstrip('/')}/{path}"
+        return f"{self.public_url.rstrip('/')}{callback_path(path, secret=self.secret)}"
 
 
 class SchedulerSettings(BaseModel):
@@ -293,7 +309,22 @@ class Settings(BaseSettings):
     integrations_host: str = "0.0.0.0"
     integrations_port: int = 8423
     integrations_public_url: str = ""  # default: http://host.containers.internal:{port}
+    # A segment of every callback path. The receiver answers nothing off that
+    # path, so only the platform the URL was handed to can click, submit or
+    # run a command. Empty = the bare paths and a warning at startup; an
+    # application mints one on first start or the operator sets it by hand.
+    integrations_secret: str = ""
     integrations_ui_timeout: float = 90.0  # blocking confirm/select: human-answer window
+
+    @field_validator("integrations_secret")
+    @classmethod
+    def _secret_is_path_safe(cls, value: str) -> str:
+        if value and not RECEIVER_SECRET_RE.fullmatch(value):
+            raise ValueError(
+                "INTEGRATIONS_SECRET must be at least 16 characters of letters, "
+                "digits, '-' or '_': it is a segment of a URL"
+            )
+        return value
 
     @model_validator(mode="after")
     def _human_waits_end_before_the_call_deadline(self) -> Settings:
@@ -483,6 +514,7 @@ class Settings(BaseSettings):
             host=self.integrations_host,
             port=self.integrations_port,
             public_url=url,
+            secret=self.integrations_secret,
             ui_timeout=self.integrations_ui_timeout,
         )
 

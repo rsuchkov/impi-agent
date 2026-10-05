@@ -114,8 +114,11 @@ to the provider), the engine's own doors for your programs (the WebSocket and
 HTTP gateways, token-authenticated), and whatever the runtime's shell reaches
 on the network.
 
-Enforced by: tokens on every door the engine opens; a private network per agent
-container; the browser on a network that cannot reach the chat server.
+Enforced by: tokens on every door the engine opens, including a secret segment
+on the paths Mattermost calls back to (a callback carries no signature and
+says who clicked, so the path is what proves it came from the platform); a
+private network per agent container; the browser on a network that cannot
+reach the chat server.
 
 Does not hold against: outbound traffic from an agent's shell. Nothing in the
 engine restricts egress. A deployment that needs to is a deployment that
@@ -184,6 +187,7 @@ decisions an operator makes.
 | skill installs shown file by file and pinned to a commit | nothing lands unseen; `update` shows old and new; unencrypted sources (`http://`, `git://`) are refused |
 | every door compares its token in constant time | the http and WebSocket gateways, the tool server, the agent host relay, the session proof |
 | the log names, it does not replay | a click's token is logged by its first characters; a command's text only at DEBUG |
+| the callback receivers answer only under a secret path | a Mattermost callback carries no signature and names its own user; `INTEGRATIONS_SECRET` (engine) and `WARD_CALLBACK_SECRET` (broker) are what make that claim one only the platform can make |
 | no MCP, no plugin-bundled servers | the runtime's tool surface is the manifest and nothing else |
 
 **Your decisions**

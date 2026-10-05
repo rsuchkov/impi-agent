@@ -417,3 +417,28 @@ def test_http_add_caller_registers_token_and_allowlist(capsys, _isolated_env):
     out = capsys.readouterr().out
     assert "/v1" in out and "caller" in out
     assert cli.main(["http", "add-caller", "Bad Name"]) == 2
+
+
+class _Pong:
+    status_code = 200
+
+
+def test_health_reports_the_receiver_secret(
+    monkeypatch, _isolated_env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Health says whether the receiver has its secret, and what the slash
+    command URL looks like once it does — the one thing an operator has to
+    re-register."""
+    monkeypatch.setattr(cli.httpx, "get", lambda url, timeout: _Pong())
+    (Path(_isolated_env).parent / "profiles" / "agents").mkdir(parents=True)
+    assert cli.main(["health"]) == 1
+    captured = capsys.readouterr()
+    assert "INTEGRATIONS_SECRET" in captured.err
+
+    _isolated_env.write_text(
+        "GATEWAY=mattermost\nINTEGRATIONS_PUBLIC_URL=http://impi:8423\n"
+        "INTEGRATIONS_SECRET=k2Xy8qLmN0pRsTuVwZ\n"
+    )
+    assert cli.main(["health"]) == 0
+    captured = capsys.readouterr()
+    assert "http://impi:8423/k2Xy8qLmN0pRsTuVwZ/command/<agent>" in captured.out

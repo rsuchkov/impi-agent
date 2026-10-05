@@ -8,7 +8,9 @@ tests stay offline.
 from __future__ import annotations
 
 import json
+import logging
 import re
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from crucible.gateways.mattermost.options import driver_options
 
 AGENT_NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
+
+logger = logging.getLogger(__name__)
 
 
 class ProvisioningError(Exception):
@@ -266,6 +270,29 @@ def set_env_key(dotenv_path: str | Path, key: str, value: str) -> None:
     # the dotenv format cannot carry verbatim.
     needs_quoting = any(c.isspace() for c in value) or any(c in value for c in "#'\"")
     set_key(path, key, value, quote_mode="always" if needs_quoting else "never")
+
+
+def ensure_receiver_secret(settings, *, needs_receiver: bool):
+    """The callback receiver's secret, minted into the engine's own ``.env`` the
+    first time a deployment that needs the receiver starts without one.
+
+    Minted here rather than demanded, because the receiver is built from the
+    same settings on every start and an operator who upgraded should not find
+    every button dead until they read the changelog. What they do have to do
+    is re-register slash commands under the new URL — the log says so.
+    Returns the settings to build with: the same object when nothing was
+    minted, a copy carrying the secret when it was."""
+    if not needs_receiver or not settings.integrations.enabled or settings.integrations_secret:
+        return settings
+    value = secrets.token_urlsafe(24)
+    set_env_key(settings.dotenv_path, "INTEGRATIONS_SECRET", value)
+    logger.info(
+        "minted INTEGRATIONS_SECRET into %s: the receiver now answers only under "
+        "<INTEGRATIONS_PUBLIC_URL>/<secret>/...; slash commands registered with the "
+        "platform must be re-registered under that URL (docs/commands.md)",
+        settings.dotenv_path,
+    )
+    return settings.model_copy(update={"integrations_secret": value})
 
 
 def agent_env_key(agent: str, kind: str = "MM_TOKEN") -> str:

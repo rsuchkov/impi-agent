@@ -7,16 +7,6 @@ setup() {
     . "$BATS_TEST_DIRNAME/../lib/checks.sh"
 }
 
-@test "rand_hex yields the requested number of hex bytes" {
-    out=$(rand_hex 16)
-    [ "${#out}" -eq 32 ]
-    [[ "$out" =~ ^[0-9a-f]+$ ]]
-}
-
-@test "rand_hex output varies" {
-    [ "$(rand_hex 8)" != "$(rand_hex 8)" ]
-}
-
 @test "port_free is true for an unused high port" {
     port_free 45923
 }

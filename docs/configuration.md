@@ -242,12 +242,13 @@ human owner auto-added to private channels an agent creates.
 | `INTEGRATIONS_HOST` | `0.0.0.0` | receiver bind host |
 | `INTEGRATIONS_PORT` | `8423` | receiver port |
 | `INTEGRATIONS_PUBLIC_URL` | `""` | URL a containerized Mattermost calls back to; default `http://host.containers.internal:{port}`; `auto` = detect the host LAN IP at startup |
+| `INTEGRATIONS_SECRET` | minted on first start | a segment of every callback path (`<public url>/<secret>/interact`, `/dialog`, `/command/<agent>`): the receiver answers 403 off it, so only the Mattermost that was handed the URL can click, submit or run a command. At least 16 of `[A-Za-z0-9_-]`. Changing it means re-registering every slash command — see [commands.md](commands.md) |
 | `INTEGRATIONS_UI_TIMEOUT` | `90` | seconds to await a human on a blocking confirm/select (and on a tool's confirmation card) before default-reject. Must stay below 270: the runtime's tool extension gives up on a call after 300 s, and an answer arriving later would run a call the model was already told had failed |
 | `TOOL_TRACE_ENABLED` | `true` | the message above a reply listing the tools the turn ran — see [tool-trace.md](tool-trace.md); needs interactivity |
 | `TOOL_TRACE_RETENTION_DAYS` | `14` | drop traces older than this at startup; `0` keeps them all |
 
 Commands (slash commands) reach the same receiver at
-`POST {INTEGRATIONS_PUBLIC_URL}/command/<agent>` — register that URL with the
+`POST {INTEGRATIONS_PUBLIC_URL}/{INTEGRATIONS_SECRET}/command/<agent>` — register that URL with the
 platform's command and put the token it issues in the dynamic key
 `AGENTS_COMMAND_TOKENS__<AGENT>` (CSV, one per command). An agent with no tokens
 refuses every command. `/command/default` in place of the agent's name lets the
@@ -312,6 +313,7 @@ are `WARD_*` and live in its container's environment, not here.
 | `WARD_NOTICE_FOLD_S` | `900` | how long a run of automatic grants folds into one notice rather than posting again |
 | `WARD_COMMAND_TOKENS` | — | Mattermost only: the `/ward` slash command's tokens (CSV). Empty = no operator surface in chat. Operator-grade: anything reaching the receiver with one of these can claim to be any user, and only the approver check that follows decides. On Slack the command is the app's own and needs no token |
 | `WARD_CALLBACK_PUBLIC_URL` | `http://ward:8426` | Mattermost only: where its clicks, dialog submissions and the slash command are posted back to |
+| `WARD_CALLBACK_SECRET` | written by the installer | Mattermost only: the segment under which the broker's receiver answers (`http://ward:8426/<secret>/…`); off it, 403. The broker cannot write its own env file, so `impi start` mints a missing one and says so. Same alphabet and length as `INTEGRATIONS_SECRET` |
 | `WARD_OPERATOR_DIR` | `/var/lib/ward/operator` | where `ward init` puts the operator's identity — a different directory from the agents', because that one is mounted where the agents run |
 
 ## Tool confirmations

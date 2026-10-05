@@ -405,3 +405,30 @@ def test_a_platform_ward_does_not_know_is_refused_by_name(tmp_path: Path) -> Non
     _authority(settings)
     with pytest.raises(SystemExit, match="mattermost, slack"):
         build(settings)
+
+
+def test_the_receiver_is_keyed_with_the_callback_secret(tmp_path: Path) -> None:
+    """The broker's receiver lives under its own secret, and every URL the
+    broker hands the platform carries it."""
+    settings = _settings(
+        tmp_path, callback_public_url="http://ward:8426", callback_secret="k2Xy8qLmN0pRsTuVwZ"
+    )
+    _authority(settings)
+    ward = build(settings)
+    assert settings.interact_url == "http://ward:8426/k2Xy8qLmN0pRsTuVwZ/interact"
+    assert settings.dialog_url == "http://ward:8426/k2Xy8qLmN0pRsTuVwZ/dialog"
+    assert settings.command_url == "http://ward:8426/k2Xy8qLmN0pRsTuVwZ/command/ward"
+    assert isinstance(ward.listener, InteractionsServer)
+    assert ward.listener._secret == "k2Xy8qLmN0pRsTuVwZ"
+    ward.store._conn.close()
+
+
+def test_a_broker_without_a_callback_secret_says_so(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    settings = _settings(tmp_path)
+    _authority(settings)
+    with caplog.at_level("WARNING"):
+        ward = build(settings)
+    assert "WARD_CALLBACK_SECRET" in caplog.text
+    ward.store._conn.close()

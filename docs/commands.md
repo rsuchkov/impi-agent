@@ -64,12 +64,16 @@ Grant it like any other tool (`open_screen` in `runtime.tools`); it needs
 1. **Create the command.** System Console → Integrations → Slash Commands (or
    `mmctl command create <team> --title Summarize --trigger-word summarize
    --url <URL> --creator <user> --post`), where `<URL>` is
-   `<INTEGRATIONS_PUBLIC_URL>/command/<agent>` — for example
-   `http://192.168.1.10:8423/command/assistant`. The **path names the
-   agent**: a Mattermost payload doesn't say which bot it is meant for.
-   Request method must be **POST**.
+   `<INTEGRATIONS_PUBLIC_URL>/<INTEGRATIONS_SECRET>/command/<agent>` — for
+   example `http://192.168.1.10:8423/k2Xy8qLmN0pRsTuVwZ/command/assistant`.
+   The **path names the agent**: a Mattermost payload doesn't say which bot it
+   is meant for. The **secret segment** is what says the request came from
+   Mattermost at all: a callback carries no signature, so the receiver answers
+   nothing off that path. The engine mints `INTEGRATIONS_SECRET` into
+   `conf/.env` on its first start (the installer does too); `impi health`
+   prints the full URL to register. Request method must be **POST**.
 
-   Or point it at **`/command/default`** and let the engine choose: with one
+   Or point it at **`/<secret>/command/default`** and let the engine choose: with one
    agent running that is the one, otherwise it is `AGENT_NAME`. The startup log
    prints what `default` resolved to. If several agents run and `AGENT_NAME` is
    not one of them, the command is refused rather than given to a guess — set
@@ -85,8 +89,9 @@ Grant it like any other tool (`open_screen` in `runtime.tools`); it needs
    spells its agent's name at all. The per-agent key wins where both are set.
 
    Several commands for one agent = several tokens, comma-separated. An agent
-   with no tokens configured refuses every command (HTTP 403) — that is the only
-   thing standing between the receiver's port and running a turn as your agent.
+   with no tokens configured refuses every command (HTTP 403) — together with
+   the secret path, that is what stands between the receiver's port and running
+   a turn as your agent.
    `/command/default` is no exception: resolving the agent is not authorising
    the command.
 3. **Networking**: the receiver is the same one that serves widget callbacks, so
@@ -94,6 +99,11 @@ Grant it like any other tool (`open_screen` in `runtime.tools`); it needs
    must be in `AllowedUntrustedInternalConnections` (see
    [troubleshooting.md](troubleshooting.md)).
 4. Restart the engine (config is read at startup).
+
+**Changing or adding the secret** changes every URL: re-register each slash
+command, and expect the buttons on cards posted before the change to answer
+403 (the log says `not on the receiver's secret path`). Rotating it is
+therefore a deliberate act — edit `INTEGRATIONS_SECRET`, restart, re-register.
 
 ## Setting up Slack
 

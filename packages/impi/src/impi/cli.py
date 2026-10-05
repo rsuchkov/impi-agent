@@ -702,6 +702,21 @@ def _cmd_health(args: argparse.Namespace) -> int:
     except httpx.HTTPError as exc:
         _fail(f"Mattermost unreachable ({settings.mattermost_url}): {exc}")
         failures += 1
+    if settings.gateway == "mattermost" and settings.integrations.enabled:
+        # The receiver's secret: without it, anything that reaches the port can
+        # click a card or submit a form as any user it names.
+        if settings.integrations_secret:
+            _ok(
+                "receiver secret set; a slash command's URL is "
+                f"{settings.integrations.command_url('<agent>')}"
+            )
+        else:
+            _fail(
+                "receiver secret missing (INTEGRATIONS_SECRET): the engine mints one on "
+                "its next start — then re-register slash commands under "
+                "<INTEGRATIONS_PUBLIC_URL>/<secret>/command/<agent> (docs/commands.md)"
+            )
+            failures += 1
     agents_dir = Path(settings.agents_path) / "agents" if settings.agents_path else None
     if agents_dir and agents_dir.is_dir():
         count = len(list(agents_dir.glob("*/agent.yaml")))

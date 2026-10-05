@@ -8,7 +8,10 @@ understand before turning it.
 from functools import cached_property
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from crucible.config import RECEIVER_SECRET_RE, callback_path
 
 
 class WardSettings(BaseSettings):
@@ -91,6 +94,11 @@ class WardSettings(BaseSettings):
     callback_host: str = "0.0.0.0"
     callback_port: int = 8426
     callback_public_url: str = "http://ward:8426"
+    # A segment of every callback path, so only the platform the URL was handed
+    # to can click a card, submit a modal or run `/ward`. The broker cannot
+    # write its own env file, so the installer mints this one; empty = the bare
+    # paths and a warning at startup.
+    callback_secret: str = ""
 
     log_level: str = "INFO"
 
@@ -134,15 +142,33 @@ class WardSettings(BaseSettings):
     def names(self) -> tuple[str, ...]:
         return tuple(n.strip() for n in self.server_names.split(",") if n.strip())
 
+    @field_validator("callback_secret")
+    @classmethod
+    def _secret_is_path_safe(cls, value: str) -> str:
+        if value and not RECEIVER_SECRET_RE.fullmatch(value):
+            raise ValueError(
+                "WARD_CALLBACK_SECRET must be at least 16 characters of letters, "
+                "digits, '-' or '_': it is a segment of a URL"
+            )
+        return value
+
+    def _endpoint(self, path: str) -> str:
+        return f"{self.callback_public_url.rstrip('/')}{callback_path(path, secret=self.callback_secret)}"
+
     @property
     def interact_url(self) -> str:
-        return f"{self.callback_public_url.rstrip('/')}/interact"
+        return self._endpoint("interact")
+
+    @property
+    def command_url(self) -> str:
+        """Where the platform's `/ward` command is registered to post."""
+        return self._endpoint("command/ward")
 
     @property
     def dialog_url(self) -> str:
         """Where a modal's submission comes back to. A dialog the platform has
         nowhere to send is a dialog it refuses to open at all."""
-        return f"{self.callback_public_url.rstrip('/')}/dialog"
+        return self._endpoint("dialog")
 
 
 def load_settings() -> WardSettings:
