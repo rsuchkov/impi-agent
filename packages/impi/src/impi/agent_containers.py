@@ -25,6 +25,7 @@ which is the isolation this whole arrangement is for.
 """
 
 import logging
+import re
 import secrets
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -160,15 +161,22 @@ def read_build(spec: AgentSpec) -> AgentBuild:
     )
 
 
+# What a package list may carry: a name with a version pin. No whitespace and
+# no shell metacharacter — `$(`, a backtick, `;`, `&`, `|`, a quote — so the
+# list cannot be a Dockerfile pretending not to be one.
+_PACKAGE_RE = re.compile(r"[A-Za-z0-9@][A-Za-z0-9@/._+=<>!~^*,\[\]:-]*")
+
+
 def _names(raw: object, agent: str, kind: str) -> tuple[str, ...]:
     if raw is None:
         return ()
     if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
         raise RenderError(f"{agent}: runtime.packages.{kind} must be a list of names")
     for name in raw:
-        # A package name, not a shell fragment. Anything cleverer belongs in
+        # A package name, pinned or not (`pkg@1.2.3`, `pkg==1.2.3`,
+        # `pkg[x]>=1,<2`), not a shell fragment. Anything cleverer belongs in
         # Dockerfile.include, where it is visible as what it is.
-        if not name or any(character.isspace() for character in name):
+        if not _PACKAGE_RE.fullmatch(name):
             raise RenderError(
                 f"{agent}: {name!r} is not a package name — put shell in "
                 f"{INCLUDE_FILE} instead"
@@ -200,8 +208,15 @@ def render_dockerfile(build: AgentBuild) -> str:
             " && rm -rf /var/lib/apt/lists/*",
         ]
     if build.npm:
-        lines += ["RUN npm install -g " + " ".join(build.npm) + " && npm cache clean --force"]
+        # Scripts ignored, as in the base image: a package's install hook is
+        # code nobody reviewed, run as root at build time.
+        lines += [
+            "RUN npm install -g --ignore-scripts " + " ".join(build.npm)
+            + " && npm cache clean --force"
+        ]
     if build.pip:
+        # pip has no equivalent of --ignore-scripts: a source distribution
+        # runs its setup at install time. Prefer wheels, or pin.
         lines += ["RUN pip install --no-cache-dir --break-system-packages " + " ".join(build.pip)]
     if build.include.strip():
         lines += [

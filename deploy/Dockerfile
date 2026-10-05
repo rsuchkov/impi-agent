@@ -7,11 +7,14 @@
 # bookworm, so the glibc matches. If the copy trick ever breaks, fall back to
 # the nodesource apt repository.
 
-FROM docker.io/library/node:22-bookworm-slim AS node
+# Base images pinned by manifest-list digest: a tag moves, a digest does not.
+# To bump: `skopeo inspect --raw docker://<image:tag> | sha256sum` and paste
+# the digest here (the same three in Dockerfile.agent and Dockerfile.ward).
+FROM docker.io/library/node:22-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS node
 
-FROM docker.io/library/python:3.13-slim-bookworm
+FROM docker.io/library/python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
 
-COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11@sha256:77280f2f771df71f90786c314fe1bbc1e023feac652969bbf139c280babf2eb7 /uv /uvx /usr/local/bin/
 COPY --from=node /usr/local/bin/node /usr/local/bin/
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
@@ -20,22 +23,25 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && apt-get install -y --no-install-recommends git ca-certificates procps \
  && rm -rf /var/lib/apt/lists/*
 
-# The pi coding agent — the engine spawns it per turn (PI_BIN). Pinned; bump
-# deliberately with a release, not implicitly on rebuild.
-ARG PI_VERSION=0.80.3
-RUN npm install -g @earendil-works/pi-coding-agent@${PI_VERSION} \
- && npm cache clean --force
-
-# The browser tool an agent runs. It attaches to a Chrome that is already
-# running in another container, so no browser binaries are installed here —
-# `playwright install` is never called and this stays around 14 MB.
-#
-# Pinned hard: the package is in 0.1.x and its command surface has moved between
-# releases, so a bump is a deliberate step that re-reads the web-browsing skill,
-# not something a rebuild does on its own.
-ARG PLAYWRIGHT_CLI_VERSION=0.1.18
-RUN npm install -g @playwright/cli@${PLAYWRIGHT_CLI_VERSION} \
- && npm cache clean --force
+# The pi coding agent — the engine spawns it per turn (PI_BIN) — and the browser
+# tool an agent runs (it attaches to a Chrome in another container, so no
+# browser binaries are installed here; `playwright install` is never called).
+# The browser tool is in 0.1.x and its command surface has moved between
+# releases, so its bump re-reads the web-browsing skill.
+# The pi coding agent and the browser tool, from a lockfile: deploy/pi/package.json
+# pins the versions, package-lock.json pins every dependency with its integrity
+# hash, and `npm ci` refuses a mismatch between the two. Install scripts are
+# not run — neither package needs them, and a package that did would be
+# running code at build time that nobody reviewed. Telemetry is answered
+# here, once, for the install and for every run. Bump: edit the version in
+# deploy/pi/package.json, then `make pi-lock`, then rebuild.
+ENV PI_TELEMETRY=0
+COPY deploy/pi/package.json deploy/pi/package-lock.json /opt/pi/
+RUN cd /opt/pi \
+ && npm ci --ignore-scripts --omit=dev --no-audit --no-fund \
+ && npm cache clean --force \
+ && ln -s /opt/pi/node_modules/.bin/pi /usr/local/bin/pi \
+ && ln -s /opt/pi/node_modules/.bin/playwright-cli /usr/local/bin/playwright-cli
 
 # Match the host user so bind-mounted conf/ and agents/ writes stay owned by
 # the operator (rootful docker; rootless podman adds userns keep-id on top).

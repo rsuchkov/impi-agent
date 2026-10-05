@@ -65,7 +65,9 @@ Everything is summarized before anything is written. The full log lands in
 ```
 
 The engine runs as the `impi` compose service built from `deploy/Dockerfile`
-(Python 3.13 + Node 22 + the pinned `pi` CLI). Engine state lives in the
+(Python 3.13 + Node 22 + the `pi` CLI, installed from `deploy/pi/package.json`
+and its lockfile with every dependency pinned by hash and install scripts
+ignored; the base images are pinned by digest). Engine state lives in the
 `impi-data` volume, pi's model credentials in `pi-auth`. With a co-deployed
 Mattermost, the `mattermost` + `db` services join the same compose project and
 widget callbacks flow container-to-container (`http://impi:8423`) — nothing is
@@ -137,7 +139,7 @@ does not undo the agent's work.
 
 `pi` has to be installed on the host: the wrapper offers pi's own installer
 (`curl -fsSL https://pi.dev/install.sh | sh`) when it is missing, and notes when
-its version differs from the one the engine pins. `--dry-run` prints the working
+its version differs from the one the engine pins (`deploy/pi/package.json`). `--dry-run` prints the working
 directory, environment and command line without starting anything; it needs
 the engine's image, because the engine is what builds them.
 

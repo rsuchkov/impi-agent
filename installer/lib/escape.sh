@@ -22,9 +22,11 @@ ESCAPE_ENV=()
 ESCAPE_ARGS=()
 ESCAPE_TMP=""
 
-# pi_pin -> the pi version the engine's image pins. One source: the Dockerfile.
+# pi_pin -> the pi version the engine's image pins. One source:
+# deploy/pi/package.json, which the lockfile and both images are built from.
 pi_pin() {
-    sed -n 's/^ARG PI_VERSION=//p' "$REPO/deploy/Dockerfile" | head -1
+    sed -n 's/^[[:space:]]*"@earendil-works\/pi-coding-agent":[[:space:]]*"\([^"]*\)".*/\1/p' \
+        "$REPO/deploy/pi/package.json" | head -1
 }
 
 # ensure_pi -> 0 with a usable pi on PATH. Offers the install when there is

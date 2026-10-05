@@ -102,8 +102,11 @@ runtime:
     pip: [pandas]
 ```
 
-Package names only. Anything with a space in it is refused, because a package
-list that can carry shell is a Dockerfile pretending not to be one.
+Package names, pinned or not (`some-cli@1.2.0`, `pandas==2.2`). Anything that
+could carry shell — whitespace, `$(`, a quote, `;` — is refused, because a
+package list that can carry shell is a Dockerfile pretending not to be one.
+npm packages are installed with their install scripts ignored, as in the base
+image; pip has no such switch, so prefer wheels and pin.
 
 **A fragment, `Dockerfile.include` in the agent's directory:**
 

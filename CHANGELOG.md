@@ -79,6 +79,15 @@ when a release is cut, and `impi update` shows the target version's section.
   call that names no session (`session required`). **Breaks:** a program that
   called the tool server with an agent's token and no `X-Runtime-Session`
   header is refused when the engine issues proofs (impi always does).
+- **The images are built from pins, not tags.** The `pi` CLI and the browser
+  tool come from `deploy/pi/package.json` and its lockfile — every dependency
+  with an integrity hash, `npm ci --ignore-scripts`, so nothing runs at build
+  time that nobody reviewed (`make pi-lock` refreshes the lock after a bump;
+  `scripts/check_pi_lock.py` keeps the two in step). The base images of the
+  engine, agent and broker are pinned by manifest digest, the broker's `uv`
+  no longer `latest`. `PI_TELEMETRY=0` is set in the images. A per-agent
+  image installs its npm extras with scripts ignored and accepts version pins
+  (`some-cli@1.2.0`, `pandas==2.2`) while refusing anything shell-like.
 
 ## v0.19.0 — 2026-10-04
 

@@ -42,6 +42,15 @@ id and the tool bridge; `--approve` stays. The one difference in content: the
 allowlist loses the tools only the engine could serve (its typed tools and the
 bridge's `ask_user_confirm`), since nothing is there to answer them.
 
+## Bumping `pi`
+
+The version lives in one place, `deploy/pi/package.json`; `deploy/pi/package-lock.json`
+pins every dependency with its integrity hash, and both images install from
+the pair with `npm ci --ignore-scripts` (a mismatch between the two fails the
+build). To bump: edit the version in `package.json`, run `make pi-lock`, rebuild
+(`impi update` does), then re-verify the facts on this page against the new
+version. `impi escape` reads the same file to compare the host's `pi`.
+
 ## Provider / model resolution
 
 For each agent, provider and model are resolved in order:

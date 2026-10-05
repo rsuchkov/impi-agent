@@ -1,4 +1,4 @@
-.PHONY: install test test-mongo run run-bg stop reload lint relay-lint relay-test installer-lint installer-test e2e-install
+.PHONY: install test test-mongo run run-bg stop reload lint relay-lint relay-test installer-lint installer-test e2e-install pi-lock
 
 install:
 	uv sync
@@ -93,6 +93,18 @@ installer-lint:
 	fi
 	@for f in $(INSTALLER_SH); do bash -n $$f || exit 1; done
 	@echo "installer-lint OK"
+
+# Refresh deploy/pi/package-lock.json after a version bump in deploy/pi/package.json.
+# The lock is what both images install from (npm ci --ignore-scripts); npm
+# locally if present, else the same Node image the Dockerfiles build on.
+pi-lock:
+	@if command -v npm >/dev/null 2>&1; then \
+		cd deploy/pi && npm install --package-lock-only --ignore-scripts --no-audit --no-fund; \
+	else \
+		podman run --rm -v "$$PWD/deploy/pi:/w:z" -w /w docker.io/library/node:22-bookworm-slim \
+			npm install --package-lock-only --ignore-scripts --no-audit --no-fund; \
+	fi
+	@uv run python scripts/check_pi_lock.py
 
 # bats unit tests for the installer libraries.
 installer-test:

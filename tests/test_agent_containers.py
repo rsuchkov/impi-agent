@@ -445,3 +445,21 @@ def test_every_named_volume_lands_where_its_image_made_a_directory() -> None:
             )
             checked += 1
     assert checked >= 4  # the test is worthless if it walked past everything
+
+
+def test_a_pinned_package_passes_and_shell_metacharacters_do_not(tmp_path: Path) -> None:
+    """Version pins are names; anything that could carry shell is not."""
+    from impi.agent_containers import _names
+
+    assert _names(["pkg@1.2.3", "pkg==1.2.3", "pkg[x]>=1,<2", "@scope/pkg@^2"], "a", "npm") == (
+        "pkg@1.2.3", "pkg==1.2.3", "pkg[x]>=1,<2", "@scope/pkg@^2",
+    )
+    for bad in ("$(id)", "`id`", "a;b", "a&&b", "a|b", "a'b", 'a"b', "a b", ""):
+        with pytest.raises(RenderError, match="Dockerfile.include"):
+            _names([bad], "a", "npm")
+
+
+def test_npm_extras_are_installed_with_scripts_ignored(tmp_path: Path) -> None:
+    spec = _spec(tmp_path, "tooling", manifest="runtime:\n  packages:\n    npm: [some-cli@1.0.0]\n")
+    rendered = render_dockerfile(read_build(spec))
+    assert "RUN npm install -g --ignore-scripts some-cli@1.0.0" in rendered

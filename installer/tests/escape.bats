@@ -11,8 +11,8 @@ setup() {
     REPO="$IMPI_HOME/repo"
     IMPI_AGENTS_DIR="$IMPI_HOME/agents"
     export IMPI_HOME IMPI_AGENTS_DIR   # the pi stubs below touch files under them
-    mkdir -p "$REPO/deploy" "$IMPI_AGENTS_DIR/agents/assistant" "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
-    printf 'ARG PI_VERSION=0.80.3\n' > "$REPO/deploy/Dockerfile"
+    mkdir -p "$REPO/deploy/pi" "$IMPI_AGENTS_DIR/agents/assistant" "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
+    printf '{\n  "dependencies": {\n    "@earendil-works/pi-coding-agent": "0.80.3",\n    "@playwright/cli": "0.1.18"\n  }\n}\n' > "$REPO/deploy/pi/package.json"
     STUBS="$BATS_TEST_TMPDIR/stubs"
     mkdir -p "$STUBS"
     # Only the stubs and the system: a pi installed on the developer's own
@@ -48,7 +48,7 @@ STUB
 
 # --- pi itself -----------------------------------------------------------------
 
-@test "the pin is read from the engine's Dockerfile" {
+@test "the pin is read from the lockfile's manifest, deploy/pi/package.json" {
     [ "$(pi_pin)" = "0.80.3" ]
 }
 

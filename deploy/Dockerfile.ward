@@ -2,7 +2,10 @@
 # credential to the secret store, so what is installed beside it is part of its
 # threat model. No `pi`, no Node, no agent machinery — a Python runtime, the
 # library, and ward.
-FROM docker.io/library/python:3.13-slim
+# Base images pinned by manifest-list digest: a tag moves, a digest does not.
+# To bump: `skopeo inspect --raw docker://<image:tag> | sha256sum` and paste
+# the digest here (the same three in Dockerfile.agent and Dockerfile.ward).
+FROM docker.io/library/python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
 
 ARG IMPI_UID=1000
 ARG IMPI_GID=1000
@@ -13,7 +16,7 @@ RUN set -eux; \
         useradd -u "$IMPI_UID" -g "$IMPI_GID" -m -s /bin/bash ward; \
     install -d -o "$IMPI_UID" -g "$IMPI_GID" /var/lib/ward
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11@sha256:77280f2f771df71f90786c314fe1bbc1e023feac652969bbf139c280babf2eb7 /uv /usr/local/bin/uv
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
