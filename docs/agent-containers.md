@@ -67,6 +67,11 @@ Its own profile, mounted **read-only at the same path the engine has it**
 a filename in a chat message mean one thing: the engine names a file it saved,
 and the agent opens exactly that.
 
+The container itself is a box: read-only root, `/tmp` in memory, no
+capabilities, no privilege gain, a ceiling on processes — the same shape as
+the engine's own service ([installation.md](installation.md#the-boxes-the-services-run-in)
+has the drop-in for an image that writes somewhere else).
+
 Then, one volume each and nobody else's:
 
 | Path | What | Shared with |

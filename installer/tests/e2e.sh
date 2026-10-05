@@ -118,6 +118,12 @@ check "conf/.env has the receiver secret" grep -q '^INTEGRATIONS_SECRET=.\{16,\}
 env_mode() { p=$(stat -c '%a' "$E2E_HOME/conf/.env" 2>/dev/null || stat -f '%Lp' "$E2E_HOME/conf/.env"); [ "$p" = 600 ]; }
 check "conf/.env is 0600" env_mode
 check "agent profile scaffolded" test -f "$E2E_HOME/agents/agents/assistant/agent.yaml"
+# The box the engine runs in: nothing writable but its volumes and /tmp.
+root_is_read_only() { ! compose run --rm -T impi touch /app/probe 2>/dev/null; }
+check "the engine's root is read-only" root_is_read_only
+check "the engine can write its data volume" \
+    compose run --rm -T impi sh -c 'touch /app/data/.probe && rm /app/data/.probe'
+check "/tmp is writable in the engine" compose run --rm -T impi sh -c 'touch /tmp/.probe'
 check "agents dir is a git repo" test -d "$E2E_HOME/agents/.git"
 
 engine_ready() { engine_logged "app built:"; }
@@ -185,6 +191,9 @@ if [ "$AGENTS" = 1 ]; then
             && compose run --rm -T impi grep -q e2e-probe /app/files/assistant/probe.txt
     }
     check "the agent can write a file the engine can read" shared_files_work
+    agent_root_is_read_only() { ! in_agent assistant touch /app/probe 2>/dev/null; }
+    check "the agent's root is read-only" agent_root_is_read_only
+    check "/tmp is writable in the agent" in_agent assistant sh -c 'touch /tmp/.probe'
 
     # And the engine really did stop forking runtimes for it.
     remote_logged() {

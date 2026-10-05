@@ -19,6 +19,9 @@ RUN set -eux; \
 COPY --from=ghcr.io/astral-sh/uv:0.11@sha256:77280f2f771df71f90786c314fe1bbc1e023feac652969bbf139c280babf2eb7 /uv /usr/local/bin/uv
 
 WORKDIR /app
+# Bytecode at build time, none at run time: the root is read-only there.
+ENV UV_COMPILE_BYTECODE=1 \
+    PYTHONDONTWRITEBYTECODE=1
 COPY pyproject.toml uv.lock ./
 COPY packages/crucible/pyproject.toml packages/crucible/
 COPY packages/ward/pyproject.toml packages/ward/

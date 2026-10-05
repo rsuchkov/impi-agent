@@ -78,6 +78,11 @@ Three consequences worth stating plainly:
   the approver list. Without it, anything that reaches the broker's port can
   approve as anyone.
 
+The broker's container is a box like the engine's: read-only root, no
+capabilities, no privilege gain, few processes; it writes only under
+`/var/lib/ward`. The store's container keeps the one capability it needs
+(`IPC_LOCK`, to keep its memory off the swap).
+
 ## Setting it up
 
 The installer asks whether you want a secret store. Answering yes adds two

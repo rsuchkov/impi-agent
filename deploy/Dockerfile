@@ -57,6 +57,7 @@ RUN set -eu; \
 
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON=/usr/local/bin/python3.13 \
     UV_PYTHON_DOWNLOADS=never

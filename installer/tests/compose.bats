@@ -452,3 +452,29 @@ _not_ordered() { run restore_is_ordered "$1"; [ "$status" -ne 0 ]; }
 @test "the secret-store overlay names SECRET_BROKER_* for the agents under a RUNTIME_ENV__ key" {
     grep -q '^ *RUNTIME_ENV__SECRETS: "SECRET_BROKER_\*"' "$BATS_TEST_DIRNAME/../../deploy/compose.ward.yaml"
 }
+
+
+# --- the boxes the services run in --------------------------------------------------
+
+hardened() { # FILE SERVICE — the five keys appear under that service
+    awk -v svc="  $2:" '
+        $0 == svc { on = 1; next }
+        /^  [a-z]/ { on = 0 }
+        on { print }' "$1" | grep -q "read_only: true" \
+    && awk -v svc="  $2:" '$0 == svc { on = 1; next } /^  [a-z]/ { on = 0 } on { print }' "$1" \
+        | grep -q 'cap_drop: \["ALL"\]' \
+    && awk -v svc="  $2:" '$0 == svc { on = 1; next } /^  [a-z]/ { on = 0 } on { print }' "$1" \
+        | grep -q 'no-new-privileges:true' \
+    && awk -v svc="  $2:" '$0 == svc { on = 1; next } /^  [a-z]/ { on = 0 } on { print }' "$1" \
+        | grep -q 'pids_limit:' \
+    && awk -v svc="  $2:" '$0 == svc { on = 1; next } /^  [a-z]/ { on = 0 } on { print }' "$1" \
+        | grep -q -- '- /tmp:mode=1777'
+}
+
+@test "the engine's service runs in a read-only box without capabilities" {
+    hardened "$BATS_TEST_DIRNAME/../../deploy/compose.yaml" impi
+}
+
+@test "the broker's service runs in a read-only box without capabilities" {
+    hardened "$BATS_TEST_DIRNAME/../../deploy/compose.ward.yaml" ward
+}

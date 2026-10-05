@@ -88,6 +88,14 @@ when a release is cut, and `impi update` shows the target version's section.
   no longer `latest`. `PI_TELEMETRY=0` is set in the images. A per-agent
   image installs its npm extras with scripts ignored and accepts version pins
   (`some-cli@1.2.0`, `pandas==2.2`) while refusing anything shell-like.
+- **The engine, every agent container and the broker run in boxes.** Read-only
+  root, `/tmp` in memory, no Linux capabilities, `no-new-privileges`, a
+  `pids_limit` — what the browser container already had. Everything the
+  services write goes to their volumes and bind mounts. **Breaks:** an agent
+  image that writes somewhere else at run time (a `Dockerfile.include` tool
+  keeping state in `$HOME`, a JDK's cache) fails with `Read-only file system`
+  until a `compose.d/` drop-in gives that path a tmpfs — `docs/installation.md`
+  has the drop-in.
 
 ## v0.19.0 — 2026-10-04
 

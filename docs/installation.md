@@ -143,6 +143,36 @@ its version differs from the one the engine pins (`deploy/pi/package.json`). `--
 directory, environment and command line without starting anything; it needs
 the engine's image, because the engine is what builds them.
 
+## The boxes the services run in
+
+The engine, every agent container and the broker run with a **read-only
+root**, `/tmp` in memory, **no Linux capabilities**, no privilege gain
+through setuid binaries (`no-new-privileges`) and a ceiling on processes
+(`pids_limit`). Everything they write goes to a volume or a bind mount: the
+engine to `/app/data`, `/app/conf`, `/app/agents`, `/app/skills`, `/app/files`
+and `/home/impi/.pi`; an agent to its sessions and files volumes; the broker
+to `/var/lib/ward`. The browser container has had this since it existed, with
+a seccomp profile on top.
+
+An image of your own — a `Dockerfile.include` that installs something which
+writes under its own directory at run time, a JDK's cache, a tool's state in
+`$HOME` — hits the read-only root and fails with `Read-only file system`. The
+fix is a tmpfs for that path, in a drop-in, and nothing else changes:
+
+```yaml
+# ~/.impi/compose.d/agent-cache.yaml
+services:
+  agent-assistant:
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+      - /home/impi/.cache:mode=1777,size=64m
+```
+
+(A drop-in's `tmpfs` list replaces the generated one, so `/tmp` is repeated.)
+Rootless podman needs no adjustment: `keep-id` and a read-only root compose,
+and `mode=` rather than `uid=` on the tmpfs is deliberate — podman supports no
+owner on one.
+
 ## Updates and versioning
 
 Releases are SemVer 0.x git tags (`vX.Y.Z`, created with `scripts/release.sh`);

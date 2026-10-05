@@ -463,3 +463,14 @@ def test_npm_extras_are_installed_with_scripts_ignored(tmp_path: Path) -> None:
     spec = _spec(tmp_path, "tooling", manifest="runtime:\n  packages:\n    npm: [some-cli@1.0.0]\n")
     rendered = render_dockerfile(read_build(spec))
     assert "RUN npm install -g --ignore-scripts some-cli@1.0.0" in rendered
+
+
+def test_an_agent_container_is_read_only_with_a_scratch_tmp_and_no_capabilities() -> None:
+    """Built like a box, as the engine's own service is."""
+    parsed = yaml.safe_load(_rendered())
+    service = parsed["services"][f"{SERVICE_PREFIX}assistant"]
+    assert service["read_only"] is True
+    assert service["tmpfs"] == ["/tmp:mode=1777,size=256m"]
+    assert service["cap_drop"] == ["ALL"]
+    assert service["security_opt"] == ["no-new-privileges:true"]
+    assert service["pids_limit"] == 512

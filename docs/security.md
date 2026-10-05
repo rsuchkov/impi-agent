@@ -223,6 +223,7 @@ decisions an operator makes.
 | the prompt envelope is tagged per turn and quotes are escaped | a message cannot close a context block or pose as another speaker; the model is told so in its system prompt |
 | contained card text | what a caller supplies is content, never structure (newlines, fences, bidi) |
 | the trace keeps arguments, never results | a granted value cannot surface in the inventory |
+| the services run in boxes: read-only root, `/tmp` in memory, no capabilities, `no-new-privileges`, `pids_limit` | the engine, every agent container, the broker; the browser adds seccomp |
 | non-root images; base images pinned by digest; the runtime and the browser tool from a lockfile with integrity hashes, install scripts ignored; Python dependencies locked with hashes | the image is what the release says it is, and nothing runs at build time that nobody reviewed |
 | skill installs shown file by file and pinned to a commit | nothing lands unseen; `update` shows old and new; unencrypted sources (`http://`, `git://`) are refused |
 | every door compares its token in constant time | the http and WebSocket gateways, the tool server, the agent host relay, the session proof |

@@ -18,6 +18,21 @@ services:
         IMPI_GID: "${IMPI_GID:-1000}"
     image: localhost/impi:local
     restart: unless-stopped
+    # The container is what the agents run in, so it is built like a box, not
+    # a workstation: a read-only root (every write the engine makes goes to a
+    # volume or a bind mount; /tmp is memory), no capabilities (nothing here
+    # binds below 1024 or changes uids), no privilege gain through a setuid
+    # binary, and a ceiling on processes so a runaway shell cannot take the
+    # host down with it. An image of your own that writes elsewhere gets a
+    # tmpfs for it in a compose.d/ drop-in — see docs/installation.md.
+    read_only: true
+    tmpfs:
+      # mode, not uid/gid: podman supports neither on a tmpfs (see
+      # compose.browser.yaml); the only accounts here are root and the engine's.
+      - /tmp:mode=1777,size=512m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 1024
     volumes:
       - ${IMPI_HOME:?set in compose.env}/conf:/app/conf:z
       - ${IMPI_AGENTS_DIR:?set in compose.env}:/app/agents:z

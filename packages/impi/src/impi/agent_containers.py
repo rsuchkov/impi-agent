@@ -269,6 +269,17 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         '        IMPI_GID: "${IMPI_GID:-1000}"',
         f"    image: {build.image}",
         "    restart: unless-stopped",
+        # Built like a box, as the engine's own service is: a read-only root
+        # (the runtime writes its sessions and files to volumes and its scratch
+        # to /tmp), no capabilities, no privilege gain, a ceiling on
+        # processes. An agent image that writes elsewhere gets a tmpfs for it
+        # in a compose.d/ drop-in.
+        "    read_only: true",
+        "    tmpfs:",
+        "      - /tmp:mode=1777,size=256m",
+        '    cap_drop: ["ALL"]',
+        '    security_opt: ["no-new-privileges:true"]',
+        "    pids_limit: 512",
         "    env_file:",
         f"      - {home}/conf/agents/{name}.env",
         "    environment:",

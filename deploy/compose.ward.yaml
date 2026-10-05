@@ -65,6 +65,15 @@ services:
     image: localhost/ward:local
     restart: unless-stopped
     command: ["ward", "serve"]
+    # The box that holds the store's credential: read-only root, no
+    # capabilities, no privilege gain, few processes. It writes only under
+    # /var/lib/ward (its volume and the two bind mounts).
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
     # No network of its own: it lives inside the store's, which is what puts the
     # store on a loopback nothing else can reach.
     network_mode: "service:vault"
