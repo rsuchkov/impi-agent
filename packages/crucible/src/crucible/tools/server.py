@@ -182,6 +182,13 @@ class ToolServer:
             args = {}
 
         runtime_session_id = request.headers.get(_SESSION_HEADER, "")
+        if self._proofs is not None and not runtime_session_id:
+            # Every process the runtime starts names a session and proves it,
+            # a memoryless run included. A call naming none did not come from
+            # one — a shell in the agent's container calling the server by
+            # hand, with the token it found in the environment.
+            logger.warning("tool %s: agent %s called without a session; refused", tool.name, agent)
+            return web.json_response({"error": "session required"}, status=403)
         if runtime_session_id and self._proofs is not None:
             if not self._proofs.verify(runtime_session_id, request.headers.get(_PROOF_HEADER, "")):
                 logger.warning(

@@ -438,3 +438,72 @@ def test_only_the_engines_own_agent_inherits_the_whole_environment(
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
         app.sessions.close_sync()
+
+
+SHELL_AGENT_YAML = """\
+name: {name}
+role: helper
+runtime:
+  tools: [read, bash]
+"""
+
+
+def _two_shell_agents(tmp_path: Path) -> Settings:
+    settings = _settings(tmp_path)
+    root = Path(settings.agents_path) / "agents"
+    for name in ("alpha", "beta"):
+        (root / name).mkdir()
+        (root / name / "agent.yaml").write_text(SHELL_AGENT_YAML.format(name=name), encoding="utf-8")
+    return settings
+
+
+def test_agents_sharing_the_engines_process_with_a_shell_are_named_at_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Two agents with a shell in one process space can read each other's tool
+    token and proofs; the engine says so by name rather than letting the
+    operator find out."""
+    monkeypatch.setenv("AGENTS_MM_TOKEN__ALPHA", "a")
+    monkeypatch.setenv("AGENTS_MM_TOKEN__BETA", "b")
+    with caplog.at_level("WARNING", logger="impi.app"):
+        app = build_app(_two_shell_agents(tmp_path))
+    try:
+        assert "agents alpha, beta run in the engine's own process space" in caplog.text
+        assert "docs/security.md" in caplog.text
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()
+
+
+def test_one_agent_alone_in_the_engine_is_nobodys_neighbour(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    settings = _settings(tmp_path)  # assistant alone, no shell either
+    with caplog.at_level("WARNING", logger="impi.app"):
+        app = build_app(settings)
+    try:
+        assert "process space" not in caplog.text
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()
+
+
+def test_shared_process_agents_is_about_shells_among_neighbours() -> None:
+    from impi.app import shared_process_agents
+
+    def spec(name: str, *tools: str):
+        return dataclasses.replace(
+            __import__("crucible.ports.agent", fromlist=["AgentSpec"]).AgentSpec(
+                name=name, display_name=name, role="r", description="", profile_dir=Path("x")
+            ),
+            tools=tuple(tools),
+        )
+
+    alpha, beta, gamma = spec("alpha", "bash"), spec("beta", "list_agents"), spec("gamma", "read")
+    everyone_here = {"in_process": lambda name: True}
+    assert shared_process_agents([alpha, beta, gamma], **everyone_here) == ("alpha", "gamma")
+    assert shared_process_agents([alpha, beta], **everyone_here) == ("alpha",)
+    assert shared_process_agents([beta, spec("delta", "ls")], **everyone_here) == ()
+    assert shared_process_agents([alpha], **everyone_here) == ()
+    # moved out: a neighbour no longer
+    assert shared_process_agents([alpha, gamma], in_process=lambda name: name == "alpha") == ()

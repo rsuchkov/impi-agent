@@ -74,8 +74,12 @@ class PiRpcSession:
         on_event: EventCallback | None = None,
         ui_bridge: UiBridge | None = None,
         session_id: str = "",
+        proof_session_id: str = "",
     ) -> None:
         self._transport = transport
+        # The id this process proves itself under to the tool server: the
+        # session's, or a one-off for a memoryless run. Revoked when it closes.
+        self.proof_session_id = proof_session_id
         self._allowed_ui_tools = allowed_ui_tools
         self._on_event = on_event
         # When set, interactive UI requests are routed to a human via the bridge

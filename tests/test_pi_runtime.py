@@ -663,9 +663,13 @@ async def test_each_process_is_handed_a_proof_for_its_own_session(monkeypatch) -
     assert proofs.issued == ["assistant--c1"]
     assert captured["env"]["TOOL_SESSION_PROOF"] == "proof-for-assistant--c1"
 
-    await rt._spawn_session(_profile(), None)  # a memoryless run: no session, no proof
-    assert proofs.issued == ["assistant--c1"]
-    assert "TOOL_SESSION_PROOF" not in (captured["env"] or {})
+    # A memoryless run proves itself too, under a one-off id no conversation
+    # resolves to — so the server can refuse a call that names no session.
+    session = await rt._spawn_session(_profile(), None)
+    oneshot = captured["env"]["RUNTIME_SESSION_ID"]
+    assert oneshot.startswith("assistant--oneshot-") and proofs.issued == ["assistant--c1", oneshot]
+    assert captured["env"]["TOOL_SESSION_PROOF"] == f"proof-for-{oneshot}"
+    assert session.proof_session_id == oneshot
 
 
 async def test_a_dropped_sessions_proof_is_revoked() -> None:
@@ -743,3 +747,15 @@ async def test_a_profile_that_is_part_of_the_engine_inherits_everything(monkeypa
                         inherit_all=True)
     env = await _capture_env(monkeypatch, profile)
     assert env["UNRELATED_TOKEN"] == "x"
+
+
+async def test_a_memoryless_runs_proof_dies_with_its_process() -> None:
+    proofs = _Proofs()
+    rt = PiRuntime(session_proofs=proofs)
+
+    async def close() -> None:
+        return None
+
+    session = SimpleNamespace(proof_session_id="assistant--oneshot-abc123", close=close)
+    await rt._close_session(cast(PiRpcSession, session), "assistant")
+    assert proofs.revoked == ["assistant--oneshot-abc123"]

@@ -41,8 +41,10 @@ from crucible.store import open_store
 from crucible.store.base import Store
 from impi import provisioning as prov
 from impi.agent_containers import RenderError, sync
+from impi.app import SHARED_PROCESS_WARNING, shared_process_agents
 from impi.config import ImpiSettings, load_settings
 from impi.escape import EscapeError, build_plan, parse_map, render_nul, render_text
+from impi.gateways import resolve_gateway
 from impi.profiles import open_profile_stores
 from impi.skill_tools import bundled_skill
 
@@ -65,6 +67,10 @@ def _dim(text: str) -> str:
 
 def _ok(text: str) -> None:
     print(_sgr("32", "✔ ") + text)
+
+
+def _warn(text: str) -> None:
+    print(_sgr("33", "! ") + text)
 
 
 def _fail(text: str) -> None:
@@ -721,6 +727,26 @@ def _cmd_health(args: argparse.Namespace) -> int:
     if agents_dir and agents_dir.is_dir():
         count = len(list(agents_dir.glob("*/agent.yaml")))
         _ok(f"agents dir: {agents_dir} ({count} profile(s))")
+        # Who shares the engine's process space with a shell — the same check
+        # the engine logs at startup, so an operator can ask without a restart.
+        # Only with profiles to read: an empty directory is not a broken one.
+        specs = []
+        try:
+            if count == 0:
+                raise ProfileError("")
+            user_store, _engine_store = open_profile_stores(settings, _library(args))
+            # The user's agents that would run: one without a token starts no
+            # process, and the engine's own agent is part of the engine.
+            specs = [s for s in user_store.list() if resolve_gateway(settings, s.name) is not None]
+        except ProfileError as exc:
+            if str(exc):
+                _fail(f"profiles: {exc}")
+                failures += 1
+        shared = shared_process_agents(
+            specs, in_process=lambda name: not settings.agent_host_for(name)[0]
+        )
+        if shared:
+            _warn(SHARED_PROCESS_WARNING % ", ".join(shared))
     else:
         _fail(f"agents dir missing: {agents_dir or '(AGENTS_PATH unset)'}")
         failures += 1

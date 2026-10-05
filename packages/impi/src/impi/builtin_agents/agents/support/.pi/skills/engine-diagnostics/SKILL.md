@@ -142,6 +142,11 @@ Four other 403s say what happened in the body. From the confirmation gate:
 
 And from the session check:
 
+- `session required` — the call named no session at all. Every process the
+  engine starts names one (a scheduled, memoryless run under a one-off id), so
+  this is something else calling the tool server by hand with a token it found.
+  Not a configuration problem; worth telling the operator which agent's token
+  it was (the log line names the agent).
 - `session not proven` — the call named a conversation without that process's
   own `TOOL_SESSION_PROOF` (log: `named session … without its proof; refused`).
   The engine's own runtime always has it; this is a stale process from before

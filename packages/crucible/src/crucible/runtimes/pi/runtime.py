@@ -22,6 +22,7 @@ process here, which is what always happened; another may run it elsewhere.
 import asyncio
 import contextlib
 import logging
+import secrets
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
@@ -434,6 +435,11 @@ class PiRuntime:
         try:
             await session.close()
         finally:
+            # A proof dies with its process — a memoryless run's included, which
+            # no session key names.
+            proof_id = getattr(session, "proof_session_id", "")
+            if self._proofs is not None and proof_id:
+                self._proofs.revoke(proof_id)
             self._release(agent)
 
     async def _drop_session(self, key: str) -> None:
@@ -455,10 +461,14 @@ class PiRuntime:
         # only what the engine grants.
         safe_id = safe_session_id(session_id) if session_id else None
         env = {**_BASE_ENV, **self._extra_env, **profile.env}
-        if safe_id:
-            env["RUNTIME_SESSION_ID"] = safe_id
-            if self._proofs is not None:
-                env[SESSION_PROOF_ENV] = self._proofs.issue(safe_id)
+        # Every process proves itself to the tool server, a memoryless run under
+        # an id of its own that no conversation resolves to: the server can then
+        # refuse a call that names no session at all, which is what a shell
+        # calling it by hand would make.
+        proof_id = safe_id or safe_session_id(f"{profile.name}--oneshot-{secrets.token_hex(6)}")
+        env["RUNTIME_SESSION_ID"] = proof_id
+        if self._proofs is not None:
+            env[SESSION_PROOF_ENV] = self._proofs.issue(proof_id)
         request = SpawnRequest(
             agent=profile.name,
             profile_dir=profile.config_dir,
@@ -484,6 +494,7 @@ class PiRuntime:
             transport,
             ui_bridge=self._ui_bridge,
             session_id=safe_id or "",
+            proof_session_id=proof_id,
         )
 
     async def _reap_loop(self, interval: float) -> None:

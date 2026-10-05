@@ -146,6 +146,33 @@ def build_agent_hosts(settings: ImpiSettings, specs: Sequence[AgentSpec]) -> Hos
     return router
 
 
+# What lets a process read a neighbour's /proc/<pid>/environ: a shell, or a
+# built-in that reads files.
+_SHELL_LIKE = frozenset({"bash", "read", "grep", "edit"})
+
+
+def shared_process_agents(
+    specs: Sequence[AgentSpec], *, in_process: Callable[[str], bool]
+) -> tuple[str, ...]:
+    """The agents that share the engine's process space with others AND can
+    read a neighbour's environment — the tool token and session proofs of
+    every other agent running here. Empty when at most one agent runs here,
+    or none of those running here has a shell: then the secrets are only in
+    the hands of their owners. See docs/security.md."""
+    here = [spec for spec in specs if in_process(spec.name)]
+    if len(here) < 2:
+        return ()
+    return tuple(sorted(spec.name for spec in here if _SHELL_LIKE & set(spec.tools)))
+
+
+SHARED_PROCESS_WARNING = (
+    "agents %s run in the engine's own process space with a shell: each can read "
+    "the tool token and session proofs of every other agent running here "
+    "(/proc/<pid>/environ). The boundary is a container per agent — "
+    "docs/security.md, docs/agent-containers.md"
+)
+
+
 @dataclass
 class App:
     settings: ImpiSettings
@@ -405,6 +432,14 @@ def build_app(settings: ImpiSettings) -> App:
     # tool server: a call's session id is then a fact, not a claim the shared
     # agent token lets any process of that agent make.
     session_proofs = SessionProofBook()
+    hosts = build_agent_hosts(settings, specs)
+    # The user's agents that actually run: an engine-owned one (support) is
+    # part of the engine and reads its configuration anyway, and an agent with
+    # no token starts no process.
+    running = [s for s in specs if s.name not in engine_names and configs.get(s.name) is not None]
+    shared = shared_process_agents(running, in_process=lambda name: name not in hosts.remote_agents)
+    if shared:
+        logger.warning(SHARED_PROCESS_WARNING, ", ".join(shared))
     runtime = PiRuntime(
         pi_bin=settings.pi_bin,
         session_dir=str(settings.resolved_pi_session_dir),
@@ -418,7 +453,7 @@ def build_app(settings: ImpiSettings) -> App:
         inherit=settings.runtime_env(),
         extra_extensions=build_pi_extensions(settings),
         ui_bridge=interactions.ui_bridge,
-        hosts=build_agent_hosts(settings, specs),
+        hosts=hosts,
     )
     registry = RegistryService(sessions)
     # One shared guard makes the rate limit a GLOBAL per-conversation bound (a

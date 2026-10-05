@@ -71,6 +71,41 @@ as the same user in the same container reads every neighbour's
 from *knowledge* — a model naming a conversation it was never told about — and
 not a neighbour with a shell. That is the next boundary.
 
+### What an agent's process can see of the tool server
+
+The tool server knows a caller by two secrets in the runtime process's
+environment: the agent's token and the session's proof. They defeat a claim
+made from knowledge — a model naming a conversation it was never told about,
+an agent with only typed tools naming any — and nothing more: any process of
+the same user in the same container reads `/proc/<pid>/environ` of every
+other, `read` and `grep` included, not only `bash`. So in the default
+arrangement an agent with a shell can take a neighbouring **conversation's**
+proof (and act in its channel, as its user, with whatever its turn's scope
+carries) and a neighbouring **agent's** token (and call the server with that
+agent's allowlist).
+
+What the engine does about it today:
+
+- it says so at startup and in `impi health`, by name, whenever more than one
+  agent runs in its process space and any of them has a shell-like built-in
+  (`bash`, `read`, `grep`, `edit`);
+- every process it starts proves itself, a memoryless run included, and a
+  call that names no session is refused — a shell calling the server by hand
+  with a token it found has to also name a live session and its proof;
+- an agent's process is handed only the environment the engine grants it, so
+  what a neighbour can read there is the tool server's two secrets and the
+  session id, not the engine's own tokens.
+
+What it does not do, and the options weighed: an identity attested by the
+kernel instead of a secret (a unix socket, the peer's pid mapped to the agent
+and session the engine spawned it for — the right next step for the default
+arrangement, not built); a user id per conversation (heavy under rootless
+podman); `hidepid` on `/proc` (hides other users' processes, not the same
+user's); a secret delivered over a channel a neighbour cannot read (there is
+none a same-user process cannot). The boundary that holds today is
+[a container per agent](agent-containers.md), and the warning above exists
+so that a deployment which needs that boundary is told, not left to find out.
+
 ### One agent and another
 
 What crosses, by default: everything. Every agent's runtime is a child of the
@@ -182,7 +217,8 @@ decisions an operator makes.
 | `PI_OFFLINE=1` on every runtime process | no version check or other startup network call from the runtime |
 | explicit skills (`--no-skills` + the profile's list) | no ambient discovery; a skill's scripts run only for agents given it |
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
-| per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks |
+| per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks; a call naming no session is refused |
+| the shared-process warning | at startup and in `impi health`: which agents with a shell share the engine's process space, if more than one does |
 | `returns_untrusted` wrapping | other people's text arrives marked as such |
 | the prompt envelope is tagged per turn and quotes are escaped | a message cannot close a context block or pose as another speaker; the model is told so in its system prompt |
 | contained card text | what a caller supplies is content, never structure (newlines, fences, bidi) |
@@ -215,9 +251,10 @@ Things the design does not solve, stated so nobody relies on them by accident.
 
 - **A neighbour with a shell reads the tool server's secrets.** Within one
   container, `/proc/<pid>/environ` is readable across processes of one user;
-  neither secret survives that. The boundary is the container, not the secret.
-  A kernel-attested caller identity (a unix socket, the peer's pid) is the
-  next step and is not built.
+  neither secret survives that. The boundary is the container, not the secret;
+  the engine names the agents concerned at startup. A kernel-attested caller
+  identity (a unix socket, the peer's pid) is the next step and is not built —
+  see the section on the tool server above.
 - **One browser for every agent.** Per-agent browser contexts are not
   implemented; what one agent logs into, another can use.
 - **The broker binds an argv it is told.** `secret-exec` runs the command it

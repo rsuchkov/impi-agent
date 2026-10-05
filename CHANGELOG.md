@@ -68,6 +68,17 @@ when a release is cut, and `impi update` shows the target version's section.
   skill that read a variable of its own from the engine's environment sees it
   unset until it is named in `runtime.env` or `RUNTIME_ENV`; a deployment
   whose `compose.d/` drop-in adds variables for the agents names them there.
+- **The engine names the agents that share its process space with a shell.**
+  In the default arrangement every agent's runtime is a child of the engine,
+  and an agent with `bash` or `read` can read a neighbour's tool token and
+  session proofs out of `/proc`. The engine now says so at startup and in
+  `impi health`, by name, whenever more than one agent runs there and any has
+  a shell-like built-in; `docs/security.md` has the section on what holds and
+  what does not. Every process the runtime starts now proves itself to the
+  tool server — a memoryless run under a one-off id — and the server refuses a
+  call that names no session (`session required`). **Breaks:** a program that
+  called the tool server with an agent's token and no `X-Runtime-Session`
+  header is refused when the engine issues proofs (impi always does).
 
 ## v0.19.0 — 2026-10-04
 

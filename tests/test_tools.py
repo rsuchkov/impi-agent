@@ -1292,14 +1292,14 @@ async def test_a_session_id_without_its_proof_is_refused() -> None:
             own = await call({"X-Runtime-Session": "assistant--a", "X-Session-Proof": proof_a})
             forged = await call({"X-Runtime-Session": "assistant--b", "X-Session-Proof": proof_a})
             bare = await call({"X-Runtime-Session": "assistant--b"})
-            stateless = await call({})  # a memoryless run names no session at all
+            stateless = await call({})  # names no session at all: not the runtime's doing
     finally:
         await server.stop()
 
     assert own == (200, {"result": {"session": "assistant--a"}})
     assert forged[0] == 403 and forged[1] == {"error": "session not proven"}
     assert bare[0] == 403
-    assert stateless == (200, {"result": {"session": ""}})
+    assert stateless[0] == 403 and stateless[1] == {"error": "session required"}
 
 
 async def test_server_refuses_a_token_that_is_not_ascii_without_crashing() -> None:
@@ -1314,5 +1314,20 @@ async def test_server_refuses_a_token_that_is_not_ascii_without_crashing() -> No
                 headers={"X-Tool-Token": "тайна".encode().decode("latin-1")},
             ) as resp:
                 assert resp.status == 401
+    finally:
+        await server.stop()
+
+
+async def test_without_a_proof_book_a_call_that_names_no_session_still_runs() -> None:
+    """A composition that issues no proofs (a stand with no runtime of its own)
+    cannot demand one."""
+    server, _ = await _server(8475)
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8475/tool/list_agents", json={},
+                headers={"X-Tool-Token": "secret-tok"},
+            ) as resp:
+                assert resp.status == 200
     finally:
         await server.stop()

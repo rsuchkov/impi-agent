@@ -185,7 +185,11 @@ capabilities it `requires`). At runtime:
   and runs the tool. The proof defeats a claim made from knowledge, not a
   process that can read another's environment: a shell run as the same user in
   the same container sees every neighbour's `/proc/<pid>/environ`. That
-  boundary is process isolation — see [agent-containers.md](agent-containers.md).
+  boundary is process isolation — see [agent-containers.md](agent-containers.md)
+  and the section on it in [security.md](security.md). Every process the
+  runtime starts proves itself — a memoryless run under a one-off id of its
+  own — so a call that names no session at all is refused (`session required`):
+  it did not come from a process the engine started.
 
 **Confirmation gating:** a tool may also declare `requires_confirmation`, and
 the check happens in the **server**, before `execute` — and only there. The

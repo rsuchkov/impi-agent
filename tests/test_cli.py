@@ -442,3 +442,21 @@ def test_health_reports_the_receiver_secret(
     assert cli.main(["health"]) == 0
     captured = capsys.readouterr()
     assert "http://impi:8423/k2Xy8qLmN0pRsTuVwZ/command/<agent>" in captured.out
+
+
+def test_health_warns_about_agents_sharing_the_engines_process(
+    monkeypatch, _isolated_env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli.httpx, "get", lambda url, timeout: _Pong())
+    root = Path(_isolated_env).parent / "profiles" / "agents"
+    for name in ("alpha", "beta"):
+        (root / name).mkdir(parents=True)
+        (root / name / "agent.yaml").write_text(
+            f"name: {name}\nrole: helper\nruntime:\n  tools: [bash]\n", encoding="utf-8"
+        )
+    _isolated_env.write_text(
+        "GATEWAY=mattermost\nINTEGRATIONS_SECRET=k2Xy8qLmN0pRsTuVwZ\n"
+        "AGENTS_MM_TOKEN__ALPHA=a\nAGENTS_MM_TOKEN__BETA=b\n"
+    )
+    assert cli.main(["health"]) == 0
+    assert "agents alpha, beta run in the engine's own process space" in capsys.readouterr().out
