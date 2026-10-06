@@ -136,6 +136,16 @@ when a release is cut, and `impi update` shows the target version's section.
   answered by anyone in the conversation. A click from anyone else is told so
   privately and the card stays live. **Breaks:** a colleague in the thread can
   no longer approve on the asker's behalf unless named in `TOOL_APPROVERS`.
+- **`pi` 0.85.1.** The runtime moves from 0.80.3 to the version the
+  third-party assessment was made against; every fact in
+  `docs/runtime-notes.md` was re-verified live (tools, skills, the gate, a
+  cancelled turn, memory, the http gateway end to end). One difference
+  absorbed in the driver: since 0.82 a turn the engine aborts ends with
+  `stopReason: error` and "This operation was aborted" instead of
+  `aborted`; it is read as the cancel it is, so an interrupted turn no
+  longer surfaces as a provider error and the session is kept. `make pi-lock`
+  now fills the integrity hashes the runtime's own shrinkwrap leaves out, so a
+  bump stays one edit and one command.
 
 ## v0.19.0 — 2026-10-04
 

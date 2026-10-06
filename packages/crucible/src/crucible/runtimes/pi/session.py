@@ -497,22 +497,40 @@ def _final_text_from_agent_end(event: PiEvent) -> str:
     return "".join(parts).strip()
 
 
+# How the runtime reports a turn it was told to abort. 0.80 said
+# `stopReason: aborted`; since 0.82 the final message says `error` with this
+# text instead, and a cancel must not read as a provider failure.
+_ABORTED_ERROR_WORDS = ("aborted",)
+
+
+def _was_aborted(message: dict[str, object]) -> bool:
+    if message.get("stopReason") == "aborted":
+        return True
+    if message.get("stopReason") != "error":
+        return False
+    text = str(message.get("errorMessage") or "").lower()
+    return any(word in text for word in _ABORTED_ERROR_WORDS)
+
+
 def _error_from_agent_end(event: PiEvent) -> str | None:
-    """Return an LLM/infra error message from an agent_end payload, if any."""
+    """Return an LLM/infra error message from an agent_end payload, if any.
+    An abort the engine asked for is not one, however the runtime words it."""
     messages = event.raw.get("messages")
     if not isinstance(messages, list):
         return None
     for message in messages:
         if not isinstance(message, dict):
             continue
-        if message.get("stopReason") == "error":
+        if message.get("stopReason") == "error" and not _was_aborted(message):
             return message.get("errorMessage") or "unknown error"
     return None
 
 
 def _stop_reason_from_agent_end(event: PiEvent) -> str | None:
     reasons = [
-        m.get("stopReason") for m in _assistant_messages(event) if m.get("stopReason")
+        "aborted" if _was_aborted(m) else m.get("stopReason")
+        for m in _assistant_messages(event)
+        if m.get("stopReason")
     ]
     return reasons[-1] if reasons else None
 

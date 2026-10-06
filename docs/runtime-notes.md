@@ -2,7 +2,7 @@
 
 The engine drives the [`pi`](https://github.com/earendil-works/pi) coding agent as
 its runtime backend. This file records the `pi` flags the engine passes and the
-`pi` behaviors it relies on. Verified against `pi` 0.80.3.
+`pi` behaviors it relies on. Verified against `pi` 0.85.1 (the version `deploy/pi/package.json` pins).
 
 ## The argv the engine builds
 
@@ -146,11 +146,13 @@ conversation. This is deliberately different from what happens after a turn
 know what pi will still send; here it asked and waited for the end. If pi does
 not end the turn within the grace period, the session is dropped (the turn
 fails like a crashed process would) and the memory on disk is left alone, so
-the next turn still resumes in a fresh process. (Checked against pi 0.80.3: an
-`abort` sent while a tool call waits on the engine ends the turn within seconds
-— pi reports `stopReason: aborted`, the tool's abort signal fires so the
-extension's call to the engine closes, and the same session answers the next
-prompt.)
+the next turn still resumes in a fresh process. (Checked against pi 0.85.1: an
+`abort` sent while a tool call waits on the engine ends the turn within seconds,
+the tool's abort signal fires so the extension's call to the engine closes, and
+the same session answers the next prompt. How pi words the ending changed on
+the way: 0.80 ended the final message with `stopReason: aborted`, 0.82 and later
+with `stopReason: error` and the text "This operation was aborted" — the driver
+reads both as a cancel, never as a provider failure.)
 
 `PiRuntime.reset(agent, session_id)` is the opposite: end the process now and
 delete `<session_dir>/<agent>/*_<session_id>.*`, so the next turn starts from

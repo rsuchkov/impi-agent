@@ -104,7 +104,7 @@ pi-lock:
 		podman run --rm -v "$$PWD/deploy/pi:/w:z" -w /w docker.io/library/node:22-bookworm-slim \
 			npm install --package-lock-only --ignore-scripts --no-audit --no-fund; \
 	fi
-	@uv run python scripts/check_pi_lock.py
+	@uv run python scripts/check_pi_lock.py --fill
 
 # bats unit tests for the installer libraries.
 installer-test:

@@ -55,3 +55,31 @@ def test_the_checker_names_a_lock_that_lags_the_manifest_and_a_hashless_entry(
     assert any("a: package.json pins 2.0.0, the lock has 1.0.0" in line for line in found)
     assert any("node_modules/b has no integrity hash" in line for line in found)
     assert len(found) == 2
+
+
+def test_filling_takes_the_missing_hashes_from_the_registry_and_nothing_else(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import json
+
+    from scripts import check_pi_lock
+
+    (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"a": "1.0.0"}}))
+    (tmp_path / "package-lock.json").write_text(json.dumps({"packages": {
+        "": {},
+        "node_modules/a": {"version": "1.0.0", "integrity": "sha512-kept"},
+        "node_modules/a/node_modules/b": {"version": "2.0.0"},
+    }}))
+    monkeypatch.setattr(check_pi_lock, "PI_DIR", tmp_path)
+    asked: list[str] = []
+
+    def fetch(spec: str) -> str:
+        asked.append(spec)
+        return "sha512-fromregistry"
+
+    assert check_pi_lock.fill_integrity(fetch) == ["b@2.0.0"]
+    assert asked == ["b@2.0.0"]
+    lock = json.loads((tmp_path / "package-lock.json").read_text())
+    assert lock["packages"]["node_modules/a/node_modules/b"]["integrity"] == "sha512-fromregistry"
+    assert lock["packages"]["node_modules/a"]["integrity"] == "sha512-kept"
+    assert check_pi_lock.problems() == []

@@ -573,3 +573,35 @@ async def test_cancel_of_a_turn_on_a_dead_process_does_not_raise() -> None:
     await session.close()
     with pytest.raises(PiProcessError):
         await turn
+
+
+async def test_an_abort_worded_as_an_error_is_a_cancelled_turn_not_a_failure() -> None:
+    """Since pi 0.82 a turn the engine aborted ends with `stopReason: error`
+    and the text "This operation was aborted"; 0.80 said `aborted`. Both are
+    the same thing: a cancel the engine asked for, not a provider failure."""
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        transport.emit({"type": "agent_start"})
+        transport.emit(
+            {
+                "type": "agent_end",
+                "willRetry": False,
+                "messages": [
+                    {"role": "assistant", "content": [], "stopReason": "toolUse"},
+                    {
+                        "role": "assistant",
+                        "content": [],
+                        "stopReason": "error",
+                        "errorMessage": "This operation was aborted",
+                    },
+                ],
+            }
+        )
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+
+    result = await session.prompt("hi", timeout=1.0)
+    assert result.stop_reason == "aborted" and result.text == ""
