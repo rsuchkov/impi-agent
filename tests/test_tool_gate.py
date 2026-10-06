@@ -485,12 +485,11 @@ async def test_a_window_of_another_kind_does_not_open_a_tool(tmp_path: Path) -> 
 # -- who may answer ------------------------------------------------------------
 
 
-async def test_a_turn_nobody_started_may_be_answered_by_anyone_in_the_conversation(
+async def test_a_conversation_that_names_no_person_may_be_answered_by_anyone_in_it(
     tmp_path: Path,
 ) -> None:
-    """A memoryless run (a scheduled task) has no person whose message it
-    answers; then the question is to whoever is watching, as the blocking
-    confirm always allowed."""
+    """A record that never had a user — nobody's message to address the card
+    to — leaves the question to whoever is watching."""
     rig = await _rig(tmp_path, 8549)  # the record names no last user
     try:
         pending = asyncio.create_task(_call(rig, "dangerous"))

@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 
 from crucible.private_files import private_dir
+from crucible.runtimes.pi.auth_file import auth_file_path, executable_entries
+from crucible.runtimes.pi.errors import PiHostError
 from crucible.runtimes.pi.spawn import SpawnRequest
 from crucible.runtimes.pi.transport import PiTransport, SubprocessTransport
 
@@ -24,6 +26,17 @@ class LocalHost:
         self._program = program
 
     async def open(self, request: SpawnRequest) -> PiTransport:
+        # A credential the runtime would execute is not one a login wrote:
+        # see runtimes/pi/auth_file.py. Nothing starts until it is gone.
+        path = auth_file_path()
+        entries = executable_entries(path)
+        if entries:
+            logger.error(
+                "refusing to start the runtime: %s holds a value it would run as a "
+                "command (%s) — no login writes one; replace the file with a fresh login",
+                path, ", ".join(entries),
+            )
+            raise PiHostError(f"the runtime's credential file holds a command value ({', '.join(entries)})")
         session_dir = self._session_dir(request)
         args = command_args(request, session_dir=session_dir)
         cwd = str(request.cwd or request.profile_dir)

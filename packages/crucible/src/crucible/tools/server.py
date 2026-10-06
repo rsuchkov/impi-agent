@@ -142,7 +142,7 @@ class ToolServer:
             await self._runner.cleanup()
             self._runner = None
 
-    def _agent_for(self, presented: str) -> str | None:
+    def _agent_for_token(self, presented: str) -> str | None:
         """Constant-time per token, every token compared: a lookup that stops
         at the first match tells a guesser how far it got. Bytes, not str —
         compare_digest refuses a non-ASCII str, and a header is whatever the
@@ -154,7 +154,7 @@ class ToolServer:
         return found
 
     async def _handle(self, request: web.Request) -> web.Response:
-        agent = self._agent_for(request.headers.get(_TOKEN_HEADER, ""))
+        agent = self._agent_for_token(request.headers.get(_TOKEN_HEADER, ""))
         if agent is None:
             return web.json_response({"error": "unauthorized"}, status=401)
 

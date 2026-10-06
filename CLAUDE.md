@@ -14,3 +14,9 @@ checklist is in [AGENTS.md](AGENTS.md#commits-and-changes).
 alias for it: a crutch kept for a version that never had a stable contract is
 worse than the break. Two conditions: discuss each specific break with the
 maintainer **before** making it, and say what breaks in `CHANGELOG.md`.
+
+**Names are reviewed before work is called done.** Every module, function,
+class, constant and setting a change adds is listed and read once: does the
+name say what it does, and does the same word already mean something else
+here? The rule and its examples are in
+[AGENTS.md](AGENTS.md#development-principles).

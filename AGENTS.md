@@ -31,6 +31,12 @@ directly: every agent turn is delegated to the external
 | `make e2e-install BROWSER=1` | the same, with the browser axis installed and driven end to end |
 | `make e2e-install AGENTS=1` | the same, with each agent in a container of its own |
 
+Three project review commands live in `.claude/commands/`: `/arch-review` (the
+architecture rules below, applied to a change), `/docs-review` (docs, changelog,
+`.env.example` and the `support` agent against the code) and `/global-review`
+(both, plus a security review and the full e2e install, in one report — run it
+before a release).
+
 Run `make lint` and `make test` before considering a change done; both must be
 green. Touching `install.sh`, `installer/`, or `deploy/` additionally requires a
 green `make installer-lint` + `make installer-test`; touching
@@ -142,6 +148,18 @@ duplicate architecture here.
   telling you the dependency points the wrong way — move the shared piece rather
   than hide the edge. Tests are exempt: there the import is often part of what
   the test asserts.
+
+- **A name says what the thing does, and one name means one thing.** Name a
+  module after what it is about (`auth_file`, not `credentials`), a function
+  after what it returns or does (`executable_entries`, `check_inherited_env`
+  that raises — not `env_pattern_problem` returning a reason or `""`), a
+  predicate so its `True` reads (`_idle_before`). Before adding a name, grep
+  for it: the same word must not mean values in one place and names in another
+  (`env` vs `inherit`), nor two different lookups in two modules (`_agent_for`).
+  Avoid catch-alls (`_guard`, `_open`, `problems`, `_BASE_*`) unless the module
+  leaves no doubt. When a series adds many names, list them
+  (`git diff -U0 <base> | grep -E '^\+\s*(def|class) '`) and read the list once
+  before calling it done.
 
 - **Boundaries are enforced.** `make lint` runs ruff (incl. import sorting),
   import-linter (the layer contracts), `check_names` and `check_facades` (the

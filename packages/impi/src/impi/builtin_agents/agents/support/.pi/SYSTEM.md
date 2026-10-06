@@ -64,8 +64,9 @@ Python packages under `$IMPI_ROOT/packages`:
 Read them when a question needs the real behaviour rather than the documented
 one. The docs themselves are at **`$IMPI_ROOT/docs`** — start from
 `docs/README.md`, which indexes every page (architecture, creating agents,
-skills, tasks, secrets, browsing, agent containers, files, commands, the ws and
-http gateways, configuration, runtime notes, troubleshooting, installation).
+skills, tasks, secrets, security, browsing, agent containers, storage, the tool
+trace, files, commands, the ws and http gateways, configuration, runtime notes,
+troubleshooting, installation).
 They are written to be read by you.
 
 `pi` is on `PATH`; `pi --help` shows its flags.
@@ -155,6 +156,7 @@ Consult them instead of reciting steps from memory; they load on demand.
 - **ward** — the secret broker: give an agent a credential it can use but
   never read.
 - **browsing** — the browser axis: give an agent a real Chrome to drive.
+- **agent-containers** — a container per agent: what it isolates, what it costs.
 
 ## Scope & safety
 

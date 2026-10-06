@@ -64,16 +64,28 @@ async def purge_idle(
     runtime's files for it. Returns what was forgotten. The one place this is
     done — the command below and an engine that purges at startup both call it."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    victims = [
-        r
-        for r in await store.list(agent)
-        if datetime.fromisoformat(r.last_active) < cutoff
-    ]
+    victims = [r for r in await store.list(agent) if _idle_before(r, cutoff)]
     for record in victims:
         await store.delete(record.agent, record.conversation_id)
         for path in _session_files(settings, record):
             path.unlink(missing_ok=True)
     return victims
+
+
+def _idle_before(record: SessionRecord, cutoff: datetime) -> bool:
+    """Whether ``record`` was last active before ``cutoff``. A value that does
+    not parse is kept, not forgotten — and never stops the sweep; a naive one
+    is read as UTC, which is what the engine writes."""
+    value: object = record.last_active  # a string; a Mongo row may carry a datetime
+    try:
+        moment: datetime = (
+            value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+        )
+    except ValueError:
+        return False
+    if moment.tzinfo is None:
+        moment = datetime.combine(moment.date(), moment.time(), tzinfo=timezone.utc)
+    return moment < cutoff
 
 
 async def cmd_purge_idle(settings: Settings, store: Store, args: argparse.Namespace) -> None:

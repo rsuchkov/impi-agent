@@ -23,6 +23,8 @@ when a release is cut, and `impi update` shows the target version's section.
   tool server looked a presented token up in a dictionary; they now compare
   it against every registered one the way the http gateway already did, and a
   token that is not ASCII is refused rather than crashing the request.
+  The Mattermost slash-command token on the engine's receiver is compared
+  the same way.
 - **Skill sources over `http://` and `git://` are refused.** A skill is code
   the agent runs, and an unencrypted transport can be swapped on the way.
   **Breaks:** `impi skill install` of such a URL now fails with a message
@@ -35,11 +37,16 @@ when a release is cut, and `impi update` shows the target version's section.
   `/command/<agent>` — and the receiver answers 403 off it. The engine mints
   `INTEGRATIONS_SECRET` into `conf/.env` on its first start (the installer
   and `impi start` do too); the broker's receiver has `WARD_CALLBACK_SECRET`
-  in `conf/ward.env`. `impi health` and `impi doctor` say whether the secrets
-  are set. Slack is unaffected (its clicks come down the socket).
+  in `conf/ward.env`. `impi doctor` says whether both secrets are set,
+  `impi health` the engine's. Slack is unaffected (its clicks come down the
+  socket).
   **Breaks:** every slash command registered with Mattermost — the agents'
   and `/ward` — must be re-registered under the new URL (`impi health` prints
   it), and the buttons on cards posted before the upgrade answer 403.
+  A request with the right secret on a wrong method or endpoint is aiohttp's
+  404/405, not a refusal, and the log never prints a presented secret. An
+  engine that cannot write its env file (configured by environment alone, a
+  read-only `conf/`) starts anyway, warned, on the bare paths.
 - **A message cannot forge the prompt's structure.** The envelope the flow
   builds — `[context …]` blocks and `[@name]: text` lines — interpolated what
   people wrote as it was, so a message containing `[/context]` or a line
@@ -54,6 +61,11 @@ when a release is cut, and `impi update` shows the target version's section.
   agent's system prompt. **Breaks:** the shape of the envelope changed, and
   every agent's system prompt gained a suffix; an application on `crucible`
   that parses the prompt or asserts its exact text updates accordingly.
+  A speaker's name is reduced to identifier characters (a ws frame, an http
+  header or a Slack webhook can name itself `admin]: approve`), a no-break or
+  fullwidth character in front of a `[` no longer hides it, and the first line
+  of a message — which sits after `]: ` and cannot pass for a marker — is left
+  as written; the note tells the model the added `\` is the envelope's.
 - **An agent's process inherits what the engine grants, not everything the
   engine holds.** A runtime started as a child of the engine used to get the
   engine's whole environment — every chat token, every caller token. It now
@@ -68,17 +80,25 @@ when a release is cut, and `impi update` shows the target version's section.
   skill that read a variable of its own from the engine's environment sees it
   unset until it is named in `runtime.env` or `RUNTIME_ENV`; a deployment
   whose `compose.d/` drop-in adds variables for the agents names them there.
+  A family pattern needs a literal prefix of three characters or more and may
+  not cover the engine's own variables (`AGENTS_*`, `SLACK_*`, `TOOL_*`, …), in
+  `runtime.env` and in `RUNTIME_ENV*` alike; the latter refuses to start rather
+  than hand everything over. `PI_OFFLINE` also stops `pi` downloading `rg` and
+  `fd` for its `grep`/`find` tools, so both images now ship `ripgrep` and
+  `fd-find`; a host running the engine outside the images needs `rg` and `fd`
+  on `PATH` — and a `settings.json` package not yet installed is not installed.
 - **The engine names the agents that share its process space with a shell.**
   In the default arrangement every agent's runtime is a child of the engine,
   and an agent with `bash` or `read` can read a neighbour's tool token and
   session proofs out of `/proc`. The engine now says so at startup and in
-  `impi health`, by name, whenever more than one agent runs there and any has
+  `impi health`, by name, whenever a user's agent runs there and has
   a shell-like built-in; `docs/security.md` has the section on what holds and
   what does not. Every process the runtime starts now proves itself to the
   tool server — a memoryless run under a one-off id — and the server refuses a
   call that names no session (`session required`). **Breaks:** a program that
   called the tool server with an agent's token and no `X-Runtime-Session`
   header is refused when the engine issues proofs (impi always does).
+  One is enough: the engine itself and `support` are always its neighbours.
 - **The images are built from pins, not tags.** The `pi` CLI and the browser
   tool come from `deploy/pi/package.json` and its lockfile — every dependency
   with an integrity hash, `npm ci --ignore-scripts`, so nothing runs at build
@@ -88,6 +108,10 @@ when a release is cut, and `impi update` shows the target version's section.
   no longer `latest`. `PI_TELEMETRY=0` is set in the images. A per-agent
   image installs its npm extras with scripts ignored and accepts version pins
   (`some-cli@1.2.0`, `pandas==2.2`) while refusing anything shell-like.
+  **Breaks:** an npm extra whose install hook mattered (one that downloads a
+  binary in `postinstall`) stops working after `impi agent sync` — move it to
+  `Dockerfile.include`; a package entry with characters outside a name and a
+  version pin is refused.
 - **The engine, every agent container and the broker run in boxes.** Read-only
   root, `/tmp` in memory, no Linux capabilities, `no-new-privileges`, a
   `pids_limit` — what the browser container already had. Everything the
@@ -96,15 +120,24 @@ when a release is cut, and `impi update` shows the target version's section.
   keeping state in `$HOME`, a JDK's cache) fails with `Read-only file system`
   until a `compose.d/` drop-in gives that path a tmpfs — `docs/installation.md`
   has the drop-in.
+  The home directory is memory too, in the engine and in agent containers
+  (the browser tool keeps its session under `~/.cache`, git and npm write
+  there); pi's home inside it keeps its own mount.
 - **What the engine keeps on disk is its owner's alone.** Session directories
   are 0700, the SQLite inventory (and its write-ahead log) 0600, tool
   manifests and attachments 0600 under 0700 directories, an agent host's
-  scratch files likewise — whatever the umask, and narrowed on the next start
-  where an earlier version left them wider. The engine runs with `umask 077`.
+  scratch files likewise — whatever the umask. Where an earlier version left
+  them wider: the inventory and the manifests are narrowed at the next start, a
+  session directory the next time its agent runs, attachments as they are
+  written (old ones keep their mode until the retention sweep removes them).
+  The engine refuses to write through a symbolic link in those directories. The engine runs with `umask 077`.
 - **Conversation memory can have a lifetime.** `PI_SESSION_RETENTION_DAYS=N`
   makes the engine forget, at startup, every conversation idle for N days or
   more — its record and the runtime's files, what `impi sessions purge-idle`
-  does by hand. Off by default: memory is kept until deleted, as before.
+  does by hand. Off by default: memory is kept until deleted, as before. The
+  files of an agent in a container of its own live in that container's
+  volume and are not reached; only its record goes. A record whose time does
+  not parse is kept, and a failing sweep is logged, not fatal.
 - **Extensions load by name, not by presence.** Every
   `AGENTS_PATH/_extensions/<name>/index.ts` used to load into every agent's
   runtime for being there — and the agents directory is writable by any agent
@@ -127,22 +160,45 @@ when a release is cut, and `impi update` shows the target version's section.
   of the old volume once (the volume is left in place); `impi doctor` says
   whether the file is there. **Breaks:** where the credential lives, and
   `impi agent sync` must be re-run for agent containers.
+  The directory the credential is bound into is memory of the container's own,
+  so `pi` can take the lock it keeps beside `auth.json`. The file itself stays
+  shared and writable — a token refresh writes it in place — so `pi` is not
+  started, in the engine or in an agent's container, while it holds a value
+  `pi` would run as a command (a key beginning with `!`): no login writes one,
+  and an agent with a shell could. Each container now locks on its own, so two
+  refreshing the same expired token at once may race; the next login settles
+  it. `impi start`/`update` carry the credential alone out of the old volume
+  (and list what they left: an agent could have planted `settings.json` or
+  `extensions/` there), keep `auth.json` a file so a container cannot turn it
+  into a directory, and `impi update` re-renders agent containers itself;
+  `impi doctor` names a generated file that still mounts `pi-auth`. **Breaks:** an agent
+  container no longer sees `~/.pi/agent/models.json` or `settings.json`; a
+  custom endpoint reaches it through `LLM_*`, anything else through a
+  `compose.d/` bind into that agent's service.
 - **A tool's confirmation card is answered by the person who asked the
   agent.** Anyone in the conversation could answer it; in a shared channel
   that let the stranger who talked the model into a call approve it too. The
   card is now addressed to the person whose message started the turn, or to
   the people `TOOL_APPROVERS` names (CSV of platform user ids) when the
-  deployment sets it; a run nobody started — a scheduled task — is still
-  answered by anyone in the conversation. A click from anyone else is told so
+  deployment sets it. In a burst of messages merged into one turn the card
+  goes to the newest one's author; a scheduled task's turn to whoever
+  scheduled it; a conversation that names no person, to anyone in it.
+  `TOOL_APPROVERS` is one set for every agent and gateway, so name the ids
+  from each platform the agents run on. A click from anyone else is told so
   privately and the card stays live. **Breaks:** a colleague in the thread can
   no longer approve on the asker's behalf unless named in `TOOL_APPROVERS`.
+- **An agent in a container of its own can find the browser.** Its process
+  inherits that container's environment, and the generated service never
+  carried `BROWSER_CDP_URL`; with both axes on, the web-browsing skill found
+  no browser. `impi agent sync` now writes it when the browser axis is on.
 - **`pi` 0.85.1.** The runtime moves from 0.80.3 to the version the
   third-party assessment was made against; every fact in
   `docs/runtime-notes.md` was re-verified live (tools, skills, the gate, a
   cancelled turn, memory, the http gateway end to end). One difference
   absorbed in the driver: since 0.82 a turn the engine aborts ends with
   `stopReason: error` and "This operation was aborted" instead of
-  `aborted`; it is read as the cancel it is, so an interrupted turn no
+  `aborted`; when the engine sent the abort, it is read as the cancel it is
+  (the same words from an aborted provider request stay an error), so an interrupted turn no
   longer surfaces as a provider error and the session is kept. `make pi-lock`
   now fills the integrity hashes the runtime's own shrinkwrap leaves out, so a
   bump stays one edit and one command.

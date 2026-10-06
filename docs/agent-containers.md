@@ -51,8 +51,9 @@ indistinguishable, from a user's side, from an agent that has forgotten
 everybody. The originals are left in place, so it is safe to run and safe to
 check afterwards.
 
-`sync` is the command to re-run whenever the set of agents changes, or what one
-is built with changes. It:
+`sync` is the command to re-run whenever the set of agents changes, what one
+is built with changes, or `RUNTIME_EXTENSIONS` changes (the names are written
+into each agent's service). It:
 
 1. asks the engine what each agent needs (it is what reads the profiles);
 2. writes `~/.impi/conf/agents.compose.yaml`, a Dockerfile per agent, and a
@@ -81,6 +82,7 @@ Then, one volume each and nobody else's:
 | `/app/sessions` | its conversation memory | nobody |
 | `/app/files/<name>` | its own files, in and out | the engine |
 | `/home/impi/.pi/agent/auth.json` | the model credential, one file | every agent — see below |
+| `/app/agents/_extensions` | the extensions `RUNTIME_EXTENSIONS` names, read-only; absent when it names none | every agent |
 
 `AGENT_FILES_DIR` names the fourth one in the agent's environment. It is where
 an attachment arrives and where anything the agent means to send should be
@@ -95,6 +97,12 @@ because every agent needs it to call a model. The rest of pi's home —
 tmpfs of that container's own: written by one agent, it reaches no other and
 is gone at the next restart. So this axis separates agents from each other's
 *data* and *configuration*, not from the deployment's model account.
+
+Two consequences of sharing the file. An agent with a shell can overwrite it
+(`pi` is not started anywhere while it holds a value `pi` would run as a
+command, the one way that would reach other containers' processes). And each
+container takes its own lock on it, so two refreshing an expired token at the
+same moment can race; `impi login` puts it right.
 
 ## Giving one agent something the others do not have
 

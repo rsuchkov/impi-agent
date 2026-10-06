@@ -13,9 +13,14 @@ Who may answer: the people the deployment names (``approvers``), or — when it
 names nobody — the person whose message started the turn. The model reads
 text strangers wrote, and in a shared channel the stranger who talked it into
 a call must not be the one who approves it; the person who asked the agent is
-the one the question is addressed to. A memoryless run has no such person, and
-then anyone in the conversation may answer, as the blocking confirm always
-allowed. A credential, by contrast, is always addressed to named approvers.
+the one the question is addressed to. Precisely: the person whose message the turn answers (in a burst of messages merged
+into one turn, the newest one's author; a scheduled task's turn, the person
+who scheduled it); a conversation that names no person at all is answered
+by anyone in it. A memoryless run has no conversation to post a card in, so
+a gated tool there is refused outright.
+`TOOL_APPROVERS` is one set for every agent and gateway — name ids from each
+platform the agents run on. A credential, by contrast, is always addressed to
+named approvers.
 That difference is one argument to the shared registry.
 
 And a window is that conversation's. The people who were asked are the people
@@ -169,9 +174,9 @@ class ToolGate:
             return None
 
         token = tokens.token_hex(16)
-        # The record's last user is whoever's message this turn answers; a run
-        # with no such person (a scheduled task) leaves the set empty, which
-        # the registry reads as anyone in the conversation.
+        # The record's last user is whoever's message this turn answers (the
+        # newest of a merged burst; a scheduled turn's creator). A record that
+        # never had a user leaves the set empty: anyone in the conversation.
         who = self._approvers or (
             frozenset({record.last_user_id}) if record.last_user_id else frozenset()
         )

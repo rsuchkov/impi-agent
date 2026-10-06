@@ -119,3 +119,27 @@ async def test_without_a_secret_the_bare_routes_answer_and_a_warning_is_logged(
     finally:
         await server.stop()
         await store.close()
+
+
+async def test_the_right_secret_on_a_wrong_route_is_not_a_refusal_and_is_never_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A GET on the right URL, a trailing slash, an unknown endpoint under the
+    secret: aiohttp's 404/405, never a 403 — and the secret stays out of the log
+    whatever happens."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server = await _server(8706, store, secret=SECRET)
+    try:
+        with caplog.at_level(logging.WARNING, logger="crucible.interactions.server"):
+            async with aiohttp.ClientSession() as s:
+                async with s.get(f"http://127.0.0.1:8706/{SECRET}/interact") as r:
+                    assert r.status == 405
+                async with s.post(f"http://127.0.0.1:8706/{SECRET}/nothing", json={}) as r:
+                    assert r.status == 404
+                async with s.post("http://127.0.0.1:8706/wrong-but-long-enough/interact", json={}) as r:
+                    assert r.status == 403
+        assert SECRET not in caplog.text
+        assert "/<?>/interact refused" in caplog.text
+    finally:
+        await server.stop()
+        await store.close()

@@ -86,9 +86,10 @@ agent's allowlist).
 
 What the engine does about it today:
 
-- it says so at startup and in `impi health`, by name, whenever more than one
-  agent runs in its process space and any of them has a shell-like built-in
-  (`bash`, `read`, `grep`, `edit`);
+- it says so at startup and in `impi health`, by name, whenever a user's agent
+  with a shell-like built-in (`bash`, `read`, `grep`, `edit`) runs in its process
+  space — one is enough, since the engine itself and `support` are always its
+  neighbours;
 - every process it starts proves itself, a memoryless run included, and a
   call that names no session is refused — a shell calling the server by hand
   with a token it found has to also name a live session and its proof;
@@ -131,9 +132,9 @@ The honest summary, for an agent that has a shell:
 | another agent's profile and memory | yes | no |
 | another agent's broker certificate | yes | no |
 | the engine's `.env` (every chat token), with `read` | yes | no |
-| the engine's tokens in its own environment | no (granted names only) | no |
+| the engine's own environment, via `/proc/<pid>/environ` | yes — little in it under compose, where secrets stay in `conf/.env`; everything if the deployment puts them in the environment | no |
 | another process's tool token / session proof | yes | only its own processes |
-| the chat server directly (not through tools) | yes | no |
+| the chat server directly (not through tools) | yes | a co-deployed Mattermost: no; an external or hosted one is reachable by URL like any internet host |
 | the model provider's credential | yes | yes (shared) |
 | the host's filesystem outside the mounts | no | no |
 
@@ -222,7 +223,7 @@ decisions an operator makes.
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
 | per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks; a call naming no session is refused |
 | a tool's confirmation is addressed to the person who asked | a stranger who talked the model into a call in a shared channel cannot approve it; `TOOL_APPROVERS` names people instead |
-| the shared-process warning | at startup and in `impi health`: which agents with a shell share the engine's process space, if more than one does |
+| the shared-process warning | at startup and in `impi health`: which user agents with a shell run in the engine's process space |
 | `returns_untrusted` wrapping | other people's text arrives marked as such |
 | the prompt envelope is tagged per turn and quotes are escaped | a message cannot close a context block or pose as another speaker; the model is told so in its system prompt |
 | contained card text | what a caller supplies is content, never structure (newlines, fences, bidi) |
@@ -267,8 +268,14 @@ Things the design does not solve, stated so nobody relies on them by accident.
   declared, so for an honest caller the card shows what runs; anything else in
   the container can claim any argv. A rule narrows what an honest caller may do
   quietly and is worth nothing against a compromised container.
-- **The runtime's model credential is shared.** Every agent calls the model as
-  the same account; a container per agent separates data, not that.
+- **The runtime's model credential is shared, and writable.** Every agent calls
+  the model as the same account, and its container is handed the credential
+  file read-write so a token refresh can land. An agent with a shell can
+  therefore overwrite it — log everyone out, or swap in another account. The
+  one thing that would turn that into code running elsewhere, a key `pi` would
+  execute (`!…`), stops every process from starting instead. Each container
+  locks the file on its own, so two refreshing an expired token at once can
+  race.
 - **The engine does not restrict egress** and does not encrypt session files
   at rest; both are the deployment's.
 - **Prompt injection is bounded, not eliminated.** The allowlist, the gate and

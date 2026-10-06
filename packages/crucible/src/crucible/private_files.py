@@ -22,6 +22,11 @@ def private_dir(path: Path) -> Path:
     """Create ``path`` (and its parents) and make it the owner's alone. The
     parents keep what they had: only the directory asked for is narrowed."""
     path.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        # A volume an agent can write may hold a link planted where the engine
+        # is about to put files; narrowing or writing through it would act on
+        # whatever it points at.
+        raise OSError(f"{path} is a symbolic link; not writing through it")
     _narrow(path, DIR_MODE)
     return path
 
@@ -29,7 +34,7 @@ def private_dir(path: Path) -> Path:
 def private_file(path: Path) -> Path:
     """Make sure ``path`` exists as a file only its owner can read, without
     touching its content — for a file something else is about to open."""
-    descriptor = os.open(path, os.O_CREAT | os.O_WRONLY, FILE_MODE)
+    descriptor = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, FILE_MODE)
     os.close(descriptor)
     _narrow(path, FILE_MODE)
     return path

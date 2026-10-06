@@ -33,5 +33,5 @@ class AgentSpec:
     # locale, proxies, certificates). A runtime process is handed what the
     # engine grants it, never everything the engine happens to hold: the
     # difference is the engine's entire secret set. Globs are allowed
-    # (``MYSERVICE_*``).
-    env: tuple[str, ...] = ()
+    # (``MYSERVICE_*``), checked by ``inherited_env.check_inherited_env``.
+    inherit: tuple[str, ...] = ()

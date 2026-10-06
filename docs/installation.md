@@ -46,7 +46,7 @@ inside the clone, which walks you through:
 5. **Interactivity** — button/form widgets (recommended on).
 6. **Model backend** — an OpenAI-compatible endpoint (base URL + API key), or
    pi's subscription login (an interactive `/login` inside the container;
-   credentials persist in a volume).
+   the credential lands in `~/.impi/pi/agent/auth.json` on the host).
 
 Everything is summarized before anything is written. The full log lands in
 `$IMPI_HOME/install.log`.
@@ -66,7 +66,7 @@ Everything is summarized before anything is written. The full log lands in
 ```
 
 The engine runs as the `impi` compose service built from `deploy/Dockerfile`
-(Python 3.13 + Node 22 + the `pi` CLI, installed from `deploy/pi/package.json`
+(Python 3.13 + Node 22 + `ripgrep` and `fd` for pi's `grep`/`find` + the `pi` CLI, installed from `deploy/pi/package.json`
 and its lockfile with every dependency pinned by hash and install scripts
 ignored; the base images are pinned by digest). Engine state lives in the
 `impi-data` volume; pi's home — the model credential — is `~/.impi/pi` on the
@@ -171,7 +171,10 @@ services:
       - /home/impi/.cache:mode=1777,size=64m
 ```
 
-(A drop-in's `tmpfs` list replaces the generated one, so `/tmp` is repeated.)
+(Depending on the compose implementation a drop-in's `tmpfs` list is merged
+with the generated one or replaces it; repeating `/tmp` and the generated
+entries is harmless in the first case and keeps the drop-in correct in the
+second.)
 Rootless podman needs no adjustment: `keep-id` and a read-only root compose,
 and `mode=` rather than `uid=` on the tmpfs is deliberate — podman supports no
 owner on one.

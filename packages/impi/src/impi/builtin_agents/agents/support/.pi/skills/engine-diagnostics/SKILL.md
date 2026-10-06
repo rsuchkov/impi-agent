@@ -107,8 +107,24 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
 - A confirmation card left waiting no longer ends the turn: the turn's timeout
   stops while the gate waits. A turn that times out while a card is up has some
   other cause.
+- **An agent answers but remembers nothing of an old conversation** — besides
+  a skipped migration (agent containers), `PI_SESSION_RETENTION_DAYS` may have
+  forgotten it at startup: the log says `forgot N conversation(s) idle for D+
+  days`, and only idle ones go.
 
 ## 3. A tool is missing or refused
+
+- **A skill says something is not configured that plainly is** — a user's
+  agent's process inherits only a base set (PATH, HOME, locale, proxies,
+  certificates, `PI_*`) plus what is named: `runtime.env` in its `agent.yaml`
+  (or `AGENTS_ENV__<NAME>`) and `RUNTIME_ENV` / `RUNTIME_ENV__*` for every agent.
+  Name the variable there. You inherit everything yourself, so do not test it
+  from your own shell.
+- **Someone clicked Allow on a tool's card and was told only an approver can
+  answer** — the card is addressed to the person whose message started the
+  turn, or to `TOOL_APPROVERS` when set (log: `approval … may not answer
+  for …`). Working as designed; the card stays live for the right person. If
+  colleagues should be able to approve, name them in `TOOL_APPROVERS`.
 
 In order:
 
@@ -123,7 +139,7 @@ In order:
 A tool added to a profile applies on **reload**; a `403 forbidden` right after
 an edit means the change was not applied yet.
 
-Four other 403s say what happened in the body. From the confirmation gate:
+Five other 403s say what happened in the body. From the confirmation gate:
 
 - `declined by the user` — the tool declares `requires_confirmation`, the card
   went out, and the answer was Deny or nobody answered in time. A human can
@@ -152,6 +168,17 @@ And from the session check:
   The engine's own runtime always has it; this is a stale process from before
   a restart, or something in the agent's container calling the tool server by
   hand. Not a configuration problem.
+
+### What `impi health` may add
+
+- `! agents X, Y run in the engine's own process space with a shell …` — not a
+  bug: those agents can read the environment of every process in the engine's
+  container. The answer is a container per agent, or no shell for them
+  (`$IMPI_ROOT/docs/security.md`).
+- `receiver secret missing (INTEGRATIONS_SECRET)` — the engine mints one on its
+  next start; slash commands are then re-registered under the URL health prints.
+- `extensions in …: a, b; enabled (RUNTIME_EXTENSIONS): none` — an extension
+  in `_extensions/` loads only when named in `RUNTIME_EXTENSIONS`.
 
 ## 4. Widgets, forms or commands never arrive
 

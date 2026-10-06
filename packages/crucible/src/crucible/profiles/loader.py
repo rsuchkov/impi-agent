@@ -8,21 +8,16 @@ settings) that the engine never reads.
 """
 
 import logging
-import re
 from collections.abc import Callable
 from pathlib import Path
 
 import yaml
 
 from crucible.ports.agent import AgentSpec
+from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.profiles.errors import ProfileError
 
 logger = logging.getLogger(__name__)
-
-
-# What may appear in runtime.env: a variable name, or one with a trailing or
-# embedded `*` so a family (`MYSERVICE_*`) can be named at once.
-ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_*]*")
 
 
 # A skill from the shared library rather than the agent's own directory.
@@ -80,7 +75,7 @@ class FsProfileStore:
         default_provider: str = "",
         default_model: str = "",
         skills_override: Callable[[str], tuple[str, ...] | None] | None = None,
-        env_override: Callable[[str], tuple[str, ...] | None] | None = None,
+        inherit_override: Callable[[str], tuple[str, ...] | None] | None = None,
         # REQUIRED, with no default on purpose. It had one, and two of the three
         # places that build a store forgot to pass it — one of them for five
         # releases, because the store works perfectly until a profile happens to
@@ -99,7 +94,7 @@ class FsProfileStore:
         self._skills_override = skills_override
         # Same shape for the environment names an agent inherits: a set value
         # replaces the agent.yaml list, None keeps it.
-        self._env_override = env_override
+        self._inherit_override = inherit_override
         # Resolves a shared-library skill name to its directory (None = unknown).
         # A callback for the same reason: the library lives in config, not here.
         self._library = library
@@ -175,14 +170,13 @@ class FsProfileStore:
         env_names = runtime.get("env") or []
         if not isinstance(env_names, list) or not all(isinstance(e, str) for e in env_names):
             raise ProfileError(f"{manifest}: runtime.env must be a list of variable names")
-        env_override = self._env_override(name) if self._env_override else None
-        inherit = env_override if env_override is not None else tuple(env_names)
+        inherit_override = self._inherit_override(name) if self._inherit_override else None
+        inherit = inherit_override if inherit_override is not None else tuple(env_names)
         for pattern in inherit:
-            if not ENV_NAME_RE.fullmatch(pattern):
-                raise ProfileError(
-                    f"{manifest}: runtime.env entry {pattern!r} is not a variable name "
-                    "(letters, digits, '_', optionally '*')"
-                )
+            try:
+                check_inherited_env(pattern)
+            except ValueError as exc:
+                raise ProfileError(f"{manifest}: runtime.env entry {exc}") from exc
         timeout = runtime.get("timeout", self._default_timeout)
         if not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ProfileError(f"{manifest}: runtime.timeout must be a positive number")
@@ -199,5 +193,5 @@ class FsProfileStore:
             timeout=float(timeout),
             tools=tuple(tools),
             skills=skill_paths,
-            env=inherit,
+            inherit=inherit,
         )

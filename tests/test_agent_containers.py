@@ -30,7 +30,7 @@ from impi.agent_containers import (
 
 @pytest.fixture(autouse=True)
 def _home_is_the_tmp_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`sync` makes sure the credential file exists under the user's home; a test
+    """`sync` makes sure the auth_file file exists under the user's home; a test
     must never reach the developer's own."""
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "home"))
 
@@ -480,7 +480,13 @@ def test_an_agent_container_is_read_only_with_a_scratch_tmp_and_no_capabilities(
     parsed = yaml.safe_load(_rendered())
     service = parsed["services"][f"{SERVICE_PREFIX}assistant"]
     assert service["read_only"] is True
-    assert service["tmpfs"] == ["/tmp:mode=1777,size=256m", "/home/impi/.pi:mode=1777,size=16m"]
+    assert service["tmpfs"] == [
+        "/tmp:mode=1777,size=256m",
+        "/home/impi:mode=1777,size=128m",
+        "/home/impi/.pi:mode=1777,size=16m",
+        # writable, so the runtime can lock beside the bound auth_file
+        "/home/impi/.pi/agent:mode=1777,size=16m",
+    ]
     assert service["cap_drop"] == ["ALL"]
     assert service["security_opt"] == ["no-new-privileges:true"]
     assert service["pids_limit"] == 512
@@ -503,7 +509,7 @@ def test_sync_enables_only_the_named_extensions_that_exist(tmp_path: Path) -> No
     assert "clock" not in text and "missing" not in text
 
 
-def test_an_agent_is_handed_the_credential_file_and_not_the_runtimes_home() -> None:
+def test_an_agent_is_handed_the_auth_file_and_not_the_runtimes_home() -> None:
     """settings.json and extensions/ in pi's home load into every runtime that
     shares it; an agent's container gets the one file it needs, over a home of
     its own in memory."""
@@ -514,19 +520,29 @@ def test_an_agent_is_handed_the_credential_file_and_not_the_runtimes_home() -> N
     assert "pi-auth" not in parsed.get("volumes", {})
 
 
-def test_sync_makes_sure_the_credential_file_exists_before_anything_is_bound_to_it(tmp_path: Path) -> None:
+def test_sync_makes_sure_the_auth_file_exists_before_anything_is_bound_to_it(tmp_path: Path) -> None:
     from impi.agent_containers import sync
 
-    credential = tmp_path / "pi" / "agent" / "auth.json"
+    auth_file = tmp_path / "pi" / "agent" / "auth.json"
     sync(
         [_spec(tmp_path, "assistant")], dotenv_path=tmp_path / ".env", conf_dir=tmp_path / "conf",
-        agents_path=tmp_path / "agents", credential=credential,
+        agents_path=tmp_path / "agents", auth_file=auth_file,
     )
-    assert credential.is_file() and credential.stat().st_size == 0
-    assert stat.S_IMODE(credential.stat().st_mode) == 0o600
-    credential.write_text("{\"kept\": true}")
+    assert auth_file.is_file() and auth_file.stat().st_size == 0
+    assert stat.S_IMODE(auth_file.stat().st_mode) == 0o600
+    auth_file.write_text("{\"kept\": true}")
     sync(
         [_spec(tmp_path, "assistant")], dotenv_path=tmp_path / ".env", conf_dir=tmp_path / "conf",
-        agents_path=tmp_path / "agents", credential=credential,
+        agents_path=tmp_path / "agents", auth_file=auth_file,
     )
-    assert credential.read_text() == "{\"kept\": true}"  # an existing one is left alone
+    assert auth_file.read_text() == "{\"kept\": true}"  # an existing one is left alone
+
+
+def test_with_a_browser_an_agent_container_is_told_where_it_is() -> None:
+    """The agent's process inherits its own container's environment; the
+    address the overlay gives the engine does not reach it."""
+    parsed = yaml.safe_load(_rendered(with_browser=True))
+    assert parsed["services"][f"{SERVICE_PREFIX}assistant"]["environment"]["BROWSER_CDP_URL"] == (
+        "http://browser:9222"
+    )
+    assert "BROWSER_CDP_URL" not in _rendered()

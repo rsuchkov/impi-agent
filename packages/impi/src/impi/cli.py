@@ -21,6 +21,7 @@ from pathlib import Path
 import httpx
 
 from crucible import sessions_cli
+from crucible.gateways.factory import needs_http_receiver
 from crucible.ports.tasks import TaskError
 from crucible.profiles.errors import ProfileError
 from crucible.profiles.loader import FsProfileStore
@@ -346,7 +347,7 @@ def _cmd_agent_render(args: argparse.Namespace) -> int:
             certs_dir=Path(certs) if certs else None,
             extensions=settings.runtime_extension_names(),
         )
-    except RenderError as exc:
+    except (RenderError, ValueError) as exc:
         _fail(str(exc))
         return 2
     for note in notes:
@@ -713,7 +714,17 @@ def _cmd_health(args: argparse.Namespace) -> int:
     except httpx.HTTPError as exc:
         _fail(f"Mattermost unreachable ({settings.mattermost_url}): {exc}")
         failures += 1
-    if settings.gateway == "mattermost" and settings.integrations.enabled:
+    # Per agent, as the engine decides it: a deployment on Slack with one agent
+    # on Mattermost still builds a receiver, and it needs its secret too.
+    try:
+        user_names = [s.name for s in open_profile_stores(settings, _library(args))[0].list()]
+    except ProfileError:
+        user_names = []
+    configs = [resolve_gateway(settings, name) for name in user_names]
+    needs_receiver = settings.gateway == "mattermost" or any(
+        cfg is not None and needs_http_receiver(cfg.kind) for cfg in configs
+    )
+    if needs_receiver and settings.integrations.enabled:
         # The receiver's secret: without it, anything that reaches the port can
         # click a card or submit a form as any user it names.
         if settings.integrations_secret:
@@ -753,7 +764,13 @@ def _cmd_health(args: argparse.Namespace) -> int:
         if shared:
             _warn(SHARED_PROCESS_WARNING % ", ".join(shared))
         ext_root = Path(settings.agents_path) / "_extensions"
-        present, enabled = agents_dir_extensions(ext_root, settings.runtime_extension_names())
+        try:
+            names = settings.runtime_extension_names()
+        except ValueError as exc:
+            _fail(str(exc))
+            failures += 1
+            names = ()
+        present, enabled = agents_dir_extensions(ext_root, names)
         if present:
             _ok(f"extensions in {ext_root}: {', '.join(present)}; enabled (RUNTIME_EXTENSIONS): "
                 f"{', '.join(enabled) or 'none'}")

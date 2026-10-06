@@ -177,22 +177,21 @@ _SHELL_LIKE = frozenset({"bash", "read", "grep", "edit"})
 def shared_process_agents(
     specs: Sequence[AgentSpec], *, in_process: Callable[[str], bool]
 ) -> tuple[str, ...]:
-    """The agents that share the engine's process space with others AND can
-    read a neighbour's environment — the tool token and session proofs of
-    every other agent running here. Empty when at most one agent runs here,
-    or none of those running here has a shell: then the secrets are only in
-    the hands of their owners. See docs/security.md."""
-    here = [spec for spec in specs if in_process(spec.name)]
-    if len(here) < 2:
-        return ()
-    return tuple(sorted(spec.name for spec in here if _SHELL_LIKE & set(spec.tools)))
+    """The user's agents that run in the engine's process space AND can read a
+    neighbour's environment. One is enough: the engine itself and its own
+    agent (support) are always neighbours, and their environments are the
+    engine's. Empty when every agent with a shell runs in a container of its
+    own. See docs/security.md."""
+    return tuple(sorted(
+        spec.name for spec in specs if in_process(spec.name) and _SHELL_LIKE & set(spec.tools)
+    ))
 
 
 SHARED_PROCESS_WARNING = (
     "agents %s run in the engine's own process space with a shell: each can read "
-    "the tool token and session proofs of every other agent running here "
-    "(/proc/<pid>/environ). The boundary is a container per agent — "
-    "docs/security.md, docs/agent-containers.md"
+    "the environment of every other process here — the engine's own, support's, "
+    "every other agent's tool token and session proofs (/proc/<pid>/environ). The "
+    "boundary is a container per agent — docs/security.md, docs/agent-containers.md"
 )
 
 
@@ -474,7 +473,7 @@ def build_app(settings: ImpiSettings) -> App:
         evict_idle_on_pressure=settings.pi_evict_idle_on_pressure,
         session_proofs=session_proofs,
         extra_env=build_pi_env(settings),
-        inherit=settings.runtime_env(),
+        inherit=settings.runtime_env_names(),
         extra_extensions=build_pi_extensions(settings),
         ui_bridge=interactions.ui_bridge,
         hosts=hosts,
@@ -745,9 +744,15 @@ async def run(settings: ImpiSettings) -> None:
     if settings.pi_session_retention_days > 0:
         # Before anything runs: nothing is live yet, so nothing can be using
         # the memory being forgotten.
-        forgotten_sessions = await purge_idle(
-            settings, app.sessions, days=settings.pi_session_retention_days
-        )
+        try:
+            forgotten_sessions = await purge_idle(
+                settings, app.sessions, days=settings.pi_session_retention_days
+            )
+        except Exception:
+            # Forgetting is housekeeping: a store that cannot answer it must
+            # not keep the engine from serving.
+            logger.exception("could not forget idle conversations; carrying on")
+            forgotten_sessions = []
         if forgotten_sessions:
             logger.info("forgot %d conversation(s) idle for %d+ days", len(forgotten_sessions),
                         settings.pi_session_retention_days)

@@ -477,3 +477,29 @@ def test_health_lists_the_extensions_present_and_enabled(
     assert cli.main(["health"]) == 0
     out = capsys.readouterr().out
     assert "jira, planted; enabled (RUNTIME_EXTENSIONS): jira" in out
+
+
+def test_health_reports_a_bad_extension_name_instead_of_crashing(
+    monkeypatch, _isolated_env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli.httpx, "get", lambda url, timeout: _Pong())
+    (Path(_isolated_env).parent / "profiles" / "agents").mkdir(parents=True)
+    _isolated_env.write_text(
+        "GATEWAY=mattermost\nINTEGRATIONS_SECRET=k2Xy8qLmN0pRsTuVwZ\nRUNTIME_EXTENSIONS=../x\n"
+    )
+    assert cli.main(["health"]) == 1
+    assert "RUNTIME_EXTENSIONS" in capsys.readouterr().err
+
+
+def test_health_checks_the_receiver_secret_when_one_agent_is_on_mattermost(
+    monkeypatch, _isolated_env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli.httpx, "get", lambda url, timeout: _Pong())
+    root = Path(_isolated_env).parent / "profiles" / "agents" / "alpha"
+    root.mkdir(parents=True)
+    (root / "agent.yaml").write_text("name: alpha\nrole: r\n", encoding="utf-8")
+    _isolated_env.write_text(
+        "GATEWAY=slack\nAGENTS_GATEWAY__ALPHA=mattermost\nAGENTS_MM_TOKEN__ALPHA=t\n"
+    )
+    assert cli.main(["health"]) == 1
+    assert "INTEGRATIONS_SECRET" in capsys.readouterr().err

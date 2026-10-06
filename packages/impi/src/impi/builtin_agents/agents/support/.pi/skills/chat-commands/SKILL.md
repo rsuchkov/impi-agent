@@ -43,7 +43,7 @@ Request method must be **POST**. `<URL>` is one of:
 - `<INTEGRATIONS_PUBLIC_URL>/<INTEGRATIONS_SECRET>/command/<agent>` — the path
   names the agent, because a Mattermost payload does not say which bot it is
   meant for; the secret segment is what says the request came from Mattermost
-  (the receiver answers 403 off it). `impi health` prints the exact URL; the
+  (the receiver answers 403 off it). `impi health` prints the URL (with `<agent>` to fill in); the
   secret is in `$DOTENV_PATH`, minted by the engine on its first start;
 - `<INTEGRATIONS_PUBLIC_URL>/<INTEGRATIONS_SECRET>/command/default` — the engine picks: the only agent
   running, or the one `AGENT_NAME` names when several run. The startup log line
@@ -101,6 +101,7 @@ Read the engine log and match the line:
 | `command for <agent> …` then a normal turn | it worked; the word simply isn't a screen |
 | `screen <word> opened for <agent>` | the engine answered it itself |
 | `agent <x> has no live presence` | the agent isn't running — no token, or not enumerated |
+| `callback to /<?>/… refused: not on the receiver's secret path` | registered without, or with an old, `INTEGRATIONS_SECRET` — re-register under the URL `impi health` prints |
 | nothing at all | the request never arrived: URL, port, or the Mattermost outbound block |
 
 A command posts its answer into the conversation it was invoked from; the

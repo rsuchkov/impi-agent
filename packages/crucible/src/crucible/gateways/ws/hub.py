@@ -143,7 +143,7 @@ class WsHub:
 
     # -- inbound ---------------------------------------------------------------
 
-    def _lookup(self, presented: str) -> tuple[str, tuple[str, ...] | None] | None:
+    def _service_for_token(self, presented: str) -> tuple[str, tuple[str, ...] | None] | None:
         """Constant-time per token, every token compared: a lookup that stops
         at the first match tells a guesser how far it got. Bytes, not str —
         compare_digest refuses a non-ASCII str, and a header is whatever the
@@ -156,7 +156,7 @@ class WsHub:
 
     async def _handle(self, request: web.Request) -> web.StreamResponse:
         token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-        entry = self._lookup(token)
+        entry = self._service_for_token(token)
         if entry is None:
             return web.Response(status=401, text="unknown service token")
         service, allow = entry

@@ -106,3 +106,34 @@ async def test_idle_conversations_are_forgotten_record_and_files(tmp_path: Path)
         assert await purge_idle(settings, store, days=30) == []
     finally:
         await store.close()
+
+
+def test_a_planted_link_is_not_written_through(tmp_path: Path) -> None:
+    """A volume an agent can write may hold a link where the engine is about to
+    put files; the engine refuses rather than act on whatever it points at."""
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    target.chmod(0o755)
+    (tmp_path / "conv").symlink_to(target)
+    with pytest.raises(OSError, match="symbolic link"):
+        private_dir(tmp_path / "conv")
+    assert _mode(target) == 0o755
+    (tmp_path / "f").symlink_to(target / "victim")
+    with pytest.raises(OSError):
+        private_file(tmp_path / "f")
+    assert not (target / "victim").exists()
+
+
+async def test_a_record_whose_time_does_not_parse_is_kept_and_does_not_stop_the_sweep(
+    tmp_path: Path,
+) -> None:
+    from crucible.sessions_cli import _idle_before
+    from crucible.store.base import SessionRecord
+
+    cutoff = datetime.now(timezone.utc)
+    def rec(last: str) -> SessionRecord:
+        return SessionRecord(agent="a", channel_id="c", conversation_id="x", kind="dm",
+                             runtime_session_id="a--x", created_at=last, last_active=last)
+    assert _idle_before(rec("not a time"), cutoff) is False
+    assert _idle_before(rec("2020-01-01T00:00:00"), cutoff) is True  # naive: read as UTC
+    assert _idle_before(rec("2999-01-01T00:00:00+00:00"), cutoff) is False

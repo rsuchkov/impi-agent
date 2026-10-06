@@ -184,7 +184,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/skills.md](docs/skills.md) — the shared skill library and `/skills`.
 - [docs/tasks.md](docs/tasks.md) — scheduled and recurring work, and why a run didn't happen.
 - [docs/secrets.md](docs/secrets.md) — credentials an agent can use but never read.
-- [docs/security.md](docs/security.md) — the boundaries, where data and credentials go, the hardening checklist.
+- [docs/security.md](docs/security.md) — the boundaries, where data and credentials go, the hardening checklist ([SECURITY.md](SECURITY.md): reporting a vulnerability).
 - [docs/browsing.md](docs/browsing.md) — a real browser the agents drive, and what isolates it.
 - [docs/agent-containers.md](docs/agent-containers.md) — a container per agent, and what that isolates.
 - [docs/tool-trace.md](docs/tool-trace.md) — the message above a reply that lists the tools the turn ran.

@@ -93,8 +93,8 @@ class InteractionDispatcher:
 
         Tried before every other click path, because it is the only one whose
         answer may depend on WHO clicked. Whether it does is per request: a
-        credential names its approvers, a tool call takes anyone in the
-        conversation. A click from somebody outside a named set is reported
+        credential names its approvers, a tool call the person who asked (or
+        TOOL_APPROVERS). A click from somebody outside a named set is reported
         back rather than falling through to a handler that does not check.
         """
         if not token or self._approvals is None:

@@ -6,15 +6,16 @@ with no integrity hash is a package npm would install without checking.
 """
 
 import json
-import subprocess
 import sys
+import urllib.parse
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
 PI_DIR = Path(__file__).resolve().parent.parent / "deploy" / "pi"
 
 
-def problems() -> list[str]:
+def lock_problems() -> list[str]:
     manifest = json.loads((PI_DIR / "package.json").read_text(encoding="utf-8"))
     lock = json.loads((PI_DIR / "package-lock.json").read_text(encoding="utf-8"))
     packages = lock.get("packages", {})
@@ -44,7 +45,7 @@ def fill_integrity(fetch: Callable[[str], str] | None = None) -> list[str]:
     filled: list[str] = []
     for key, entry in lock.get("packages", {}).items():
         if key and not entry.get("link") and "integrity" not in entry:
-            name = key.split("node_modules/")[-1]
+            name = entry.get("name") or key.split("node_modules/")[-1]
             spec = f"{name}@{entry['version']}"
             integrity = fetch(spec)
             if not integrity.startswith("sha512-"):
@@ -57,14 +58,19 @@ def fill_integrity(fetch: Callable[[str], str] | None = None) -> list[str]:
 
 
 def _registry_integrity(spec: str) -> str:
-    return subprocess.check_output(["npm", "view", spec, "dist.integrity"], text=True).strip()
+    """From the registry itself, so a host without npm (the Makefile's container
+    fallback) can fill too."""
+    name, _, version = spec.rpartition("@")
+    url = f"https://registry.npmjs.org/{urllib.parse.quote(name, safe='@/')}/{version}"
+    with urllib.request.urlopen(url, timeout=30) as response:
+        return str(json.load(response)["dist"]["integrity"])
 
 
 def main() -> int:
     if "--fill" in sys.argv[1:]:
         for spec in fill_integrity():
             print(f"integrity filled from the registry: {spec}")
-    found = problems()
+    found = lock_problems()
     for line in found:
         print(f"✘ {line}")
     if not found:

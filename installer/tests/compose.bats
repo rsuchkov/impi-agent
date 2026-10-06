@@ -513,20 +513,33 @@ _pi_auth_setup() {
     [ -d "$IMPI_HOME/pi/agent" ]
 }
 
-@test "migrate_pi_auth copies the volume out once and says so" {
+@test "migrate_pi_auth carries the credential alone and names what it left" {
     _pi_auth_setup
     container_runtime() { echo "$BATS_TEST_TMPDIR/rt"; }
     printf '#!/bin/sh\nexit 0\n' > "$BATS_TEST_TMPDIR/rt"; chmod +x "$BATS_TEST_TMPDIR/rt"
     compose() {
         case "$*" in
-            *"-v impi_pi-auth:/app/migrate:ro"*) mkdir -p "$IMPI_HOME/pi/agent"; printf '{"t":1}' > "$IMPI_HOME/pi/agent/auth.json"; echo MIGRATED=1 ;;
+            *"-v impi_pi-auth:/app/migrate:ro"*)
+                mkdir -p "$IMPI_HOME/pi/agent"; printf '{"t":1}' > "$IMPI_HOME/pi/agent/auth.json"
+                printf 'MIGRATED=1\nLEFT=./agent/settings.json\nLEFT=./agent/extensions\n' ;;
             *) return 1 ;;
         esac
     }
     run migrate_pi_auth
     [ "$status" -eq 0 ]
-    [[ "$output" == *"moved out of the impi_pi-auth volume"* ]]
+    [[ "$output" == *"credential moved out of the impi_pi-auth volume"* ]]
+    [[ "$output" == *"not carried over"* ]]
+    [[ "$output" == *"agent/settings.json"* ]]
     [ "$(cat "$IMPI_HOME/pi/agent/auth.json")" = '{"t":1}' ]
     perms=$(stat -c '%a' "$IMPI_HOME/pi/agent/auth.json" 2>/dev/null || stat -f '%Lp' "$IMPI_HOME/pi/agent/auth.json")
     [ "$perms" = 600 ]
+}
+
+@test "migrate_pi_auth says nothing when the old volume held no credential" {
+    _pi_auth_setup
+    container_runtime() { echo "$BATS_TEST_TMPDIR/rt"; }
+    printf '#!/bin/sh\nexit 0\n' > "$BATS_TEST_TMPDIR/rt"; chmod +x "$BATS_TEST_TMPDIR/rt"
+    compose() { printf 'MIGRATED=0\n'; }
+    run migrate_pi_auth
+    [ "$status" -eq 0 ] && [ -z "$output" ]
 }

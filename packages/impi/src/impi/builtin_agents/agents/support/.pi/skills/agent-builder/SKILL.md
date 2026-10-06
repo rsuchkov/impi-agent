@@ -145,6 +145,12 @@ mounted and reloads as usual.
   editing `agent.yaml` (empty = no skills; unset = the agent.yaml list). While it
   is set, `assign_skill` changes won't show up.
 - `AGENTS_GATEWAY__<NAME>` — that agent's gateway.
+- `runtime.env` in `agent.yaml` / `AGENTS_ENV__<NAME>` — engine environment
+  variables that agent's process inherits (names, or a family like
+  `MYSERVICE_*`); nothing else beyond a base set reaches it. A skill that reads
+  its own variable needs it named here or in `RUNTIME_ENV`.
+- `TOOL_APPROVERS` — who may answer a tool's confirmation card; empty = the
+  person who asked the agent.
 - Shared extensions live at `$AGENTS_PATH/_extensions/<name>/index.ts` and load only
   when the operator names them in `RUNTIME_EXTENSIONS` in `.env` — writing one is
   not enabling it; say so, and that a restart follows. Once named, it loads for

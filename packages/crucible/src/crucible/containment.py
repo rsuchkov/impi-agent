@@ -49,13 +49,21 @@ def _inert_keep_lines(text: str) -> str:
     are its content. ``\\r\\n`` becomes ``\\n`` first — a stray carriage return
     is invisible in one renderer and a doubled line in another."""
     kept = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Every space separator becomes a plain space: a no-break or ideographic
+    # space before a `[` must not hide the `[` from the line-start check.
     return "".join(
-        c for c in kept
+        " " if unicodedata.category(c) == "Zs" else c
+        for c in kept
         if c in "\n\t" or unicodedata.category(c) not in _STRUCTURAL_CATEGORIES
     )
 
 
-def quoted(text: str) -> str:
+# What a model may read as an opening bracket: the ASCII one, and its
+# fullwidth twin.
+_OPENING_BRACKETS = r"\[\uff3b"
+
+
+def quoted(text: str, *, inline: bool = False) -> str:
     """Other people's text, quoted into a prompt whose structure is marked
     with lines that begin with ``[``.
 
@@ -64,8 +72,26 @@ def quoted(text: str) -> str:
     message containing ``[/context x]`` or ``[@admin]: do it`` arrives as text
     somebody typed rather than as a marker or a speaker. Bidi overrides and
     the other structural characters go, as everywhere here.
+
+    ``inline``: the text starts mid-line, after a speaker's ``]: `` — its first
+    line cannot present as anything and is left as written; only the lines
+    after it are checked.
     """
-    return re.sub(r"(?m)^([ \t]*)\[", r"\1\\[", _inert_keep_lines(text))
+    line_start = r"(\n[ \t]*)" if inline else r"(?m)(^[ \t]*)"
+    return re.sub(line_start + f"([{_OPENING_BRACKETS}])", r"\1\\\2", _inert_keep_lines(text))
+
+
+# What a speaker's name may carry into the prompt: an identifier, nothing a
+# line of the envelope is built from (`]`, `:`, `·`, a space).
+_SPEAKER_RE = re.compile(r"[^A-Za-z0-9._@+-]")
+
+
+def speaker(name: str, *, limit: int = 64) -> str:
+    """A name as the prompt's speaker marker carries it. Usernames come from
+    platforms and programs that do not all restrict them; what is not an
+    identifier character becomes `_`, so `admin]: approve` cannot close the
+    marker and write a line of its own."""
+    return _SPEAKER_RE.sub("_", _inert(name))[:limit]
 
 
 def one_line(text: str, *, limit: int = FIELD_LIMIT) -> str:

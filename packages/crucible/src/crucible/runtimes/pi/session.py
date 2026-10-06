@@ -50,6 +50,11 @@ class _Turn:
         # that lived as long as the process would go on reporting to whoever
         # started the first turn.
         self.on_event = on_event
+        # Set when THIS session sent the runtime an abort for the turn. Only
+        # then is an error worded as an abort read as the cancel it is: the
+        # same words come from any aborted request — a provider timeout, a
+        # dropped connection — and those are failures.
+        self.abort_requested = False
         # When each in-flight tool call began, by its id — the driver measures
         # duration itself because the wire carries none.
         self.tool_started: dict[str, float] = {}
@@ -147,6 +152,8 @@ class PiRpcSession:
         )
 
     async def abort(self) -> None:
+        if self._turn is not None:
+            self._turn.abort_requested = True
         await self._transport.send(
             protocol.encode_abort(command_id=protocol.new_command_id())
         )
@@ -351,14 +358,14 @@ class PiRpcSession:
         # as an empty answer, so it is logged distinctly and not silently treated
         # like "no results".
         if not text:
-            error = _error_from_agent_end(event)
+            error = _error_from_agent_end(event, aborted=turn.abort_requested)
             if error:
                 self._fail_turn(PiProcessError(f"pi LLM error: {error}"))
                 return
         result = PiResult(
             text=text,
             tool_calls=turn.tool_calls,
-            stop_reason=_stop_reason_from_agent_end(event),
+            stop_reason=_stop_reason_from_agent_end(event, aborted=turn.abort_requested),
         )
         if not turn.future.done():
             turn.future.set_result(result)
@@ -503,16 +510,16 @@ def _final_text_from_agent_end(event: PiEvent) -> str:
 _ABORTED_ERROR_WORDS = ("aborted",)
 
 
-def _was_aborted(message: dict[str, object]) -> bool:
+def _was_aborted(message: dict[str, object], *, requested: bool) -> bool:
     if message.get("stopReason") == "aborted":
         return True
-    if message.get("stopReason") != "error":
+    if not requested or message.get("stopReason") != "error":
         return False
     text = str(message.get("errorMessage") or "").lower()
     return any(word in text for word in _ABORTED_ERROR_WORDS)
 
 
-def _error_from_agent_end(event: PiEvent) -> str | None:
+def _error_from_agent_end(event: PiEvent, *, aborted: bool = False) -> str | None:
     """Return an LLM/infra error message from an agent_end payload, if any.
     An abort the engine asked for is not one, however the runtime words it."""
     messages = event.raw.get("messages")
@@ -521,14 +528,14 @@ def _error_from_agent_end(event: PiEvent) -> str | None:
     for message in messages:
         if not isinstance(message, dict):
             continue
-        if message.get("stopReason") == "error" and not _was_aborted(message):
+        if message.get("stopReason") == "error" and not _was_aborted(message, requested=aborted):
             return message.get("errorMessage") or "unknown error"
     return None
 
 
-def _stop_reason_from_agent_end(event: PiEvent) -> str | None:
+def _stop_reason_from_agent_end(event: PiEvent, *, aborted: bool = False) -> str | None:
     reasons = [
-        "aborted" if _was_aborted(m) else m.get("stopReason")
+        "aborted" if _was_aborted(m, requested=aborted) else m.get("stopReason")
         for m in _assistant_messages(event)
         if m.get("stopReason")
     ]

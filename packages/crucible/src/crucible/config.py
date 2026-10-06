@@ -17,6 +17,8 @@ from dotenv import dotenv_values
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from crucible.ports.agent.inherited_env import check_inherited_env
+
 # The backend names, spelled out rather than imported. `crucible.store` owns the
 # vocabulary and is the thing that rejects an unknown one; configuration sits
 # BELOW the store — a tool reads settings, and a tool may not reach the store —
@@ -426,13 +428,13 @@ class Settings(BaseSettings):
         else the global `gateway` default."""
         return self._token(f"AGENTS_GATEWAY__{agent.upper().replace('-', '_')}") or self.gateway
 
-    def env_for(self, agent: str) -> tuple[str, ...] | None:
+    def inherited_env_for(self, agent: str) -> tuple[str, ...] | None:
         """Per-agent override of the environment names it inherits:
         AGENTS_ENV__<AGENT> (CSV, env or .env). None = unset (keep the
         agent.yaml list); a set value, even empty, replaces it."""
         return self._csv_override(f"AGENTS_ENV__{agent.upper().replace('-', '_')}")
 
-    def runtime_env(self) -> tuple[str, ...]:
+    def runtime_env_names(self) -> tuple[str, ...]:
         """Names (or globs) of the engine's own environment variables every
         runtime process inherits, beside the base set: RUNTIME_ENV (CSV) plus
         every RUNTIME_ENV__<AXIS> key, so each piece of a deployment that puts
@@ -445,7 +447,12 @@ class Settings(BaseSettings):
         ]
         for key, raw in sources:
             if key == "RUNTIME_ENV" or key.startswith("RUNTIME_ENV__"):
-                names += [n.strip() for n in raw.split(",") if n.strip()]
+                for name in (n.strip() for n in raw.split(",") if n.strip()):
+                    try:
+                        check_inherited_env(name)
+                    except ValueError as exc:
+                        raise ValueError(f"{key}: {exc}") from exc
+                    names.append(name)
         return tuple(dict.fromkeys(names))
 
     def _csv_override(self, key: str) -> tuple[str, ...] | None:

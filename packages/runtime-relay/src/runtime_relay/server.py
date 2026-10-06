@@ -160,6 +160,16 @@ class RelayServer:
     async def _start(
         self, spawn: Spawn, scratch: Path
     ) -> asyncio.subprocess.Process:
+        # The credential file is shared with the engine and every other agent,
+        # read-write; a value the runtime would execute (``!…``) is not one a
+        # login wrote. Same rule as the engine's (crucible.runtimes.pi.auth_file);
+        # kept here because this package does not depend on the library.
+        planted = _executable_entries(_auth_file_path())
+        if planted:
+            raise OSError(
+                f"the runtime's credential file holds a command value ({', '.join(planted)}); "
+                "not starting — replace it with `impi login`"
+            )
         session_dir: Path | None = None
         if self._config.session_dir:
             session_dir = self._config.session_dir.resolve()
@@ -295,3 +305,30 @@ class RelayServer:
                 await process.wait()
         except ProcessLookupError:
             pass
+
+
+def _auth_file_path() -> Path:
+    agent_dir = os.environ.get("PI_CODING_AGENT_DIR") or str(Path.home() / ".pi" / "agent")
+    return Path(agent_dir) / "auth.json"
+
+
+def _executable_entries(path: Path) -> list[str]:
+    """Entries of the credential file the runtime would run as a command."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    found: list[str] = []
+
+    def walk(node: object, where: str) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, f"{where}.{key}" if where else str(key))
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                walk(value, f"{where}[{index}]")
+        elif isinstance(node, str) and node.startswith("!"):
+            found.append(where)
+
+    walk(data, "")
+    return found

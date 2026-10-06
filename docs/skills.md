@@ -87,7 +87,7 @@ involved (the engine answers it directly, so it is instant and can't invent a
 skill that isn't there).
 
 Register it like any other command, pointing at
-`<INTEGRATIONS_PUBLIC_URL>/command/<agent>` (see [commands.md](commands.md)),
+`<INTEGRATIONS_PUBLIC_URL>/<INTEGRATIONS_SECRET>/command/<agent>` (see [commands.md](commands.md)),
 with one rule: **the trigger word must match `SKILLS_COMMAND`** (default
 `skills`). That word is what binds the command to this screen; registered
 under any other word it is an ordinary command and goes to the agent instead.

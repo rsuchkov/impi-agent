@@ -471,6 +471,7 @@ def test_agents_sharing_the_engines_process_with_a_shell_are_named_at_startup(
         app = build_app(_two_shell_agents(tmp_path))
     try:
         assert "agents alpha, beta run in the engine's own process space" in caplog.text
+        assert "the engine's own, support's" in caplog.text
         assert "docs/security.md" in caplog.text
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
@@ -506,9 +507,10 @@ def test_shared_process_agents_is_about_shells_among_neighbours() -> None:
     assert shared_process_agents([alpha, beta, gamma], **everyone_here) == ("alpha", "gamma")
     assert shared_process_agents([alpha, beta], **everyone_here) == ("alpha",)
     assert shared_process_agents([beta, spec("delta", "ls")], **everyone_here) == ()
-    assert shared_process_agents([alpha], **everyone_here) == ()
+    # alone with a shell: the engine and support are still its neighbours
+    assert shared_process_agents([alpha], **everyone_here) == ("alpha",)
     # moved out: a neighbour no longer
-    assert shared_process_agents([alpha, gamma], in_process=lambda name: name == "alpha") == ()
+    assert shared_process_agents([alpha, gamma], in_process=lambda name: False) == ()
 
 
 def test_an_extension_that_is_present_but_not_named_is_not_loaded_and_is_named_in_the_log(
@@ -532,3 +534,18 @@ def test_an_extension_name_that_could_walk_out_of_the_directory_is_refused(tmp_p
     settings = _settings(tmp_path).model_copy(update={"runtime_extensions": "../engine"})
     with pytest.raises(ValueError, match="RUNTIME_EXTENSIONS"):
         settings.runtime_extension_names()
+
+
+def test_an_unwritable_env_file_does_not_stop_the_engine(tmp_path: Path) -> None:
+    """A deployment configured by its environment alone (or a read-only conf/)
+    starts on the bare paths, warned, rather than not at all."""
+    from impi.provisioning import ensure_receiver_secret
+
+    blocked = tmp_path / "ro"
+    blocked.mkdir()
+    blocked.chmod(0o500)
+    try:
+        settings = _settings(tmp_path).model_copy(update={"dotenv_path": str(blocked / ".env")})
+        assert ensure_receiver_secret(settings, needs_receiver=True).integrations_secret == ""
+    finally:
+        blocked.chmod(0o700)

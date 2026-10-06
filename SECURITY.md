@@ -7,7 +7,7 @@ repository's Security tab (GitHub private vulnerability reporting). If that is
 not available to you, open an issue that says only "security — please contact
 me" and leave the details out; a maintainer will reach you.
 
-Include what you can: the version (`VERSION`, or `impi doctor`), the deployment
+Include what you can: the version (`VERSION`, or `impi version`), the deployment
 shape (default, a container per agent, the broker on or off), and the steps.
 A proof of concept is welcome; running it against somebody else's deployment
 is not.

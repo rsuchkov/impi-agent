@@ -75,6 +75,19 @@ mint_callback_secrets() {
     done
 }
 
+# The agents' containers bind the credential FILE; one that is missing when a
+# container starts becomes a root-owned directory of that name, and then no
+# login can write it. Make sure it is a file before anything comes up.
+ensure_pi_auth_file() {
+    local _f="$IMPI_HOME/pi/agent/auth.json"
+    (umask 077; mkdir -p "$IMPI_HOME/pi/agent")
+    if [ -d "$_f" ]; then
+        bad "$_f is a directory (a container created it while the file was missing) — remove it, then impi login"
+        return 0
+    fi
+    [ -e "$_f" ] || { (umask 077; : >"$_f"); }
+}
+
 ensure_dropin_dir() {
     mkdir -p "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
     [ -f "$IMPI_HOME/$COMPOSE_DROPIN_DIR/README.md" ] \
@@ -411,10 +424,18 @@ cmd_update() {
     prev=$current
     git -C "$REPO" checkout --quiet "$latest"
     migrate_pi_auth || true
+    ensure_pi_auth_file
     # Nothing to rewrite here: the engine's file list is derived from
     # IMPI_MM_MODE on every call, so overlays added by this release apply at
     # once — and whatever is in compose.d/ is untouched, because it was never
     # part of a list anyone regenerates.
+    # Agent containers are generated from the release: an update that did not
+    # re-render them would leave the agents on the old layout, the old base
+    # image and the old runtime until somebody remembered `impi agent sync`.
+    if agent_containers_on; then
+        printf 're-rendering the agents'"'"' containers for this release\n'
+        ( cmd_agent_sync ) || bad "the agents' containers did not re-render — run: impi agent sync"
+    fi
     if ! build_images || ! compose up -d; then
         bad "update failed"
         if confirm "Roll back to $prev?" y; then
@@ -503,10 +524,15 @@ cmd_doctor() {
             bad "broker receiver secret missing (WARD_CALLBACK_SECRET) — \`impi start\` mints one; then re-register /ward"
         fi
     fi
-    if [ -s "$IMPI_HOME/pi/agent/auth.json" ]; then
+    if [ -d "$IMPI_HOME/pi/agent/auth.json" ]; then
+        bad "$IMPI_HOME/pi/agent/auth.json is a directory — remove it, then impi login"
+    elif [ -s "$IMPI_HOME/pi/agent/auth.json" ]; then
         ok "pi credential: $IMPI_HOME/pi/agent/auth.json"
     else
         bad "no pi credential at $IMPI_HOME/pi/agent/auth.json — \`impi login\` (or \`impi login --copy-auth\`)"
+    fi
+    if agent_containers_on && grep -q 'pi-auth' "$IMPI_HOME/conf/agents.compose.yaml" 2>/dev/null; then
+        bad "conf/agents.compose.yaml still mounts the old pi-auth volume — run: impi agent sync"
     fi
     if engine_logged "app built:"; then
         ok "engine reported readiness (app built)"
@@ -616,7 +642,7 @@ migrate_compose_env
 case "${1:-}" in
     status)    shift; cmd_status "$@" ;;
     logs)      shift; cmd_logs "$@" ;;
-    start)     shift; mint_callback_secrets; migrate_pi_auth; compose up -d; ok "started"; ward_reminder ;;
+    start)     shift; mint_callback_secrets; migrate_pi_auth; ensure_pi_auth_file; compose up -d; ok "started"; ward_reminder ;;
     stop)      shift; compose stop; ok "stopped" ;;
     restart)   shift; cmd_restart ;;
     reload)    shift; cmd_reload ;;

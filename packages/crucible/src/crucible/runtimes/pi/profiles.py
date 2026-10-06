@@ -61,7 +61,7 @@ def build_pi_profile(spec: AgentSpec) -> PiProfile:
         skills=tuple(_resolve_skill(s, spec.profile_dir) for s in spec.skills),
         provider=spec.provider,
         model=spec.model,
-        inherit=spec.env,
+        inherit=spec.inherit,
     )
 
 

@@ -52,8 +52,15 @@ runtime:
     pip: [pandas]
 ```
 
-Package names only. A name with a space is refused on purpose — a package list
-that can carry shell is a Dockerfile pretending not to be one.
+Package names, pinned or not (`some-cli@1.2.0`, `pandas==2.2`); anything shell-like
+is refused on purpose — a package list that can carry shell is a Dockerfile
+pretending not to be one. npm packages install with their scripts ignored, so
+one that downloads a binary in `postinstall` needs `Dockerfile.include` instead.
+
+The container's root is **read-only** (`/tmp`, `~/.cache` and pi's home are
+memory). A tool that writes somewhere else at run time fails with `Read-only file
+system`; the fix is a tmpfs for that path in a `compose.d/` drop-in — the
+installation doc has it.
 
 When that is not enough, a `Dockerfile.include` beside `agent.yaml`:
 
@@ -80,18 +87,24 @@ Say what it does and does not buy, rather than "it is isolated":
   another's conversation memory.
 - **Each agent is on a network with only the engine on it** — and the broker and
   the browser where those exist. So an agent cannot reach another agent's host,
-  and cannot reach the chat server directly either: a skill that called the chat
+  and cannot reach a co-deployed chat server directly either (an external one is
+  reachable by URL like any internet host): a skill that called the chat
   API itself was working by accident and stops here. Chat goes through the tools.
-- **The model credential is still shared.** Every agent mounts the same
-  subscription login, because every agent needs it to call a model. Do not
-  describe agents as fully separated without saying this.
+- **The model credential is still shared; pi's home is not.** Every agent is
+  handed one file, `~/.impi/pi/agent/auth.json`, over a home of its own in
+  memory: `settings.json`, `models.json`, `pi install` do not reach the
+  container or survive a restart. A custom endpoint goes through `LLM_*`. Do not
+  describe agents as fully separated without saying the account is shared.
+- **Re-run `impi agent sync`** after upgrading to this layout, and after any
+  change to `RUNTIME_EXTENSIONS` (the names are written into each service).
 
 ## When something doesn't work
 
 - **"not reachable" in the engine's log** — that agent's container is down.
   `impi agent logs <agent>`, then `impi start`.
 - **An agent answers but has forgotten every conversation** — the migration was
-  skipped. `impi agent migrate <agent>` copies its session files into its own
+  skipped (or, for idle ones only, `PI_SESSION_RETENTION_DAYS` forgot them at
+  startup — the engine log says so). `impi agent migrate <agent>` copies its session files into its own
   volume; the originals are still in the engine's data volume, so it is
   recoverable. This is the mistake to warn about BEFORE anyone turns the axis on.
 - **An agent runs in the engine even though the axis is on** — it has no token,

@@ -30,6 +30,10 @@ services:
       # mode, not uid/gid: podman supports neither on a tmpfs (see
       # compose.browser.yaml); the only accounts here are root and the engine's.
       - /tmp:mode=1777,size=512m
+      # The home directory is memory: the browser tool keeps its session under
+      # ~/.cache, git its config, npm its cache. pi's own home inside it is the
+      # bind mount below and persists; nothing else here needs to.
+      - /home/impi:mode=1777,size=128m
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 1024

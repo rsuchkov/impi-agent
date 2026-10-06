@@ -134,11 +134,11 @@ def test_a_secret_that_is_not_path_safe_is_refused(bad: str) -> None:
 
 def test_env_for_mirrors_skills_for(monkeypatch) -> None:
     monkeypatch.delenv("AGENTS_ENV__MY_AGENT", raising=False)
-    assert _no_dotenv().env_for("my-agent") is None
+    assert _no_dotenv().inherited_env_for("my-agent") is None
     monkeypatch.setenv("AGENTS_ENV__MY_AGENT", "A, B_*")
-    assert _no_dotenv().env_for("my-agent") == ("A", "B_*")
+    assert _no_dotenv().inherited_env_for("my-agent") == ("A", "B_*")
     monkeypatch.setenv("AGENTS_ENV__MY_AGENT", "")
-    assert _no_dotenv().env_for("my-agent") == ()
+    assert _no_dotenv().inherited_env_for("my-agent") == ()
 
 
 def test_runtime_env_collects_every_axis_key(monkeypatch) -> None:
@@ -146,13 +146,21 @@ def test_runtime_env_collects_every_axis_key(monkeypatch) -> None:
     agents declares it under its own RUNTIME_ENV__ key; nothing merges a list."""
     for key in [k for k in os.environ if k.startswith("RUNTIME_ENV")]:
         monkeypatch.delenv(key, raising=False)
-    assert _no_dotenv().runtime_env() == ()
+    assert _no_dotenv().runtime_env_names() == ()
     monkeypatch.setenv("RUNTIME_ENV", "A, B")
     monkeypatch.setenv("RUNTIME_ENV__BROWSER", "BROWSER_CDP_URL")
     monkeypatch.setenv("RUNTIME_ENV__SECRETS", "SECRET_BROKER_*, A")
-    assert set(_no_dotenv().runtime_env()) == {"A", "B", "BROWSER_CDP_URL", "SECRET_BROKER_*"}
+    assert set(_no_dotenv().runtime_env_names()) == {"A", "B", "BROWSER_CDP_URL", "SECRET_BROKER_*"}
 
 
 def test_tool_approvers_parse_to_a_tuple_and_default_to_nobody_named() -> None:
     assert _settings().tools.approvers == ()
     assert _settings(tool_approvers="U1, U2,").tools.approvers == ("U1", "U2")
+
+
+def test_runtime_env_refuses_a_pattern_that_would_hand_over_everything(monkeypatch) -> None:
+    for key in [k for k in os.environ if k.startswith("RUNTIME_ENV")]:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RUNTIME_ENV", "*")
+    with pytest.raises(ValueError, match="RUNTIME_ENV"):
+        _no_dotenv().runtime_env_names()

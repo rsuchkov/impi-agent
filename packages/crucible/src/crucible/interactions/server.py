@@ -114,7 +114,7 @@ class InteractionsServer:
         # With a secret, every route lives under it and the guard runs before
         # any handler; without one the bare routes answer, and the log says
         # what that means.
-        app = web.Application(middlewares=[self._guard] if self._secret else [])
+        app = web.Application(middlewares=[self._require_secret_path] if self._secret else [])
         segment = "{secret}" if self._secret else ""
         app.router.add_post(callback_path("interact", secret=segment), self._interact)
         app.router.add_post(callback_path("dialog", secret=segment), self._dialog)
@@ -139,19 +139,23 @@ class InteractionsServer:
             )
 
     @web.middleware
-    async def _guard(
+    async def _require_secret_path(
         self, request: web.Request, handler: Callable[[web.Request], Awaitable[web.StreamResponse]]
     ) -> web.StreamResponse:
         """The one check that stands in for a signature: the path's secret
         segment. Runs for every request, including those no route matched —
         a bare ``/interact`` is as much \"off the path\" as a wrong secret."""
-        presented = request.match_info.get("secret", "")
+        # The first segment of the path, whatever route did or did not match:
+        # the right secret with a wrong method or endpoint is a 404/405 from
+        # aiohttp, not a refusal — and must never be what the log prints.
+        _, _, rest = request.path.partition("/")
+        presented, _, tail = rest.partition("/")
         if not hmac.compare_digest(self._secret.encode(), presented.encode()):
             logger.warning(
-                "callback to %s refused: not on the receiver's secret path — a card "
+                "callback to /<?>/%s refused: not on the receiver's secret path — a card "
                 "posted or a slash command registered before INTEGRATIONS_SECRET was "
                 "set or changed still points at the old URL (docs/commands.md)",
-                request.path,
+                tail,
             )
             return web.json_response({"error": "forbidden"}, status=403)
         return await handler(request)
@@ -270,7 +274,12 @@ class InteractionsServer:
             return web.json_response({"error": "no default agent"}, status=404)
 
         allowed = self._command_tokens(agent) if self._command_tokens else ()
-        if not allowed or cb.token not in allowed:
+        # Every registered token compared, each in constant time.
+        matched = False
+        for token in allowed:
+            if hmac.compare_digest(token.encode(), cb.token.encode()):
+                matched = True
+        if not matched:
             # Anything that can reach this port could otherwise run a turn as the
             # agent: an unconfigured agent or a wrong token is a hard stop.
             logger.warning("command %s for %s: rejected (token mismatch)", cb.command, agent)

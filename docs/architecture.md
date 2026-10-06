@@ -200,8 +200,9 @@ twice. The gate asks through the same approval primitive the secret broker
 uses; the question is addressed to the person whose message started the turn
 (or to `TOOL_APPROVERS`, when the deployment names them — a stranger who talked
 the model into a call in a shared channel must not be the one who approves
-it; a run nobody started, a scheduled task, is answered by anyone in the
-conversation), so a human can answer "once" or "for the next 15 minutes"
+it; in a burst of messages merged into one turn it is the newest one's author,
+a scheduled task's turn goes to whoever scheduled it, and a conversation that
+names no person is answered by anyone in it), so a human can answer "once" or "for the next 15 minutes"
 (`TOOL_MAX_GRANT_S` caps the window); the window belongs to the conversation
 it was opened in — the people who were asked are the people it covers — so the
 same tool in another conversation of that agent is asked again. The flag is a

@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 SESSION_PROOF_ENV = "TOOL_SESSION_PROOF"
 # Granted to every process, wherever it runs. PI_OFFLINE stops the runtime's
 # startup network calls (its version check); a model call is not one of them.
-_BASE_ENV = {"PI_OFFLINE": "1"}
+_ALWAYS_GRANTED = {"PI_OFFLINE": "1"}
 
 # (profile, session_id_or_None, cwd_or_None) -> a started session. No listener
 # here on purpose: events are a per-turn concern and travel with each prompt.
@@ -460,7 +460,7 @@ class PiRuntime:
         # What the host's OWN environment holds is the host's business; this is
         # only what the engine grants.
         safe_id = safe_session_id(session_id) if session_id else None
-        env = {**_BASE_ENV, **self._extra_env, **profile.env}
+        env = {**_ALWAYS_GRANTED, **self._extra_env, **profile.env}
         # Every process proves itself to the tool server, a memoryless run under
         # an id of its own that no conversation resolves to: the server can then
         # refuse a call that names no session at all, which is what a shell

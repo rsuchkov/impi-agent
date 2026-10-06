@@ -2,14 +2,14 @@
 
 from pathlib import Path
 
-from scripts.check_pi_lock import problems
+from scripts.check_pi_lock import lock_problems
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGES = (ROOT / "deploy" / "Dockerfile", ROOT / "deploy" / "Dockerfile.agent")
 
 
 def test_the_lock_resolves_the_manifests_pins_with_a_hash_for_everything() -> None:
-    assert problems() == []
+    assert lock_problems() == []
 
 
 def test_both_images_install_from_the_lock_with_scripts_ignored() -> None:
@@ -51,7 +51,7 @@ def test_the_checker_names_a_lock_that_lags_the_manifest_and_a_hashless_entry(
         "node_modules/b": {"version": "1.0.0"},
     }}))
     monkeypatch.setattr(check_pi_lock, "PI_DIR", tmp_path)
-    found = check_pi_lock.problems()
+    found = check_pi_lock.lock_problems()
     assert any("a: package.json pins 2.0.0, the lock has 1.0.0" in line for line in found)
     assert any("node_modules/b has no integrity hash" in line for line in found)
     assert len(found) == 2
@@ -82,4 +82,23 @@ def test_filling_takes_the_missing_hashes_from_the_registry_and_nothing_else(
     lock = json.loads((tmp_path / "package-lock.json").read_text())
     assert lock["packages"]["node_modules/a/node_modules/b"]["integrity"] == "sha512-fromregistry"
     assert lock["packages"]["node_modules/a"]["integrity"] == "sha512-kept"
-    assert check_pi_lock.problems() == []
+    assert check_pi_lock.lock_problems() == []
+
+
+def test_the_registry_lookup_needs_no_npm(monkeypatch) -> None:
+    """The Makefile falls back to a container when the host has no npm; the
+    fill that follows must not need it either."""
+    import io
+    import json
+
+    from scripts import check_pi_lock
+
+    asked: list[str] = []
+
+    def urlopen(url: str, timeout: float):
+        asked.append(url)
+        return io.BytesIO(json.dumps({"dist": {"integrity": "sha512-x"}}).encode())
+
+    monkeypatch.setattr(check_pi_lock.urllib.request, "urlopen", urlopen)
+    assert check_pi_lock._registry_integrity("@earendil-works/pi-ai@0.85.1") == "sha512-x"
+    assert asked == ["https://registry.npmjs.org/@earendil-works/pi-ai/0.85.1"]

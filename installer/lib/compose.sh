@@ -206,14 +206,25 @@ migrate_pi_auth() {
     (umask 077; mkdir -p "$_home/agent")
     [ -s "$_home/agent/auth.json" ] && return 0
     "$(container_runtime)" volume inspect "$_volume" >/dev/null 2>&1 || return 0
+    # The credential and nothing else. The old volume was writable by every
+    # agent's container, so its settings.json and extensions/ are exactly what
+    # an agent could have planted there; they are named, not carried over.
     _out=$(compose run --rm -T -v "$_volume:/app/migrate:ro" impi sh -c \
-        "cp -a /app/migrate/. /home/impi/.pi/ && printf 'MIGRATED=%s\n' \"\$(ls -A /home/impi/.pi/agent 2>/dev/null | wc -l)\"" 2>&1) || {
+        'if [ -s /app/migrate/agent/auth.json ]; then cp /app/migrate/agent/auth.json /home/impi/.pi/agent/auth.json && echo MIGRATED=1; else echo MIGRATED=0; fi; (cd /app/migrate && find . -mindepth 1 ! -path ./agent ! -path ./agent/auth.json -print | sed "s|^|LEFT=|")' 2>&1) || {
         printf '%s\n' "$_out" >&2
         bad "pi's credential did not copy out of the $_volume volume — run: impi login --copy-auth"
         return 1
     }
+    if ! printf '%s\n' "$_out" | grep -q '^MIGRATED=1$'; then
+        return 0  # nothing to carry: the old volume held no credential
+    fi
     chmod 600 "$_home/agent/auth.json" 2>/dev/null || true
-    ok "pi's home moved out of the $_volume volume into $_home (the volume is left in place)"
+    ok "pi's credential moved out of the $_volume volume into $_home/agent/auth.json (the volume is left in place)"
+    _left=$(printf '%s\n' "$_out" | sed -n 's/^LEFT=\.\///p')
+    if [ -n "$_left" ]; then
+        printf '  not carried over (look before copying any of it by hand):\n'
+        printf '%s\n' "$_left" | sed 's/^/    /'
+    fi
 }
 
 # engine_log_count MARKER -> how many lines carry it. The log is cumulative, so

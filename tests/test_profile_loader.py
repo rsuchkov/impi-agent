@@ -184,14 +184,14 @@ def _yaml_with_env(value: str) -> str:
 
 def test_runtime_env_names_what_the_agent_inherits(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", _yaml_with_env("[BROWSER_CDP_URL, MYSERVICE_*]"))
-    assert FsProfileStore(tmp_path, library=None).get("assistant").env == (
+    assert FsProfileStore(tmp_path, library=None).get("assistant").inherit == (
         "BROWSER_CDP_URL", "MYSERVICE_*",
     )
 
 
 def test_runtime_env_absent_means_nothing_beyond_the_base_set(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", GOOD_YAML)
-    assert FsProfileStore(tmp_path, library=None).get("assistant").env == ()
+    assert FsProfileStore(tmp_path, library=None).get("assistant").inherit == ()
 
 
 def test_runtime_env_refuses_what_is_not_a_variable_name(tmp_path: Path) -> None:
@@ -200,9 +200,25 @@ def test_runtime_env_refuses_what_is_not_a_variable_name(tmp_path: Path) -> None
         FsProfileStore(tmp_path, library=None).get("assistant")
 
 
-def test_env_override_replaces_the_agent_yaml_list(tmp_path: Path) -> None:
+def test_inherit_override_replaces_the_agent_yaml_list(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", _yaml_with_env("[BROWSER_CDP_URL]"))
-    store = FsProfileStore(tmp_path, env_override=lambda name: ("OTHER",), library=None)
-    assert store.get("assistant").env == ("OTHER",)
-    store = FsProfileStore(tmp_path, env_override=lambda name: (), library=None)
-    assert store.get("assistant").env == ()
+    store = FsProfileStore(tmp_path, inherit_override=lambda name: ("OTHER",), library=None)
+    assert store.get("assistant").inherit == ("OTHER",)
+    store = FsProfileStore(tmp_path, inherit_override=lambda name: (), library=None)
+    assert store.get("assistant").inherit == ()
+
+
+@pytest.mark.parametrize("pattern", ["A*", "MY*", "AGENTS_MM*", "SLACK*", "TOOL_*", "*", "a b"])
+def test_runtime_env_refuses_a_pattern_too_broad_or_over_the_engines_own(tmp_path: Path, pattern: str) -> None:
+    """`A*` would take every AGENTS_* token; the engine's families are named one
+    by one or not at all."""
+    _write_agent(tmp_path, "assistant", _yaml_with_env(f"['{pattern}']"))
+    with pytest.raises(ProfileError, match="runtime.env"):
+        FsProfileStore(tmp_path, library=None).get("assistant")
+
+
+def test_runtime_env_takes_a_name_or_a_family_with_a_real_prefix(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_env("[MYSERVICE_*, SLACK_BOT_TOKEN]"))
+    assert FsProfileStore(tmp_path, library=None).get("assistant").inherit == (
+        "MYSERVICE_*", "SLACK_BOT_TOKEN",
+    )

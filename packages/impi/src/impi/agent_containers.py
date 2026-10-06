@@ -170,7 +170,7 @@ def read_build(spec: AgentSpec) -> AgentBuild:
 _PACKAGE_RE = re.compile(r"[A-Za-z0-9@][A-Za-z0-9@/._+=<>!~^*,\[\]:-]*")
 
 
-def ensure_credential_file(path: Path) -> None:
+def ensure_auth_file(path: Path) -> None:
     """The one file every agent's container is handed: created empty (0600)
     when there is none, so the mount has a file to bind and `impi login`
     something to fill."""
@@ -292,8 +292,17 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         # pi's home is memory, this container's alone: whatever the runtime
         # writes there (a settings lock, a package it is told to install)
         # reaches no other agent and does not survive a restart. The one
-        # thing every agent shares is bound INTO it below: the credential.
+        # thing every agent shares is bound INTO it below: the auth_file.
+        # The home directory is memory (git config, npm cache, ~/.cache for
+        # the browser tool), and pi's home inside it a tmpfs of its own.
+        "      - /home/impi:mode=1777,size=128m",
         "      - /home/impi/.pi:mode=1777,size=16m",
+        # The directory the auth_file is bound into must itself be writable:
+        # the runtime takes a lock BESIDE auth.json (auth.json.lock) before it
+        # reads or refreshes it, and a bind mount's parent created by the
+        # container runtime is root's. Without this every turn fails with
+        # "No API key found".
+        "      - /home/impi/.pi/agent:mode=1777,size=16m",
         '    cap_drop: ["ALL"]',
         '    security_opt: ["no-new-privileges:true"]',
         "    pids_limit: 512",
@@ -308,6 +317,11 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         f'      RUNTIME_RELAY_PORT: "{HOST_PORT}"',
         "      RUNTIME_RELAY_WORK_DIR: /tmp/runtime-relay",
     ]
+    if deployment.with_browser:
+        # Where the browser tool attaches. The agent's process inherits this
+        # container's environment, not the engine's, so the address the
+        # browser overlay gives the engine has to be given here too.
+        lines.append('      BROWSER_CDP_URL: "http://browser:9222"')
     if deployment.extensions:
         lines.append(f"      RUNTIME_RELAY_EXTENSIONS_DIR: {AGENTS_MOUNT}/_extensions")
         lines.append(f"      RUNTIME_RELAY_EXTENSION_NAMES: {','.join(deployment.extensions)}")
@@ -330,7 +344,7 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         f"      - ${{IMPI_SKILLS_DIR:-{deployment.home_plain}/skills}}:{SKILLS_MOUNT}:ro,z",
         f"      - {SERVICE_PREFIX}{name}-sessions:{SESSIONS_MOUNT}",
         f"      - {SERVICE_PREFIX}{name}-files:{FILES_MOUNT}/{name}",
-        # The model credential: one FILE, not pi's whole home. The home holds
+        # The model auth_file: one FILE, not pi's whole home. The home holds
         # settings.json and extensions/ too, and either, written by one agent,
         # would load into every other — the boundary this arrangement exists
         # for. Read-write, because the runtime refreshes the token in place.
@@ -491,7 +505,7 @@ def sync(
     rootless: bool = False,
     certs_dir: Path | None = None,
     extensions: tuple[str, ...] = (),
-    credential: Path | None = None,
+    auth_file: Path | None = None,
 ) -> list[str]:
     """Write everything a deployment needs to run these agents in containers.
 
@@ -516,7 +530,7 @@ def sync(
     # there, empty if need be, before anything is brought up.
     # `impi agent sync` runs in the engine's container, where pi's home on the
     # host is mounted as this user's own.
-    ensure_credential_file(credential or Path.home() / ".pi" / "agent" / "auth.json")
+    ensure_auth_file(auth_file or Path.home() / ".pi" / "agent" / "auth.json")
     notes: list[str] = []
     for build in builds:
         target = conf_dir / "agents" / build.name

@@ -285,7 +285,17 @@ def ensure_receiver_secret(settings, *, needs_receiver: bool):
     if not needs_receiver or not settings.integrations.enabled or settings.integrations_secret:
         return settings
     value = secrets.token_urlsafe(24)
-    set_env_key(settings.dotenv_path, "INTEGRATIONS_SECRET", value)
+    try:
+        set_env_key(settings.dotenv_path, "INTEGRATIONS_SECRET", value)
+    except OSError as exc:
+        # A deployment configured by its environment alone, or a read-only
+        # conf/: start anyway, on the bare paths — the receiver says what
+        # that means — rather than not at all.
+        logger.warning(
+            "could not write INTEGRATIONS_SECRET to %s (%s): set it yourself; the "
+            "receiver runs without one until then", settings.dotenv_path, exc,
+        )
+        return settings
     logger.info(
         "minted INTEGRATIONS_SECRET into %s: the receiver now answers only under "
         "<INTEGRATIONS_PUBLIC_URL>/<secret>/...; slash commands registered with the "

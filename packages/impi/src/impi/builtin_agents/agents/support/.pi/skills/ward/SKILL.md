@@ -157,8 +157,10 @@ sealed and I am not at my laptop".
 What to know when advising:
 
 - It exists only if the deployment registered the slash command and put its
-  token in `WARD_COMMAND_TOKENS`. `/ward` doing nothing at all usually means one
-  of those two is missing.
+  token in `WARD_COMMAND_TOKENS`, under the broker's secret path
+  (`http://ward:8426/<WARD_CALLBACK_SECRET>/command/ward`). `/ward` doing nothing
+  at all usually means one of those three is missing; a 403 with
+  `not on the receiver's secret path` in `impi logs ward` is the third.
 - Only people in `WARD_APPROVERS` get anything back, and only in a DM — in a
   channel it refuses on purpose, because the card would show secret names to
   everyone in the room.
