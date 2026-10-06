@@ -21,8 +21,10 @@ from pathlib import Path
 import httpx
 
 from crucible import sessions_cli
+from crucible.confinement import landlock_abi
 from crucible.gateways.factory import needs_http_receiver
 from crucible.ports.tasks import TaskError
+from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles.errors import ProfileError
 from crucible.profiles.loader import FsProfileStore
 from crucible.scheduler.admin import TaskAdmin, local_time
@@ -45,6 +47,7 @@ from impi.agent_containers import RenderError, sync
 from impi.app import (
     SHARED_PROCESS_WARNING,
     agents_dir_extensions,
+    confinement_line,
     shared_process_agents,
 )
 from impi.config import ImpiSettings, load_settings
@@ -747,19 +750,32 @@ def _cmd_health(args: argparse.Namespace) -> int:
         # the engine logs at startup, so an operator can ask without a restart.
         # Only with profiles to read: an empty directory is not a broken one.
         specs = []
+        engine_specs = []
         try:
             if count == 0:
                 raise ProfileError("")
-            user_store, _engine_store = open_profile_stores(settings, _library(args))
+            user_store, engine_store = open_profile_stores(settings, _library(args))
             # The user's agents that would run: one without a token starts no
             # process, and the engine's own agent is part of the engine.
             specs = [s for s in user_store.list() if resolve_gateway(settings, s.name) is not None]
+            engine_specs = [s for s in engine_store.list() if resolve_gateway(settings, s.name) is not None]
         except ProfileError as exc:
             if str(exc):
                 _fail(f"profiles: {exc}")
                 failures += 1
+        # The same levels the engine gives each agent, from the same profiles.
+        by_name = {s.name: s for s in (*specs, *engine_specs)}
+        scopes = AgentProcessScopes(
+            by_name.get, default_level=settings.runtime_confinement,
+            unconfined_by_default=frozenset(s.name for s in engine_specs),
+        )
+        abi = landlock_abi()
+        line = confinement_line({name: scopes.level_for(name) for name in by_name}, abi)
+        (_ok if abi else _warn)(line)
         shared = shared_process_agents(
-            specs, in_process=lambda name: not settings.agent_host_for(name)[0]
+            specs,
+            in_process=lambda name: not settings.agent_host_for(name)[0],
+            confined=lambda name: bool(abi) and scopes.level_for(name) != "off",
         )
         if shared:
             _warn(SHARED_PROCESS_WARNING % ", ".join(shared))

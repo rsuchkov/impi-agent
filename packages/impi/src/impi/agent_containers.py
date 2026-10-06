@@ -306,6 +306,9 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         '    cap_drop: ["ALL"]',
         '    security_opt: ["no-new-privileges:true"]',
         "    pids_limit: 512",
+        # The host would be PID 1, which ignores SIGTERM: a stop would wait out
+        # the grace period and kill the runtime mid-write. An init forwards it.
+        "    init: true",
         "    env_file:",
         f"      - {home}/conf/agents/{name}.env",
         "    environment:",

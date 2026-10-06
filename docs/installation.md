@@ -157,6 +157,16 @@ sessions and files volumes; the broker
 to `/var/lib/ward`. The browser container has had this since it existed, with
 a seccomp profile on top.
 
+Inside those boxes each agent's runtime process is confined further, with
+Landlock: it writes its own conversation's memory and files and its own
+`TMPDIR` and `HOME`, and nothing else. A tool that writes elsewhere fails with
+`Permission denied` rather than `Read-only file system` — a tmpfs does not
+help there; declare the path in the agent's profile or change its level
+(`RUNTIME_CONFINEMENT` in [configuration.md](configuration.md)). It needs a
+host kernel with Landlock (Linux 5.13+, enabled on every mainstream
+distribution's kernel); without it the engine warns and the agents run
+unconfined.
+
 An image of your own — a `Dockerfile.include` that installs something which
 writes under its own directory at run time, a JDK's cache, a tool's state in
 `$HOME` — hits the read-only root and fails with `Read-only file system`. The

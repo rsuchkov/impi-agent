@@ -206,6 +206,23 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   untouched; `stats()` gives alive / busy / capacity / waiting for a readiness
   check. A flow needs none of this to run a turn, which is why it is a second
   Protocol — but see the next point for the one question a flow may ask it.
+- **Confining the runtime's processes.** Pass `scopes=` to `PiRuntime` and
+  each process it starts runs under Landlock rules: `AgentProcessScopes`
+  (`crucible.process_scopes`) is the ready answer for agents that are
+  profiles — give it the profile lookup, a default level (`conversation`,
+  `agent`, `off`), where an agent's files are and, for the `conversation`
+  level, an async `conversation_files_dir_for(agent, session_id)` that maps
+  a runtime session to that conversation's files directory (the store's
+  `get_by_runtime_session` answers it). `files_dir_env` names the variable
+  that tells the process which directory it was given. Or implement the
+  `ProcessScopes` port yourself (`crucible.ports.agent.confinement`): return
+  the paths a process may read and write, or `None` for unconfined. The
+  runtime adds what it needs itself — its program, its memory, its account.
+  Without `scopes=` nothing is confined; on a kernel without Landlock nothing
+  is either, with a warning. Call
+  `crucible.runtimes.pi.spawn.migrate_session_layout(session_dir)` once at
+  startup if your deployment kept memory before 0.20: each conversation's
+  memory now has a directory of its own.
 - **Replaying a conversation the runtime forgot.** The runtime's memory is a
   session on its disk; a pod rescheduled without that disk, an idle session
   evicted, an operator's `reset` all leave a conversation the store knows and

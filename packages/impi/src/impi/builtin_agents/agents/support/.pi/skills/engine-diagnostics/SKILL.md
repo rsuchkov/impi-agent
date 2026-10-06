@@ -120,6 +120,24 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   (or `AGENTS_ENV__<NAME>`) and `RUNTIME_ENV` / `RUNTIME_ENV__*` for every agent.
   Name the variable there. You inherit everything yourself, so do not test it
   from your own shell.
+- **A skill fails with `Permission denied` (or `EACCES`, `Operation not
+  permitted`) on a path that exists** — the agent's process is confined
+  (Landlock). It reads its profile, the skill library, the system and the files
+  it is handed; it writes only its conversation's memory and files
+  (`$AGENT_FILES_DIR`) and its own `$TMPDIR` and `$HOME`. The startup log and
+  `impi health` say each agent's level (`confinement: … assistant=conversation`).
+  Fixes, narrowest first: write to `$AGENT_FILES_DIR` or `$TMPDIR` instead;
+  declare the path in `agent.yaml` (`runtime.confinement_read: [...]` /
+  `runtime.confinement_write: [...]`, absolute or relative to the profile) and
+  reload; `runtime.confinement: agent` when the agent's conversations must
+  share its files; `runtime.confinement: off` (or
+  `AGENTS_CONFINEMENT__<NAME>=off`) only for an agent trusted with everything
+  the engine's user can reach. You are unconfined yourself, so do not test it
+  from your own shell. In a container of its own, declared paths do not apply
+  — the level does.
+- **An agent "forgot" a file from another conversation** — at the default
+  level each conversation has its own files directory. Working as designed;
+  `runtime.confinement: agent` shares them.
 - **Someone clicked Allow on a tool's card and was told only an approver can
   answer** — the card is addressed to the person whose message started the
   turn, or to `TOOL_APPROVERS` when set (log: `approval … may not answer
@@ -171,10 +189,15 @@ And from the session check:
 
 ### What `impi health` may add
 
-- `! agents X, Y run in the engine's own process space with a shell …` — not a
-  bug: those agents can read the environment of every process in the engine's
-  container. The answer is a container per agent, or no shell for them
-  (`$IMPI_ROOT/docs/security.md`).
+- `! agents X, Y run unconfined in the engine's own process space with a shell …`
+  — not a bug: those agents run at confinement level `off` (or the kernel has
+  no Landlock) and can read the environment of every process in the engine's
+  container. The answer is confinement (drop `off`), a container per agent, or
+  no shell for them (`$IMPI_ROOT/docs/security.md`).
+- `confinement: Landlock ABI N; a=conversation, b=agent; unconfined: support`
+  — each agent's level. `! confinement: this kernel has no Landlock` — every
+  agent runs unconfined; the host's kernel (Linux 5.13+ with Landlock in its
+  LSM list) decides, not the engine.
 - `receiver secret missing (INTEGRATIONS_SECRET)` — the engine mints one on its
   next start; slash commands are then re-registered under the URL health prints.
 - `extensions in …: a, b; enabled (RUNTIME_EXTENSIONS): none` — an extension

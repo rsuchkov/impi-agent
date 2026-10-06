@@ -464,17 +464,38 @@ def _two_shell_agents(tmp_path: Path) -> Settings:
 def test_agents_sharing_the_engines_process_with_a_shell_are_named_at_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Two agents with a shell in one process space can read each other's tool
-    token and proofs; the engine says so by name rather than letting the
-    operator find out."""
+    """Two unconfined agents with a shell in one process space can read each
+    other's tool token and proofs; the engine says so by name rather than
+    letting the operator find out."""
     monkeypatch.setenv("AGENTS_MM_TOKEN__ALPHA", "a")
     monkeypatch.setenv("AGENTS_MM_TOKEN__BETA", "b")
+    settings = _two_shell_agents(tmp_path).model_copy(update={"runtime_confinement": "off"})
     with caplog.at_level("WARNING", logger="impi.app"):
-        app = build_app(_two_shell_agents(tmp_path))
+        app = build_app(settings)
     try:
-        assert "agents alpha, beta run in the engine's own process space" in caplog.text
+        assert "agents alpha, beta run unconfined in the engine's own process space" in caplog.text
         assert "the engine's own, support's" in caplog.text
         assert "docs/security.md" in caplog.text
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()
+
+
+def test_confined_agents_are_not_named_and_an_unconfined_one_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from crucible.confinement import landlock_abi
+
+    if not landlock_abi():
+        pytest.skip("this kernel has no Landlock: every agent runs unconfined")
+    monkeypatch.setenv("AGENTS_MM_TOKEN__ALPHA", "a")
+    monkeypatch.setenv("AGENTS_MM_TOKEN__BETA", "b")
+    monkeypatch.setenv("AGENTS_CONFINEMENT__BETA", "off")
+    with caplog.at_level("INFO", logger="impi.app"):
+        app = build_app(_two_shell_agents(tmp_path))
+    try:
+        assert "agents beta run unconfined" in caplog.text
+        assert "alpha=conversation" in caplog.text and "unconfined: beta" in caplog.text
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
         app.sessions.close_sync()
@@ -513,6 +534,8 @@ def test_shared_process_agents_is_about_shells_among_neighbours() -> None:
     assert shared_process_agents([alpha], **everyone_here) == ("alpha",)
     # moved out: a neighbour no longer
     assert shared_process_agents([alpha, gamma], in_process=lambda name: False) == ()
+    # confined: the kernel keeps its neighbours' environments from it
+    assert shared_process_agents([alpha, gamma], **everyone_here, confined=lambda name: name == "alpha") == ("gamma",)
 
 
 def test_an_extension_that_is_present_but_not_named_is_not_loaded_and_is_named_in_the_log(

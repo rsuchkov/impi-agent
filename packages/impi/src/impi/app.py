@@ -17,7 +17,7 @@ import logging
 import os
 import random
 import signal
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
@@ -184,15 +184,20 @@ _SHELL_LIKE = frozenset({"bash", "read", "grep", "edit"})
 
 
 def shared_process_agents(
-    specs: Sequence[AgentSpec], *, in_process: Callable[[str], bool]
+    specs: Sequence[AgentSpec],
+    *,
+    in_process: Callable[[str], bool],
+    confined: Callable[[str], bool] = lambda _name: False,
 ) -> tuple[str, ...]:
-    """The user's agents that run in the engine's process space AND can read a
-    neighbour's environment. One is enough: the engine itself and its own
-    agent (support) are always neighbours, and their environments are the
-    engine's. Empty when every agent with a shell runs in a container of its
-    own. See docs/security.md."""
+    """The user's agents that run in the engine's process space unconfined AND
+    can read a neighbour's environment. One is enough: the engine itself and
+    its own agent (support) are always neighbours, and their environments are
+    the engine's. A confined process cannot read another's environment — the
+    kernel refuses it outside the process's own domain — so it is not one of
+    them. See docs/security.md."""
     return tuple(sorted(
-        spec.name for spec in specs if in_process(spec.name) and _SHELL_LIKE & set(spec.tools)
+        spec.name for spec in specs
+        if in_process(spec.name) and not confined(spec.name) and _SHELL_LIKE & set(spec.tools)
     ))
 
 
@@ -201,10 +206,11 @@ def shared_process_agents(
 FILES_DIR_ENV = "AGENT_FILES_DIR"
 
 SHARED_PROCESS_WARNING = (
-    "agents %s run in the engine's own process space with a shell: each can read "
-    "the environment of every other process here — the engine's own, support's, "
-    "every other agent's tool token and session proofs (/proc/<pid>/environ). The "
-    "boundary is a container per agent — docs/security.md, docs/agent-containers.md"
+    "agents %s run unconfined in the engine's own process space with a shell: each "
+    "can read the environment of every other process here — the engine's own, "
+    "support's, every other agent's tool token and session proofs "
+    "(/proc/<pid>/environ). The boundary is confinement (RUNTIME_CONFINEMENT, on a "
+    "kernel with Landlock) or a container per agent — docs/security.md"
 )
 
 
@@ -233,20 +239,15 @@ def _conversation_files_dir_for(
     return conversation_files_dir
 
 
-def _log_confinement(scopes: AgentProcessScopes, specs: Sequence[AgentSpec]) -> None:
-    """One line at startup: what confines the agents' processes, and which run
-    without it."""
-    abi = landlock_abi()
-    levels = {spec.name: scopes.level_for(spec.name) for spec in specs}
-    off = sorted(name for name, level in levels.items() if level == "off")
+def confinement_line(levels: Mapping[str, str], abi: int) -> str:
+    """What confines the agents' processes and which run without it — the line
+    the engine logs at startup and `impi health` prints. ``abi`` 0: the kernel
+    has no Landlock, and every level is a wish."""
     if not abi:
-        logger.warning("confinement: this kernel has no Landlock — every agent's process runs unconfined")
-        return
-    logger.info(
-        "confinement: Landlock ABI %d; %s; unconfined: %s", abi,
-        ", ".join(f"{n}={lvl}" for n, lvl in sorted(levels.items()) if lvl != "off") or "no agent confined",
-        ", ".join(off) or "none",
-    )
+        return "confinement: this kernel has no Landlock — every agent's process runs unconfined"
+    confined = ", ".join(f"{n}={lvl}" for n, lvl in sorted(levels.items()) if lvl != "off")
+    off = ", ".join(sorted(n for n, lvl in levels.items() if lvl == "off"))
+    return f"confinement: Landlock ABI {abi}; {confined or 'no agent confined'}; unconfined: {off or 'none'}"
 
 
 @dataclass
@@ -509,10 +510,6 @@ def build_app(settings: ImpiSettings) -> App:
     # tool server: a call's session id is then a fact, not a claim the shared
     # agent token lets any process of that agent make.
     session_proofs = SessionProofBook()
-    # What each agent's process may touch: its profile and the skill library to
-    # read, its files and its own scratch space to write. support is part of
-    # the engine (it reads the engine's own configuration) and runs
-    # unconfined unless its profile says otherwise.
     # Where files people attach land. Swept once at startup so a long-running
     # deployment doesn't accumulate them forever.
     attachments: AttachmentStore | None = None
@@ -523,6 +520,10 @@ def build_app(settings: ImpiSettings) -> App:
             retention_days=settings.attachment_retention_days,
         )
         attachments.sweep()
+    # What each agent's process may touch: its profile and the skill library to
+    # read, its files and its own scratch space to write. support is part of
+    # the engine (it reads the engine's own configuration) and runs
+    # unconfined unless its profile says otherwise.
     process_scopes = AgentProcessScopes(
         lambda name: _spec_or_none(profiles, name),
         default_level=settings.runtime_confinement,
@@ -532,13 +533,19 @@ def build_app(settings: ImpiSettings) -> App:
         skills_root=settings.resolved_skills_path,
         unconfined_by_default=frozenset(engine_names),
     )
-    _log_confinement(process_scopes, specs)
+    abi = landlock_abi()
+    line = confinement_line({spec.name: process_scopes.level_for(spec.name) for spec in specs}, abi)
+    (logger.info if abi else logger.warning)(line)
     hosts = build_agent_hosts(settings, specs, attachments.dir_for if attachments else None)
     # The user's agents that actually run: an engine-owned one (support) is
     # part of the engine and reads its configuration anyway, and an agent with
     # no token starts no process.
     running = [s for s in specs if s.name not in engine_names and configs.get(s.name) is not None]
-    shared = shared_process_agents(running, in_process=lambda name: name not in hosts.remote_agents)
+    shared = shared_process_agents(
+        running,
+        in_process=lambda name: name not in hosts.remote_agents,
+        confined=lambda name: bool(abi) and process_scopes.level_for(name) != "off",
+    )
     if shared:
         logger.warning(SHARED_PROCESS_WARNING, ", ".join(shared))
     runtime = PiRuntime(

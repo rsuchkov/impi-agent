@@ -25,7 +25,7 @@ pi --mode rpc --approve
 | `--mode rpc` | line-delimited JSON over stdin/stdout — the engine's transport. |
 | `--approve` | RPC mode otherwise ignores the project's `.pi/` resources; approving loads them (`SYSTEM.md`, settings) from the agent's profile dir non-interactively. |
 | `--session-id` | resumes the agent's on-disk memory for this conversation; `--no-session` for a memoryless run. |
-| `--session-dir` | per-agent session storage under `DATA_DIR`. |
+| `--session-dir` | the conversation's own session directory under `DATA_DIR` — one per conversation, so a confined process writes its memory and no other. |
 | `-e <path>` | loads a TypeScript extension. The engine always loads its tool-bridge first, then the `AGENTS_PATH/_extensions/<name>/index.ts` named in `RUNTIME_EXTENSIONS` — none by default. |
 | `--tools <csv>` | the ONE allowlist over built-in, extension, and typed tools. Empty = no tools at all. |
 | `--no-skills` + `--skill` | disables ambient skill discovery, then loads exactly the agent's declared skills. |
@@ -34,6 +34,16 @@ pi --mode rpc --approve
 
 `pi`'s working directory is the agent's profile dir, so it natively loads that
 agent's `.pi/*`.
+
+A confined process is started through the launcher instead —
+`python -I -S <crucible>/confinement/launcher.py --readable … --writable …
+-- pi …` — which applies the Landlock rules and then becomes `pi`. What the
+runtime adds to the application's scope: the system paths, where `pi` and
+node are installed, the profile, skills and extensions, files the environment
+points at, its memory for this conversation; its agent directory
+(`PI_CODING_AGENT_DIR`, set explicitly because `HOME` is the process's own)
+with `auth.json` and `models-store.json` rewritable in place and room for the
+lock directory `pi` takes beside them, and nothing else creatable there.
 
 `impi escape <agent>` starts the same profile for a person in a terminal: the
 flags from `--tools` down are built by the same code (`interactive_args`

@@ -353,6 +353,7 @@ def test_the_generated_compose_is_valid_yaml_and_the_right_shape() -> None:
     assert agent["environment"]["RUNTIME_RELAY_AGENT"] == "assistant"
     # The part of the shared files volume that is this agent's, where the engine sees it too.
     assert agent["environment"]["RUNTIME_RELAY_FILES_DIR"] == "/app/files/assistant"
+    assert agent["init"] is True  # a stop reaches the host, and through it the runtime
     # The healthcheck is a list, not a string the shell would have to re-split.
     assert isinstance(agent["healthcheck"]["test"], list)
     assert parsed["networks"].keys() >= {"default", "browser", "agent-assistant"}

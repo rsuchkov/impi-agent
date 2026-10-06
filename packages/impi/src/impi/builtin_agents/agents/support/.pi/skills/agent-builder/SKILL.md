@@ -42,6 +42,8 @@ runtime:
   timeout: 180               # seconds per turn
   tools: [read, bash]        # the ONE allowlist (see "Tool gating")
   skills: [<name>, registry:<name>]   # private, and/or from the shared library
+  # confinement: agent        # optional; conversation (default) | agent | off
+  # confinement_write: [/srv/reports]   # optional; paths beyond its own
 ```
 
 Keep `.pi/SYSTEM.md` short and concrete: who the agent is, its scope, and its
@@ -151,6 +153,13 @@ mounted and reloads as usual.
   its own variable needs it named here or in `RUNTIME_ENV`.
 - `TOOL_APPROVERS` — who may answer a tool's confirmation card; empty = the
   person who asked the agent.
+- `runtime.confinement` in `agent.yaml` / `AGENTS_CONFINEMENT__<NAME>` — how
+  far the agent's process is confined: `conversation` (the default,
+  `RUNTIME_CONFINEMENT`) sees only its own conversation's memory and files;
+  `agent` shares the agent's files between its conversations; `off` none.
+  A skill that writes outside `$AGENT_FILES_DIR` / `$TMPDIR` or reads outside
+  its profile and the library needs the path in `runtime.confinement_read` /
+  `confinement_write` — ask the user which paths, rather than reaching for `off`.
 - Shared extensions live at `$AGENTS_PATH/_extensions/<name>/index.ts` and load only
   when the operator names them in `RUNTIME_EXTENSIONS` in `.env` — writing one is
   not enabling it; say so, and that a restart follows. Once named, it loads for

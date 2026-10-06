@@ -13,7 +13,11 @@ Where that subprocess runs is a deployment choice. By default it is a child of
 the engine's own process. Turn on [agent containers](agent-containers.md) and
 the engine asks a small host in the agent's own container to start it instead,
 over the same line-delimited protocol — everything above the transport is
-unchanged and unaware.
+unchanged and unaware. Wherever it runs, it runs confined: under Landlock
+rules that leave it its own conversation's memory and files, its profile and
+skills, and nothing of other conversations, other agents or the engine
+(`crucible.confinement`, the `ProcessScopes` port, `RUNTIME_CONFINEMENT`; see
+[security.md](security.md)).
 
 Five packages, in a uv workspace:
 
@@ -182,11 +186,12 @@ capabilities it `requires`). At runtime:
   of the agent, so without the proof any of them could name another
   conversation), builds a `ToolContext` scoped to that agent and that turn (its
   own `ChatAdmin`, the directory, the widget/form services, the turn's scope),
-  and runs the tool. The proof defeats a claim made from knowledge, not a
-  process that can read another's environment: a shell run as the same user in
-  the same container sees every neighbour's `/proc/<pid>/environ`. That
-  boundary is process isolation — see [agent-containers.md](agent-containers.md)
-  and the section on it in [security.md](security.md). Every process the
+  and runs the tool. The proof defeats a claim made from knowledge; a process
+  that could read another's `/proc/<pid>/environ` would defeat it, and
+  confinement is what stops a runtime process from doing so — the kernel
+  refuses it outside the process's own Landlock domain. An unconfined one (level
+  `off`, or a kernel without Landlock) is the case
+  [security.md](security.md) describes. Every process the
   runtime starts proves itself — a memoryless run under a one-off id of its
   own — so a call that names no session at all is refused (`session required`):
   it did not come from a process the engine started.

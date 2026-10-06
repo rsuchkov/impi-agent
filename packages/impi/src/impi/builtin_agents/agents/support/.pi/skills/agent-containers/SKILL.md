@@ -84,7 +84,9 @@ Say what it does and does not buy, rather than "it is isolated":
   own.** Without the axis, every agent's identity is in one directory that any
   agent with `bash` can read. This is the change that matters most.
 - **Session files and files are one volume per agent.** No agent can read
-  another's conversation memory.
+  another's conversation memory. Inside the container each process is confined
+  too, as in the engine: one conversation's process cannot read another's
+  memory or (at the default level) files, nor the host's environment.
 - **Each agent is on a network with only the engine on it** — and the broker and
   the browser where those exist. So an agent cannot reach another agent's host,
   and cannot reach a co-deployed chat server directly either (an external one is
@@ -118,7 +120,13 @@ Say what it does and does not buy, rather than "it is isolated":
   own directory and the shared library). An absolute path to somewhere else
   cannot work here; install it into the library instead.
 - **A file the agent wrote will not send** — it wrote to `/tmp`, which is its
-  own container's and not the engine's. `$AGENT_FILES_DIR` is the shared one.
+  own container's and not the engine's. `$AGENT_FILES_DIR` is the shared one
+  (its conversation's directory, at the default confinement level).
+- **`Permission denied` inside the container** — the process is confined. Paths
+  declared with `runtime.confinement_read` / `confinement_write` do not apply in
+  a container of its own; give the agent `runtime.confinement: agent` or `off`.
+- **"the confinement launcher … is missing"** — the agent image predates
+  0.20. `impi agent sync` rebuilds it.
 - **A skill behaves as if something were not configured** — it is reading a
   variable from the engine's environment. A runtime in its own container does
   NOT inherit that; it gets its container's environment plus what the engine

@@ -64,83 +64,103 @@ believes the session id only beside its proof, compared in constant time. The
 proof is revoked when the process goes, so a copy that outlived it buys
 nothing. See the tool section of [architecture.md](architecture.md).
 
-Does not hold against: a process that can read **another process's
-environment**. Both secrets live in the runtime's environment, and a shell run
-as the same user in the same container reads every neighbour's
-`/proc/<pid>/environ`. So within one container the secrets stop a claim made
-from *knowledge* — a model naming a conversation it was never told about — and
-not a neighbour with a shell. That is the next boundary.
+Does not hold against: an **unconfined** process that can read another
+process's environment. Both secrets live in the runtime's environment, and a
+shell run as the same user in the same container reads every neighbour's
+`/proc/<pid>/environ` — unless the kernel refuses it, which is what
+confinement is for. That is the next boundary.
 
 ### What an agent's process can see of the tool server
 
 The tool server knows a caller by two secrets in the runtime process's
-environment: the agent's token and the session's proof. They defeat a claim
-made from knowledge — a model naming a conversation it was never told about,
-an agent with only typed tools naming any — and nothing more: any process of
-the same user in the same container reads `/proc/<pid>/environ` of every
-other, `read` and `grep` included, not only `bash`. So in the default
-arrangement an agent with a shell can take a neighbouring **conversation's**
-proof (and act in its channel, as its user, with whatever its turn's scope
-carries) and a neighbouring **agent's** token (and call the server with that
-agent's allowlist).
+environment: the agent's token and the session's proof. On their own they
+defeat a claim made from knowledge — a model naming a conversation it was
+never told about, an agent with only typed tools naming any — and nothing
+more: any unconfined process of the same user in the same container reads
+`/proc/<pid>/environ` of every other, `read` and `grep` included, not only
+`bash`. Such a process could take a neighbouring **conversation's** proof (and
+act in its channel, as its user, with whatever its turn's scope carries) and
+a neighbouring **agent's** token (and call the server with that agent's
+allowlist).
 
-What the engine does about it today:
+**Confinement closes that.** On a kernel with Landlock (Linux 5.13+), every
+runtime process starts under rules the engine computes (`RUNTIME_CONFINEMENT`,
+on by default) and each in a Landlock domain of its own: the kernel refuses it
+another process's `environ`, `mem` and signals outside that domain — another
+conversation's process, another agent's, the engine's. Its own environment is
+still its own; what it can read there is its own token and proof.
 
-- it says so at startup and in `impi health`, by name, whenever a user's agent
-  with a shell-like built-in (`bash`, `read`, `grep`, `edit`) runs in its process
-  space — one is enough, since the engine itself and `support` are always its
+What remains, and what the engine does about it:
+
+- an agent at level `off`, and every agent on a kernel without Landlock, is
+  unconfined; the engine names, at startup and in `impi health`, each user's
+  agent that runs unconfined in its process space with a shell-like built-in
+  (`bash`, `read`, `grep`, `edit`) — one is enough, since the engine itself and
+  `support` (unconfined by default, as part of the engine) are always its
   neighbours;
 - every process it starts proves itself, a memoryless run included, and a
   call that names no session is refused — a shell calling the server by hand
   with a token it found has to also name a live session and its proof;
 - an agent's process is handed only the environment the engine grants it, so
-  what a neighbour can read there is the tool server's two secrets and the
-  session id, not the engine's own tokens.
+  what an unconfined neighbour can read there is the tool server's two secrets
+  and the session id, not the engine's own tokens.
 
-What it does not do, and the options weighed: an identity attested by the
-kernel instead of a secret (a unix socket, the peer's pid mapped to the agent
-and session the engine spawned it for — the right next step for the default
-arrangement, not built); a user id per conversation (heavy under rootless
-podman); `hidepid` on `/proc` (hides other users' processes, not the same
-user's); a secret delivered over a channel a neighbour cannot read (there is
-none a same-user process cannot). The boundary that holds today is
-[a container per agent](agent-containers.md), and the warning above exists
-so that a deployment which needs that boundary is told, not left to find out.
+The weighed alternatives — a kernel-attested caller identity over a unix
+socket, a user id per conversation, `hidepid` on `/proc` — are not needed
+where confinement holds. Where it cannot (no Landlock), the boundary is
+[a container per agent](agent-containers.md).
 
 ### One agent and another
 
-What crosses, by default: everything. Every agent's runtime is a child of the
-engine, in the engine's container, as the engine's user. An agent with `bash`
-or `read` can read another agent's profile and system prompt, its conversation
-memory, its broker certificate, the engine's own configuration file with every
-chat token in it, and — above — its tool token and session proofs. The tool
-allowlist is the only thing between agents in this arrangement, and it is a
-real one: an agent without `bash` and `read` reads nothing. But a shell is
-what most skills are built on.
+Every agent's runtime is, by default, a child of the engine, in the engine's
+container, as the engine's user. Unconfined, an agent with `bash` or `read`
+can read another agent's profile and system prompt, its conversation memory,
+its broker certificate, the engine's own configuration file with every chat
+token in it, and — above — its tool token and session proofs. The tool
+allowlist is then the only thing between agents, and it is a real one: an
+agent without `bash` and `read` reads nothing. But a shell is what most skills
+are built on.
+
+Enforced by, by default: **confinement**. The process reads the system, its
+program, its own profile, the skill library and the files it is handed; it
+writes only its own memory, its own files and its own scratch `TMPDIR` and
+`HOME`; the credential file is rewritable in place and no other file can be
+created beside it (a settings file or an extension that would load into every
+agent). At level `conversation` (the default) "its own" is one
+conversation's: a process of one conversation cannot read another's memory or
+attachments, even of the same agent — for a deployment where one agent talks
+to many people. At `agent` an agent's conversations share its files. A skill
+that needs more declares it (`runtime.confinement_read` / `confinement_write`),
+or its agent is set to `off`. See [configuration.md](configuration.md).
 
 Enforced by, when turned on: [a container per agent](agent-containers.md).
 Each agent then has its own filesystem, its own volumes, its own network with
 the engine, its own broker certificate and nobody else's; the engine's
-environment no longer sits in every agent's process. The runtime's own
-credential for the model provider is the one thing still shared.
+environment no longer sits in every agent's process. Each process inside is
+confined as well. The runtime's own credential for the model provider is the
+one thing still shared.
 
 The honest summary, for an agent that has a shell:
 
-| it can reach | default | a container per agent |
-|---|---|---|
-| its own profile, memory, files | yes | yes |
-| another agent's profile and memory | yes | no |
-| another agent's broker certificate | yes | no |
-| the engine's `.env` (every chat token), with `read` | yes | no |
-| the engine's own environment, via `/proc/<pid>/environ` | yes — little in it under compose, where secrets stay in `conf/.env`; everything if the deployment puts them in the environment | no |
-| another process's tool token / session proof | yes | only its own processes |
-| the chat server directly (not through tools) | yes | a co-deployed Mattermost: no; an external or hosted one is reachable by URL like any internet host |
-| the model provider's credential | yes | yes (shared) |
-| the host's filesystem outside the mounts | no | no |
+| it can reach | unconfined (`off`, or no Landlock) | confined (default) | a container per agent |
+|---|---|---|---|
+| its own profile, memory, files | yes | yes — at `conversation`, its conversation's memory and files | yes, confined as well |
+| another conversation's memory, same agent | yes | no | no |
+| another conversation's attachments, same agent | yes | at `agent` yes; at `conversation` no | the same |
+| another agent's profile and memory | yes | no | no |
+| another agent's broker certificate | yes | no | no |
+| the engine's `.env` (every chat token), with `read` | yes | no | no |
+| the engine's own environment, via `/proc/<pid>/environ` | yes — little in it under compose, where secrets stay in `conf/.env`; everything if the deployment puts them in the environment | no | no |
+| another process's tool token / session proof | yes | no | no |
+| the chat server directly (not through tools) | yes | yes | a co-deployed Mattermost: no; an external or hosted one is reachable by URL like any internet host |
+| the model provider's credential | yes | yes (the one file, rewritable) | yes (shared) |
+| the host's filesystem outside the mounts | no | no | no |
 
 If agents of different trust share a deployment — one reads public channels,
-another holds a release token — the default arrangement is not a boundary
-between them. Turn the containers on, or do not give the first one a shell.
+another holds a release token — confinement keeps their files and processes
+apart, not their network: both reach whatever the deployment's network
+reaches. Turn the containers on for a network of their own, or do not give
+the first one a shell.
 
 ### The deployment and the outside
 
@@ -181,8 +201,9 @@ deployment configured; the engine makes no model calls itself.
 | the engine's log | stdout, whatever captures it | the container runtime's log | the runtime's rotation policy |
 
 Two things to know about the session files: they are plain JSONL on the data
-volume, readable by anything running as the engine's user (and by nobody else:
-the directories are 0700, like the inventory's 0600), and they are the agent's
+volume, a directory per conversation, readable by anything unconfined running
+as the engine's user (and by nobody else: the directories are 0700, like the
+inventory's 0600; a confined process reaches its own conversation's only), and they are the agent's
 memory — deleting one is how a conversation is forgotten. `impi sessions
 purge-idle --days N` is the knife, and `PI_SESSION_RETENTION_DAYS=N` makes the
 engine use it at every start.
@@ -191,17 +212,17 @@ engine use it at every start.
 
 | credential | where | readable by |
 |---|---|---|
-| the chat platform tokens, one per agent | `conf/.env` on the host, bind-mounted into the engine, mode 600 | the engine; by default every agent with `read` |
+| the chat platform tokens, one per agent | `conf/.env` on the host, bind-mounted into the engine, mode 600 | the engine; an unconfined agent with `read` |
 | the gateway tokens for your programs (`WS_SERVICE_TOKEN__*`, `HTTP_CALLER_TOKEN__*`) | `conf/.env`, in the clear | as above |
 | the model provider's login | `~/.impi/pi/agent/auth.json` on the host (mode 600, directory 700), mounted into the engine as pi's home and into each agent container as that one file | the engine and every agent container |
 | a custom endpoint's key (`LLM_API_KEY`) | `conf/.env`; passed to each runtime in its environment | every agent's runtime |
 | the agents' broker certificates | `~/.impi/certs`, mounted into the engine (or one each into its container) | see [secrets.md](secrets.md) |
 | the operator's broker certificate | `~/.impi/operator`, mounted into nothing an agent runs in | the operator |
 | the store's unseal key and the broker's credential | `~/.impi/ward-recovery.txt` on the host, mode 600, mounted into nothing | the operator |
-| the tool token and session proof | the runtime's environment, minted at spawn | the process; any neighbour with a shell |
+| the tool token and session proof | the runtime's environment, minted at spawn | the process; an unconfined neighbour with a shell |
 
-The engine's own configuration is the soft spot of the default arrangement:
-one file, every token, readable by any agent with a shell. The broker exists
+The engine's own configuration is the soft spot of an unconfined agent: one
+file, every token, readable by any such agent with a shell. The broker exists
 so that the credentials that *matter* — the ones an agent uses on your behalf
 — are not in that file at all.
 
@@ -223,7 +244,7 @@ decisions an operator makes.
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
 | per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks; a call naming no session is refused |
 | a tool's confirmation is addressed to the person who asked | a stranger who talked the model into a call in a shared channel cannot approve it; `TOOL_APPROVERS` names people instead |
-| the shared-process warning | at startup and in `impi health`: which user agents with a shell run in the engine's process space |
+| the shared-process warning | at startup and in `impi health`: which user agents with a shell run unconfined in the engine's process space, and each agent's confinement level |
 | `returns_untrusted` wrapping | other people's text arrives marked as such |
 | the prompt envelope is tagged per turn and quotes are escaped | a message cannot close a context block or pose as another speaker; the model is told so in its system prompt |
 | contained card text | what a caller supplies is content, never structure (newlines, fences, bidi) |
@@ -242,6 +263,7 @@ decisions an operator makes.
 | decision | default | when to change it |
 |---|---|---|
 | a shell (`bash`, `read`) in an agent's allowlist | the profile's choice | give it only to agents whose input you trust, or isolate them |
+| [confinement](configuration.md) (`RUNTIME_CONFINEMENT`, `runtime.confinement`) | `conversation`; `support` `off` | `agent` when an agent's conversations must share files; `off` only for an agent you trust with everything its user can reach |
 | [a container per agent](agent-containers.md) | off | more than one agent, and not all of them equally trusted |
 | [the secret broker](secrets.md) | off | any credential an agent should use on your behalf |
 | the broker's unattended unlock | off | a scheduled task needs a secret while nobody is awake — read the trade first |
@@ -256,12 +278,17 @@ decisions an operator makes.
 
 Things the design does not solve, stated so nobody relies on them by accident.
 
-- **A neighbour with a shell reads the tool server's secrets.** Within one
-  container, `/proc/<pid>/environ` is readable across processes of one user;
-  neither secret survives that. The boundary is the container, not the secret;
-  the engine names the agents concerned at startup. A kernel-attested caller
-  identity (a unix socket, the peer's pid) is the next step and is not built —
-  see the section on the tool server above.
+- **Confinement needs Landlock.** A kernel without it (older than 5.13, or
+  with Landlock left out of the boot's LSM list) runs every process
+  unconfined — the engine warns at startup and in `impi health`. There, an
+  unconfined neighbour with a shell reads the tool server's secrets, and the
+  boundary is the container, not the secret.
+- **Confinement covers files and processes, not the network.** A confined
+  process reaches every address the deployment's network does — the chat
+  server, the tool server (with its own token only), the internet. Landlock
+  can restrict TCP ports as well; it is not used yet.
+- **An agent at `off` is unconfined**, and so is `support` unless its profile
+  says otherwise; the engine names the user's agents concerned.
 - **One browser for every agent.** Per-agent browser contexts are not
   implemented; what one agent logs into, another can use.
 - **The broker binds an argv it is told.** `secret-exec` runs the command it

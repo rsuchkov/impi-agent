@@ -198,7 +198,7 @@ when a release is cut, and `impi update` shows the target version's section.
   under rules it computes: the process reads its profile, the skill library,
   the system and its own program; it writes only its files, its memory and
   its own `TMPDIR` and `HOME`; the credential file is rewritable in place and
-  nothing else can be created beside it. Everything else is out of reach —
+  no other file can be created beside it. Everything else is out of reach —
   the engine's `conf/.env`, other agents' profiles, memory and files, and
   other processes' environments in `/proc` (the tool token and session
   proofs a shell could read before), which the kernel refuses outside the
@@ -232,6 +232,16 @@ when a release is cut, and `impi update` shows the target version's section.
   and the agents' images have to be updated together (`impi update` rebuilds
   both). A profile's `runtime.confinement_read` / `confinement_write` paths
   do not apply in a container of its own.
+- **`impi health` says how each agent is confined.** A line with the
+  kernel's Landlock version, each agent's level and the agents running
+  unconfined — or a warning when the kernel has no Landlock. The
+  shared-process warning (at startup and in `impi health`) now names only the
+  agents that run **unconfined** in the engine's process space with a shell:
+  a confined process cannot read its neighbours' environments.
+- **An agent's container stops when asked.** Its host ran as PID 1, which
+  ignores SIGTERM, so a stop waited out the grace period and killed the
+  runtime mid-write; the agent services now run with an init (`impi agent
+  sync` writes it).
 - **The host's token no longer reaches the agent's process.** The agent's
   host handed its whole environment to the runtime it started,
   `RUNTIME_RELAY_TOKEN` included — enough for the agent's shell to ask its
