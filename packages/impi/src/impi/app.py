@@ -32,7 +32,8 @@ import impi.chat_tools  # noqa: E402,F401
 import impi.skill_tools  # noqa: E402,F401
 import impi.task_tools  # noqa: E402,F401
 from crucible.approvals import PendingApprovals
-from crucible.attachments import AttachmentStore
+from crucible.attachments import AttachmentStore, safe_name
+from crucible.confinement import landlock_abi
 from crucible.flows.agent_flow import ENVELOPE_NOTE, AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import (
@@ -56,7 +57,9 @@ from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.loopguard import LoopGuard
 from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec, RuntimeControl
+from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles import CompositeProfileStore, ProfileStore
+from crucible.profiles.errors import ProfileError
 from crucible.reloader import ProfileReloader
 from crucible.runtimes.pi import (
     EXTENSION_PATH,
@@ -193,6 +196,29 @@ SHARED_PROCESS_WARNING = (
     "every other agent's tool token and session proofs (/proc/<pid>/environ). The "
     "boundary is a container per agent — docs/security.md, docs/agent-containers.md"
 )
+
+
+def _spec_or_none(profiles: ProfileStore, name: str) -> AgentSpec | None:
+    try:
+        return profiles.get(name)
+    except ProfileError:
+        return None
+
+
+def _log_confinement(scopes: AgentProcessScopes, specs: Sequence[AgentSpec]) -> None:
+    """One line at startup: what confines the agents' processes, and which run
+    without it."""
+    abi = landlock_abi()
+    levels = {spec.name: scopes.level_for(spec.name) for spec in specs}
+    off = sorted(name for name, level in levels.items() if level == "off")
+    if not abi:
+        logger.warning("confinement: this kernel has no Landlock — every agent's process runs unconfined")
+        return
+    logger.info(
+        "confinement: Landlock ABI %d; %s; unconfined: %s", abi,
+        ", ".join(f"{n}={lvl}" for n, lvl in sorted(levels.items()) if lvl != "off") or "no agent confined",
+        ", ".join(off) or "none",
+    )
 
 
 @dataclass
@@ -455,6 +481,21 @@ def build_app(settings: ImpiSettings) -> App:
     # tool server: a call's session id is then a fact, not a claim the shared
     # agent token lets any process of that agent make.
     session_proofs = SessionProofBook()
+    # What each agent's process may touch: its profile and the skill library to
+    # read, its files and its own scratch space to write. support is part of
+    # the engine (it reads the engine's own configuration) and runs
+    # unconfined unless its profile says otherwise.
+    process_scopes = AgentProcessScopes(
+        lambda name: _spec_or_none(profiles, name),
+        default_level=settings.runtime_confinement,
+        files_dir_for=(
+            (lambda name: settings.resolved_attachments_dir / safe_name(name))
+            if settings.attachments_enabled else (lambda name: None)
+        ),
+        skills_root=settings.resolved_skills_path,
+        unconfined_by_default=frozenset(engine_names),
+    )
+    _log_confinement(process_scopes, specs)
     hosts = build_agent_hosts(settings, specs)
     # The user's agents that actually run: an engine-owned one (support) is
     # part of the engine and reads its configuration anyway, and an agent with
@@ -477,6 +518,7 @@ def build_app(settings: ImpiSettings) -> App:
         extra_extensions=build_pi_extensions(settings),
         ui_bridge=interactions.ui_bridge,
         hosts=hosts,
+        scopes=process_scopes,
     )
     registry = RegistryService(sessions)
     # One shared guard makes the rate limit a GLOBAL per-conversation bound (a

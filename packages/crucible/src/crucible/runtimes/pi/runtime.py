@@ -28,6 +28,7 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from pathlib import Path
 
+from crucible.ports.agent.confinement import ProcessScopes
 from crucible.ports.agent.runtime import (
     AgentProfile,
     PromptImage,
@@ -96,6 +97,7 @@ class PiRuntime:
         session_factory: SessionFactory | None = None,
         ui_bridge: UiBridge | None = None,
         hosts: HostRouter | None = None,
+        scopes: ProcessScopes | None = None,
     ) -> None:
         self._session_dir = session_dir
         self._idle_ttl = idle_ttl
@@ -109,6 +111,9 @@ class PiRuntime:
         # Engine environment names every agent's process inherits, on top of
         # what its own profile names.
         self._inherit = tuple(inherit)
+        # Where the application says each process's paths are; None = every
+        # process unconfined.
+        self._scopes = scopes
         # Loaded via `-e` on every spawn. Provider extensions must load early
         # (before project trust), so they go here rather than in profile settings.
         self._extra_extensions = extra_extensions or []
@@ -469,6 +474,9 @@ class PiRuntime:
         env["RUNTIME_SESSION_ID"] = proof_id
         if self._proofs is not None:
             env[SESSION_PROOF_ENV] = self._proofs.issue(proof_id)
+        scope = await self._scopes.scope_for(profile.name, safe_id) if self._scopes else None
+        if scope is not None:
+            env.update(scope.env)
         request = SpawnRequest(
             agent=profile.name,
             profile_dir=profile.config_dir,
@@ -485,6 +493,7 @@ class PiRuntime:
             session_dir=Path(self._session_dir) if self._session_dir else None,
             extensions=tuple(self._extra_extensions),
             cwd=Path(cwd) if cwd else None,
+            scope=scope,
         )
         transport = await self._hosts.for_agent(profile.name).open(request)
         # The coerced id, not the one the caller passed: it is what the tool

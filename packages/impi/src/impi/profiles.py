@@ -53,6 +53,7 @@ def open_profile_stores(
         default_model=settings.default_model,
         skills_override=settings.skills_for,
         inherit_override=settings.inherited_env_for,
+        confinement_override=settings.confinement_for,
         library=library.path_if_present,
     )
     engine_store = FsProfileStore(
@@ -62,6 +63,7 @@ def open_profile_stores(
         default_model=settings.support_model or settings.default_model,
         skills_override=settings.skills_for,
         inherit_override=settings.inherited_env_for,
+        confinement_override=settings.confinement_for,
         library=library.path_if_present,
     )
     return user_store, engine_store

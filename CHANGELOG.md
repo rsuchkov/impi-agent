@@ -193,6 +193,25 @@ when a release is cut, and `impi update` shows the target version's section.
   inherits that container's environment, and the generated service never
   carried `BROWSER_CDP_URL`; with both axes on, the web-browsing skill found
   no browser. `impi agent sync` now writes it when the browser axis is on.
+- **An agent's runtime process runs confined.** On a kernel with Landlock
+  (Linux 5.13+; the images' hosts all qualify) the engine starts each `pi`
+  under rules it computes: the process reads its profile, the skill library,
+  the system and its own program; it writes only its files, its memory and
+  its own `TMPDIR` and `HOME`; the credential file is rewritable in place and
+  nothing else can be created beside it. Everything else is out of reach —
+  the engine's `conf/.env`, other agents' profiles, memory and files, and
+  other processes' environments in `/proc` (the tool token and session
+  proofs a shell could read before), which the kernel refuses outside the
+  process's own domain; it cannot signal them either. `RUNTIME_CONFINEMENT`
+  (`conversation`, the default; `agent`; `off`), per agent
+  `runtime.confinement` or `AGENTS_CONFINEMENT__<AGENT>`; paths beyond its own
+  in `runtime.confinement_read` / `confinement_write`. `support` is `off` by
+  default. A kernel without Landlock runs every process unconfined, with a
+  warning; the startup log says which level each agent got. A library user
+  passes `PiRuntime(scopes=AgentProcessScopes(...))` (`crucible.process_scopes`)
+  or a `ProcessScopes` of its own. **Breaks:** a skill that wrote into its
+  profile, or read or wrote outside its own paths, gets `Permission denied`
+  — declare the paths or set the agent's level to `off`.
 - **`pi` 0.85.1.** The runtime moves from 0.80.3 to the version the
   third-party assessment was made against; every fact in
   `docs/runtime-notes.md` was re-verified live (tools, skills, the gate, a

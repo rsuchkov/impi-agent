@@ -33,6 +33,9 @@ runtime:
   tools: [read, bash]     # the single capability allowlist (see "Tool gating")
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
   env: [MYSERVICE_*]      # optional; engine environment variables its process inherits
+  confinement: agent      # optional; conversation | agent | off (default: RUNTIME_CONFINEMENT)
+  confinement_read: [/srv/checkout]   # optional; more paths its process may read
+  confinement_write: [state]          # optional; more it may write (relative = in the profile)
   packages:               # OPTIONAL, and only with agent containers (see below)
     apt: [ffmpeg]
 ```

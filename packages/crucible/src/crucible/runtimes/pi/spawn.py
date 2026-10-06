@@ -19,6 +19,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from crucible.confinement import ProcessScope
+
 _DIGEST_CHARS = 12
 
 
@@ -89,5 +91,8 @@ class SpawnRequest:
     # Extensions to load, as absolute paths on this side. A host with its own
     # filesystem supplies its own instead.
     extensions: tuple[str, ...] = ()
+    # What the application says this process may touch beyond what the host
+    # adds for the runtime itself; None = unconfined.
+    scope: ProcessScope | None = None
     # Working-directory override for checkout-scoped runs; None = the profile dir.
     cwd: Path | None = None

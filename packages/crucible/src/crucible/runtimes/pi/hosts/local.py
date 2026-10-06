@@ -8,8 +8,10 @@ host elsewhere is handed the request and builds its own.
 import fnmatch
 import logging
 import os
+import shutil
 from pathlib import Path
 
+from crucible.confinement import ProcessScope, confined_command, landlock_abi
 from crucible.private_files import private_dir
 from crucible.runtimes.pi.auth_file import auth_file_path, executable_entries
 from crucible.runtimes.pi.errors import PiHostError
@@ -24,6 +26,7 @@ class LocalHost:
 
     def __init__(self, *, program: str = "pi") -> None:
         self._program = program
+        self._abi: int | None = None
 
     async def open(self, request: SpawnRequest) -> PiTransport:
         # A credential the runtime would execute is not one a login wrote:
@@ -40,9 +43,27 @@ class LocalHost:
         session_dir = self._session_dir(request)
         args = command_args(request, session_dir=session_dir)
         cwd = str(request.cwd or request.profile_dir)
-        return await SubprocessTransport.spawn(
-            self._program, args, cwd=cwd, env=_environment(request)
-        )
+        env = _environment(request)
+        if request.scope is not None and self._can_confine():
+            scope = runtime_scope(request, session_dir, program=self._program)
+            # HOME is the process's own now; pi still has to find its account.
+            env["PI_CODING_AGENT_DIR"] = str(auth_file_path().parent)
+            command = confined_command(scope, [self._program, *args])
+            return await SubprocessTransport.spawn(command[0], command[1:], cwd=cwd, env=env)
+        return await SubprocessTransport.spawn(self._program, args, cwd=cwd, env=env)
+
+    def _can_confine(self) -> bool:
+        """Whether this kernel can confine a process — asked once. Without it a
+        process the application wanted confined runs as it always did, and the
+        log says so the first time."""
+        if self._abi is None:
+            self._abi = landlock_abi()
+            if not self._abi:
+                logger.warning(
+                    "this kernel has no Landlock: runtime processes run unconfined, "
+                    "whatever confinement level their agents ask for"
+                )
+        return bool(self._abi)
 
     async def aclose(self) -> None:
         return
@@ -142,3 +163,59 @@ def _environment(request: SpawnRequest) -> dict[str, str]:
         if any(fnmatch.fnmatchcase(name, pattern) for pattern in patterns)
     }
     return {**inherited, **request.env, **granted}
+
+
+# What every process of this runtime reads, wherever its agent's files are: the
+# system, the device nodes, the process table (another process's private
+# entries stay out of reach — the kernel refuses them outside the domain).
+_SYSTEM_READABLE = ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc", "/opt", "/proc", "/dev")
+# Device nodes a shell writes to: discarding output, a terminal, randomness.
+_DEVICE_WRITABLE = ("/dev/null", "/dev/zero", "/dev/full", "/dev/tty", "/dev/ptmx")
+
+
+def runtime_scope(request: SpawnRequest, session_dir: Path | None, *, program: str) -> ProcessScope:
+    """The application's scope for this process, plus what the runtime itself
+    needs: its program and node, the system, its memory for this session, the
+    files it is handed (skills, extensions, the tool manifest) and its account
+    — the credential rewritable in place, a lock beside it, nothing else
+    creatable there."""
+    assert request.scope is not None
+    readable = [Path(p) for p in _SYSTEM_READABLE]
+    readable += _install_roots(program)
+    readable += [request.profile_dir, *(Path(s) for s in request.skills)]
+    readable += [Path(e) for e in request.extensions]
+    readable += list(request.env_files.values())
+    # A file the process is pointed at in the environment it was granted is a
+    # file it was meant to read — a manifest passed as a plain variable, a
+    # certificate bundle. Without this it would fail to open it, quietly.
+    readable += [Path(v) for v in request.env.values() if v.startswith("/") and Path(v).is_file()]
+    agent_dir = auth_file_path().parent
+    readable.append(agent_dir)
+    writable = [session_dir] if session_dir is not None else []
+    return ProcessScope(
+        readable=(*request.scope.readable, *readable),
+        writable=(*request.scope.writable, *writable),
+        writable_files=(
+            *request.scope.writable_files,
+            *(Path(p) for p in _DEVICE_WRITABLE),
+            agent_dir / "auth.json",
+            agent_dir / "models-store.json",
+        ),
+        mkdir_only=(*request.scope.mkdir_only, agent_dir),
+        env=dict(request.scope.env),
+    )
+
+
+def _install_roots(program: str) -> list[Path]:
+    """Where the runtime and node live when that is outside the system paths —
+    a developer's own install under their home, say. The directory holding the
+    package tree the program resolves into, and node's prefix."""
+    roots: list[Path] = []
+    for name in (program, "node"):
+        found = shutil.which(name)
+        if not found:
+            continue
+        real = Path(found).resolve()
+        package_root = next((p.parent for p in real.parents if p.name == "node_modules"), real.parent)
+        roots += [package_root, real.parent.parent]
+    return roots

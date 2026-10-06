@@ -7,7 +7,9 @@ import pytest
 
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways.mattermost import MattermostChatClient, MattermostGateway
+from crucible.process_scopes import AgentProcessScopes
 from crucible.runtimes.pi.profiles import PiProfile
+from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.store.sqlite import SqliteSessionStore
 from impi.app import App, build_app, build_pi_extensions
 from impi.config import ImpiSettings as Settings
@@ -549,3 +551,22 @@ def test_an_unwritable_env_file_does_not_stop_the_engine(tmp_path: Path) -> None
         assert ensure_receiver_secret(settings, needs_receiver=True).integrations_secret == ""
     finally:
         blocked.chmod(0o700)
+
+
+async def test_a_users_agent_is_confined_and_the_engines_own_is_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTS_MM_TOKEN__SUPPORT", "support-token")
+    app = build_app(_settings(tmp_path))
+    try:
+        assert isinstance(app.runtime, PiRuntime)
+        scopes = app.runtime._scopes
+        assert isinstance(scopes, AgentProcessScopes)
+        assert scopes.level_for("assistant") == "conversation"
+        assert scopes.level_for("support") == "off"
+        assert await scopes.scope_for("support", None) is None
+        assistant = await scopes.scope_for("assistant", None)
+        assert assistant is not None and any(str(p).endswith("assistant") for p in assistant.readable)
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()

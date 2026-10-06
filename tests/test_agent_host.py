@@ -20,6 +20,7 @@ from aiohttp import web
 from crucible.runtimes.pi.errors import PiHostError
 from crucible.runtimes.pi.hosts import wire as engine_wire
 from crucible.runtimes.pi.hosts.local import (
+    LocalHost,
     _environment,
     command_args,
     interactive_args,
@@ -471,3 +472,67 @@ def test_the_host_loads_only_the_extensions_it_was_named(tmp_path: Path) -> None
     assert loaded == (root / "jira" / "index.ts",)
     with pytest.raises(Exception, match="not an extension name"):
         _extensions({ENV_EXTENSIONS_DIR: str(root), ENV_EXTENSION_NAMES: "../x"})
+
+
+# --- confinement ----------------------------------------------------------------
+
+
+def _scoped(profile: Path, library: Path, tmp_path: Path, **over: object) -> SpawnRequest:
+    from crucible.confinement import ProcessScope
+
+    scope = ProcessScope(readable=(tmp_path / "skills",), writable=(tmp_path / "files",),
+                         env={"TMPDIR": str(tmp_path / "t"), "HOME": str(tmp_path / "h")})
+    return _request(profile, library, scope=scope, **over)
+
+
+def test_the_runtime_adds_what_it_needs_to_the_applications_scope(tmp_path: Path, monkeypatch) -> None:
+    from crucible.runtimes.pi.hosts.local import runtime_scope
+
+    profile, library = _dirs(tmp_path)
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pihome"))
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}")
+    plain_manifest = tmp_path / "plain.json"
+    plain_manifest.write_text("{}")
+    request = _scoped(profile, library, tmp_path, env_files={"TOOL_MANIFEST": manifest},
+                      env={"OTHER_MANIFEST": str(plain_manifest), "TOOL_TOKEN": "t"})
+    scope = runtime_scope(request, tmp_path / "sessions" / "assistant", program="pi")
+    assert tmp_path / "skills" in scope.readable and tmp_path / "files" in scope.writable  # the application's
+    assert Path("/usr") in scope.readable and profile in scope.readable
+    assert manifest in scope.readable and plain_manifest in scope.readable
+    assert tmp_path / "sessions" / "assistant" in scope.writable  # its memory
+    assert tmp_path / "pihome" / "auth.json" in scope.writable_files
+    assert tmp_path / "pihome" in scope.mkdir_only  # a lock, no planted file
+    assert tmp_path / "pihome" not in scope.writable
+
+
+async def test_a_scoped_request_starts_the_runtime_through_the_launcher(tmp_path: Path, monkeypatch) -> None:
+    from crucible.confinement import LAUNCHER_PATH
+
+    profile, library = _dirs(tmp_path)
+    started: list[tuple[str, list[str], dict]] = []
+
+    async def spawn(program, args, *, cwd, env):
+        started.append((program, list(args), env))
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", spawn)
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.landlock_abi", lambda: 7)
+    await LocalHost().open(_scoped(profile, library, tmp_path))
+    program, args, env = started[0]
+    assert str(LAUNCHER_PATH) in args and args[args.index("--") + 1] == "pi"
+    assert "PI_CODING_AGENT_DIR" in env
+
+
+async def test_without_landlock_a_scoped_request_starts_the_runtime_as_it_is(tmp_path: Path, monkeypatch, caplog) -> None:
+    profile, library = _dirs(tmp_path)
+    started: list[str] = []
+
+    async def spawn(program, args, *, cwd, env):
+        started.append(program)
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", spawn)
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.landlock_abi", lambda: 0)
+    with caplog.at_level("WARNING"):
+        await LocalHost().open(_scoped(profile, library, tmp_path))
+    assert started == ["pi"]
+    assert "no Landlock" in caplog.text

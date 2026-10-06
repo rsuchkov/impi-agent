@@ -759,3 +759,26 @@ async def test_a_memoryless_runs_proof_dies_with_its_process() -> None:
     session = SimpleNamespace(proof_session_id="assistant--oneshot-abc123", close=close)
     await rt._close_session(cast(PiRpcSession, session), "assistant")
     assert proofs.revoked == ["assistant--oneshot-abc123"]
+
+
+async def test_the_applications_scope_reaches_the_spawn_and_its_env_the_process(monkeypatch) -> None:
+    from crucible.confinement import ProcessScope
+
+    captured: dict = {}
+
+    async def fake_open(self, request):
+        captured["request"] = request
+        return SimpleNamespace()
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.LocalHost.open", fake_open)
+
+    class Scopes:
+        async def scope_for(self, agent, session_id):
+            captured["asked"] = (agent, session_id)
+            return ProcessScope(writable=(Path("/x"),), env={"TMPDIR": "/x/t"})
+
+    rt = PiRuntime(scopes=Scopes())
+    await rt._spawn_session(_profile(), "assistant--c1")
+    assert captured["asked"] == ("assistant", "assistant--c1")
+    assert captured["request"].scope.writable == (Path("/x"),)
+    assert captured["request"].env["TMPDIR"] == "/x/t"

@@ -17,6 +17,7 @@ from dotenv import dotenv_values
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from crucible.ports.agent.confinement import check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 
 # The backend names, spelled out rather than imported. `crucible.store` owns the
@@ -277,6 +278,11 @@ class Settings(BaseSettings):
     # and the runtime's files for it, at startup. 0 = never — memory is kept
     # until somebody deletes it, which is what it always was.
     pi_session_retention_days: int = 0
+    # How far a runtime process is confined (crucible.ports.agent.confinement):
+    # conversation, agent or off. Per agent: AGENTS_CONFINEMENT__<AGENT> or
+    # runtime.confinement in its profile. A kernel without Landlock runs
+    # every process unconfined, with a warning.
+    runtime_confinement: str = "conversation"
     # How long a turn waits for a free slot before giving up with "the engine is
     # full". Rarely reached: with eviction on, a full pool gives up its idlest
     # session instead of making the new turn wait for the idle TTL.
@@ -327,6 +333,14 @@ class Settings(BaseSettings):
     # application mints one on first start or the operator sets it by hand.
     integrations_secret: str = ""
     integrations_ui_timeout: float = 90.0  # blocking confirm/select: human-answer window
+
+    @field_validator("runtime_confinement")
+    @classmethod
+    def _confinement_is_a_level(cls, value: str) -> str:
+        try:
+            return check_confinement_level(value)
+        except ValueError as exc:
+            raise ValueError(f"RUNTIME_CONFINEMENT: {exc}") from exc
 
     @field_validator("integrations_secret")
     @classmethod
@@ -462,6 +476,12 @@ class Settings(BaseSettings):
         if raw is None:
             return None
         return tuple(s.strip() for s in raw.split(",") if s.strip())
+
+    def confinement_for(self, agent: str) -> str | None:
+        """Per-agent confinement level from config: AGENTS_CONFINEMENT__<AGENT>
+        (env or .env). None = unset (the profile's, else RUNTIME_CONFINEMENT)."""
+        key = f"AGENTS_CONFINEMENT__{agent.upper().replace('-', '_')}"
+        return os.environ.get(key) or self._dotenv.get(key) or None
 
     def skills_for(self, agent: str) -> tuple[str, ...] | None:
         """Per-agent skills override: AGENTS_SKILLS__<AGENT> (CSV, env or .env).

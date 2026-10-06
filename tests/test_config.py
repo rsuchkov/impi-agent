@@ -164,3 +164,16 @@ def test_runtime_env_refuses_a_pattern_that_would_hand_over_everything(monkeypat
     monkeypatch.setenv("RUNTIME_ENV", "*")
     with pytest.raises(ValueError, match="RUNTIME_ENV"):
         _no_dotenv().runtime_env_names()
+
+
+def test_runtime_confinement_defaults_to_conversation_and_refuses_anything_else() -> None:
+    assert _settings().runtime_confinement == "conversation"
+    with pytest.raises(ValidationError, match="RUNTIME_CONFINEMENT"):
+        _settings(runtime_confinement="strict")
+
+
+def test_confinement_for_reads_the_per_agent_key(monkeypatch) -> None:
+    monkeypatch.delenv("AGENTS_CONFINEMENT__MY_AGENT", raising=False)
+    assert _no_dotenv().confinement_for("my-agent") is None
+    monkeypatch.setenv("AGENTS_CONFINEMENT__MY_AGENT", "off")
+    assert _no_dotenv().confinement_for("my-agent") == "off"

@@ -35,3 +35,9 @@ class AgentSpec:
     # difference is the engine's entire secret set. Globs are allowed
     # (``MYSERVICE_*``), checked by ``inherited_env.check_inherited_env``.
     inherit: tuple[str, ...] = ()
+    # How far this agent's processes are confined; None = the deployment's
+    # default. Paths beyond its own it may read or write, absolute, for a
+    # skill that needs more (a mounted checkout, a cache it keeps).
+    confinement: str | None = None
+    confinement_readable: tuple[Path, ...] = ()
+    confinement_writable: tuple[Path, ...] = ()

@@ -222,3 +222,29 @@ def test_runtime_env_takes_a_name_or_a_family_with_a_real_prefix(tmp_path: Path)
     assert FsProfileStore(tmp_path, library=None).get("assistant").inherit == (
         "MYSERVICE_*", "SLACK_BOT_TOKEN",
     )
+
+
+def _yaml_with_runtime(extra: str) -> str:
+    return GOOD_YAML.replace("tools: [list_agents]", f"tools: [read, bash]\n{extra}")
+
+
+def test_runtime_confinement_and_its_paths_are_read_relative_to_the_profile(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime(
+        "  confinement: agent\n  confinement_read: [/srv/checkout]\n  confinement_write: [state]\n"
+    ))
+    spec = FsProfileStore(tmp_path, library=None).get("assistant")
+    assert spec.confinement == "agent"
+    assert spec.confinement_readable == (Path("/srv/checkout"),)
+    assert spec.confinement_writable == ((tmp_path / "agents" / "assistant" / "state").resolve(),)
+
+
+def test_runtime_confinement_refuses_what_is_not_a_level(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime("  confinement: none\n"))
+    with pytest.raises(ProfileError, match="runtime.confinement"):
+        FsProfileStore(tmp_path, library=None).get("assistant")
+
+
+def test_the_operators_override_wins_over_the_profile(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime("  confinement: agent\n"))
+    store = FsProfileStore(tmp_path, confinement_override=lambda name: "off", library=None)
+    assert store.get("assistant").confinement == "off"

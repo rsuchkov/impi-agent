@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from crucible.ports.agent import AgentSpec
+from crucible.ports.agent.confinement import check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.profiles.errors import ProfileError
 
@@ -76,6 +77,7 @@ class FsProfileStore:
         default_model: str = "",
         skills_override: Callable[[str], tuple[str, ...] | None] | None = None,
         inherit_override: Callable[[str], tuple[str, ...] | None] | None = None,
+        confinement_override: Callable[[str], str | None] | None = None,
         # REQUIRED, with no default on purpose. It had one, and two of the three
         # places that build a store forgot to pass it — one of them for five
         # releases, because the store works perfectly until a profile happens to
@@ -95,6 +97,8 @@ class FsProfileStore:
         # Same shape for the environment names an agent inherits: a set value
         # replaces the agent.yaml list, None keeps it.
         self._inherit_override = inherit_override
+        # The confinement level an operator set for one agent from config.
+        self._confinement_override = confinement_override
         # Resolves a shared-library skill name to its directory (None = unknown).
         # A callback for the same reason: the library lives in config, not here.
         self._library = library
@@ -177,6 +181,16 @@ class FsProfileStore:
                 check_inherited_env(pattern)
             except ValueError as exc:
                 raise ProfileError(f"{manifest}: runtime.env entry {exc}") from exc
+        confinement = self._confinement_override(name) if self._confinement_override else None
+        if confinement is None and runtime.get("confinement") is not None:
+            confinement = str(runtime["confinement"])
+        if confinement is not None:
+            try:
+                check_confinement_level(confinement)
+            except ValueError as exc:
+                raise ProfileError(f"{manifest}: runtime.confinement: {exc}") from exc
+        readable = _confinement_paths(runtime, "confinement_read", manifest)
+        writable = _confinement_paths(runtime, "confinement_write", manifest)
         timeout = runtime.get("timeout", self._default_timeout)
         if not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ProfileError(f"{manifest}: runtime.timeout must be a positive number")
@@ -194,4 +208,16 @@ class FsProfileStore:
             tools=tuple(tools),
             skills=skill_paths,
             inherit=inherit,
+            confinement=confinement,
+            confinement_readable=readable,
+            confinement_writable=writable,
         )
+
+
+def _confinement_paths(runtime: dict, key: str, manifest: Path) -> tuple[Path, ...]:
+    """A list of paths under ``runtime.<key>``, made absolute: a relative one is
+    relative to the agent's own directory."""
+    raw = runtime.get(key) or []
+    if not isinstance(raw, list) or not all(isinstance(p, str) and p.strip() for p in raw):
+        raise ProfileError(f"{manifest}: runtime.{key} must be a list of paths")
+    return tuple((manifest.parent / p).resolve() if not Path(p).is_absolute() else Path(p) for p in raw)
