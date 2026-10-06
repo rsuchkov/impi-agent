@@ -100,12 +100,34 @@ def build_pi_extensions(settings: ImpiSettings) -> list[str]:
     own without touching the engine.
     """
     paths = [str(EXTENSION_PATH.resolve())]
-    if settings.agents_path:
-        ext_root = Path(settings.agents_path) / "_extensions"
-        paths += sorted(
-            str(index.resolve()) for index in ext_root.glob("*/index.ts") if index.is_file()
-        )
+    if not settings.agents_path:
+        return paths
+    ext_root = Path(settings.agents_path) / "_extensions"
+    present, enabled = agents_dir_extensions(ext_root, settings.runtime_extension_names())
+    for name in present:
+        if name not in enabled:
+            logger.warning(
+                "extension %s is present in %s but not enabled — name it in "
+                "RUNTIME_EXTENSIONS to load it into every agent", name, ext_root,
+            )
+    for name in settings.runtime_extension_names():
+        if name not in present:
+            logger.warning(
+                "RUNTIME_EXTENSIONS names %s, but %s/%s/index.ts does not exist", name, ext_root, name,
+            )
+    paths += [str((ext_root / name / "index.ts").resolve()) for name in enabled]
     return paths
+
+
+def agents_dir_extensions(ext_root: Path, names: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """What the agents directory offers and what the deployment chose:
+    (present, enabled), both sorted, the second a subset of the first in the
+    order the operator named them."""
+    present = tuple(sorted(
+        index.parent.name for index in ext_root.glob("*/index.ts") if index.is_file()
+    ))
+    enabled = tuple(name for name in names if name in present)
+    return present, enabled
 
 
 def build_agent_hosts(settings: ImpiSettings, specs: Sequence[AgentSpec]) -> HostRouter:

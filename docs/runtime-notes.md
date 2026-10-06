@@ -26,7 +26,7 @@ pi --mode rpc --approve
 | `--approve` | RPC mode otherwise ignores the project's `.pi/` resources; approving loads them (`SYSTEM.md`, settings) from the agent's profile dir non-interactively. |
 | `--session-id` | resumes the agent's on-disk memory for this conversation; `--no-session` for a memoryless run. |
 | `--session-dir` | per-agent session storage under `DATA_DIR`. |
-| `-e <path>` | loads a TypeScript extension. The engine always loads its tool-bridge first, then any `AGENTS_PATH/_extensions/*/index.ts`. |
+| `-e <path>` | loads a TypeScript extension. The engine always loads its tool-bridge first, then the `AGENTS_PATH/_extensions/<name>/index.ts` named in `RUNTIME_EXTENSIONS` — none by default. |
 | `--tools <csv>` | the ONE allowlist over built-in, extension, and typed tools. Empty = no tools at all. |
 | `--no-skills` + `--skill` | disables ambient skill discovery, then loads exactly the agent's declared skills. |
 | `--provider` / `--model` | select the backend and model (omitted when unset). |

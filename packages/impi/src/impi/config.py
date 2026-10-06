@@ -6,9 +6,13 @@ messaging / loop-protection knobs (impi is the multi-agent configuration).
 from __future__ import annotations
 
 import os
+import re
 from typing import ClassVar
 
 from crucible.config import Settings
+
+# A directory name under _extensions/, nothing that could walk out of it.
+EXTENSION_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 
 
 class ImpiSettings(Settings):
@@ -26,6 +30,21 @@ class ImpiSettings(Settings):
 
     # Inter-agent messaging + loop protection.
     agents_reply_to_agents: bool = True  # answer other agents' mentions
+    # Which of AGENTS_PATH/_extensions/<name>/index.ts load into every agent's
+    # runtime: names, CSV. Nothing is loaded for being present — an extension
+    # is code in every agent's process, and a directory any agent with `write`
+    # can add to is not where that decision belongs.
+    runtime_extensions: str = ""
+
+    def runtime_extension_names(self) -> tuple[str, ...]:
+        names = tuple(dict.fromkeys(n.strip() for n in self.runtime_extensions.split(",") if n.strip()))
+        for name in names:
+            if not EXTENSION_NAME_RE.fullmatch(name):
+                raise ValueError(
+                    f"RUNTIME_EXTENSIONS: {name!r} is not an extension name (a directory "
+                    "name under _extensions/: letters, digits, '-' and '_')"
+                )
+        return names
     agent_max_hops: int = 4  # refuse an agent turn past this depth from a human
     agent_rate_limit_turns: int = 6  # max agent-triggered turns...
     agent_rate_window_s: float = 60.0  # ...per conversation per this window

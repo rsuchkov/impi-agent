@@ -105,6 +105,16 @@ when a release is cut, and `impi update` shows the target version's section.
   makes the engine forget, at startup, every conversation idle for N days or
   more — its record and the runtime's files, what `impi sessions purge-idle`
   does by hand. Off by default: memory is kept until deleted, as before.
+- **Extensions load by name, not by presence.** Every
+  `AGENTS_PATH/_extensions/<name>/index.ts` used to load into every agent's
+  runtime for being there — and the agents directory is writable by any agent
+  with `write`, so one agent could put code into every other's process.
+  `RUNTIME_EXTENSIONS=<name>,…` now names what loads; the engine logs what is
+  present but not named, `impi health` lists both, and with agent containers
+  `impi agent sync` hands each host the names (`RUNTIME_RELAY_EXTENSION_NAMES`)
+  instead of a directory to scan. **Breaks:** an existing `_extensions/*`
+  stops loading until it is named in `RUNTIME_EXTENSIONS`; a deployment with
+  agent containers re-runs `impi agent sync`.
 
 ## v0.19.0 — 2026-10-04
 

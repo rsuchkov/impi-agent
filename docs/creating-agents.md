@@ -16,7 +16,7 @@ $AGENTS_PATH/agents/<name>/
   .pi/SYSTEM.md                 # personality / instructions (any language)
   .pi/skills/<skill>/SKILL.md   # optional per-agent skills (listed in runtime.skills)
 
-$AGENTS_PATH/_extensions/<name>/index.ts   # optional shared tools, loaded for every agent
+$AGENTS_PATH/_extensions/<name>/index.ts   # optional shared tools; loaded for every agent once named in RUNTIME_EXTENSIONS
 ```
 
 ## `agent.yaml`
@@ -57,7 +57,11 @@ to put a package in. The same goes for a `Dockerfile.include` beside
 `runtime.tools` is the **one allowlist** over three kinds of tools at once:
 
 - `pi`'s built-ins: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`.
-- tools registered by an extension (`_extensions/<name>/index.ts`).
+- tools registered by an extension (`_extensions/<name>/index.ts`) the
+  deployment enabled: an extension is code in every agent's process, so being
+  present in the directory is not enough — `RUNTIME_EXTENSIONS=<name>,…` in
+  `.env` names what loads, and the engine logs what is present but not named.
+  `impi health` lists both.
 - the engine's typed tools (e.g. the multi-agent choreography tools).
 
 Naming a tool is the only way to enable it; an **empty list means the agent gets

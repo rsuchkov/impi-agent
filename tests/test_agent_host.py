@@ -452,3 +452,22 @@ def test_what_the_engine_shipped_is_written_for_this_user_alone(tmp_path: Path) 
     assert written.read_text() == "{}"
     assert stat.S_IMODE(written.stat().st_mode) == 0o600
     assert stat.S_IMODE(scratch.stat().st_mode) == 0o700
+
+
+def test_the_host_loads_only_the_extensions_it_was_named(tmp_path: Path) -> None:
+    """A mounted directory alone loads nothing; the names do."""
+    from runtime_relay.config import (
+        ENV_EXTENSION_NAMES,
+        ENV_EXTENSIONS_DIR,
+        _extensions,
+    )
+
+    root = tmp_path / "_extensions"
+    for name in ("jira", "planted"):
+        (root / name).mkdir(parents=True)
+        (root / name / "index.ts").write_text("// x", encoding="utf-8")
+    assert _extensions({ENV_EXTENSIONS_DIR: str(root)}) == ()
+    loaded = _extensions({ENV_EXTENSIONS_DIR: str(root), ENV_EXTENSION_NAMES: "jira, ghost"})
+    assert loaded == (root / "jira" / "index.ts",)
+    with pytest.raises(Exception, match="not an extension name"):
+        _extensions({ENV_EXTENSIONS_DIR: str(root), ENV_EXTENSION_NAMES: "../x"})

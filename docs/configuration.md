@@ -182,6 +182,7 @@ See [tasks.md](tasks.md) for what a task is and how a missed run is handled.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PI_BIN` | `pi` | path to the `pi` CLI (assumed on `PATH`) |
+| `RUNTIME_EXTENSIONS` | `""` | which `AGENTS_PATH/_extensions/<name>/index.ts` load into every agent's runtime (CSV of directory names). Nothing loads for merely being present: the directory is writable by any agent with `write`, and an extension is code in every agent's process. The engine logs what is present but not named; `impi health` lists both; with agent containers, `impi agent sync` passes the names to each host |
 | `RUNTIME_ENV`, `RUNTIME_ENV__<AXIS>` | `""` | names (CSV, `*` allowed) of the engine's own environment variables every agent's process inherits beside the base set (`PATH`, `HOME`, locale, proxies, certificate bundles, `PI_*`). Each compose overlay that puts a variable into the engine's environment for the agents declares it under its own `RUNTIME_ENV__` key (`RUNTIME_ENV__BROWSER=BROWSER_CDP_URL`, `RUNTIME_ENV__SECRETS=SECRET_BROKER_*`); nothing else the engine holds reaches a process. The bundled `support` agent inherits everything. Every process also gets `PI_OFFLINE=1`: no version check at startup |
 | `PI_SESSION_DIR` | `""` | `pi` session storage; default `{DATA_DIR}/pi-sessions` (per-agent subdirs) |
 | `PI_TIMEOUT` | `180` | per-turn timeout (s) when `agent.yaml` omits `runtime.timeout` |

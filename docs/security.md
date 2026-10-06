@@ -218,6 +218,7 @@ decisions an operator makes.
 | the process environment is granted, not inherited | a user's agent gets a base set plus the names the deployment (`RUNTIME_ENV__*`) and its profile (`runtime.env`) grant; the engine's tokens never reach it. `support` is the exception, as part of the engine |
 | `PI_OFFLINE=1` on every runtime process | no version check or other startup network call from the runtime |
 | explicit skills (`--no-skills` + the profile's list) | no ambient discovery; a skill's scripts run only for agents given it |
+| explicit extensions (`RUNTIME_EXTENSIONS`) | an `_extensions/<name>` loads into every agent only when the operator names it; a directory any agent with `write` can add to decides nothing |
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
 | per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks; a call naming no session is refused |
 | the shared-process warning | at startup and in `impi health`: which agents with a shell share the engine's process space, if more than one does |

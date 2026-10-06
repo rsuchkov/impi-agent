@@ -460,3 +460,20 @@ def test_health_warns_about_agents_sharing_the_engines_process(
     )
     assert cli.main(["health"]) == 0
     assert "agents alpha, beta run in the engine's own process space" in capsys.readouterr().out
+
+
+def test_health_lists_the_extensions_present_and_enabled(
+    monkeypatch, _isolated_env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli.httpx, "get", lambda url, timeout: _Pong())
+    root = Path(_isolated_env).parent / "profiles"
+    (root / "agents").mkdir(parents=True)
+    for name in ("jira", "planted"):
+        (root / "_extensions" / name).mkdir(parents=True)
+        (root / "_extensions" / name / "index.ts").write_text("// x", encoding="utf-8")
+    _isolated_env.write_text(
+        "GATEWAY=mattermost\nINTEGRATIONS_SECRET=k2Xy8qLmN0pRsTuVwZ\nRUNTIME_EXTENSIONS=jira\n"
+    )
+    assert cli.main(["health"]) == 0
+    out = capsys.readouterr().out
+    assert "jira, planted; enabled (RUNTIME_EXTENSIONS): jira" in out

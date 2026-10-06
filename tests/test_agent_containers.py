@@ -176,9 +176,11 @@ def test_every_network_a_service_names_is_declared() -> None:
         assert f"  {network}:" in declarations
 
 
-def test_the_extensions_directory_is_mounted_only_when_there_is_one() -> None:
+def test_the_extensions_directory_is_mounted_only_when_something_in_it_is_enabled() -> None:
     assert "_extensions" not in _rendered()
-    assert "RUNTIME_RELAY_EXTENSIONS_DIR: /app/agents/_extensions" in _rendered(extensions_dir=True)
+    text = _rendered(extensions=("jira", "clock"))
+    assert "RUNTIME_RELAY_EXTENSIONS_DIR: /app/agents/_extensions" in text
+    assert "RUNTIME_RELAY_EXTENSION_NAMES: jira,clock" in text
 
 
 def test_the_file_says_it_is_generated_and_where_hand_edits_belong() -> None:
@@ -334,7 +336,7 @@ def test_the_generated_compose_is_valid_yaml_and_the_right_shape() -> None:
     # Text templating is what makes the file readable and commented; this is the
     # price of it. An indentation slip would otherwise surface as a failed merge
     # on somebody's host.
-    parsed = yaml.safe_load(_rendered(with_vault=True, with_browser=True, extensions_dir=True))
+    parsed = yaml.safe_load(_rendered(with_vault=True, with_browser=True, extensions=("jira",)))
     services = parsed["services"]
     assert set(services) == {"agent-assistant", "agent-researcher", "impi", "vault", "browser"}
     agent = services["agent-assistant"]
@@ -474,3 +476,20 @@ def test_an_agent_container_is_read_only_with_a_scratch_tmp_and_no_capabilities(
     assert service["cap_drop"] == ["ALL"]
     assert service["security_opt"] == ["no-new-privileges:true"]
     assert service["pids_limit"] == 512
+
+
+def test_sync_enables_only_the_named_extensions_that_exist(tmp_path: Path) -> None:
+    from impi.agent_containers import sync
+
+    agents = tmp_path / "agents"
+    for name in ("jira", "clock"):
+        (agents / "_extensions" / name).mkdir(parents=True)
+        (agents / "_extensions" / name / "index.ts").write_text("// x", encoding="utf-8")
+    spec = _spec(tmp_path, "assistant")
+    sync(
+        [spec], dotenv_path=tmp_path / ".env", conf_dir=tmp_path / "conf",
+        agents_path=agents, extensions=("jira", "missing"),
+    )
+    text = (tmp_path / "conf" / "agents.compose.yaml").read_text(encoding="utf-8")
+    assert "RUNTIME_RELAY_EXTENSION_NAMES: jira" in text  # clock is present but unnamed
+    assert "clock" not in text and "missing" not in text

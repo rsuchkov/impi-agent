@@ -114,7 +114,10 @@ class Deployment:
     home_plain: str = "${IMPI_HOME}"
     with_vault: bool = False
     with_browser: bool = False
-    extensions_dir: bool = False  # the agents directory has an _extensions/
+    # The extensions every agent loads, by name (what RUNTIME_EXTENSIONS
+    # named and the agents directory has). Empty = the directory is not
+    # even mounted.
+    extensions: tuple[str, ...] = ()
     builds: Sequence[AgentBuild] = field(default_factory=tuple)
     # Rootless podman maps the operator's user into the container, and a service
     # WITHOUT that mapping gets a different one. Two containers sharing a volume
@@ -291,8 +294,9 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         f'      RUNTIME_RELAY_PORT: "{HOST_PORT}"',
         "      RUNTIME_RELAY_WORK_DIR: /tmp/runtime-relay",
     ]
-    if deployment.extensions_dir:
+    if deployment.extensions:
         lines.append(f"      RUNTIME_RELAY_EXTENSIONS_DIR: {AGENTS_MOUNT}/_extensions")
+        lines.append(f"      RUNTIME_RELAY_EXTENSION_NAMES: {','.join(deployment.extensions)}")
     if name in deployment.with_identity:
         # Pointed at explicitly rather than derived from the agent's name: the
         # directory holds one identity now, not everybody's, so there is nothing
@@ -314,7 +318,7 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         f"      - {SERVICE_PREFIX}{name}-files:{FILES_MOUNT}/{name}",
         "      - pi-auth:/home/impi/.pi",
     ]
-    if deployment.extensions_dir:
+    if deployment.extensions:
         lines.append(f"      - {agents}/_extensions:{AGENTS_MOUNT}/_extensions:ro,z")
     if name in deployment.with_identity:
         # Three files, read-only, and NOT the directory they came from. This is
@@ -468,6 +472,7 @@ def sync(
     with_browser: bool = False,
     rootless: bool = False,
     certs_dir: Path | None = None,
+    extensions: tuple[str, ...] = (),
 ) -> list[str]:
     """Write everything a deployment needs to run these agents in containers.
 
@@ -480,7 +485,10 @@ def sync(
         with_vault=with_vault,
         with_browser=with_browser,
         rootless=rootless,
-        extensions_dir=(agents_path / "_extensions").is_dir(),
+        extensions=tuple(
+            name for name in extensions
+            if (agents_path / "_extensions" / name / "index.ts").is_file()
+        ),
         builds=builds,
         with_identity=identities,
     )

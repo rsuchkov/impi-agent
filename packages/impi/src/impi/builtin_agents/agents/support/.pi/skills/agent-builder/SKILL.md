@@ -145,8 +145,10 @@ mounted and reloads as usual.
   editing `agent.yaml` (empty = no skills; unset = the agent.yaml list). While it
   is set, `assign_skill` changes won't show up.
 - `AGENTS_GATEWAY__<NAME>` — that agent's gateway.
-- Shared extensions live at `$AGENTS_PATH/_extensions/<name>/index.ts` (loaded for
-  every agent); private skills live in that agent's `.pi/skills/`.
+- Shared extensions live at `$AGENTS_PATH/_extensions/<name>/index.ts` and load only
+  when the operator names them in `RUNTIME_EXTENSIONS` in `.env` — writing one is
+  not enabling it; say so, and that a restart follows. Once named, it loads for
+  every agent. Private skills live in that agent's `.pi/skills/`.
 
 ## 6. After the agent exists
 

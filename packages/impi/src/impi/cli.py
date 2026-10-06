@@ -41,7 +41,11 @@ from crucible.store import open_store
 from crucible.store.base import Store
 from impi import provisioning as prov
 from impi.agent_containers import RenderError, sync
-from impi.app import SHARED_PROCESS_WARNING, shared_process_agents
+from impi.app import (
+    SHARED_PROCESS_WARNING,
+    agents_dir_extensions,
+    shared_process_agents,
+)
 from impi.config import ImpiSettings, load_settings
 from impi.escape import EscapeError, build_plan, parse_map, render_nul, render_text
 from impi.gateways import resolve_gateway
@@ -340,6 +344,7 @@ def _cmd_agent_render(args: argparse.Namespace) -> int:
             with_browser=args.with_browser,
             rootless=args.rootless,
             certs_dir=Path(certs) if certs else None,
+            extensions=settings.runtime_extension_names(),
         )
     except RenderError as exc:
         _fail(str(exc))
@@ -747,6 +752,11 @@ def _cmd_health(args: argparse.Namespace) -> int:
         )
         if shared:
             _warn(SHARED_PROCESS_WARNING % ", ".join(shared))
+        ext_root = Path(settings.agents_path) / "_extensions"
+        present, enabled = agents_dir_extensions(ext_root, settings.runtime_extension_names())
+        if present:
+            _ok(f"extensions in {ext_root}: {', '.join(present)}; enabled (RUNTIME_EXTENSIONS): "
+                f"{', '.join(enabled) or 'none'}")
     else:
         _fail(f"agents dir missing: {agents_dir or '(AGENTS_PATH unset)'}")
         failures += 1

@@ -176,8 +176,10 @@ def test_build_pi_env_forwards_custom_endpoint(tmp_path: Path) -> None:
     assert env["NODE_TLS_REJECT_UNAUTHORIZED"] == "0"
 
 
-def test_build_pi_extensions_bundles_engine_first_then_agents(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
+def test_build_pi_extensions_bundles_engine_first_then_the_named_agents_extensions(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path).model_copy(update={"runtime_extensions": "custom"})
     ext = Path(settings.agents_path) / "_extensions" / "custom"
     ext.mkdir(parents=True)
     (ext / "index.ts").write_text("// ext", encoding="utf-8")
@@ -507,3 +509,26 @@ def test_shared_process_agents_is_about_shells_among_neighbours() -> None:
     assert shared_process_agents([alpha], **everyone_here) == ()
     # moved out: a neighbour no longer
     assert shared_process_agents([alpha, gamma], in_process=lambda name: name == "alpha") == ()
+
+
+def test_an_extension_that_is_present_but_not_named_is_not_loaded_and_is_named_in_the_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An extension is code in every agent's process; a directory any agent
+    with `write` can add to does not get to decide what runs there."""
+    settings = _settings(tmp_path).model_copy(update={"runtime_extensions": "jira, ghost"})
+    root = Path(settings.agents_path) / "_extensions"
+    for name in ("jira", "planted"):
+        (root / name).mkdir(parents=True)
+        (root / name / "index.ts").write_text("// x", encoding="utf-8")
+    with caplog.at_level("WARNING", logger="impi.app"):
+        paths = build_pi_extensions(settings)
+    assert [Path(p).parent.name for p in paths[1:]] == ["jira"]
+    assert "extension planted is present" in caplog.text and "not enabled" in caplog.text
+    assert "names ghost" in caplog.text
+
+
+def test_an_extension_name_that_could_walk_out_of_the_directory_is_refused(tmp_path: Path) -> None:
+    settings = _settings(tmp_path).model_copy(update={"runtime_extensions": "../engine"})
+    with pytest.raises(ValueError, match="RUNTIME_EXTENSIONS"):
+        settings.runtime_extension_names()

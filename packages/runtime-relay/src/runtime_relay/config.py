@@ -35,6 +35,9 @@ ENV_RUNTIME_BIN = "RUNTIME_RELAY_BIN"
 # ships in this image.
 ENV_EXTENSIONS = "RUNTIME_RELAY_EXTENSIONS"
 ENV_EXTENSIONS_DIR = "RUNTIME_RELAY_EXTENSIONS_DIR"
+# Which of that directory's <name>/index.ts to load, CSV. The directory alone
+# loads nothing: an extension is code in the runtime, chosen by the operator.
+ENV_EXTENSION_NAMES = "RUNTIME_RELAY_EXTENSION_NAMES"
 # Scratch: the files an env variable points at arrive as content and are written
 # here, one directory per session.
 ENV_WORK_DIR = "RUNTIME_RELAY_WORK_DIR"
@@ -108,11 +111,13 @@ def _extensions(env: Mapping[str, str]) -> tuple[Path, ...]:
         Path(part) for part in env.get(ENV_EXTENSIONS, "").split(os.pathsep) if part
     ]
     scan = env.get(ENV_EXTENSIONS_DIR, "").strip()
-    if scan:
+    names = [n.strip() for n in env.get(ENV_EXTENSION_NAMES, "").split(",") if n.strip()]
+    if scan and names:
         root = Path(scan)
-        # Sorted, so the load order is the same on every start rather than
-        # whatever order the filesystem happens to answer in.
-        paths += sorted(
-            index for index in root.glob("*/index.ts") if index.is_file()
-        )
+        for name in names:
+            if "/" in name or name in (".", ".."):
+                raise ConfigError(f"{ENV_EXTENSION_NAMES}: {name!r} is not an extension name")
+            index = root / name / "index.ts"
+            if index.is_file():
+                paths.append(index)
     return tuple(paths)

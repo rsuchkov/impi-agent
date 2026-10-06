@@ -79,7 +79,7 @@ $AGENTS_PATH/agents/<name>/
   agent.yaml                    # machine config
   .pi/SYSTEM.md                 # personality / instructions (any language)
   .pi/skills/<skill>/SKILL.md   # optional private skills
-$AGENTS_PATH/_extensions/<name>/index.ts   # optional shared tools, loaded for every agent
+$AGENTS_PATH/_extensions/<name>/index.ts   # optional shared tools; loaded only when named in RUNTIME_EXTENSIONS
 ```
 
 ```yaml
