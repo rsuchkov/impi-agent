@@ -139,7 +139,25 @@ async def test_the_right_secret_on_a_wrong_route_is_not_a_refusal_and_is_never_l
                 async with s.post("http://127.0.0.1:8706/wrong-but-long-enough/interact", json={}) as r:
                     assert r.status == 403
         assert SECRET not in caplog.text
-        assert "/<?>/interact refused" in caplog.text
+        assert "callback to /wrong-but-long-enough/interact refused" in caplog.text
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_the_access_log_never_writes_the_secret(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """aiohttp logs every request's path; on this receiver the path carries the
+    secret, so the access log masks it."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server = await _server(8707, store, secret=SECRET)
+    try:
+        with caplog.at_level(logging.INFO, logger="aiohttp.access"):
+            await _post(8707, f"/{SECRET}/interact", {"user_id": "u1", "context": {"token": "x"}})
+        access = [r.getMessage() for r in caplog.records if r.name == "aiohttp.access"]
+        assert access and SECRET not in "\n".join(access)
+        assert "/<secret>/interact" in access[0]
     finally:
         await server.stop()
         await store.close()

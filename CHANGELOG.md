@@ -44,7 +44,8 @@ when a release is cut, and `impi update` shows the target version's section.
   and `/ward` — must be re-registered under the new URL (`impi health` prints
   it), and the buttons on cards posted before the upgrade answer 403.
   A request with the right secret on a wrong method or endpoint is aiohttp's
-  404/405, not a refusal, and the log never prints a presented secret. An
+  404/405, not a refusal, and no log prints the secret — the receiver's own
+  refusals and aiohttp's access log alike, which wrote every request's path. An
   engine that cannot write its env file (configured by environment alone, a
   read-only `conf/`) starts anyway, warned, on the bare paths.
 - **A message cannot forge the prompt's structure.** The envelope the flow

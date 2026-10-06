@@ -448,7 +448,10 @@ sys.exit(0 if any(os.environ["WANT"].lower() in m.lower() for m in answers) else
     # playwright-cli directly, which proves the plumbing and says nothing about
     # whether an agent ever finds it.
     if [ "$BROWSER" = 1 ]; then
-        ask "Open https://example.com in your browser and reply with the page's exact H1 heading and nothing else."
+        # The page's title, not its H1: example.com dropped its <h1> (the page is
+        # now paragraphs in several languages), and a model answering truthfully
+        # "there is no H1" failed this check for being right.
+        ask "Open https://example.com in your browser and reply with the page's exact title and nothing else."
         # A string that is on the page. Asking for something it could recite
         # from training would pass without a browser ever opening, so the run
         # afterwards checks the relay saw a client too.

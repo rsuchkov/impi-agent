@@ -21,6 +21,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from aiohttp import web
+from aiohttp.abc import AbstractAccessLogger
 
 from crucible.approvals import ApprovalOutcome
 from crucible.config import callback_path
@@ -121,7 +122,9 @@ class InteractionsServer:
         # Slash commands are per-agent: the platform's command is registered with
         # the agent's own URL, so the path says whom to run.
         app.router.add_post(callback_path("command/{agent}", secret=segment), self._command)
-        self._runner = web.AppRunner(app)
+        # aiohttp's access log writes every request's path — the secret, on
+        # every click. The receiver's own logger masks it.
+        self._runner = web.AppRunner(app, access_log_class=_masking_access_log(self._secret))
         await self._runner.setup()
         await web.TCPSite(self._runner, self._host, self._port).start()
         shape = callback_path("", secret="<secret>" if self._secret else "").rstrip("/")
@@ -149,13 +152,16 @@ class InteractionsServer:
         # the right secret with a wrong method or endpoint is a 404/405 from
         # aiohttp, not a refusal — and must never be what the log prints.
         _, _, rest = request.path.partition("/")
-        presented, _, tail = rest.partition("/")
+        presented, _, _ = rest.partition("/")
         if not hmac.compare_digest(self._secret.encode(), presented.encode()):
             logger.warning(
-                "callback to /<?>/%s refused: not on the receiver's secret path — a card "
+                "callback to %s refused: not on the receiver's secret path — a card "
                 "posted or a slash command registered before INTEGRATIONS_SECRET was "
                 "set or changed still points at the old URL (docs/commands.md)",
-                tail,
+                # Refused means the first segment is not the secret; the path
+                # is logged as it came, with the secret masked should it
+                # appear further along.
+                request.path.replace(self._secret, "<secret>"),
             )
             return web.json_response({"error": "forbidden"}, status=403)
         return await handler(request)
@@ -322,3 +328,20 @@ class InteractionsServer:
             logger.warning("command %s: agent %s has no live presence", cb.command, agent)
             return web.json_response(self._codec.reply_ack(AGENT_UNAVAILABLE_TEXT))
         return web.json_response(self._codec.reply_ack(COMMAND_ACK_TEXT))
+
+
+def _masking_access_log(secret: str) -> type[AbstractAccessLogger]:
+    """An access logger that writes the path with the receiver's secret
+    segment replaced by ``<secret>`` — the shape aiohttp's default logs, minus
+    the one thing in it that is a credential."""
+
+    class _MaskingAccessLog(AbstractAccessLogger):
+        def log(self, request: web.BaseRequest, response: web.StreamResponse, time: float) -> None:
+            path = request.path
+            if secret:
+                path = path.replace(f"/{secret}/", "/<secret>/", 1)
+            self.logger.info(
+                '%s "%s %s" %s %.3fs', request.remote, request.method, path, response.status, time
+            )
+
+    return _MaskingAccessLog
