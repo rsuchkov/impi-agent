@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 
 from crucible.ports.chat.directory import AgentInfo
+from crucible.private_files import private_file
 from crucible.store import clock
 from crucible.store.base import (
     FormRecord,
@@ -90,6 +91,10 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin):
         path = Path(db_path)
         if path.parent and str(path.parent) != ".":
             path.parent.mkdir(parents=True, exist_ok=True)
+        # The inventory is the owner's alone, and is made so BEFORE it is
+        # opened: the write-ahead log and its index are created beside it
+        # with the mode it has at that moment.
+        private_file(path)
         # One long-lived connection; to_thread hops threads, so disable the
         # same-thread check and serialize with our own lock instead.
         self._conn = sqlite3.connect(str(path), check_same_thread=False)

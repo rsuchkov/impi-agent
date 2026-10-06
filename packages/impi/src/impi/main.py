@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from impi.app import run
 from impi.config import load_settings
@@ -12,6 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    # Whatever this process and the runtimes it starts create is theirs alone
+    # unless something chooses otherwise: profiles an agent scaffolds, files a
+    # skill writes, a session's memory. Every mount this deployment shares is
+    # shared between processes of ONE user, so nothing is lost by it.
+    os.umask(0o077)
     settings = load_settings()
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper(), logging.INFO),

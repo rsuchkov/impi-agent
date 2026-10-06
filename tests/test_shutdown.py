@@ -42,3 +42,24 @@ async def test_sigterm_ends_the_main_task_and_leaves_the_others_to_the_cleanup()
     finally:
         asyncio.get_running_loop().remove_signal_handler(signal.SIGTERM)
     assert worker_alive_at_cleanup is True and cleanup_could_wait is True
+
+
+def test_the_engine_starts_with_a_umask_that_keeps_its_files_to_itself(monkeypatch) -> None:
+    """Whatever the engine and the runtimes it starts create is theirs alone
+    unless something chooses otherwise."""
+    import os
+    from types import SimpleNamespace
+
+    import impi.main as entry
+
+    async def no_run(settings) -> None:
+        return None
+
+    monkeypatch.setattr(entry, "load_settings", lambda: SimpleNamespace(log_level="INFO"))
+    monkeypatch.setattr(entry, "run", no_run)
+    before = os.umask(0o022)
+    try:
+        entry.main()
+        assert os.umask(0o022) == 0o077
+    finally:
+        os.umask(before)

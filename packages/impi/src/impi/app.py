@@ -68,6 +68,7 @@ from crucible.runtimes.pi import (
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
+from crucible.sessions_cli import purge_idle
 from crucible.skills import SkillLibrary
 from crucible.store import open_store
 from crucible.store.base import SessionStore
@@ -718,6 +719,15 @@ async def run(settings: ImpiSettings) -> None:
         if forgotten:
             logger.info("forgot %d answered message(s) older than %d days", forgotten,
                         settings.processed_posts_retention_days)
+    if settings.pi_session_retention_days > 0:
+        # Before anything runs: nothing is live yet, so nothing can be using
+        # the memory being forgotten.
+        forgotten_sessions = await purge_idle(
+            settings, app.sessions, days=settings.pi_session_retention_days
+        )
+        if forgotten_sessions:
+            logger.info("forgot %d conversation(s) idle for %d+ days", len(forgotten_sessions),
+                        settings.pi_session_retention_days)
     app.runtime.start()
     if app.tool_server is not None:
         # Up before the gateways: a pi turn may call a tool the moment it starts.

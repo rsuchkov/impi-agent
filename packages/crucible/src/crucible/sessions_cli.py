@@ -24,20 +24,11 @@ from pathlib import Path
 from crucible.config import Settings, load_settings
 from crucible.runtimes.pi.spawn import session_files
 from crucible.store import open_store
-from crucible.store.base import SessionRecord, Store
+from crucible.store.base import SessionRecord, SessionStore, Store
 
 
 def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
     return session_files(settings.resolved_pi_session_dir, record.agent, record.runtime_session_id)
-
-
-async def _delete_record(settings: Settings, store: Store, record: SessionRecord) -> None:
-    await store.delete(record.agent, record.conversation_id)
-    removed = 0
-    for path in _session_files(settings, record):
-        path.unlink(missing_ok=True)
-        removed += 1
-    print(f"deleted {record.agent}/{record.conversation_id} (pi files removed: {removed})")
 
 
 async def cmd_list(settings: Settings, store: Store, args: argparse.Namespace) -> None:
@@ -66,18 +57,32 @@ async def cmd_delete(settings: Settings, store: Store, args: argparse.Namespace)
     print(f"deleted {record.agent}/{record.conversation_id} (pi files removed: {removed})")
 
 
-async def cmd_purge_idle(settings: Settings, store: Store, args: argparse.Namespace) -> None:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+async def purge_idle(
+    settings: Settings, store: SessionStore, *, days: int, agent: str | None = None
+) -> list[SessionRecord]:
+    """Forget every conversation idle for ``days`` or more: the record and the
+    runtime's files for it. Returns what was forgotten. The one place this is
+    done — the command below and an engine that purges at startup both call it."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     victims = [
         r
-        for r in await store.list(args.agent)
+        for r in await store.list(agent)
         if datetime.fromisoformat(r.last_active) < cutoff
     ]
+    for record in victims:
+        await store.delete(record.agent, record.conversation_id)
+        for path in _session_files(settings, record):
+            path.unlink(missing_ok=True)
+    return victims
+
+
+async def cmd_purge_idle(settings: Settings, store: Store, args: argparse.Namespace) -> None:
+    victims = await purge_idle(settings, store, days=args.days, agent=args.agent)
     if not victims:
         print(f"nothing idle for {args.days}+ days")
         return
     for record in victims:
-        await _delete_record(settings, store, record)
+        print(f"deleted {record.agent}/{record.conversation_id}")
     print(f"purged {len(victims)} session(s)")
 
 

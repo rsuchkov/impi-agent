@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
+from crucible.private_files import private_dir, write_private
 from crucible.tools.base import SPEAKS_TO_USER_NOTE, UNTRUSTED_NOTE, Tool
 
 _registered: list[Tool] = []
@@ -80,9 +81,10 @@ class ToolRegistry:
         """Persist an agent's manifest to ``<dir>/<agent>.json`` (the tool
         extension reads it synchronously) and return the resolved path. The path
         is stable per agent, so a hot-reload can rewrite it in place."""
-        dir_path.mkdir(parents=True, exist_ok=True)
-        path = dir_path / f"{agent}.json"
-        path.write_text(json.dumps(self.manifest(allowed), ensure_ascii=False), encoding="utf-8")
+        # The owner's alone: it says what each agent may call, and nobody else
+        # on the machine needs to read that.
+        path = private_dir(dir_path) / f"{agent}.json"
+        write_private(path, json.dumps(self.manifest(allowed), ensure_ascii=False))
         return path.resolve()
 
 

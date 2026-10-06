@@ -23,6 +23,18 @@ recomputable bookkeeping — a session id is *derived* from `(agent,
 conversation)`, never invented — while the memory is the actual content of a
 relationship with a person.
 
+**On disk, both are the owner's alone.** The SQLite file (with its write-ahead
+log) is created 0600, the runtime's session directories 0700, the per-agent
+tool manifests 0600, attachments 0600 under 0700 directories — whatever the
+process's umask, and an installation from before this was so is narrowed on its
+next start. The engine itself runs with `umask 077`. Neither kind is encrypted
+at rest; that is the volume's or the disk's to do.
+
+**Conversation memory is kept until somebody deletes it**, unless you say
+otherwise: `PI_SESSION_RETENTION_DAYS=N` makes the engine forget, at startup,
+every conversation idle for N days or more — its record and the runtime's
+files for it, exactly what `impi sessions purge-idle --days N` does by hand.
+
 ## Choosing a backend
 
 | | SQLite (default) | MongoDB |

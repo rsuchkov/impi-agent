@@ -163,7 +163,9 @@ class RelayServer:
         session_dir: Path | None = None
         if self._config.session_dir:
             session_dir = self._config.session_dir.resolve()
+            # Conversation memory: the owner's alone.
             session_dir.mkdir(parents=True, exist_ok=True)
+            session_dir.chmod(0o700)
         args = command_args(spawn, config=self._config, session_dir=session_dir)
         env = self._environment(spawn, scratch)
         logger.info(
@@ -193,10 +195,15 @@ class RelayServer:
         the path the engine wrote them to does not exist over here."""
         env = {**os.environ, **spawn.env}
         if spawn.env_files:
+            # What the engine shipped for this process alone — the manifest of
+            # its tools — in a directory and files only this user can read.
             scratch.mkdir(parents=True, exist_ok=True)
+            scratch.chmod(0o700)
             for name, content in spawn.env_files.items():
                 path = scratch / name.lower()
-                path.write_text(content, encoding="utf-8")
+                descriptor = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(content)
                 env[name] = str(path)
         return env
 

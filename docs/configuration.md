@@ -188,6 +188,7 @@ See [tasks.md](tasks.md) for what a task is and how a missed run is handled.
 | `PI_MAX_CONCURRENT_SESSIONS` | `4` | max concurrent `pi` subprocesses |
 | `PI_MAX_SESSIONS_PER_AGENT` | `0` | a second bound, per agent; `0` = only the global one |
 | `PI_SESSION_IDLE_TTL` | `1800` | reap a `pi` subprocess after this many idle seconds |
+| `PI_SESSION_RETENTION_DAYS` | `0` | forget, at startup, every conversation idle for this many days or more — its record and the runtime's files (what `impi sessions purge-idle --days N` does by hand); `0` = never, memory is kept until deleted |
 | `PROCESSED_POSTS_RETENTION_DAYS` | `7` | how long the engine remembers having answered a message (so a reconnect replaying it is not answered twice); pruned at startup; `0` = keep forever |
 | `PI_EVICT_IDLE_ON_PRESSURE` | `true` | when every slot is held, drop the longest-unused idle subprocess to make room for a new turn instead of making it wait; memory is on disk, so the evicted conversation resumes on its next turn |
 | `PI_ACQUIRE_TIMEOUT_S` | `120` | how long a turn waits for a free slot before giving up with "the engine is full" — reached only when every slot is busy, or eviction is off |

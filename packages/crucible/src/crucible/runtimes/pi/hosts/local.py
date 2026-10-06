@@ -10,6 +10,7 @@ import logging
 import os
 from pathlib import Path
 
+from crucible.private_files import private_dir
 from crucible.runtimes.pi.spawn import SpawnRequest
 from crucible.runtimes.pi.transport import PiTransport, SubprocessTransport
 
@@ -41,8 +42,8 @@ class LocalHost:
         # ABSOLUTE path — a relative --session-dir resolves from the process's
         # own cwd (the profile dir), scattering session files into the agents dir.
         resolved = (request.session_dir / request.agent).resolve()
-        resolved.mkdir(parents=True, exist_ok=True)
-        return resolved
+        # Conversation memory: the owner's alone.
+        return private_dir(resolved)
 
 
 def command_args(request: SpawnRequest, *, session_dir: Path | None) -> list[str]:

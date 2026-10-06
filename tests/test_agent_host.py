@@ -431,3 +431,24 @@ def test_a_process_that_is_part_of_the_engine_inherits_everything(tmp_path: Path
     env = _environment(_request(profile, library, inherit_all=True))
     assert env["AGENTS_MM_TOKEN__ASSISTANT"] == "chat-token"
     assert env["TOOL_TOKEN"] == "t0ken"
+
+
+def test_what_the_engine_shipped_is_written_for_this_user_alone(tmp_path: Path) -> None:
+    """The manifest of an agent's tools, in a scratch directory and a file only
+    the runtime's user can read — whatever the umask of the host process."""
+    import os
+
+    from runtime_relay.spawn import Spawn
+
+    profile, library = _dirs(tmp_path)
+    server = RelayServer(_host_config(tmp_path, profile, library))
+    scratch = tmp_path / "work" / "session-x"
+    previous = os.umask(0o022)
+    try:
+        env = server._environment(Spawn(env_files={"TOOL_MANIFEST": "{}"}), scratch)
+    finally:
+        os.umask(previous)
+    written = Path(env["TOOL_MANIFEST"])
+    assert written.read_text() == "{}"
+    assert stat.S_IMODE(written.stat().st_mode) == 0o600
+    assert stat.S_IMODE(scratch.stat().st_mode) == 0o700

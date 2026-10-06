@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from crucible.ports.chat.types import Attachment
+from crucible.private_files import private_dir, private_file
 
 logger = logging.getLogger(__name__)
 
@@ -195,10 +196,13 @@ class AttachmentStore:
 
     @staticmethod
     def _write(target: Path, data: bytes) -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
+        # What people sent is the conversation's: the directory and the file
+        # are the owner's alone.
+        private_dir(target.parent)
         # A keyed re-save of the same bytes is a redelivery, not new content.
         if target.exists() and target.stat().st_size == len(data):
             return
+        private_file(target)
         target.write_bytes(data)
 
     def _maybe_sweep(self) -> None:

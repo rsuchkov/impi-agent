@@ -268,6 +268,10 @@ class Settings(BaseSettings):
     # every slot from the rest.
     pi_max_sessions_per_agent: int = 0
     pi_session_idle_ttl: float = 1800.0
+    # Forget a conversation nobody has touched for this many days: its record
+    # and the runtime's files for it, at startup. 0 = never — memory is kept
+    # until somebody deletes it, which is what it always was.
+    pi_session_retention_days: int = 0
     # How long a turn waits for a free slot before giving up with "the engine is
     # full". Rarely reached: with eviction on, a full pool gives up its idlest
     # session instead of making the new turn wait for the idle TTL.

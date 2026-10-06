@@ -169,7 +169,7 @@ deployment configured; the engine makes no model calls itself.
 
 | data | goes to | kept where | for how long |
 |---|---|---|---|
-| messages the agent is given (its own conversation, replayed history, the sender's name) | the provider, inside the prompt | the runtime's session file, per conversation | until deleted (`impi sessions`); never pruned by the engine |
+| messages the agent is given (its own conversation, replayed history, the sender's name) | the provider, inside the prompt | the runtime's session file, per conversation | until deleted (`impi sessions`), or `PI_SESSION_RETENTION_DAYS` when set |
 | attachments people send | the provider only if the runtime shows them (images, inline); otherwise the path | the engine's data volume | `ATTACHMENT_RETENTION_DAYS`, 14 by default |
 | tool results (a channel's posts, a ticket, a file's content) | the provider, as the model reads them | the session file, as part of the conversation | as above |
 | tool **arguments** | nowhere beyond the engine | the inventory, as the [tool trace](tool-trace.md) | `TOOL_TRACE_RETENTION_DAYS`, 14 by default |
@@ -180,9 +180,11 @@ deployment configured; the engine makes no model calls itself.
 | the engine's log | stdout, whatever captures it | the container runtime's log | the runtime's rotation policy |
 
 Two things to know about the session files: they are plain JSONL on the data
-volume, readable by anything running as the engine's user, and they are the
-agent's memory — deleting one is how a conversation is forgotten, and nothing
-else forgets it. `impi sessions purge-idle --days N` is the knife.
+volume, readable by anything running as the engine's user (and by nobody else:
+the directories are 0700, like the inventory's 0600), and they are the agent's
+memory — deleting one is how a conversation is forgotten. `impi sessions
+purge-idle --days N` is the knife, and `PI_SESSION_RETENTION_DAYS=N` makes the
+engine use it at every start.
 
 ## Where the credentials live
 
@@ -223,6 +225,7 @@ decisions an operator makes.
 | the prompt envelope is tagged per turn and quotes are escaped | a message cannot close a context block or pose as another speaker; the model is told so in its system prompt |
 | contained card text | what a caller supplies is content, never structure (newlines, fences, bidi) |
 | the trace keeps arguments, never results | a granted value cannot surface in the inventory |
+| what is kept on disk is the owner's alone | session directories 0700, the inventory and its log 0600, tool manifests and attachments 0600; the engine runs with `umask 077` |
 | the services run in boxes: read-only root, `/tmp` in memory, no capabilities, `no-new-privileges`, `pids_limit` | the engine, every agent container, the broker; the browser adds seccomp |
 | non-root images; base images pinned by digest; the runtime and the browser tool from a lockfile with integrity hashes, install scripts ignored; Python dependencies locked with hashes | the image is what the release says it is, and nothing runs at build time that nobody reviewed |
 | skill installs shown file by file and pinned to a commit | nothing lands unseen; `update` shows old and new; unencrypted sources (`http://`, `git://`) are refused |
@@ -244,7 +247,7 @@ decisions an operator makes.
 | the [browser](browsing.md) | off | one browser serves every agent; cookies are shared between them |
 | egress | unrestricted | a proxy or firewall around the containers when the agents must not reach arbitrary hosts |
 | who answers a tool's confirmation | anyone in the conversation | a shared channel with people you do not trust |
-| retention (`ATTACHMENT_RETENTION_DAYS`, `TOOL_TRACE_RETENTION_DAYS`, `impi sessions purge-idle`) | 14 / 14 / never | data classification says so |
+| retention (`ATTACHMENT_RETENTION_DAYS`, `TOOL_TRACE_RETENTION_DAYS`, `PI_SESSION_RETENTION_DAYS`) | 14 / 14 / never | data classification says so |
 
 ## Known limits
 

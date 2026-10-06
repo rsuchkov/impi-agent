@@ -96,6 +96,15 @@ when a release is cut, and `impi update` shows the target version's section.
   keeping state in `$HOME`, a JDK's cache) fails with `Read-only file system`
   until a `compose.d/` drop-in gives that path a tmpfs — `docs/installation.md`
   has the drop-in.
+- **What the engine keeps on disk is its owner's alone.** Session directories
+  are 0700, the SQLite inventory (and its write-ahead log) 0600, tool
+  manifests and attachments 0600 under 0700 directories, an agent host's
+  scratch files likewise — whatever the umask, and narrowed on the next start
+  where an earlier version left them wider. The engine runs with `umask 077`.
+- **Conversation memory can have a lifetime.** `PI_SESSION_RETENTION_DAYS=N`
+  makes the engine forget, at startup, every conversation idle for N days or
+  more — its record and the runtime's files, what `impi sessions purge-idle`
+  does by hand. Off by default: memory is kept until deleted, as before.
 
 ## v0.19.0 — 2026-10-04
 
