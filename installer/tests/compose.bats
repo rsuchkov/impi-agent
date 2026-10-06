@@ -478,3 +478,55 @@ hardened() { # FILE SERVICE — the five keys appear under that service
 @test "the broker's service runs in a read-only box without capabilities" {
     hardened "$BATS_TEST_DIRNAME/../../deploy/compose.ward.yaml" ward
 }
+
+
+@test "the engine mounts pi's home from a directory on the host, not a named volume" {
+    grep -q '^ *- ${IMPI_HOME}/pi:/home/impi/.pi:z' "$BATS_TEST_DIRNAME/../../deploy/compose.yaml"
+    ! grep -q 'pi-auth' "$BATS_TEST_DIRNAME/../../deploy/compose.yaml"
+}
+
+# --- migrate_pi_auth ----------------------------------------------------------------
+
+_pi_auth_setup() {
+    IMPI_HOME="$BATS_TEST_TMPDIR/home"; mkdir -p "$IMPI_HOME"
+    IMPI_PROJECT=impi
+    ok() { printf 'ok: %s\n' "$*"; }
+    bad() { printf 'bad: %s\n' "$*"; }
+}
+
+@test "migrate_pi_auth does nothing when the credential is already on the host" {
+    _pi_auth_setup
+    mkdir -p "$IMPI_HOME/pi/agent"; printf '{}' > "$IMPI_HOME/pi/agent/auth.json"
+    container_runtime() { echo false; }  # would fail if consulted
+    compose() { echo "compose must not run" >&2; return 1; }
+    run migrate_pi_auth
+    [ "$status" -eq 0 ] && [ -z "$output" ]
+}
+
+@test "migrate_pi_auth does nothing when there is no old volume" {
+    _pi_auth_setup
+    container_runtime() { echo "$BATS_TEST_TMPDIR/rt"; }
+    printf '#!/bin/sh\nexit 1\n' > "$BATS_TEST_TMPDIR/rt"; chmod +x "$BATS_TEST_TMPDIR/rt"
+    compose() { echo "compose must not run" >&2; return 1; }
+    run migrate_pi_auth
+    [ "$status" -eq 0 ] && [ -z "$output" ]
+    [ -d "$IMPI_HOME/pi/agent" ]
+}
+
+@test "migrate_pi_auth copies the volume out once and says so" {
+    _pi_auth_setup
+    container_runtime() { echo "$BATS_TEST_TMPDIR/rt"; }
+    printf '#!/bin/sh\nexit 0\n' > "$BATS_TEST_TMPDIR/rt"; chmod +x "$BATS_TEST_TMPDIR/rt"
+    compose() {
+        case "$*" in
+            *"-v impi_pi-auth:/app/migrate:ro"*) mkdir -p "$IMPI_HOME/pi/agent"; printf '{"t":1}' > "$IMPI_HOME/pi/agent/auth.json"; echo MIGRATED=1 ;;
+            *) return 1 ;;
+        esac
+    }
+    run migrate_pi_auth
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"moved out of the impi_pi-auth volume"* ]]
+    [ "$(cat "$IMPI_HOME/pi/agent/auth.json")" = '{"t":1}' ]
+    perms=$(stat -c '%a' "$IMPI_HOME/pi/agent/auth.json" 2>/dev/null || stat -f '%Lp' "$IMPI_HOME/pi/agent/auth.json")
+    [ "$perms" = 600 ]
+}

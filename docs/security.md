@@ -192,7 +192,7 @@ engine use it at every start.
 |---|---|---|
 | the chat platform tokens, one per agent | `conf/.env` on the host, bind-mounted into the engine, mode 600 | the engine; by default every agent with `read` |
 | the gateway tokens for your programs (`WS_SERVICE_TOKEN__*`, `HTTP_CALLER_TOKEN__*`) | `conf/.env`, in the clear | as above |
-| the model provider's login | the `pi-auth` volume (`~/.pi/agent/auth.json`, mode 600) | the engine and every agent container |
+| the model provider's login | `~/.impi/pi/agent/auth.json` on the host (mode 600, directory 700), mounted into the engine as pi's home and into each agent container as that one file | the engine and every agent container |
 | a custom endpoint's key (`LLM_API_KEY`) | `conf/.env`; passed to each runtime in its environment | every agent's runtime |
 | the agents' broker certificates | `~/.impi/certs`, mounted into the engine (or one each into its container) | see [secrets.md](secrets.md) |
 | the operator's broker certificate | `~/.impi/operator`, mounted into nothing an agent runs in | the operator |

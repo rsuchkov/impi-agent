@@ -170,6 +170,15 @@ def read_build(spec: AgentSpec) -> AgentBuild:
 _PACKAGE_RE = re.compile(r"[A-Za-z0-9@][A-Za-z0-9@/._+=<>!~^*,\[\]:-]*")
 
 
+def ensure_credential_file(path: Path) -> None:
+    """The one file every agent's container is handed: created empty (0600)
+    when there is none, so the mount has a file to bind and `impi login`
+    something to fill."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.touch(mode=0o600)
+
+
 def _names(raw: object, agent: str, kind: str) -> tuple[str, ...]:
     if raw is None:
         return ()
@@ -280,6 +289,11 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         "    read_only: true",
         "    tmpfs:",
         "      - /tmp:mode=1777,size=256m",
+        # pi's home is memory, this container's alone: whatever the runtime
+        # writes there (a settings lock, a package it is told to install)
+        # reaches no other agent and does not survive a restart. The one
+        # thing every agent shares is bound INTO it below: the credential.
+        "      - /home/impi/.pi:mode=1777,size=16m",
         '    cap_drop: ["ALL"]',
         '    security_opt: ["no-new-privileges:true"]',
         "    pids_limit: 512",
@@ -316,7 +330,11 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         f"      - ${{IMPI_SKILLS_DIR:-{deployment.home_plain}/skills}}:{SKILLS_MOUNT}:ro,z",
         f"      - {SERVICE_PREFIX}{name}-sessions:{SESSIONS_MOUNT}",
         f"      - {SERVICE_PREFIX}{name}-files:{FILES_MOUNT}/{name}",
-        "      - pi-auth:/home/impi/.pi",
+        # The model credential: one FILE, not pi's whole home. The home holds
+        # settings.json and extensions/ too, and either, written by one agent,
+        # would load into every other — the boundary this arrangement exists
+        # for. Read-write, because the runtime refreshes the token in place.
+        f"      - {home}/pi/agent/auth.json:/home/impi/.pi/agent/auth.json:z",
     ]
     if deployment.extensions:
         lines.append(f"      - {agents}/_extensions:{AGENTS_MOUNT}/_extensions:ro,z")
@@ -409,7 +427,7 @@ def _networks(names: Sequence[str], deployment: Deployment) -> str:
 
 
 def _volumes(names: Sequence[str]) -> str:
-    lines = ["volumes:", "  pi-auth:", "  impi-files:"]
+    lines = ["volumes:", "  impi-files:"]
     for name in names:
         lines += [
             f"  {SERVICE_PREFIX}{name}-sessions:",
@@ -473,6 +491,7 @@ def sync(
     rootless: bool = False,
     certs_dir: Path | None = None,
     extensions: tuple[str, ...] = (),
+    credential: Path | None = None,
 ) -> list[str]:
     """Write everything a deployment needs to run these agents in containers.
 
@@ -492,6 +511,12 @@ def sync(
         builds=builds,
         with_identity=identities,
     )
+    # A bind mount of a file that does not exist yet becomes a directory of
+    # that name, and then no login can ever write the file: make sure it is
+    # there, empty if need be, before anything is brought up.
+    # `impi agent sync` runs in the engine's container, where pi's home on the
+    # host is mounted as this user's own.
+    ensure_credential_file(credential or Path.home() / ".pi" / "agent" / "auth.json")
     notes: list[str] = []
     for build in builds:
         target = conf_dir / "agents" / build.name

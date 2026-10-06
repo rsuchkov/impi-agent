@@ -40,7 +40,10 @@ services:
       # so what you installed from someone else's repository is reviewable.
       - ${IMPI_SKILLS_DIR:-${IMPI_HOME}/skills}:/app/skills:z
       - impi-data:/app/data
-      - pi-auth:/home/impi/.pi
+      # pi's own home: the model credential (agent/auth.json), its settings.
+      # A directory on the host rather than a named volume, so that an
+      # agent's container can be handed the ONE file it needs out of it.
+      - ${IMPI_HOME}/pi:/home/impi/.pi:z
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f impi.main || exit 1"]
       interval: 30s
@@ -48,4 +51,3 @@ services:
 
 volumes:
   impi-data:
-  pi-auth:

@@ -76,7 +76,8 @@ headless bot a permission "ask" cannot be answered by a human, so it resolves
 to a denial. Check, in order:
 
 1. **Local pi config**: a third-party permissions module/extension in
-   `~/.pi/agent/settings.json` applies to every pi the engine spawns — remove
+   `~/.pi/agent/settings.json` applies to every pi the engine spawns (not to
+   agents in containers of their own: those see only the credential) — remove
    it for headless use, or add a per-agent allow policy (next item).
 2. **Per-agent policy**: ship `.pi/agent/pi-permissions.jsonc` inside the
    agent's profile dir allowing exactly its tools.

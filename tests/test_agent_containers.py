@@ -8,6 +8,7 @@ build footer that drops back from root is not something an operator's fragment
 can quietly remove.
 """
 
+import stat
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,13 @@ from impi.agent_containers import (
     render_dockerfile,
     sync,
 )
+
+
+@pytest.fixture(autouse=True)
+def _home_is_the_tmp_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`sync` makes sure the credential file exists under the user's home; a test
+    must never reach the developer's own."""
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "home"))
 
 
 def _spec(root: Path, name: str, manifest: str = "", include: str = "") -> AgentSpec:
@@ -472,7 +480,7 @@ def test_an_agent_container_is_read_only_with_a_scratch_tmp_and_no_capabilities(
     parsed = yaml.safe_load(_rendered())
     service = parsed["services"][f"{SERVICE_PREFIX}assistant"]
     assert service["read_only"] is True
-    assert service["tmpfs"] == ["/tmp:mode=1777,size=256m"]
+    assert service["tmpfs"] == ["/tmp:mode=1777,size=256m", "/home/impi/.pi:mode=1777,size=16m"]
     assert service["cap_drop"] == ["ALL"]
     assert service["security_opt"] == ["no-new-privileges:true"]
     assert service["pids_limit"] == 512
@@ -493,3 +501,32 @@ def test_sync_enables_only_the_named_extensions_that_exist(tmp_path: Path) -> No
     text = (tmp_path / "conf" / "agents.compose.yaml").read_text(encoding="utf-8")
     assert "RUNTIME_RELAY_EXTENSION_NAMES: jira" in text  # clock is present but unnamed
     assert "clock" not in text and "missing" not in text
+
+
+def test_an_agent_is_handed_the_credential_file_and_not_the_runtimes_home() -> None:
+    """settings.json and extensions/ in pi's home load into every runtime that
+    shares it; an agent's container gets the one file it needs, over a home of
+    its own in memory."""
+    parsed = yaml.safe_load(_rendered())
+    service = parsed["services"][f"{SERVICE_PREFIX}assistant"]
+    assert "${IMPI_HOME:?set in compose.env}/pi/agent/auth.json:/home/impi/.pi/agent/auth.json:z" in service["volumes"]
+    assert not any(v.startswith("pi-auth:") for v in service["volumes"])
+    assert "pi-auth" not in parsed.get("volumes", {})
+
+
+def test_sync_makes_sure_the_credential_file_exists_before_anything_is_bound_to_it(tmp_path: Path) -> None:
+    from impi.agent_containers import sync
+
+    credential = tmp_path / "pi" / "agent" / "auth.json"
+    sync(
+        [_spec(tmp_path, "assistant")], dotenv_path=tmp_path / ".env", conf_dir=tmp_path / "conf",
+        agents_path=tmp_path / "agents", credential=credential,
+    )
+    assert credential.is_file() and credential.stat().st_size == 0
+    assert stat.S_IMODE(credential.stat().st_mode) == 0o600
+    credential.write_text("{\"kept\": true}")
+    sync(
+        [_spec(tmp_path, "assistant")], dotenv_path=tmp_path / ".env", conf_dir=tmp_path / "conf",
+        agents_path=tmp_path / "agents", credential=credential,
+    )
+    assert credential.read_text() == "{\"kept\": true}"  # an existing one is left alone

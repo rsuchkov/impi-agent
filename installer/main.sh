@@ -301,6 +301,9 @@ export IMPI_HOME IMPI_COMPOSE_CMD IMPI_MM_MODE
 
 mkdir -p "$IMPI_HOME/conf" "$IMPI_AGENTS_DIR" "$IMPI_SKILLS_DIR" \
     "$IMPI_HOME/$COMPOSE_DROPIN_DIR"
+# pi's home: the model credential lives here (pi/agent/auth.json), the
+# operator's alone, and an agent's container is handed that one file.
+(umask 077; mkdir -p "$IMPI_HOME/pi/agent")
 
 COMPOSE_ENV="$IMPI_HOME/compose.env"
 env_set IMPI_HOME "$IMPI_HOME" "$COMPOSE_ENV"
@@ -505,7 +508,7 @@ if [ "$IMPI_LLM_MODE" = subscription ]; then
             compose run --rm -p 1455:1455 impi pi </dev/tty || true
         fi
         if compose run --rm -T impi test -s /home/impi/.pi/agent/auth.json >>"$TUI_LOG" 2>&1; then
-            ok "pi credentials saved (pi-auth volume)"
+            ok "pi credentials saved ($IMPI_HOME/pi/agent/auth.json)"
         else
             bad "no pi credentials yet — the engine will fail model calls until you"
             bad "run \`impi login\` (or \`impi login --copy-auth\` from a logged-in machine)"

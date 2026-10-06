@@ -117,6 +117,7 @@ check "conf/.env has the widget callback URL" \
 check "conf/.env has the receiver secret" grep -q '^INTEGRATIONS_SECRET=.\{16,\}$' "$E2E_HOME/conf/.env"
 env_mode() { p=$(stat -c '%a' "$E2E_HOME/conf/.env" 2>/dev/null || stat -f '%Lp' "$E2E_HOME/conf/.env"); [ "$p" = 600 ]; }
 check "conf/.env is 0600" env_mode
+check "pi's home is a directory on the host" test -d "$E2E_HOME/pi/agent"
 check "agent profile scaffolded" test -f "$E2E_HOME/agents/agents/assistant/agent.yaml"
 # The box the engine runs in: nothing writable but its volumes and /tmp.
 root_is_read_only() { ! compose run --rm -T impi touch /app/probe 2>/dev/null; }

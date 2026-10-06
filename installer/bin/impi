@@ -410,6 +410,7 @@ cmd_update() {
         || die "repo at $REPO has local changes — commit/stash them or reinstall"
     prev=$current
     git -C "$REPO" checkout --quiet "$latest"
+    migrate_pi_auth || true
     # Nothing to rewrite here: the engine's file list is derived from
     # IMPI_MM_MODE on every call, so overlays added by this release apply at
     # once — and whatever is in compose.d/ is untouched, because it was never
@@ -501,6 +502,11 @@ cmd_doctor() {
         else
             bad "broker receiver secret missing (WARD_CALLBACK_SECRET) — \`impi start\` mints one; then re-register /ward"
         fi
+    fi
+    if [ -s "$IMPI_HOME/pi/agent/auth.json" ]; then
+        ok "pi credential: $IMPI_HOME/pi/agent/auth.json"
+    else
+        bad "no pi credential at $IMPI_HOME/pi/agent/auth.json — \`impi login\` (or \`impi login --copy-auth\`)"
     fi
     if engine_logged "app built:"; then
         ok "engine reported readiness (app built)"
@@ -610,7 +616,7 @@ migrate_compose_env
 case "${1:-}" in
     status)    shift; cmd_status "$@" ;;
     logs)      shift; cmd_logs "$@" ;;
-    start)     shift; mint_callback_secrets; compose up -d; ok "started"; ward_reminder ;;
+    start)     shift; mint_callback_secrets; migrate_pi_auth; compose up -d; ok "started"; ward_reminder ;;
     stop)      shift; compose stop; ok "stopped" ;;
     restart)   shift; cmd_restart ;;
     reload)    shift; cmd_reload ;;

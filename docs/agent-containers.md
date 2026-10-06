@@ -80,17 +80,21 @@ Then, one volume each and nobody else's:
 | `/app/skills` | the shared skill library | every agent, read-only |
 | `/app/sessions` | its conversation memory | nobody |
 | `/app/files/<name>` | its own files, in and out | the engine |
-| `/home/impi/.pi` | the model credential | every agent — see below |
+| `/home/impi/.pi/agent/auth.json` | the model credential, one file | every agent — see below |
 
 `AGENT_FILES_DIR` names the fourth one in the agent's environment. It is where
 an attachment arrives and where anything the agent means to send should be
 written; `/tmp` stops being a place the engine can read, and `send_file` refuses
 a path it cannot reach.
 
-**The model credential is still shared.** A subscription login lives in one
-volume every agent mounts, because every agent needs it to call a model. This
-axis does not change that, and it is worth being explicit: it separates agents
-from each other's *data*, not from the deployment's model account.
+**The model credential is still shared; pi's home is not.** A subscription
+login is one file every agent's container is handed (`~/.impi/pi/agent/auth.json`
+on the host, read-write because the runtime refreshes the token in place),
+because every agent needs it to call a model. The rest of pi's home —
+`settings.json`, `extensions/`, anything a runtime is told to install — is a
+tmpfs of that container's own: written by one agent, it reaches no other and
+is gone at the next restart. So this axis separates agents from each other's
+*data* and *configuration*, not from the deployment's model account.
 
 ## Giving one agent something the others do not have
 

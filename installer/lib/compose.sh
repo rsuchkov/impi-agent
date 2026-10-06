@@ -195,6 +195,27 @@ migrate_volume() {
     return 1
 }
 
+# migrate_pi_auth -> pi's home used to be a named volume (pi-auth); it is a
+# directory on the host now, so that an agent's container can be handed the
+# one file it needs. On the first start after that change the volume's
+# content is copied out, once; the volume is left where it is. Idempotent:
+# nothing happens when the directory already has the credential, or when
+# there is no old volume to copy from.
+migrate_pi_auth() {
+    local _home=$IMPI_HOME/pi _volume="${IMPI_PROJECT:-impi}_pi-auth" _out
+    (umask 077; mkdir -p "$_home/agent")
+    [ -s "$_home/agent/auth.json" ] && return 0
+    "$(container_runtime)" volume inspect "$_volume" >/dev/null 2>&1 || return 0
+    _out=$(compose run --rm -T -v "$_volume:/app/migrate:ro" impi sh -c \
+        "cp -a /app/migrate/. /home/impi/.pi/ && printf 'MIGRATED=%s\n' \"\$(ls -A /home/impi/.pi/agent 2>/dev/null | wc -l)\"" 2>&1) || {
+        printf '%s\n' "$_out" >&2
+        bad "pi's credential did not copy out of the $_volume volume — run: impi login --copy-auth"
+        return 1
+    }
+    chmod 600 "$_home/agent/auth.json" 2>/dev/null || true
+    ok "pi's home moved out of the $_volume volume into $_home (the volume is left in place)"
+}
+
 # engine_log_count MARKER -> how many lines carry it. The log is cumulative, so
 # "has it ever said X" cannot answer "has it said X since the restart" — the
 # count before and after can.

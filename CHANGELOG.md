@@ -115,6 +115,18 @@ when a release is cut, and `impi update` shows the target version's section.
   instead of a directory to scan. **Breaks:** an existing `_extensions/*`
   stops loading until it is named in `RUNTIME_EXTENSIONS`; a deployment with
   agent containers re-runs `impi agent sync`.
+- **An agent's container is handed the model credential, not pi's whole
+  home.** The `pi-auth` volume was mounted read-write into the engine and
+  every agent container alike, and pi's home holds more than the credential:
+  a `settings.json` (with the packages it loads) and an `extensions/`
+  directory, read by every runtime that shares it — so one agent could put
+  code into every other's, around the boundary the containers exist for. pi's
+  home is now `~/.impi/pi` on the host (mode 700), mounted whole into the
+  engine; an agent's container gets `pi/agent/auth.json` alone, over a home
+  of its own in memory. `impi start` and `impi update` copy the credential out
+  of the old volume once (the volume is left in place); `impi doctor` says
+  whether the file is there. **Breaks:** where the credential lives, and
+  `impi agent sync` must be re-run for agent containers.
 
 ## v0.19.0 — 2026-10-04
 

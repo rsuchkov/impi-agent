@@ -60,6 +60,7 @@ Everything is summarized before anything is written. The full log lands in
   conf/ward.env   # the secret broker's own settings, if you deployed one
   certs/          # the agents' identities for the broker, if you deployed one
   compose.env     # infra knobs for compose + the wrapper (no secrets)
+  pi/             # pi's home: the model credential (pi/agent/auth.json), mode 700
   agents/         # your agent profiles (default location; git repo)
   install.log
 ```
@@ -68,7 +69,8 @@ The engine runs as the `impi` compose service built from `deploy/Dockerfile`
 (Python 3.13 + Node 22 + the `pi` CLI, installed from `deploy/pi/package.json`
 and its lockfile with every dependency pinned by hash and install scripts
 ignored; the base images are pinned by digest). Engine state lives in the
-`impi-data` volume, pi's model credentials in `pi-auth`. With a co-deployed
+`impi-data` volume; pi's home — the model credential — is `~/.impi/pi` on the
+host, so that an agent's container can be handed the one file out of it. With a co-deployed
 Mattermost, the `mattermost` + `db` services join the same compose project and
 widget callbacks flow container-to-container (`http://impi:8423`) — nothing is
 exposed except Mattermost itself. Answering yes to the secret store adds
@@ -150,7 +152,8 @@ root**, `/tmp` in memory, **no Linux capabilities**, no privilege gain
 through setuid binaries (`no-new-privileges`) and a ceiling on processes
 (`pids_limit`). Everything they write goes to a volume or a bind mount: the
 engine to `/app/data`, `/app/conf`, `/app/agents`, `/app/skills`, `/app/files`
-and `/home/impi/.pi`; an agent to its sessions and files volumes; the broker
+and `/home/impi/.pi` (the `pi/` directory on the host); an agent to its
+sessions and files volumes; the broker
 to `/var/lib/ward`. The browser container has had this since it existed, with
 a seccomp profile on top.
 
