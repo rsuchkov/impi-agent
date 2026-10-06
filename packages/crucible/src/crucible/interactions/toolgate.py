@@ -9,10 +9,14 @@ environment, and a shell in that container could reach the tool server directly
 A human can say "yes, for the next fifteen minutes": the window is the same kind
 of window a secret uses — same table, same ladder, same revocation.
 
-Who may answer is deliberately *anyone in the conversation*, which is what the
-blocking confirm has always done. A tool call is addressed to the people
-watching the agent work; a credential is addressed to a named approver. That
-difference is one argument to the shared registry.
+Who may answer: the people the deployment names (``approvers``), or — when it
+names nobody — the person whose message started the turn. The model reads
+text strangers wrote, and in a shared channel the stranger who talked it into
+a call must not be the one who approves it; the person who asked the agent is
+the one the question is addressed to. A memoryless run has no such person, and
+then anyone in the conversation may answer, as the blocking confirm always
+allowed. A credential, by contrast, is always addressed to named approvers.
+That difference is one argument to the shared registry.
 
 And a window is that conversation's. The people who were asked are the people
 it covers: "allow for fifteen minutes" said in one thread does not let the same
@@ -84,6 +88,7 @@ class ToolGate:
         callback_url: str = "",
         timeout_s: float = 90.0,
         max_grant_s: int = 900,
+        approvers: frozenset[str] = frozenset(),
     ) -> None:
         self._presence = presence
         self._sessions = sessions
@@ -94,6 +99,9 @@ class ToolGate:
         # Shorter than a secret's ceiling by default: "let it use bash for a
         # while" is a broader permission than one named credential.
         self._max_grant_s = max_grant_s
+        # Who may answer every card, by platform user id. Empty = the person
+        # whose message started the turn.
+        self._approvers = approvers
 
     async def confirm(
         self,
@@ -161,8 +169,14 @@ class ToolGate:
             return None
 
         token = tokens.token_hex(16)
+        # The record's last user is whoever's message this turn answers; a run
+        # with no such person (a scheduled task) leaves the set empty, which
+        # the registry reads as anyone in the conversation.
+        who = self._approvers or (
+            frozenset({record.last_user_id}) if record.last_user_id else frozenset()
+        )
         future = self._approvals.register(
-            token, kind=KIND_TOOL, principal=agent, scopes=(tool,)
+            token, kind=KIND_TOOL, principal=agent, scopes=(tool,), approvers=who
         )
         expires_at = (
             datetime.now(timezone.utc) + timedelta(seconds=self._timeout)

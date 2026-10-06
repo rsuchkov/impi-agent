@@ -151,3 +151,8 @@ def test_runtime_env_collects_every_axis_key(monkeypatch) -> None:
     monkeypatch.setenv("RUNTIME_ENV__BROWSER", "BROWSER_CDP_URL")
     monkeypatch.setenv("RUNTIME_ENV__SECRETS", "SECRET_BROKER_*, A")
     assert set(_no_dotenv().runtime_env()) == {"A", "B", "BROWSER_CDP_URL", "SECRET_BROKER_*"}
+
+
+def test_tool_approvers_parse_to_a_tuple_and_default_to_nobody_named() -> None:
+    assert _settings().tools.approvers == ()
+    assert _settings(tool_approvers="U1, U2,").tools.approvers == ("U1", "U2")

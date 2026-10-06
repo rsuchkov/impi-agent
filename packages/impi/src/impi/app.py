@@ -446,6 +446,7 @@ def build_app(settings: ImpiSettings) -> App:
         screens=screens,
         approvals=approvals,
         tool_max_grant_s=settings.tools.max_grant_s,
+        tool_approvers=settings.tools.approvers,
     )
 
     # TODO(runtime-backend): build_app hardcodes the pi backend. When a second

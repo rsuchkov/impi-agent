@@ -49,6 +49,9 @@ class ToolSettings(BaseModel):
     # Ceiling on "allow this tool for a while". Shorter than a secret's by
     # default: leave bash open and you have left everything open.
     max_grant_s: int
+    # Who may answer a tool's confirmation card, by platform user id. Empty =
+    # the person whose message started the turn.
+    approvers: tuple[str, ...] = ()
     # What an agent should CALL, when that is not the same as what this binds.
     # They differ as soon as the agent is not in this container: the bind may be
     # 0.0.0.0 and the caller needs a name that resolves on its own network.
@@ -292,6 +295,9 @@ class Settings(BaseSettings):
     tool_server_host: str = "127.0.0.1"
     tool_server_port: int = 8422
     tool_max_grant_s: int = 900
+    # Who may answer a tool's confirmation card (CSV of platform user ids).
+    # Empty = the person whose message started the turn.
+    tool_approvers: str = ""
     # Where agents reach the tool server, when that is not where it binds. Set
     # when the agents run in containers of their own; empty otherwise.
     tool_public_url: str = ""
@@ -521,6 +527,7 @@ class Settings(BaseSettings):
             server_host=self.tool_server_host,
             server_port=self.tool_server_port,
             max_grant_s=self.tool_max_grant_s,
+            approvers=tuple(a.strip() for a in self.tool_approvers.split(",") if a.strip()),
             public_url=self.tool_public_url,
         )
 

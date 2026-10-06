@@ -334,6 +334,7 @@ list rather than offered and refused.
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `TOOL_APPROVERS` | `""` | who may answer a tool's confirmation card (CSV of platform user ids). Empty = the person whose message started the turn; a run nobody started (a scheduled task) is answered by anyone in the conversation. A click from anyone else is told so privately and the card stays live |
 | `TOOL_MAX_GRANT_S` | `900` | longest window a human may open for a gated tool (`0` = ask every time). A window covers that tool in the conversation where it was opened — another thread or direct message with the same agent is asked afresh |
 
 ## Logging

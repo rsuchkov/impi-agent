@@ -221,6 +221,7 @@ decisions an operator makes.
 | explicit extensions (`RUNTIME_EXTENSIONS`) | an `_extensions/<name>` loads into every agent only when the operator names it; a directory any agent with `write` can add to decides nothing |
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
 | per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks; a call naming no session is refused |
+| a tool's confirmation is addressed to the person who asked | a stranger who talked the model into a call in a shared channel cannot approve it; `TOOL_APPROVERS` names people instead |
 | the shared-process warning | at startup and in `impi health`: which agents with a shell share the engine's process space, if more than one does |
 | `returns_untrusted` wrapping | other people's text arrives marked as such |
 | the prompt envelope is tagged per turn and quotes are escaped | a message cannot close a context block or pose as another speaker; the model is told so in its system prompt |
@@ -247,7 +248,7 @@ decisions an operator makes.
 | `TOOL_MAX_GRANT_S` / a policy's `--max-grant` | 15 min / 1 h | how long "allow for…" may leave a tool or a secret open |
 | the [browser](browsing.md) | off | one browser serves every agent; cookies are shared between them |
 | egress | unrestricted | a proxy or firewall around the containers when the agents must not reach arbitrary hosts |
-| who answers a tool's confirmation | anyone in the conversation | a shared channel with people you do not trust |
+| who answers a tool's confirmation (`TOOL_APPROVERS`) | the person who asked the agent | name the people instead when the asker should not be the one deciding |
 | retention (`ATTACHMENT_RETENTION_DAYS`, `TOOL_TRACE_RETENTION_DAYS`, `PI_SESSION_RETENTION_DAYS`) | 14 / 14 / never | data classification says so |
 
 ## Known limits

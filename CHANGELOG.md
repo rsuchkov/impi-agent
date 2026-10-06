@@ -127,6 +127,15 @@ when a release is cut, and `impi update` shows the target version's section.
   of the old volume once (the volume is left in place); `impi doctor` says
   whether the file is there. **Breaks:** where the credential lives, and
   `impi agent sync` must be re-run for agent containers.
+- **A tool's confirmation card is answered by the person who asked the
+  agent.** Anyone in the conversation could answer it; in a shared channel
+  that let the stranger who talked the model into a call approve it too. The
+  card is now addressed to the person whose message started the turn, or to
+  the people `TOOL_APPROVERS` names (CSV of platform user ids) when the
+  deployment sets it; a run nobody started — a scheduled task — is still
+  answered by anyone in the conversation. A click from anyone else is told so
+  privately and the card stays live. **Breaks:** a colleague in the thread can
+  no longer approve on the asker's behalf unless named in `TOOL_APPROVERS`.
 
 ## v0.19.0 — 2026-10-04
 

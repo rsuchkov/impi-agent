@@ -197,7 +197,11 @@ extension's token lives in the agent's own environment, so a shell in that
 container could call the tool server directly: a gate in the extension would
 be one that can be walked around, and asking there as well would be asking
 twice. The gate asks through the same approval primitive the secret broker
-uses, so a human can answer "once" or "for the next 15 minutes"
+uses; the question is addressed to the person whose message started the turn
+(or to `TOOL_APPROVERS`, when the deployment names them — a stranger who talked
+the model into a call in a shared channel must not be the one who approves
+it; a run nobody started, a scheduled task, is answered by anyone in the
+conversation), so a human can answer "once" or "for the next 15 minutes"
 (`TOOL_MAX_GRANT_S` caps the window); the window belongs to the conversation
 it was opened in — the people who were asked are the people it covers — so the
 same tool in another conversation of that agent is asked again. The flag is a
@@ -249,7 +253,9 @@ One primitive, two consumers: a tool call that needs confirming, and a request
 for a credential. It is a leaf layer — it imports only the chat vocabulary
 (`ports.chat.types`) and `containment`, never the engine — and holds three
 things: a registry of waiting requests (`token -> Future`, with
-the set of people entitled to answer, empty meaning anyone in the conversation),
+the set of people entitled to answer — the broker's approvers for a credential,
+the person who asked the agent or `TOOL_APPROVERS` for a tool call, empty
+meaning anyone in the conversation),
 the three answers a card offers (once / for a window / deny), and the safe
 rendering of the card itself, which lets a caller supply content and never
 structure.

@@ -130,10 +130,11 @@ class SlackInteractions:
         user_id = (body.get("user") or {}).get("id", "")
         approval = decode_approval(actions[0])
         if approval:
-            # A request for a CREDENTIAL. Not to be confused with the Allow/Block
-            # further down: that one approves a tool call mid-turn and is
-            # answered by whoever is in the conversation, while this one is
-            # addressed to a named person and refuses everybody else.
+            # A request for AUTHORIZATION — a credential, a gated tool call —
+            # addressed to named people (the broker's approvers; the person who
+            # asked the agent, or TOOL_APPROVERS) and refusing everybody else.
+            # Not to be confused with the Allow/Block further down, the
+            # blocking confirm anyone in the conversation answers.
             #
             # The broker rewrites its own card once it has the answer, so the
             # buttons are stripped from here only when the click landed on a

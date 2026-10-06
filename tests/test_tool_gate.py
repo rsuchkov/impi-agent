@@ -182,6 +182,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         callback_url="http://engine/interact",
         timeout_s=over.pop("timeout_s", 5.0),
         max_grant_s=over.pop("max_grant_s", 900),
+        approvers=frozenset(over.pop("approvers", ())),
     )
     dangerous, plain = Dangerous(), Harmless()
     clock = FakeClock()
@@ -484,10 +485,13 @@ async def test_a_window_of_another_kind_does_not_open_a_tool(tmp_path: Path) -> 
 # -- who may answer ------------------------------------------------------------
 
 
-async def test_anyone_in_the_conversation_may_answer(tmp_path: Path) -> None:
-    """Unlike a credential, which is addressed to a named approver: a tool call
-    is addressed to the people watching the agent work."""
-    rig = await _rig(tmp_path, 8549)
+async def test_a_turn_nobody_started_may_be_answered_by_anyone_in_the_conversation(
+    tmp_path: Path,
+) -> None:
+    """A memoryless run (a scheduled task) has no person whose message it
+    answers; then the question is to whoever is watching, as the blocking
+    confirm always allowed."""
+    rig = await _rig(tmp_path, 8549)  # the record names no last user
     try:
         pending = asyncio.create_task(_call(rig, "dangerous"))
         for _ in range(400):
@@ -643,3 +647,40 @@ def test_the_arguments_on_a_card_are_capped() -> None:
     card = toolgate._card("assistant", "dangerous", {"body": "x" * 5000})
     assert len(card.block) == toolgate.ARGUMENTS_LIMIT and card.block.endswith("…")
     assert toolgate._card("assistant", "dangerous", {"a": 1}).block == '{"a": 1}'
+
+
+async def _asked(rig: Rig) -> str:
+    for _ in range(400):
+        if rig.poster.posts:
+            return str(rig.poster.posts[0].actions[0].context[APPROVAL_KEY])
+        await asyncio.sleep(0.005)
+    raise AssertionError("nobody was asked")
+
+
+async def test_the_person_who_asked_the_agent_is_the_one_who_may_answer(tmp_path: Path) -> None:
+    """In a shared channel the stranger who talked the model into a call must
+    not be the one who approves it."""
+    rig = await _rig(tmp_path, 8561)
+    await rig.store.touch("assistant", "dm1", "uid-asker")
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        token = await _asked(rig)
+        assert rig.approvals.resolve(token, ANSWER_ONCE, "uid-stranger").name == "NOT_ALLOWED"
+        assert rig.approvals.pending(token)  # the card is still live for the asker
+        assert rig.approvals.resolve(token, ANSWER_ONCE, "uid-asker").name == "RESOLVED"
+        assert await pending == 200
+    finally:
+        await _close(rig)
+
+
+async def test_named_approvers_replace_the_asker(tmp_path: Path) -> None:
+    rig = await _rig(tmp_path, 8562, approvers=("uid-lead", "uid-ops"))
+    await rig.store.touch("assistant", "dm1", "uid-asker")
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        token = await _asked(rig)
+        assert rig.approvals.resolve(token, ANSWER_ONCE, "uid-asker").name == "NOT_ALLOWED"
+        assert rig.approvals.resolve(token, ANSWER_ONCE, "uid-ops").name == "RESOLVED"
+        assert await pending == 200
+    finally:
+        await _close(rig)

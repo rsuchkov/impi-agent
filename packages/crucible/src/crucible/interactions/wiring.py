@@ -50,6 +50,7 @@ class InteractionWiring:
         screens: ScreenRegistry | None = None,
         approvals: PendingApprovals | None = None,
         tool_max_grant_s: int = 900,
+        tool_approvers: tuple[str, ...] = (),
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
         # service need its InteractionStore + FormStore facets too.
@@ -101,6 +102,7 @@ class InteractionWiring:
                 callback_url=integrations.interact_url,
                 timeout_s=integrations.ui_timeout,
                 max_grant_s=tool_max_grant_s,
+                approvers=frozenset(tool_approvers),
             )
         # The HTTP receiver is only for gateways that deliver callbacks over HTTP
         # (Mattermost); socket gateways (Slack) drive the same dispatcher over their
