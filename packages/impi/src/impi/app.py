@@ -32,7 +32,7 @@ import impi.chat_tools  # noqa: E402,F401
 import impi.skill_tools  # noqa: E402,F401
 import impi.task_tools  # noqa: E402,F401
 from crucible.approvals import PendingApprovals
-from crucible.attachments import AttachmentStore, safe_name
+from crucible.attachments import AttachmentStore
 from crucible.confinement import landlock_abi
 from crucible.flows.agent_flow import ENVELOPE_NOTE, AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
@@ -69,6 +69,7 @@ from crucible.runtimes.pi import (
     build_pi_profile,
 )
 from crucible.runtimes.pi.runtime import PiRuntime
+from crucible.runtimes.pi.spawn import migrate_session_layout
 from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
 from crucible.sessions_cli import purge_idle
@@ -190,6 +191,10 @@ def shared_process_agents(
     ))
 
 
+# The variable naming the directory an agent's process writes files to send:
+# its agent's, or its conversation's when it is confined to one.
+FILES_DIR_ENV = "AGENT_FILES_DIR"
+
 SHARED_PROCESS_WARNING = (
     "agents %s run in the engine's own process space with a shell: each can read "
     "the environment of every other process here — the engine's own, support's, "
@@ -203,6 +208,24 @@ def _spec_or_none(profiles: ProfileStore, name: str) -> AgentSpec | None:
         return profiles.get(name)
     except ProfileError:
         return None
+
+
+def _conversation_files_dir_for(
+    attachments: AttachmentStore | None, sessions: SessionStore
+) -> Callable[[str, str], Awaitable[Path | None]]:
+    """Which attachments directory belongs to the conversation a runtime
+    session serves — the one directory of files a process confined to its
+    conversation may write."""
+
+    async def conversation_files_dir(agent: str, runtime_session_id: str) -> Path | None:
+        if attachments is None:
+            return None
+        record = await sessions.get_by_runtime_session(runtime_session_id)
+        if record is None or record.agent != agent:
+            return None
+        return attachments.conversation_dir(agent, record.conversation_id)
+
+    return conversation_files_dir
 
 
 def _log_confinement(scopes: AgentProcessScopes, specs: Sequence[AgentSpec]) -> None:
@@ -485,13 +508,22 @@ def build_app(settings: ImpiSettings) -> App:
     # read, its files and its own scratch space to write. support is part of
     # the engine (it reads the engine's own configuration) and runs
     # unconfined unless its profile says otherwise.
+    # Where files people attach land. Swept once at startup so a long-running
+    # deployment doesn't accumulate them forever.
+    attachments: AttachmentStore | None = None
+    if settings.attachments_enabled:
+        attachments = AttachmentStore(
+            settings.resolved_attachments_dir,
+            max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
+            retention_days=settings.attachment_retention_days,
+        )
+        attachments.sweep()
     process_scopes = AgentProcessScopes(
         lambda name: _spec_or_none(profiles, name),
         default_level=settings.runtime_confinement,
-        files_dir_for=(
-            (lambda name: settings.resolved_attachments_dir / safe_name(name))
-            if settings.attachments_enabled else (lambda name: None)
-        ),
+        files_dir_for=attachments.dir_for if attachments else (lambda name: None),
+        conversation_files_dir_for=_conversation_files_dir_for(attachments, sessions),
+        files_dir_env=FILES_DIR_ENV,
         skills_root=settings.resolved_skills_path,
         unconfined_by_default=frozenset(engine_names),
     )
@@ -539,16 +571,7 @@ def build_app(settings: ImpiSettings) -> App:
         confirmations_on=interactions.tool_gate is not None,
     )
     profile_builder = ProfileBuilder(tools, engine_owned=frozenset(engine_names))
-    # Where files people attach land. Swept once at startup so a long-running
-    # deployment doesn't accumulate them forever.
-    attachments: AttachmentStore | None = None
-    if settings.attachments_enabled:
-        attachments = AttachmentStore(
-            settings.resolved_attachments_dir,
-            max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
-            retention_days=settings.attachment_retention_days,
-        )
-        attachments.sweep()
+    if attachments is not None:
         for spec in specs:
             # Each agent's own directory, named in its environment. It is the one
             # place an agent can both write and send from wherever its runtime
@@ -556,7 +579,7 @@ def build_app(settings: ImpiSettings) -> App:
             # so a skill that produces a file has somewhere to put it.
             files_dir = attachments.dir_for(spec.name)
             files_dir.mkdir(parents=True, exist_ok=True)
-            tools.add_env(spec.name, {"AGENT_FILES_DIR": str(files_dir)})
+            tools.add_env(spec.name, {FILES_DIR_ENV: str(files_dir)})
     # The ws hub exists only when some agent lives on the "ws" gateway; client
     # services authenticate against it with their own tokens (WS_SERVICE_TOKEN__*).
     ws_hub: WsHub | None = None
@@ -783,6 +806,11 @@ async def run(settings: ImpiSettings) -> None:
         if forgotten:
             logger.info("forgot %d answered message(s) older than %d days", forgotten,
                         settings.processed_posts_retention_days)
+    # Memory kept before each conversation had a directory of its own moves
+    # into one, before anything looks for it there.
+    moved = migrate_session_layout(settings.resolved_pi_session_dir)
+    if moved:
+        logger.info("moved %d conversation memories into a directory each", moved)
     if settings.pi_session_retention_days > 0:
         # Before anything runs: nothing is live yet, so nothing can be using
         # the memory being forgotten.

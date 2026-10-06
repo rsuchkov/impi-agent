@@ -209,9 +209,19 @@ when a release is cut, and `impi update` shows the target version's section.
   default. A kernel without Landlock runs every process unconfined, with a
   warning; the startup log says which level each agent got. A library user
   passes `PiRuntime(scopes=AgentProcessScopes(...))` (`crucible.process_scopes`)
-  or a `ProcessScopes` of its own. **Breaks:** a skill that wrote into its
+  or a `ProcessScopes` of its own. At `conversation` each conversation's
+  process has its own memory directory, its own attachments directory (which
+  `AGENT_FILES_DIR` names) and its own scratch space, and cannot read another
+  conversation's or see its process; a scheduled task's memoryless run gets
+  scratch space of its own. **Breaks:** a skill that wrote into its
   profile, or read or wrote outside its own paths, gets `Permission denied`
-  — declare the paths or set the agent's level to `off`.
+  — declare the paths or set the agent's level to `off`. A skill that kept
+  files in the agent's attachments directory across conversations no longer
+  sees them from another conversation — set the agent to `agent`.
+  Conversation memory moves from `pi-sessions/<agent>/` into a directory per
+  conversation, `pi-sessions/<agent>/<session-id>/`; the engine moves what is
+  there on its first start and logs how many it moved. Agents in containers
+  of their own keep the old layout until their containers are confined too.
 - **`pi` 0.85.1.** The runtime moves from 0.80.3 to the version the
   third-party assessment was made against; every fact in
   `docs/runtime-notes.md` was re-verified live (tools, skills, the gate, a

@@ -48,9 +48,11 @@ def test_a_private_file_keeps_its_content_and_loses_its_readers(tmp_path: Path) 
 
 
 def test_conversation_memory_is_the_owners_alone(tmp_path: Path) -> None:
-    request = SpawnRequest(agent="assistant", profile_dir=tmp_path, session_dir=tmp_path / "s")
+    request = SpawnRequest(
+        agent="assistant", profile_dir=tmp_path, session_dir=tmp_path / "s", session_id="assistant--c1"
+    )
     resolved = LocalHost._session_dir(request)
-    assert resolved is not None and _mode(resolved) == 0o700
+    assert resolved is not None and _mode(resolved) == 0o700 and _mode(resolved.parent) == 0o700
 
 
 async def test_the_inventory_and_its_write_ahead_log_are_the_owners_alone(tmp_path: Path) -> None:
@@ -93,15 +95,16 @@ async def test_idle_conversations_are_forgotten_record_and_files(tmp_path: Path)
             "UPDATE sessions SET last_active = ? WHERE conversation_id = ?", (long_ago, "old"),
         )
         sessions = settings.resolved_pi_session_dir / "assistant"
-        sessions.mkdir(parents=True)
-        old_file = sessions / f"2026-01-01T00-00-00-000Z_{old.runtime_session_id}.jsonl"
-        fresh_file = sessions / f"2026-01-01T00-00-00-000Z_{fresh.runtime_session_id}.jsonl"
+        old_file = sessions / old.runtime_session_id / f"2026-01-01T00-00-00-000Z_{old.runtime_session_id}.jsonl"
+        fresh_file = sessions / fresh.runtime_session_id / f"2026-01-01T00-00-00-000Z_{fresh.runtime_session_id}.jsonl"
+        for path in (old_file, fresh_file):
+            path.parent.mkdir(parents=True)
         old_file.write_text("{}")
         fresh_file.write_text("{}")
 
         forgotten = await purge_idle(settings, store, days=30)
         assert [r.conversation_id for r in forgotten] == ["old"]
-        assert not old_file.exists() and fresh_file.exists()
+        assert not old_file.parent.exists() and fresh_file.exists()
         assert [r.conversation_id for r in await store.list("assistant")] == ["fresh"]
         assert await purge_idle(settings, store, days=30) == []
     finally:

@@ -15,7 +15,7 @@ from crucible.confinement import ProcessScope, confined_command, landlock_abi
 from crucible.private_files import private_dir
 from crucible.runtimes.pi.auth_file import auth_file_path, executable_entries
 from crucible.runtimes.pi.errors import PiHostError
-from crucible.runtimes.pi.spawn import SpawnRequest
+from crucible.runtimes.pi.spawn import SpawnRequest, conversation_memory_dir
 from crucible.runtimes.pi.transport import PiTransport, SubprocessTransport
 
 logger = logging.getLogger(__name__)
@@ -70,14 +70,17 @@ class LocalHost:
 
     @staticmethod
     def _session_dir(request: SpawnRequest) -> Path | None:
-        if request.session_dir is None:
+        # A memoryless run keeps nothing, so it is given nowhere to keep it.
+        if request.session_dir is None or request.session_id is None:
             return None
-        # Per-agent subdir (sanitized ids can collide across agents), and an
+        # Per agent (sanitized ids can collide across agents), per conversation
+        # (a confined process writes its own memory and no other), and an
         # ABSOLUTE path — a relative --session-dir resolves from the process's
         # own cwd (the profile dir), scattering session files into the agents dir.
-        resolved = (request.session_dir / request.agent).resolve()
-        # Conversation memory: the owner's alone.
-        return private_dir(resolved)
+        base = request.session_dir.resolve()
+        # Conversation memory: the owner's alone, the agent's directory too.
+        private_dir(base / request.agent)
+        return private_dir(conversation_memory_dir(base, request.agent, request.session_id))
 
 
 def command_args(request: SpawnRequest, *, session_dir: Path | None) -> list[str]:

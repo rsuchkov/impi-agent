@@ -40,7 +40,12 @@ from crucible.runtimes.pi.errors import PiBusy, PiProcessError, PiTimeout
 from crucible.runtimes.pi.hosts import HostRouter, LocalHost
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.session import EventCallback, PiResult, PiRpcSession
-from crucible.runtimes.pi.spawn import SpawnRequest, safe_session_id, session_files
+from crucible.runtimes.pi.spawn import (
+    SpawnRequest,
+    forget_conversation_memory,
+    safe_session_id,
+    session_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -188,9 +193,7 @@ class PiRuntime:
             await self._drop_session(session_id)
             removed = 0
             if self._session_dir:
-                for path in self._files_of(agent, session_id):
-                    path.unlink(missing_ok=True)
-                    removed += 1
+                removed = forget_conversation_memory(Path(self._session_dir), agent, session_id)
         logger.info("reset session %s (%d memory file(s) removed)", session_id, removed)
 
     async def cancel(self, session_id: str) -> bool:

@@ -113,6 +113,10 @@ class AttachmentStore:
         """This agent's own attachment tree — the root it may send files from."""
         return self.root / safe_name(agent)
 
+    def conversation_dir(self, agent: str, conversation_id: str) -> Path:
+        """One conversation's attachments, inside its agent's tree."""
+        return self.dir_for(agent) / safe_name(conversation_id or "misc")
+
     async def save(
         self,
         agent: str,
@@ -133,7 +137,7 @@ class AttachmentStore:
             )
         stamp = key or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
         filename = f"{safe_name(stamp)}-{safe_name(name)}"
-        target = self.dir_for(agent) / safe_name(conversation_id or "misc") / filename
+        target = self.conversation_dir(agent, conversation_id) / filename
         await asyncio.to_thread(self._write, target, data)
         self._maybe_sweep()
         return Attachment(

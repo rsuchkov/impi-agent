@@ -106,7 +106,7 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   ```
   pi --mode rpc --approve
      --session-id <agent>--<conversation>      # or --no-session for a stateless run
-     --session-dir <data>/pi-sessions/<agent>
+     --session-dir <data>/pi-sessions/<agent>/<session-id>   # absent for a stateless run
      -e <engine tool-bridge> [-e <extension> ...]
      --tools read,bash,...                      # the ONE allowlist (may be empty)
      --no-skills [--skill <path> ...]           # only the agent's declared skills

@@ -14,7 +14,7 @@ with a backend setting.
 
 **Conversation memory** is what an agent remembers. That belongs to the runtime,
 which keeps it as session files on disk — under `{DATA_DIR}/pi-sessions/` in the
-engine, or inside the agent's own volume when it has a container of its own.
+engine (a directory per agent, and in it one per conversation), or inside the agent's own volume when it has a container of its own.
 There is no remote backend for it. An agent whose files are gone starts the
 conversation again from nothing, whatever the inventory says.
 

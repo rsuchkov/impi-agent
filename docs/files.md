@@ -65,7 +65,9 @@ symlink can't lead out of them:
 - the agent's **profile directory** — its own working directory;
 - its **own directory**, named in its environment as `AGENT_FILES_DIR` — the
   attachment directory it was sent things in, and where it should write anything
-  it means to send back;
+  it means to send back. At the default [confinement](configuration.md) level,
+  `conversation`, that is the conversation's own directory, and the only one of
+  the agent's attachment directories the process can reach;
 - the **system temp directory** — where a turn's scratch output naturally lands.
   Dropped when the agents have [containers of their own](agent-containers.md):
   the temp directory is then not one place but two, and honouring a path into it

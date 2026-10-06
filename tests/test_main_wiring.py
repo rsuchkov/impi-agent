@@ -570,3 +570,30 @@ async def test_a_users_agent_is_confined_and_the_engines_own_is_not(
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
         app.sessions.close_sync()
+
+
+async def test_a_conversations_process_writes_its_own_attachments_directory(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path).model_copy(update={"attachments_enabled": True})
+    app = build_app(settings)
+    try:
+        assert isinstance(app.runtime, PiRuntime)
+        scopes = app.runtime._scopes
+        assert isinstance(scopes, AgentProcessScopes)
+        record, _ = await app.sessions.get_or_create("assistant", "dm1", "dm1", "dm")
+        scope = await scopes.scope_for("assistant", record.runtime_session_id)
+        assert scope is not None
+        own = settings.resolved_attachments_dir / "assistant" / "dm1"
+        assert own in scope.writable and scope.env["AGENT_FILES_DIR"] == str(own)
+        assert settings.resolved_attachments_dir / "assistant" not in scope.writable
+        # Another agent's conversation is not this agent's to write.
+        theirs, _ = await app.sessions.get_or_create("other", "dm2", "dm2", "dm")
+        borrowed = await scopes.scope_for("assistant", theirs.runtime_session_id)
+        assert borrowed is not None and borrowed.env["AGENT_FILES_DIR"] == borrowed.env["TMPDIR"]
+        # A session the inventory does not know is no conversation's.
+        stranger = await scopes.scope_for("assistant", "assistant--nobody")
+        assert stranger is not None and stranger.env["AGENT_FILES_DIR"] == stranger.env["TMPDIR"]
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()

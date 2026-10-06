@@ -13,6 +13,7 @@ where the translation can be checked and can fail loudly, rather than being
 assumed to line up.
 """
 
+import contextlib
 import hashlib
 import re
 from collections.abc import Mapping
@@ -20,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from crucible.confinement import ProcessScope
+from crucible.private_files import private_dir
 
 _DIGEST_CHARS = 12
 
@@ -40,13 +42,52 @@ def safe_session_id(raw: str) -> str:
     return f"{cleaned or 'session'}-{digest}"
 
 
+def conversation_memory_dir(session_dir: Path, agent: str, session_id: str) -> Path:
+    """Where the runtime keeps one conversation's memory: a directory of its
+    own, ``<session_dir>/<agent>/<session_id>/``, so a process allowed to
+    write there reaches no other conversation's. The functions below are the
+    one place that knows this layout — the host that starts the process, the
+    cleanup CLI and the runtime's own memory checks all ask here."""
+    return session_dir / agent / session_id
+
+
 def session_files(session_dir: Path, agent: str, session_id: str) -> list[Path]:
-    """The files the runtime keeps for one conversation's memory:
-    ``<session_dir>/<agent>/<timestamp>_<session_id>.*``. The one place that
-    knows this layout — the cleanup CLI and the runtime's own memory checks
-    both ask here, so a change in how the runtime names its files is a change
-    in one function."""
-    return sorted((session_dir / agent).glob(f"*_{session_id}.*"))
+    """The files of one conversation's memory, ``<timestamp>_<session_id>.*``
+    in its directory."""
+    return sorted(conversation_memory_dir(session_dir, agent, session_id).glob(f"*_{session_id}.*"))
+
+
+def forget_conversation_memory(session_dir: Path, agent: str, session_id: str) -> int:
+    """Delete one conversation's memory, its directory with it. Returns how
+    many files went."""
+    files = session_files(session_dir, agent, session_id)
+    for path in files:
+        path.unlink(missing_ok=True)
+    with contextlib.suppress(OSError):  # gone already, or holds something not ours
+        conversation_memory_dir(session_dir, agent, session_id).rmdir()
+    return len(files)
+
+
+def migrate_session_layout(session_dir: Path) -> int:
+    """Move memory kept the earlier way — every conversation's files side by
+    side in ``<session_dir>/<agent>/`` — into each conversation's own
+    directory. Idempotent: a second run finds nothing to move. Returns how
+    many conversations moved."""
+    if not session_dir.is_dir():
+        return 0
+    moved: set[tuple[str, str]] = set()
+    for agent_dir in session_dir.iterdir():
+        if not agent_dir.is_dir() or agent_dir.is_symlink():
+            continue
+        for path in agent_dir.iterdir():
+            stamp, sep, rest = path.name.partition("_")
+            session_id = rest.rsplit(".", 1)[0]
+            if not path.is_file() or not (sep and stamp and session_id):
+                continue
+            target = private_dir(conversation_memory_dir(session_dir, agent_dir.name, session_id))
+            path.rename(target / path.name)
+            moved.add((agent_dir.name, session_id))
+    return len(moved)
 
 
 @dataclass(frozen=True)

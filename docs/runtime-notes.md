@@ -12,7 +12,7 @@ For each turn the driver spawns `pi` roughly like this (see
 ```
 pi --mode rpc --approve
    --session-id <agent>--<conversation>     # or --no-session for a stateless run
-   --session-dir <DATA_DIR>/pi-sessions/<agent>
+   --session-dir <DATA_DIR>/pi-sessions/<agent>/<session-id>  # absent for a stateless run
    -e <engine tool-bridge> [-e <extension> ...]
    --tools <csv>                            # the single allowlist
    --no-skills [--skill <path> ...]

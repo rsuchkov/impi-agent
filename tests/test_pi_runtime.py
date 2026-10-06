@@ -13,6 +13,7 @@ from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.runtime import PiRuntime, SessionFactory
 from crucible.runtimes.pi.session import PiResult, PiRpcSession
+from crucible.runtimes.pi.spawn import migrate_session_layout, session_files
 from crucible.runtimes.pi.spawn import safe_session_id as _safe_session_id
 
 
@@ -358,13 +359,21 @@ async def test_declared_skills_become_no_skills_plus_skill_flags(monkeypatch) ->
     assert skill_vals == ["/abs/skills/hello", "/abs/skills/greet"]
 
 
-async def test_session_dir_is_per_agent(monkeypatch, tmp_path) -> None:
+async def test_session_dir_is_per_agent_and_per_conversation(monkeypatch, tmp_path) -> None:
     profile = _profile()
     cap = await _capture_spawn(monkeypatch, profile, session_dir=str(tmp_path / "pi-sessions"))
 
     sdir = cap["args"][cap["args"].index("--session-dir") + 1]
-    assert sdir == str(tmp_path / "pi-sessions" / "assistant")
-    assert (tmp_path / "pi-sessions" / "assistant").is_dir()  # created eagerly
+    assert sdir == str(tmp_path / "pi-sessions" / "assistant" / "assistant--T1")
+    assert Path(sdir).is_dir()  # created eagerly
+
+
+async def test_a_memoryless_run_is_given_no_session_dir(monkeypatch, tmp_path) -> None:
+    cap = await _capture_spawn(
+        monkeypatch, _profile(), session_id=None, session_dir=str(tmp_path / "pi-sessions")
+    )
+    assert "--no-session" in cap["args"] and "--session-dir" not in cap["args"]
+    assert not (tmp_path / "pi-sessions").exists()
 
 
 async def test_session_dir_is_absolute_even_when_configured_relative(
@@ -378,7 +387,7 @@ async def test_session_dir_is_absolute_even_when_configured_relative(
 
     sdir = Path(cap["args"][cap["args"].index("--session-dir") + 1])
     assert sdir.is_absolute()
-    assert sdir == tmp_path / "data" / "pi-sessions" / "assistant"
+    assert sdir == tmp_path / "data" / "pi-sessions" / "assistant" / "assistant--T1"
 
 
 async def test_stateless_spawn_uses_no_session(monkeypatch) -> None:
@@ -532,7 +541,7 @@ async def test_an_agents_own_bound_evicts_only_that_agents_sessions() -> None:
 
 
 def _memory_file(root: Path, agent: str, session_id: str) -> Path:
-    path = root / agent / f"2026-10-03T10-00-00_{session_id}.jsonl"
+    path = root / agent / session_id / f"2026-10-03T10-00-00_{session_id}.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{}\n")
     return path
@@ -550,6 +559,26 @@ async def test_has_memory_sees_a_live_session_or_a_file_on_disk(tmp_path: Path) 
     _memory_file(tmp_path, "assistant", "assistant--c1")
     assert rt.has_memory("assistant", "assistant--c1") is True  # remembered on disk
     assert rt.has_memory("other", "assistant--c1") is False  # another agent's directory
+
+
+def test_memory_kept_side_by_side_moves_into_a_directory_per_conversation(tmp_path: Path) -> None:
+    agent = tmp_path / "assistant"
+    agent.mkdir()
+    for name in (
+        "2026-10-03T10-00-00-000Z_assistant--c1.jsonl",
+        "2026-10-04T10-00-00-000Z_assistant--c1.jsonl",
+        "2026-10-03T10-00-00-000Z_assistant--c2.v1.jsonl",
+        "notes",  # not a memory file: left where it is
+    ):
+        (agent / name).write_text("{}\n")
+
+    assert migrate_session_layout(tmp_path) == 2
+    assert len(session_files(tmp_path, "assistant", "assistant--c1")) == 2
+    assert len(session_files(tmp_path, "assistant", "assistant--c2.v1")) == 1
+    assert (agent / "notes").is_file()
+    assert sorted(p.name for p in agent.iterdir()) == ["assistant--c1", "assistant--c2.v1", "notes"]
+    assert migrate_session_layout(tmp_path) == 0  # again: nothing left to move
+    assert migrate_session_layout(tmp_path / "absent") == 0
 
 
 async def test_memory_the_runtime_cannot_see_counts_as_remembered(tmp_path: Path) -> None:
@@ -588,7 +617,7 @@ async def test_reset_ends_the_process_frees_its_slot_and_deletes_the_memory(
 
     await rt.reset("assistant", "assistant--c1")
 
-    assert first.closed and not memory.exists()
+    assert first.closed and not memory.exists() and not memory.parent.exists()
     assert rt.has_memory("assistant", "assistant--c1") is False
     # The slot is free right now, not when the reaper gets to it.
     assert (await rt.run_stateful(_profile(), "assistant--c2", "hi")).text == "ok"

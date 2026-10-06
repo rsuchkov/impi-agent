@@ -1,8 +1,8 @@
 """Manual session cleanup: the ONLY way conversation memory gets deleted.
 
 Deletes both halves in one motion — the inventory row and the runtime's on-disk
-session files (`{pi_session_dir}/{agent}/*_{runtime_session_id}.*`, as
-``runtimes.pi.spawn.session_files`` spells it). Deleting only one side silently
+session files (`{pi_session_dir}/{agent}/{runtime_session_id}/`, as
+``runtimes.pi.spawn.conversation_memory_dir`` spells it). Deleting only one side silently
 resets or orphans memory, so don't.
 
 Usage:
@@ -22,13 +22,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from crucible.config import Settings, load_settings
-from crucible.runtimes.pi.spawn import session_files
+from crucible.runtimes.pi.spawn import forget_conversation_memory, session_files
 from crucible.store import open_store
 from crucible.store.base import SessionRecord, SessionStore, Store
 
 
 def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
     return session_files(settings.resolved_pi_session_dir, record.agent, record.runtime_session_id)
+
+
+def _forget_memory(settings: Settings, record: SessionRecord) -> int:
+    return forget_conversation_memory(
+        settings.resolved_pi_session_dir, record.agent, record.runtime_session_id
+    )
 
 
 async def cmd_list(settings: Settings, store: Store, args: argparse.Namespace) -> None:
@@ -49,11 +55,8 @@ async def cmd_delete(settings: Settings, store: Store, args: argparse.Namespace)
     if record is None:
         print(f"not found: {args.agent}/{args.conversation_id}")
         return
-    # delete() already removed the row; reuse the file cleanup.
-    removed = 0
-    for path in _session_files(settings, record):
-        path.unlink(missing_ok=True)
-        removed += 1
+    # delete() already removed the row; the memory goes with it.
+    removed = _forget_memory(settings, record)
     print(f"deleted {record.agent}/{record.conversation_id} (pi files removed: {removed})")
 
 
@@ -67,8 +70,7 @@ async def purge_idle(
     victims = [r for r in await store.list(agent) if _idle_before(r, cutoff)]
     for record in victims:
         await store.delete(record.agent, record.conversation_id)
-        for path in _session_files(settings, record):
-            path.unlink(missing_ok=True)
+        _forget_memory(settings, record)
     return victims
 
 
