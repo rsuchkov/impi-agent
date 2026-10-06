@@ -86,8 +86,9 @@ when a release is cut, and `impi update` shows the target version's section.
   `runtime.env` and in `RUNTIME_ENV*` alike; the latter refuses to start rather
   than hand everything over. `PI_OFFLINE` also stops `pi` downloading `rg` and
   `fd` for its `grep`/`find` tools, so both images now ship `ripgrep` and
-  `fd-find`; a host running the engine outside the images needs `rg` and `fd`
-  on `PATH` — and a `settings.json` package not yet installed is not installed.
+  `fd` 10.5 from its release, pinned by checksum (Debian's 8.6 lacks a flag
+  `pi` 0.85 passes, which broke its `find`); a host running the engine
+  outside the images needs `rg` and a recent `fd` on `PATH` — and a `settings.json` package not yet installed is not installed.
 - **The engine names the agents that share its process space with a shell.**
   In the default arrangement every agent's runtime is a child of the engine,
   and an agent with `bash` or `read` can read a neighbour's tool token and

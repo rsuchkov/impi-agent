@@ -102,3 +102,12 @@ def test_the_registry_lookup_needs_no_npm(monkeypatch) -> None:
     monkeypatch.setattr(check_pi_lock.urllib.request, "urlopen", urlopen)
     assert check_pi_lock._registry_integrity("@earendil-works/pi-ai@0.85.1") == "sha512-x"
     assert asked == ["https://registry.npmjs.org/@earendil-works/pi-ai/0.85.1"]
+
+
+def test_fd_comes_from_its_release_checked_not_from_debian() -> None:
+    """Debian bookworm's fd 8.6 lacks a flag pi 0.85 passes, which broke pi's
+    `find`; the images install a pinned release and verify its checksum."""
+    for dockerfile in IMAGES:
+        text = dockerfile.read_text(encoding="utf-8")
+        assert "fd-find" not in text, dockerfile
+        assert "ARG FD_VERSION=" in text and "sha256sum -c -" in text, dockerfile

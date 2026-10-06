@@ -21,9 +21,30 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
  && apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates procps \
-      ripgrep fd-find \
- && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+      ripgrep \
  && rm -rf /var/lib/apt/lists/*
+
+# fd for pi's `find` tool, from its release rather than Debian: bookworm ships
+# 8.6, and pi passes flags (`--no-require-git`) that arrived later, so its
+# `find` failed on every call. Pinned by version and checksum; pi would
+# download it itself, but PI_OFFLINE forbids that, and a binary fetched at run
+# time is not one the image vouches for.
+ARG FD_VERSION=10.5.0
+ARG FD_SHA256_AMD64=761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7
+ARG FD_SHA256_ARM64=d76c4317f7d5dba69f8a2a15856c90c777e7f0dd4e85f0de8c76de6992c374d4
+RUN set -eu; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) arch=x86_64; sum="$FD_SHA256_AMD64" ;; \
+      arm64) arch=aarch64; sum="$FD_SHA256_ARM64" ;; \
+      *) echo "no fd build pinned for $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    name="fd-v${FD_VERSION}-${arch}-unknown-linux-musl"; \
+    python3 -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], "/tmp/fd.tgz")' \
+      "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${name}.tar.gz"; \
+    echo "${sum}  /tmp/fd.tgz" | sha256sum -c -; \
+    tar -xzf /tmp/fd.tgz -C /tmp "${name}/fd"; \
+    install -m 0755 "/tmp/${name}/fd" /usr/local/bin/fd; \
+    rm -rf /tmp/fd.tgz "/tmp/${name}"
 
 # The pi coding agent — the engine spawns it per turn (PI_BIN) — and the browser
 # tool an agent runs (it attaches to a Chrome in another container, so no
