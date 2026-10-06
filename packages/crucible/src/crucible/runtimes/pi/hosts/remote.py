@@ -43,12 +43,16 @@ class RemoteHost:
         url: str,
         token: str,
         library_root: Path | None = None,
+        files_root: Path | None = None,
         connect_timeout: float = 30.0,
         heartbeat: float = 30.0,
     ) -> None:
         self._url = url.rstrip("/")
         self._token = token
         self._library_root = library_root.resolve() if library_root else None
+        # This agent's files directory as THIS side sees it — the directory
+        # the host mounts as its own files root.
+        self._files_root = files_root.resolve() if files_root else None
         self._connect_timeout = connect_timeout
         # Pings the host while a turn is in flight, so a container that died
         # mid-answer surfaces as a broken connection instead of a socket that
@@ -154,7 +158,29 @@ class RemoteHost:
             wire.KEY_SYSTEM_SUFFIX: request.append_system_prompt,
             wire.KEY_ENV: dict(request.env),
             wire.KEY_ENV_FILES: _read_env_files(request.env_files, request.agent),
+            **self._confinement_payload(request),
         }
+
+    def _confinement_payload(self, request: SpawnRequest) -> dict[str, object]:
+        """The application's scope, said in names the host can resolve: each
+        writable path under the agent's files directory, and the variable that
+        points the process at it. The rest of the scope is paths on this side
+        — scratch space, a profile's declared paths — that mean nothing over
+        there; the host gives the process its own memory and scratch space."""
+        scope = request.scope
+        if scope is None:
+            return {}
+        writable: list[dict[str, str]] = []
+        for path in scope.writable:
+            resolved = path.resolve()
+            if self._files_root is None or not resolved.is_relative_to(self._files_root):
+                continue
+            ref = {wire.KEY_ROOT: wire.ROOT_FILES, wire.KEY_PATH: _relative(resolved, self._files_root)}
+            named = [name for name, value in scope.env.items() if Path(value).resolve() == resolved]
+            if named:
+                ref[wire.KEY_VARIABLE] = named[0]
+            writable.append(ref)
+        return {wire.KEY_CONFINEMENT: {wire.KEY_WRITABLE: writable}}
 
     def _skill_ref(self, skill: str, request: SpawnRequest) -> dict[str, str]:
         path = Path(skill).resolve()

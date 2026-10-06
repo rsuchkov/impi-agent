@@ -41,6 +41,18 @@ ENV_EXTENSION_NAMES = "RUNTIME_RELAY_EXTENSION_NAMES"
 # Scratch: the files an env variable points at arrive as content and are written
 # here, one directory per session.
 ENV_WORK_DIR = "RUNTIME_RELAY_WORK_DIR"
+# The agent's files directory — shared with the engine, at the same path on
+# both sides. A confined process writes only the part of it the engine names.
+ENV_FILES_DIR = "RUNTIME_RELAY_FILES_DIR"
+# The script that confines a process before it becomes the runtime: the
+# engine library's own launcher, copied into the image (standard library
+# only, so this package still imports nothing of the engine's).
+ENV_LAUNCHER = "RUNTIME_RELAY_LAUNCHER"
+# Every variable of this host's own is its alone: none of them reaches the
+# process it starts. The token above all — with it, the agent's shell could
+# ask this host for a process nobody granted.
+RELAY_VARIABLE_PREFIX = "RUNTIME_RELAY_"
+DEFAULT_LAUNCHER = "/app/confinement/launcher.py"
 
 DEFAULT_PORT = 8427
 
@@ -60,6 +72,8 @@ class HostConfig:
     runtime_bin: str
     extensions: tuple[Path, ...]
     library_dir: Path | None = None
+    files_dir: Path | None = None
+    launcher: Path = Path(DEFAULT_LAUNCHER)
     host: str = "0.0.0.0"
     port: int = DEFAULT_PORT
 
@@ -82,6 +96,7 @@ def from_env(environ: Mapping[str, str] | None = None) -> HostConfig:
     library_dir = Path(library) if library else None
     session_dir = Path(env.get(ENV_SESSION_DIR, "/sessions"))
     work_dir = Path(env.get(ENV_WORK_DIR, "/run/runtime-relay"))
+    files = env.get(ENV_FILES_DIR, "").strip()
     return HostConfig(
         agent=agent,
         token=token,
@@ -91,6 +106,8 @@ def from_env(environ: Mapping[str, str] | None = None) -> HostConfig:
         runtime_bin=env.get(ENV_RUNTIME_BIN, "pi"),
         extensions=_extensions(env),
         library_dir=library_dir.resolve() if library_dir else None,
+        files_dir=Path(files).resolve() if files else None,
+        launcher=Path(env.get(ENV_LAUNCHER, "").strip() or DEFAULT_LAUNCHER),
         host=env.get(ENV_HOST, "0.0.0.0"),
         port=_port(env),
     )

@@ -134,7 +134,11 @@ def agents_dir_extensions(ext_root: Path, names: tuple[str, ...]) -> tuple[tuple
     return present, enabled
 
 
-def build_agent_hosts(settings: ImpiSettings, specs: Sequence[AgentSpec]) -> HostRouter:
+def build_agent_hosts(
+    settings: ImpiSettings,
+    specs: Sequence[AgentSpec],
+    files_dir_for: Callable[[str], Path] | None = None,
+) -> HostRouter:
     """Where each agent's runtime runs.
 
     The default is a child process of this one — what a deployment that has not
@@ -162,6 +166,7 @@ def build_agent_hosts(settings: ImpiSettings, specs: Sequence[AgentSpec]) -> Hos
                 url=url,
                 token=token,
                 library_root=library if library.is_dir() else None,
+                files_root=files_dir_for(spec.name) if files_dir_for else None,
                 connect_timeout=settings.agent_host_timeout,
             ),
         )
@@ -528,7 +533,7 @@ def build_app(settings: ImpiSettings) -> App:
         unconfined_by_default=frozenset(engine_names),
     )
     _log_confinement(process_scopes, specs)
-    hosts = build_agent_hosts(settings, specs)
+    hosts = build_agent_hosts(settings, specs, attachments.dir_for if attachments else None)
     # The user's agents that actually run: an engine-owned one (support) is
     # part of the engine and reads its configuration anyway, and an agent with
     # no token starts no process.

@@ -104,6 +104,12 @@ def test_the_registry_lookup_needs_no_npm(monkeypatch) -> None:
     assert asked == ["https://registry.npmjs.org/@earendil-works/pi-ai/0.85.1"]
 
 
+def test_the_agent_image_carries_the_confinement_launcher() -> None:
+    text = (ROOT / "deploy" / "Dockerfile.agent").read_text(encoding="utf-8")
+    assert "confinement/launcher.py /app/confinement/launcher.py" in text
+    assert "RUNTIME_RELAY_LAUNCHER=/app/confinement/launcher.py" in text
+
+
 def test_fd_comes_from_its_release_checked_not_from_debian() -> None:
     """Debian bookworm's fd 8.6 lacks a flag pi 0.85 passes, which broke pi's
     `find`; the images install a pinned release and verify its checksum."""

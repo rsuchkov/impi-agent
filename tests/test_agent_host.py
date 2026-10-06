@@ -9,6 +9,7 @@ side. If one of these fails, an agent would behave differently for having moved
 
 import asyncio
 import json
+import os
 import socket
 import stat
 from pathlib import Path
@@ -520,15 +521,17 @@ async def test_a_scoped_request_starts_the_runtime_through_the_launcher(tmp_path
     await LocalHost().open(_scoped(profile, library, tmp_path))
     program, args, env = started[0]
     assert str(LAUNCHER_PATH) in args and args[args.index("--") + 1] == "pi"
-    assert "PI_CODING_AGENT_DIR" in env
+    assert "PI_CODING_AGENT_DIR" in env and env["TMPDIR"] == str(tmp_path / "t")
 
 
 async def test_without_landlock_a_scoped_request_starts_the_runtime_as_it_is(tmp_path: Path, monkeypatch, caplog) -> None:
     profile, library = _dirs(tmp_path)
     started: list[str] = []
+    envs: list[dict] = []
 
     async def spawn(program, args, *, cwd, env):
         started.append(program)
+        envs.append(env)
 
     monkeypatch.setattr("crucible.runtimes.pi.hosts.local.SubprocessTransport.spawn", spawn)
     monkeypatch.setattr("crucible.runtimes.pi.hosts.local.landlock_abi", lambda: 0)
@@ -536,3 +539,161 @@ async def test_without_landlock_a_scoped_request_starts_the_runtime_as_it_is(tmp
         await LocalHost().open(_scoped(profile, library, tmp_path))
     assert started == ["pi"]
     assert "no Landlock" in caplog.text
+    # Its own HOME still, and still the account it logs in with.
+    assert envs[0]["HOME"] == str(tmp_path / "h") and "PI_CODING_AGENT_DIR" in envs[0]
+
+
+# --- confinement across the wire -----------------------------------------------
+
+
+def _confined_request(profile: Path, library: Path, files: Path, **over: object) -> SpawnRequest:
+    from crucible.confinement import ProcessScope
+
+    own = files / "dm1"
+    scope = ProcessScope(
+        writable=(Path("/engine/scratch/tmp"), own, Path("/srv/declared")),
+        env={"TMPDIR": "/engine/scratch/tmp", "AGENT_FILES_DIR": str(own)},
+    )
+    return _request(profile, library, scope=scope, **over)
+
+
+def test_the_scope_crosses_the_wire_as_names_the_host_resolves(tmp_path: Path) -> None:
+    profile, library = _dirs(tmp_path)
+    files = tmp_path / "files" / "assistant"
+    host = RemoteHost(url="http://x", token="t", library_root=library, files_root=files)
+
+    payload = host._spawn_payload(_confined_request(profile, library, files))
+    # This side's scratch and declared paths mean nothing over there: left out.
+    assert payload[engine_wire.KEY_CONFINEMENT] == {
+        engine_wire.KEY_WRITABLE: [{"root": "files", "path": "dm1", "variable": "AGENT_FILES_DIR"}]
+    }
+    assert "TMPDIR" not in payload[engine_wire.KEY_ENV]  # type: ignore[operator]
+    # An unconfined spawn says nothing about confinement at all.
+    assert engine_wire.KEY_CONFINEMENT not in host._spawn_payload(_request(profile, library))
+
+    host_files = tmp_path / "host-files"
+    config = _host_config(tmp_path, profile, library, files_dir=host_files.resolve())
+    confinement = host_parse(payload, config).confinement
+    assert confinement is not None
+    assert confinement.writable == (host_files.resolve() / "dm1",)
+    assert confinement.variables == {"AGENT_FILES_DIR": host_files.resolve() / "dm1"}
+
+
+@pytest.mark.parametrize(
+    ("ref", "reason"),
+    [
+        ({"root": "files", "path": "../other-agent"}, "outside the files directory"),
+        ({"root": "profile", "path": "."}, "only its files"),
+        ({"root": "files", "path": "dm1", "variable": "NOT A NAME"}, "not an environment variable name"),
+        ({"root": "files"}, "must carry a path"),
+    ],
+)
+def test_a_confinement_the_host_cannot_honour_is_refused(tmp_path: Path, ref: dict, reason: str) -> None:
+    profile, library = _dirs(tmp_path)
+    config = _host_config(tmp_path, profile, library, files_dir=(tmp_path / "files").resolve())
+    payload = RemoteHost(url="http://x", token="t")._spawn_payload(_request(profile, library, skills=()))
+    payload[engine_wire.KEY_CONFINEMENT] = {engine_wire.KEY_WRITABLE: [ref]}
+    with pytest.raises(SpawnRejected, match=reason):
+        host_parse(payload, config)
+    without_files = _host_config(tmp_path, profile, library)
+    payload[engine_wire.KEY_CONFINEMENT] = {engine_wire.KEY_WRITABLE: [{"root": "files", "path": "dm1"}]}
+    with pytest.raises(SpawnRejected, match="no files directory"):
+        host_parse(payload, without_files)
+
+
+def test_the_host_keeps_memory_in_a_directory_per_conversation(tmp_path: Path) -> None:
+    from runtime_relay.spawn import migrate_session_layout
+
+    root = tmp_path / "sessions"
+    root.mkdir()
+    for name in ("2026-10-03T10-00-00-000Z_assistant--c1.jsonl", "2026-10-04T10-00-00-000Z_assistant--c1.jsonl",
+                 "2026-10-03T10-00-00-000Z_assistant--c2.jsonl", "notes"):
+        (root / name).write_text("{}\n")
+    assert migrate_session_layout(root) == 2
+    assert len(list((root / "assistant--c1").iterdir())) == 2
+    assert stat.S_IMODE((root / "assistant--c2").stat().st_mode) == 0o700
+    assert (root / "notes").is_file()
+    assert migrate_session_layout(root) == 0
+
+
+REPORTER = """#!/bin/sh
+printf '{"tmp": "%s", "home": "%s", "files": "%s", "token": "%s", "args": "%s"}\\n' \
+    "$TMPDIR" "$HOME" "$AGENT_FILES_DIR" "$RUNTIME_RELAY_TOKEN" "$*"
+for probe in "ls @PEER@" "cat /proc/@RELAY@/environ" "touch $AGENT_FILES_DIR/ok" "touch @FILES@/elsewhere"; do
+    if sh -c "$probe" >/dev/null 2>&1; then r=allowed; else r=denied; fi
+    printf '{"probe": "%s", "result": "%s"}\\n' "$probe" "$r"
+done
+exec sleep 30
+"""
+
+
+def _reporter(tmp_path: Path, peer: Path, files: Path) -> Path:
+    # Its own directory: the host lets a process read where its program is
+    # installed, and that must not be the whole test tree.
+    script = tmp_path / "opt" / "reporter" / "reporter.sh"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    text = REPORTER.replace("@PEER@", str(peer)).replace("@RELAY@", str(os.getpid())).replace("@FILES@", str(files))
+    script.write_text(text, encoding="utf-8")
+    script.chmod(0o755)
+    return script
+
+
+async def test_the_host_starts_a_confined_process_in_its_conversations_paths(tmp_path: Path, monkeypatch) -> None:
+    from crucible.confinement import LAUNCHER_PATH, landlock_abi
+
+    monkeypatch.setenv("RUNTIME_RELAY_TOKEN", "host-secret")
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pihome"))
+    profile, library = _dirs(tmp_path)
+    sessions, files = tmp_path / "sessions", (tmp_path / "files").resolve()
+    peer = sessions / "assistant--peer"
+    peer.mkdir(parents=True)
+    (peer / "2026-01-01_assistant--peer.jsonl").write_text("{}")
+    rig = await _serve(tmp_path, runtime_bin=str(_reporter(tmp_path, peer, files)),
+                       files_dir=files, launcher=LAUNCHER_PATH)
+    host = RemoteHost(url=rig.url, token="shared", library_root=library, files_root=files)
+    try:
+        transport = await host.open(_confined_request(profile, library, files, skills=()))
+        lines = transport.lines()
+        started = json.loads(await anext(lines))
+        # Memory of another conversation, the host's environment, its own
+        # files, the agent's files outside its conversation.
+        results = [json.loads(await anext(lines))["result"] for _ in range(4)]
+    finally:
+        await host.aclose()
+        await rig.stop()
+    assert started["token"] == ""  # the host's own variables stay its own
+    assert started["files"] == str(files / "dm1")
+    assert started["tmp"].startswith(str(tmp_path / "work")) and started["home"].endswith("home")
+    own_memory = sessions.resolve() / safe_session_id("assistant--chan/1")
+    assert f"--session-dir {own_memory}" in started["args"] and own_memory.is_dir()
+    if not landlock_abi():
+        pytest.skip("this kernel has no Landlock: the process ran unconfined")
+    assert results == ["denied", "denied", "allowed", "denied"]
+
+
+async def test_a_host_without_its_launcher_refuses_a_confined_spawn(tmp_path: Path) -> None:
+    profile, library = _dirs(tmp_path)
+    files = (tmp_path / "files").resolve()
+    rig = await _serve(tmp_path, files_dir=files, launcher=tmp_path / "missing.py")
+    host = RemoteHost(url=rig.url, token="shared", library_root=library, files_root=files)
+    try:
+        with pytest.raises(PiHostError, match="launcher .* is missing"):
+            await host.open(_confined_request(profile, library, files, skills=()))
+    finally:
+        await host.aclose()
+        await rig.stop()
+
+
+async def test_the_hosts_own_variables_stay_out_of_an_unconfined_process(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RUNTIME_RELAY_TOKEN", "host-secret")
+    profile, library = _dirs(tmp_path)
+    rig = await _serve(tmp_path, runtime_bin=str(_reporter(tmp_path, tmp_path, tmp_path)))
+    host = RemoteHost(url=rig.url, token="shared", library_root=library)
+    try:
+        transport = await host.open(_request(profile, library, skills=(), session_id=None))
+        started = json.loads(await anext(transport.lines()))
+    finally:
+        await host.aclose()
+        await rig.stop()
+    assert started["token"] == ""
+    assert "--no-session" in started["args"] and "--session-dir" not in started["args"]

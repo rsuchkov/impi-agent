@@ -106,6 +106,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # into every runtime this host starts. It ships with the driver rather than with
 # the agent, which is why it is copied out of the library rather than installed.
 COPY packages/crucible/src/crucible/runtimes/pi/extension/ /app/extension/
+# The launcher that confines each runtime process with Landlock before it
+# starts. One file, standard library only — the engine's own, copied for the
+# same reason as the bridge: this image carries no engine library.
+COPY packages/crucible/src/crucible/confinement/launcher.py /app/confinement/launcher.py
 
 # Container-fixed paths; the content arrives on volumes. The mounts that are
 # shared with the engine are at the SAME paths there — a filename means the same
@@ -116,6 +120,7 @@ ENV PATH=/app/.venv/bin:$PATH \
     RUNTIME_RELAY_LIBRARY_DIR=/app/skills \
     RUNTIME_RELAY_SESSION_DIR=/app/sessions \
     RUNTIME_RELAY_EXTENSIONS=/app/extension/index.ts \
+    RUNTIME_RELAY_LAUNCHER=/app/confinement/launcher.py \
     RUNTIME_RELAY_WORK_DIR=/tmp/runtime-relay
 RUN mkdir -p /app/agents /app/skills /app/sessions /app/files /home/impi/.pi \
  && chown -R "${IMPI_UID}:${IMPI_GID}" /app /home/impi

@@ -44,10 +44,14 @@ class LocalHost:
         args = command_args(request, session_dir=session_dir)
         cwd = str(request.cwd or request.profile_dir)
         env = _environment(request)
+        if request.scope is not None:
+            # The scope's variables name paths on this filesystem: its own
+            # TMPDIR and HOME, its files directory. HOME is the process's own
+            # now; pi still has to find its account.
+            env.update(request.scope.env)
+            env["PI_CODING_AGENT_DIR"] = str(auth_file_path().parent)
         if request.scope is not None and self._can_confine():
             scope = runtime_scope(request, session_dir, program=self._program)
-            # HOME is the process's own now; pi still has to find its account.
-            env["PI_CODING_AGENT_DIR"] = str(auth_file_path().parent)
             command = confined_command(scope, [self._program, *args])
             return await SubprocessTransport.spawn(command[0], command[1:], cwd=cwd, env=env)
         return await SubprocessTransport.spawn(self._program, args, cwd=cwd, env=env)

@@ -478,8 +478,6 @@ class PiRuntime:
         if self._proofs is not None:
             env[SESSION_PROOF_ENV] = self._proofs.issue(proof_id)
         scope = await self._scopes.scope_for(profile.name, safe_id) if self._scopes else None
-        if scope is not None:
-            env.update(scope.env)
         request = SpawnRequest(
             agent=profile.name,
             profile_dir=profile.config_dir,

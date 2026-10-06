@@ -220,8 +220,23 @@ when a release is cut, and `impi update` shows the target version's section.
   sees them from another conversation — set the agent to `agent`.
   Conversation memory moves from `pi-sessions/<agent>/` into a directory per
   conversation, `pi-sessions/<agent>/<session-id>/`; the engine moves what is
-  there on its first start and logs how many it moved. Agents in containers
-  of their own keep the old layout until their containers are confined too.
+  there on its first start and logs how many it moved.
+- **Agents in containers of their own are confined inside them too.** The
+  agent's host (`runtime-relay`) starts each runtime under the same rules,
+  built from its own mounts: the engine names the part of the agent's files
+  directory a process may write and the variable pointing at it, never a path.
+  Each process gets its own scratch `TMPDIR` and `HOME`, gone when it ends. The
+  agent image carries the engine's launcher (`/app/confinement/launcher.py`).
+  Memory in the agent's volume moves into a directory per conversation when
+  its host starts. **Breaks:** the host protocol is version 2 — the engine
+  and the agents' images have to be updated together (`impi update` rebuilds
+  both). A profile's `runtime.confinement_read` / `confinement_write` paths
+  do not apply in a container of its own.
+- **The host's token no longer reaches the agent's process.** The agent's
+  host handed its whole environment to the runtime it started,
+  `RUNTIME_RELAY_TOKEN` included — enough for the agent's shell to ask its
+  own host for a process with any tool allowlist. None of the host's own
+  `RUNTIME_RELAY_*` variables is passed on now.
 - **`pi` 0.85.1.** The runtime moves from 0.80.3 to the version the
   third-party assessment was made against; every fact in
   `docs/runtime-notes.md` was re-verified live (tools, skills, the gate, a

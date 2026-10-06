@@ -597,3 +597,25 @@ async def test_a_conversations_process_writes_its_own_attachments_directory(
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
         app.sessions.close_sync()
+
+
+def test_an_agent_in_a_container_of_its_own_is_told_where_its_files_are(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its host resolves the conversation's files directory by name, against
+    this agent's files directory — so the engine has to know which one that is."""
+    from crucible.runtimes.pi.hosts.remote import RemoteHost
+
+    monkeypatch.setenv("AGENTS_HOST_TOKEN__ASSISTANT", "host-token")
+    settings = _settings(tmp_path).model_copy(
+        update={"attachments_enabled": True, "agent_hosts_enabled": True}
+    )
+    app = build_app(settings)
+    try:
+        assert isinstance(app.runtime, PiRuntime)
+        host = app.runtime._hosts.for_agent("assistant")
+        assert isinstance(host, RemoteHost)
+        assert host._files_root == (settings.resolved_attachments_dir / "assistant").resolve()
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()

@@ -313,6 +313,7 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         f"      RUNTIME_RELAY_PROFILE_DIR: {AGENTS_MOUNT}/agents/{name}",
         f"      RUNTIME_RELAY_LIBRARY_DIR: {SKILLS_MOUNT}",
         f"      RUNTIME_RELAY_SESSION_DIR: {SESSIONS_MOUNT}",
+        f"      RUNTIME_RELAY_FILES_DIR: {FILES_MOUNT}/{name}",
         f"      RUNTIME_RELAY_EXTENSIONS: {EXTENSION_PATH_IN_IMAGE}",
         f'      RUNTIME_RELAY_PORT: "{HOST_PORT}"',
         "      RUNTIME_RELAY_WORK_DIR: /tmp/runtime-relay",

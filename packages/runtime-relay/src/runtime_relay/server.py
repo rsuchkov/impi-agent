@@ -9,18 +9,28 @@ first, the process is stopped, because nobody is listening to it any more.
 import asyncio
 import collections
 import hmac
+import importlib.util
 import json
 import logging
 import os
 import shutil
+import sys
 import uuid
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
 from runtime_relay import wire
-from runtime_relay.config import HostConfig
-from runtime_relay.spawn import Spawn, SpawnRejected, command_args, parse
+from runtime_relay.config import RELAY_VARIABLE_PREFIX, HostConfig
+from runtime_relay.spawn import (
+    Confinement,
+    Spawn,
+    SpawnRejected,
+    command_args,
+    conversation_memory_dir,
+    migrate_session_layout,
+    parse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +43,13 @@ STDERR_TAIL_CHARS = 1500
 STREAM_LIMIT = wire.MAX_FRAME_BYTES
 # How long a stopped process is given to go quietly before it is killed.
 TERMINATE_GRACE_S = 5.0
+# What a confined process reads wherever its agent's files are: the system,
+# the device nodes, the process table (another process's private entries stay
+# out of reach — the kernel refuses them outside the domain). The engine's
+# local host grants the same (crucible.runtimes.pi.hosts.local).
+SYSTEM_READABLE = ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc", "/opt", "/proc", "/dev")
+# Device nodes a shell writes to: discarding output, a terminal, randomness.
+DEVICE_WRITABLE = ("/dev/null", "/dev/zero", "/dev/full", "/dev/tty", "/dev/ptmx")
 
 
 class RelayServer:
@@ -48,6 +65,13 @@ class RelayServer:
         return app
 
     async def run(self) -> None:
+        if self._config.session_dir:
+            # Memory kept before each conversation had a directory of its own
+            # moves into one, before any process looks for it there.
+            moved = migrate_session_layout(self._config.session_dir)
+            if moved:
+                logger.info("moved %d conversation memories into a directory each", moved)
+        _log_confinement(self._config.launcher)
         runner = web.AppRunner(self.app())
         await runner.setup()
         site = web.TCPSite(runner, self._config.host, self._config.port)
@@ -171,13 +195,19 @@ class RelayServer:
                 "not starting — replace it with `impi login`"
             )
         session_dir: Path | None = None
-        if self._config.session_dir:
-            session_dir = self._config.session_dir.resolve()
+        # A memoryless run keeps nothing, so it is given nowhere to keep it.
+        if self._config.session_dir and spawn.session_id:
+            root = self._config.session_dir.resolve()
             # Conversation memory: the owner's alone.
-            session_dir.mkdir(parents=True, exist_ok=True)
-            session_dir.chmod(0o700)
+            root.mkdir(parents=True, exist_ok=True)
+            root.chmod(0o700)
+            session_dir = conversation_memory_dir(root, spawn.session_id)
+            session_dir.mkdir(mode=0o700, exist_ok=True)
         args = command_args(spawn, config=self._config, session_dir=session_dir)
         env = self._environment(spawn, scratch)
+        command = [self._config.runtime_bin, *args]
+        if spawn.confinement is not None:
+            command = self._confined_command(command, spawn.confinement, env, scratch, session_dir)
         logger.info(
             "Starting the runtime for %s (session %s, %d tool(s), %d skill(s))",
             self._config.agent, spawn.session_id or "-",
@@ -187,10 +217,9 @@ class RelayServer:
         # the engine named things and this side turned them into paths, so
         # "which paths" is the first thing to ask when an agent behaves as if it
         # were missing something. Debug, because it is one long line per turn.
-        logger.debug("Runtime command: %s %s", self._config.runtime_bin, " ".join(args))
+        logger.debug("Runtime command: %s", " ".join(command))
         return await asyncio.create_subprocess_exec(
-            self._config.runtime_bin,
-            *args,
+            *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -200,15 +229,16 @@ class RelayServer:
         )
 
     def _environment(self, spawn: Spawn, scratch: Path) -> dict[str, str]:
-        """This container's environment plus what the engine granted. The files
-        it shipped are written here and the variables point at this side's copy —
-        the path the engine wrote them to does not exist over here."""
-        env = {**os.environ, **spawn.env}
+        """This container's environment, less this host's own variables, plus
+        what the engine granted. The files it shipped are written here and the
+        variables point at this side's copy — the path the engine wrote them to
+        does not exist over here."""
+        own = {name: value for name, value in os.environ.items() if not name.startswith(RELAY_VARIABLE_PREFIX)}
+        env = {**own, **spawn.env}
         if spawn.env_files:
             # What the engine shipped for this process alone — the manifest of
             # its tools — in a directory and files only this user can read.
-            scratch.mkdir(parents=True, exist_ok=True)
-            scratch.chmod(0o700)
+            _private_dir(scratch)
             for name, content in spawn.env_files.items():
                 path = scratch / name.lower()
                 descriptor = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
@@ -216,6 +246,54 @@ class RelayServer:
                     handle.write(content)
                 env[name] = str(path)
         return env
+
+    def _confined_command(
+        self,
+        command: list[str],
+        confinement: Confinement,
+        env: dict[str, str],
+        scratch: Path,
+        session_dir: Path | None,
+    ) -> list[str]:
+        """``command`` behind the launcher that confines it, and ``env`` pointed
+        at what it was given. It reads the system, its program, its profile,
+        the skill library, its extensions and the files the engine shipped; it
+        writes its own memory, its own scratch ``TMPDIR`` and ``HOME`` and the
+        parts of the files directory the engine named; the credential file is
+        rewritable in place and nothing else can be created beside it."""
+        launcher = self._config.launcher
+        if not launcher.is_file():
+            raise OSError(f"the confinement launcher {launcher} is missing — the image is out of date")
+        tmp, home = _private_dir(_private_dir(scratch) / "tmp"), _private_dir(scratch / "home")
+        agent_dir = _auth_file_path().parent
+        for directory in confinement.writable:
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        env.update({"TMPDIR": str(tmp), "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent_dir)})
+        env.update({name: str(path) for name, path in confinement.variables.items()})
+        readable = [Path(p) for p in SYSTEM_READABLE]
+        readable += _install_roots(self._config.runtime_bin)
+        readable += [Path(sys.prefix), self._config.profile_dir, scratch, agent_dir]
+        readable += [extension.parent for extension in self._config.extensions]
+        if self._config.library_dir is not None:
+            readable.append(self._config.library_dir)
+        # A file the process is pointed at in its environment is a file it was
+        # meant to read — an identity certificate, a manifest.
+        readable += [Path(v) for v in env.values() if v.startswith("/") and Path(v).is_file()]
+        writable = [tmp, home, *confinement.writable]
+        if session_dir is not None:
+            writable.append(session_dir)
+        writable_files = [Path(p) for p in DEVICE_WRITABLE]
+        writable_files += [agent_dir / "auth.json", agent_dir / "models-store.json"]
+        rules: list[str] = []
+        for option, paths in (
+            ("--readable", readable),
+            ("--writable", writable),
+            ("--writable-file", writable_files),
+            ("--mkdir-only", [agent_dir]),
+        ):
+            for path in paths:
+                rules += [option, str(path)]
+        return [sys.executable, "-I", "-S", str(launcher), *rules, "--", *command]
 
     # -- pumps --------------------------------------------------------------
 
@@ -305,6 +383,45 @@ class RelayServer:
                 await process.wait()
         except ProcessLookupError:
             pass
+
+
+def _private_dir(path: Path) -> Path:
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.chmod(0o700)
+    return path
+
+
+def _install_roots(program: str) -> list[Path]:
+    """Where the runtime and node live when that is outside the system paths:
+    the package tree the program resolves into, and node's prefix."""
+    roots: list[Path] = []
+    for name in (program, "node"):
+        found = shutil.which(name)
+        if not found:
+            continue
+        real = Path(found).resolve()
+        package_root = next((p.parent for p in real.parents if p.name == "node_modules"), real.parent)
+        roots += [package_root, real.parent.parent]
+    return roots
+
+
+def _log_confinement(launcher: Path) -> None:
+    """One line at startup: whether the processes this host starts can be
+    confined. The launcher answers, so the check is the one that will run."""
+    if not launcher.is_file():
+        logger.warning("confinement: no launcher at %s — a confined spawn will be refused", launcher)
+        return
+    spec = importlib.util.spec_from_file_location("confinement_launcher", launcher)
+    if spec is None or spec.loader is None:
+        logger.warning("confinement: %s cannot be loaded", launcher)
+        return
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    abi = int(module.landlock_abi())
+    if abi:
+        logger.info("confinement: Landlock ABI %d", abi)
+    else:
+        logger.warning("confinement: this kernel has no Landlock — processes run unconfined")
 
 
 def _auth_file_path() -> Path:

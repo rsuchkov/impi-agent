@@ -79,15 +79,30 @@ Then, one volume each and nobody else's:
 |---|---|---|
 | `/app/agents/agents/<name>` | its profile | the engine, read-only |
 | `/app/skills` | the shared skill library | every agent, read-only |
-| `/app/sessions` | its conversation memory | nobody |
+| `/app/sessions` | its conversation memory, a directory per conversation | nobody |
 | `/app/files/<name>` | its own files, in and out | the engine |
 | `/home/impi/.pi/agent/auth.json` | the model credential, one file | every agent — see below |
 | `/app/agents/_extensions` | the extensions `RUNTIME_EXTENSIONS` names, read-only; absent when it names none | every agent |
 
-`AGENT_FILES_DIR` names the fourth one in the agent's environment. It is where
+`AGENT_FILES_DIR` names the fourth one in the agent's environment — at the
+default confinement level, the conversation's own directory inside it. It is where
 an attachment arrives and where anything the agent means to send should be
 written; `/tmp` stops being a place the engine can read, and `send_file` refuses
 a path it cannot reach.
+
+**Inside the container, each process is confined too.** The container keeps
+one agent's things from another's; [confinement](configuration.md) keeps one
+conversation's from another's inside it. The host starts each runtime under the
+same Landlock rules the engine applies to a runtime it runs itself: the process
+reads the system, its program, the profile, the skill library and its
+extensions; it writes its own conversation's memory, the part of the files
+directory the engine names, and a scratch `TMPDIR` and `HOME` of its own that
+go when it ends; it cannot read another process's environment. The level is
+the engine's to say (`RUNTIME_CONFINEMENT`, `runtime.confinement`) — at `agent`
+the whole files directory is writable; at `off` the process runs as it did.
+Paths a profile declares with `runtime.confinement_read` / `confinement_write`
+are paths on the engine's filesystem and do not apply here; give such an agent
+the level it needs.
 
 **The model credential is still shared; pi's home is not.** A subscription
 login is one file every agent's container is handed (`~/.impi/pi/agent/auth.json`
@@ -161,9 +176,16 @@ as a mounted root plus a path — and the host resolves them against its own
 mounts. Absolute paths are never sent: the two sides do not share a filesystem,
 and a path that happened to exist on both would be the worst outcome available.
 
+Confinement travels the same way: the engine names the part of the agent's
+files directory a process may write (`files` root, the conversation's
+directory beneath it) and the variable that points the process at it; the host
+adds the rest from its own mounts.
+
 The connection carries a per-agent token. The private network is not enough on
 its own: the agent's own shell is on that network too, and without a token it
-could ask its host for a runtime with an allowlist nobody granted it.
+could ask its host for a runtime with an allowlist nobody granted it — or one
+with no confinement. So none of the host's own variables (`RUNTIME_RELAY_*`, the
+token among them) reaches the process it starts.
 
 On rootless podman each agent's container is given the same user mapping the
 engine has, so a volume they share has one owner rather than two. Without it the
@@ -202,7 +224,7 @@ environment (`PATH`, `HOME`, locale, proxies, certificate bundles, `PI_*`) plus
 the names the deployment and the profile grant (`RUNTIME_ENV__*`,
 `runtime.env` — see [creating-agents.md](creating-agents.md)); the engine's
 tokens never reach it. A runtime started in the agent's own container inherits
-**that container's** environment instead. In both cases the engine then grants
+**that container's** environment instead, less the host's own `RUNTIME_RELAY_*`. In both cases the engine then grants
 what is this spawn's: the model settings, its own `AGENT_NAME`, `TOOL_URL`,
 `TOOL_TOKEN` and `AGENT_FILES_DIR`, and the session id with its proof. Files a
 variable points at — the tool manifest — travel as content and are rewritten to

@@ -28,6 +28,16 @@ class SpawnRejected(Exception):
 
 
 @dataclass(frozen=True)
+class Confinement:
+    """Start the process confined. What it may write beyond its own memory and
+    scratch space — directories under this host's files directory — and the
+    variables that point it at them."""
+
+    writable: tuple[Path, ...] = ()
+    variables: Mapping[str, Path] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Spawn:
     """One accepted request, with everything resolved to this host's paths."""
 
@@ -41,6 +51,7 @@ class Spawn:
     # Variable name -> file content the engine shipped. Written to a scratch
     # directory when the process starts, and the variable points there.
     env_files: Mapping[str, str] = field(default_factory=dict)
+    confinement: Confinement | None = None
 
 
 def parse(payload: object, config: HostConfig) -> Spawn:
@@ -68,7 +79,35 @@ def parse(payload: object, config: HostConfig) -> Spawn:
         append_system_prompt=str(payload.get(wire.KEY_SYSTEM_SUFFIX) or ""),
         env=_env(payload.get(wire.KEY_ENV), wire.KEY_ENV),
         env_files=_env(payload.get(wire.KEY_ENV_FILES), wire.KEY_ENV_FILES),
+        confinement=_confinement(payload.get(wire.KEY_CONFINEMENT), config),
     )
+
+
+def conversation_memory_dir(session_root: Path, session_id: str) -> Path:
+    """Where the runtime keeps one conversation's memory: a directory of its
+    own, so a confined process writes its own and reaches no other. The same
+    layout the engine keeps (``crucible.runtimes.pi.spawn``), one level down:
+    this host's session directory is its agent's already."""
+    return session_root / session_id
+
+
+def migrate_session_layout(session_root: Path) -> int:
+    """Move memory kept the earlier way — every conversation's files side by
+    side, ``<timestamp>_<session_id>.*`` — into each conversation's own
+    directory. Idempotent. Returns how many conversations moved."""
+    if not session_root.is_dir():
+        return 0
+    moved: set[str] = set()
+    for path in session_root.iterdir():
+        stamp, sep, rest = path.name.partition("_")
+        session_id = rest.rsplit(".", 1)[0]
+        if not path.is_file() or not (sep and stamp and SESSION_ID_RE.fullmatch(session_id)):
+            continue
+        target = conversation_memory_dir(session_root, session_id)
+        target.mkdir(mode=0o700, exist_ok=True)
+        path.rename(target / path.name)
+        moved.add(session_id)
+    return len(moved)
 
 
 def command_args(spawn: Spawn, *, config: HostConfig, session_dir: Path | None) -> list[str]:
@@ -144,6 +183,37 @@ def _env(raw: object, field_name: str) -> dict[str, str]:
             raise SpawnRejected(f"{field_name}[{name}] must be a string")
         result[name] = value
     return result
+
+
+def _confinement(raw: object, config: HostConfig) -> Confinement | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise SpawnRejected(f"{wire.KEY_CONFINEMENT} must be an object")
+    writable: list[Path] = []
+    variables: dict[str, Path] = {}
+    for ref in _sequence(raw.get(wire.KEY_WRITABLE)):
+        if not isinstance(ref, dict):
+            raise SpawnRejected("a writable reference must be an object")
+        if ref.get(wire.KEY_ROOT) != wire.ROOT_FILES:
+            raise SpawnRejected(f"a process may be given only its files to write, not {ref.get(wire.KEY_ROOT)!r}")
+        if config.files_dir is None:
+            raise SpawnRejected(
+                "this host has no files directory mounted, so a process cannot be given one"
+            )
+        relative = ref.get(wire.KEY_PATH)
+        if not isinstance(relative, str):
+            raise SpawnRejected("a writable reference must carry a path")
+        resolved = (config.files_dir / relative).resolve()
+        if not resolved.is_relative_to(config.files_dir):
+            raise SpawnRejected(f"{relative!r} resolves outside the files directory")
+        writable.append(resolved)
+        variable = ref.get(wire.KEY_VARIABLE)
+        if variable is not None:
+            if not isinstance(variable, str) or not ENV_NAME_RE.fullmatch(variable):
+                raise SpawnRejected(f"{variable!r} is not an environment variable name")
+            variables[variable] = resolved
+    return Confinement(writable=tuple(writable), variables=variables)
 
 
 def _skill(ref: object, config: HostConfig) -> str:

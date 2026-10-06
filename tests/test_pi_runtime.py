@@ -790,7 +790,7 @@ async def test_a_memoryless_runs_proof_dies_with_its_process() -> None:
     assert proofs.revoked == ["assistant--oneshot-abc123"]
 
 
-async def test_the_applications_scope_reaches_the_spawn_and_its_env_the_process(monkeypatch) -> None:
+async def test_the_applications_scope_reaches_the_spawn_whole(monkeypatch) -> None:
     from crucible.confinement import ProcessScope
 
     captured: dict = {}
@@ -810,4 +810,6 @@ async def test_the_applications_scope_reaches_the_spawn_and_its_env_the_process(
     await rt._spawn_session(_profile(), "assistant--c1")
     assert captured["asked"] == ("assistant", "assistant--c1")
     assert captured["request"].scope.writable == (Path("/x"),)
-    assert captured["request"].env["TMPDIR"] == "/x/t"
+    # Its variables name paths on one host's filesystem: the host applies them.
+    assert captured["request"].scope.env == {"TMPDIR": "/x/t"}
+    assert "TMPDIR" not in captured["request"].env
