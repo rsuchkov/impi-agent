@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.20.0 — 2026-10-07
+
 - **The boundaries, written down in one place.** `docs/security.md` says what
   the engine protects and what it does not: the four lines it draws (model ↔
   engine, agent process ↔ engine, agent ↔ agent, deployment ↔ outside), what
