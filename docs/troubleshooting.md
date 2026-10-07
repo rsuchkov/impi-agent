@@ -41,7 +41,7 @@ The `pi` subprocess died mid-turn. The error now carries the **exit code and
 the last stderr lines** — read them, they name the actual cause. Typical ones:
 
 - a custom endpoint that is down or misconfigured (`Invalid URL` — check
-  `~/.pi/agent/models.json`; note `baseUrl` does NOT interpolate `$VARS`, see
+  `models.json` in pi's home, `~/.impi/pi/agent/` on the host of a deployment; note `baseUrl` does NOT interpolate `$VARS`, see
   [runtime-notes.md](runtime-notes.md));
 - a provider/model that doesn't exist for the backend (`pi --list-models` with
   the same env shows what pi actually sees);
@@ -76,7 +76,8 @@ headless bot a permission "ask" cannot be answered by a human, so it resolves
 to a denial. Check, in order:
 
 1. **Local pi config**: a third-party permissions module/extension in
-   `~/.pi/agent/settings.json` applies to every pi the engine spawns (not to
+   `settings.json` in pi's home (`~/.impi/pi/agent/` on the host of a
+   deployment) applies to every pi the engine spawns (not to
    agents in containers of their own: those see only the credential) — remove
    it for headless use, or add a per-agent allow policy (next item).
 2. **Per-agent policy**: ship `.pi/agent/pi-permissions.jsonc` inside the
@@ -108,7 +109,7 @@ Confirm `INTEGRATIONS_ENABLED=true`.
   receiver's secret path`** — the receiver lives under `INTEGRATIONS_SECRET`
   and the URL the platform holds does not have it: the command was registered
   before the secret existed or changed, or the card was posted before. Re-register
-  the command with the URL `impi health` prints; cards posted before the change
+  the command with the URL `impi doctor` prints; cards posted before the change
   stay dead. The broker's receiver has the same rule with `WARD_CALLBACK_SECRET`.
 
 **The modal never opens on Mattermost.** The log carries
@@ -136,6 +137,48 @@ locally instead of attempting a post.
   "tool … not advertised".
 - The whole typed-tool server is off if `TOOL_ENABLED=false`.
 - Skills need `read` + `bash` in `runtime.tools` to run.
+
+## "Permission denied" inside an agent
+
+The agent's process is confined (Landlock): it reads its profile, the skill
+library, the system and the files it is handed, and writes only its
+conversation's memory and files (`$AGENT_FILES_DIR`), its own `$TMPDIR` and
+its own `$HOME`. The startup log and `impi doctor` say each agent's level
+(`confinement: … assistant=conversation`). Narrowest fix first: have the skill
+write to `$AGENT_FILES_DIR` or `$TMPDIR`; declare the path in `agent.yaml`
+(`runtime.confinement_read` / `confinement_write`) and reload; set
+`runtime.confinement: agent` when its conversations must share files;
+`runtime.confinement: off` only for an agent trusted with everything the
+engine's user can reach. In a container of its own, declared paths do not
+apply — the level does.
+
+## "refusing to start the runtime: … holds a value it would run as a command"
+
+The model credential (`~/.impi/pi/agent/auth.json`) holds a key that begins
+with `!`, which `pi` would run as a command. No login writes one, so something
+else did — an unconfined agent, a hand edit. No runtime starts until it is
+gone: replace the file with a fresh `impi login`, then look for what wrote it.
+
+## A skill sees its variable unset
+
+A user's agent inherits a base set of the engine's environment (`PATH`,
+`HOME`, locale, proxies, certificates, `PI_*`) plus what is named: `runtime.env`
+in its `agent.yaml` (or `AGENTS_ENV__<AGENT>`) and `RUNTIME_ENV` for every
+agent. The value itself must be in the engine's process environment — a
+compose `environment:` entry or a `compose.d/` drop-in; a line in `conf/.env`
+does not reach an agent. See [configuration.md](configuration.md).
+
+## A tool call fails with `session required`
+
+The call named no session: every process the engine starts names one, so
+something else called the tool server by hand with an agent's token. Not a
+configuration problem — the log names the agent whose token it was.
+
+## `Read-only file system`
+
+The containers run with a read-only root; something wrote outside its
+volumes and memory. See [installation.md](installation.md#the-boxes-the-services-run-in)
+for the drop-in that gives a path a tmpfs.
 
 ## A conversation keeps failing after someone sent a picture
 

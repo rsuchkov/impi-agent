@@ -358,14 +358,14 @@ class PiRpcSession:
         # as an empty answer, so it is logged distinctly and not silently treated
         # like "no results".
         if not text:
-            error = _error_from_agent_end(event, aborted=turn.abort_requested)
+            error = _error_from_agent_end(event, abort_requested=turn.abort_requested)
             if error:
                 self._fail_turn(PiProcessError(f"pi LLM error: {error}"))
                 return
         result = PiResult(
             text=text,
             tool_calls=turn.tool_calls,
-            stop_reason=_stop_reason_from_agent_end(event, aborted=turn.abort_requested),
+            stop_reason=_stop_reason_from_agent_end(event, abort_requested=turn.abort_requested),
         )
         if not turn.future.done():
             turn.future.set_result(result)
@@ -519,7 +519,7 @@ def _was_aborted(message: dict[str, object], *, requested: bool) -> bool:
     return any(word in text for word in _ABORTED_ERROR_WORDS)
 
 
-def _error_from_agent_end(event: PiEvent, *, aborted: bool = False) -> str | None:
+def _error_from_agent_end(event: PiEvent, *, abort_requested: bool = False) -> str | None:
     """Return an LLM/infra error message from an agent_end payload, if any.
     An abort the engine asked for is not one, however the runtime words it."""
     messages = event.raw.get("messages")
@@ -528,14 +528,14 @@ def _error_from_agent_end(event: PiEvent, *, aborted: bool = False) -> str | Non
     for message in messages:
         if not isinstance(message, dict):
             continue
-        if message.get("stopReason") == "error" and not _was_aborted(message, requested=aborted):
+        if message.get("stopReason") == "error" and not _was_aborted(message, requested=abort_requested):
             return message.get("errorMessage") or "unknown error"
     return None
 
 
-def _stop_reason_from_agent_end(event: PiEvent, *, aborted: bool = False) -> str | None:
+def _stop_reason_from_agent_end(event: PiEvent, *, abort_requested: bool = False) -> str | None:
     reasons = [
-        "aborted" if _was_aborted(m, requested=aborted) else m.get("stopReason")
+        "aborted" if _was_aborted(m, requested=abort_requested) else m.get("stopReason")
         for m in _assistant_messages(event)
         if m.get("stopReason")
     ]

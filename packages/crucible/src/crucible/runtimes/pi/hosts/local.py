@@ -44,14 +44,14 @@ class LocalHost:
         args = command_args(request, session_dir=session_dir)
         cwd = str(request.cwd or request.profile_dir)
         env = _environment(request)
-        if request.scope is not None:
+        if request.process_scope is not None:
             # The scope's variables name paths on this filesystem: its own
             # TMPDIR and HOME, its files directory. HOME is the process's own
             # now; pi still has to find its account.
-            env.update(request.scope.env)
+            env.update(request.process_scope.env)
             env["PI_CODING_AGENT_DIR"] = str(auth_file_path().parent)
-        if request.scope is not None and self._can_confine():
-            scope = runtime_scope(request, session_dir, program=self._program)
+        if request.process_scope is not None and self._can_confine():
+            scope = runtime_process_scope(request, session_dir, program=self._program)
             command = confined_command(scope, [self._program, *args])
             return await SubprocessTransport.spawn(command[0], command[1:], cwd=cwd, env=env)
         return await SubprocessTransport.spawn(self._program, args, cwd=cwd, env=env)
@@ -175,20 +175,23 @@ def _environment(request: SpawnRequest) -> dict[str, str]:
 # What every process of this runtime reads, wherever its agent's files are: the
 # system, the device nodes, the process table (another process's private
 # entries stay out of reach — the kernel refuses them outside the domain).
-_SYSTEM_READABLE = ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc", "/opt", "/proc", "/dev")
+SYSTEM_READABLE = ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc", "/opt", "/proc", "/dev")
 # Device nodes a shell writes to: discarding output, a terminal, randomness.
-_DEVICE_WRITABLE = ("/dev/null", "/dev/zero", "/dev/full", "/dev/tty", "/dev/ptmx")
+DEVICE_WRITABLE = ("/dev/null", "/dev/zero", "/dev/full", "/dev/tty", "/dev/ptmx")
 
 
-def runtime_scope(request: SpawnRequest, session_dir: Path | None, *, program: str) -> ProcessScope:
+def runtime_process_scope(request: SpawnRequest, session_dir: Path | None, *, program: str) -> ProcessScope:
     """The application's scope for this process, plus what the runtime itself
     needs: its program and node, the system, its memory for this session, the
     files it is handed (skills, extensions, the tool manifest) and its account
-    — the credential rewritable in place, a lock beside it, nothing else
-    creatable there."""
-    assert request.scope is not None
-    readable = [Path(p) for p in _SYSTEM_READABLE]
-    readable += _install_roots(program)
+    — read, with room for the lock it takes beside the credential and nothing
+    else creatable there. Not written: a process that could rewrite the
+    credential could plant a command every other process would run
+    (auth_file.py); the application keeps the login fresh instead
+    (auth_refresh.py)."""
+    assert request.process_scope is not None
+    readable = [Path(p) for p in SYSTEM_READABLE]
+    readable += install_roots(program)
     readable += [request.profile_dir, *(Path(s) for s in request.skills)]
     readable += [Path(e) for e in request.extensions]
     readable += list(request.env_files.values())
@@ -200,20 +203,15 @@ def runtime_scope(request: SpawnRequest, session_dir: Path | None, *, program: s
     readable.append(agent_dir)
     writable = [session_dir] if session_dir is not None else []
     return ProcessScope(
-        readable=(*request.scope.readable, *readable),
-        writable=(*request.scope.writable, *writable),
-        writable_files=(
-            *request.scope.writable_files,
-            *(Path(p) for p in _DEVICE_WRITABLE),
-            agent_dir / "auth.json",
-            agent_dir / "models-store.json",
-        ),
-        mkdir_only=(*request.scope.mkdir_only, agent_dir),
-        env=dict(request.scope.env),
+        readable=(*request.process_scope.readable, *readable),
+        writable=(*request.process_scope.writable, *writable),
+        writable_files=(*request.process_scope.writable_files, *(Path(p) for p in DEVICE_WRITABLE)),
+        mkdir_only=(*request.process_scope.mkdir_only, agent_dir),
+        env=dict(request.process_scope.env),
     )
 
 
-def _install_roots(program: str) -> list[Path]:
+def install_roots(program: str) -> list[Path]:
     """Where the runtime and node live when that is outside the system paths —
     a developer's own install under their home, say. The directory holding the
     package tree the program resolves into, and node's prefix."""

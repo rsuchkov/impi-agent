@@ -22,6 +22,7 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from crucible.gateways.mattermost.options import driver_options
+from impi.config import ImpiSettings
 
 AGENT_NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 
@@ -272,7 +273,7 @@ def set_env_key(dotenv_path: str | Path, key: str, value: str) -> None:
     set_key(path, key, value, quote_mode="always" if needs_quoting else "never")
 
 
-def ensure_receiver_secret(settings, *, needs_receiver: bool):
+def ensure_receiver_secret(settings: ImpiSettings, *, needs_receiver: bool) -> ImpiSettings:
     """The callback receiver's secret, minted into the engine's own ``.env`` the
     first time a deployment that needs the receiver starts without one.
 

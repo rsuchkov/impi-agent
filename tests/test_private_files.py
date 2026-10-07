@@ -1,20 +1,16 @@
 """What the engine keeps on disk is its owner's alone, whatever the umask."""
 
-import asyncio
 import os
 import stat
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from crucible.attachments import AttachmentStore
-from crucible.config import Settings
 from crucible.ports.chat.types import KIND_DM
 from crucible.private_files import private_dir, private_file, write_private
 from crucible.runtimes.pi.hosts.local import LocalHost
 from crucible.runtimes.pi.spawn import SpawnRequest
-from crucible.sessions_cli import purge_idle
 from crucible.store.sqlite import SqliteSessionStore
 from crucible.tools.registry import ToolRegistry
 
@@ -78,39 +74,6 @@ async def test_what_people_sent_is_the_owners_alone(tmp_path: Path) -> None:
     assert _mode(Path(saved.path).parent) == 0o700
 
 
-async def test_idle_conversations_are_forgotten_record_and_files(tmp_path: Path) -> None:
-    """The one place a conversation is forgotten by age: the command and an
-    engine that purges at startup both call it."""
-    settings = Settings(
-        _env_file=None,  # pyright: ignore[reportCallIssue]
-        data_dir=str(tmp_path / "data"),
-    )
-    store = SqliteSessionStore(tmp_path / "db.sqlite")
-    try:
-        old, _ = await store.get_or_create("assistant", "old", "old", KIND_DM)
-        fresh, _ = await store.get_or_create("assistant", "fresh", "fresh", KIND_DM)
-        long_ago = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat(timespec="seconds")
-        await asyncio.to_thread(
-            store._conn.execute,
-            "UPDATE sessions SET last_active = ? WHERE conversation_id = ?", (long_ago, "old"),
-        )
-        sessions = settings.resolved_pi_session_dir / "assistant"
-        old_file = sessions / old.runtime_session_id / f"2026-01-01T00-00-00-000Z_{old.runtime_session_id}.jsonl"
-        fresh_file = sessions / fresh.runtime_session_id / f"2026-01-01T00-00-00-000Z_{fresh.runtime_session_id}.jsonl"
-        for path in (old_file, fresh_file):
-            path.parent.mkdir(parents=True)
-        old_file.write_text("{}")
-        fresh_file.write_text("{}")
-
-        forgotten = await purge_idle(settings, store, days=30)
-        assert [r.conversation_id for r in forgotten] == ["old"]
-        assert not old_file.parent.exists() and fresh_file.exists()
-        assert [r.conversation_id for r in await store.list("assistant")] == ["fresh"]
-        assert await purge_idle(settings, store, days=30) == []
-    finally:
-        await store.close()
-
-
 def test_a_planted_link_is_not_written_through(tmp_path: Path) -> None:
     """A volume an agent can write may hold a link where the engine is about to
     put files; the engine refuses rather than act on whatever it points at."""
@@ -125,18 +88,3 @@ def test_a_planted_link_is_not_written_through(tmp_path: Path) -> None:
     with pytest.raises(OSError):
         private_file(tmp_path / "f")
     assert not (target / "victim").exists()
-
-
-async def test_a_record_whose_time_does_not_parse_is_kept_and_does_not_stop_the_sweep(
-    tmp_path: Path,
-) -> None:
-    from crucible.sessions_cli import _idle_before
-    from crucible.store.base import SessionRecord
-
-    cutoff = datetime.now(timezone.utc)
-    def rec(last: str) -> SessionRecord:
-        return SessionRecord(agent="a", channel_id="c", conversation_id="x", kind="dm",
-                             runtime_session_id="a--x", created_at=last, last_active=last)
-    assert _idle_before(rec("not a time"), cutoff) is False
-    assert _idle_before(rec("2020-01-01T00:00:00"), cutoff) is True  # naive: read as UTC
-    assert _idle_before(rec("2999-01-01T00:00:00+00:00"), cutoff) is False

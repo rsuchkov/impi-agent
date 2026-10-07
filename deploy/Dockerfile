@@ -111,8 +111,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY docs/ docs/
 
 # Container-fixed paths; the actual content arrives via volumes/bind mounts.
-# HOME is pinned rather than inherited from the account: the pi auth volume is
-# mounted at /home/impi/.pi, and a pre-existing uid would bring its own home.
+# HOME is pinned rather than inherited from the account: pi's home is bound
+# from the host at /home/impi/.pi, and a pre-existing uid would bring its own.
 ENV PATH=/app/.venv/bin:$PATH \
     HOME=/home/impi \
     DOTENV_PATH=/app/conf/.env \

@@ -17,7 +17,7 @@ import logging
 import os
 import random
 import signal
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
@@ -40,7 +40,6 @@ from crucible.gateways import (
     GatewayConfig,
     GatewayFactory,
     GatewayHandle,
-    needs_http_receiver,
 )
 from crucible.gateways.http import HttpHub, HttpTurns, TokenCallers
 from crucible.gateways.mattermost import MattermostCallbackCodec
@@ -68,11 +67,12 @@ from crucible.runtimes.pi import (
     RemoteHost,
     build_pi_profile,
 )
+from crucible.runtimes.pi.auth_refresh import AuthRefresher
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.runtimes.pi.spawn import migrate_session_layout
 from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
-from crucible.sessions_cli import purge_idle
+from crucible.session_retention import purge_idle
 from crucible.skills import SkillLibrary
 from crucible.store import open_store
 from crucible.store.base import SessionStore
@@ -80,6 +80,12 @@ from crucible.tools import MANIFEST_ENV, SessionProofBook, ToolServer, ToolWirin
 from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
+from impi.deployment_report import (
+    agents_dir_extensions,
+    confinement_report,
+    needs_receiver,
+    select_specs,
+)
 from impi.gateways import resolve_gateway
 from impi.profiles import (
     IMPI_ROOT,
@@ -121,17 +127,6 @@ def build_pi_extensions(settings: ImpiSettings) -> list[str]:
             )
     paths += [str((ext_root / name / "index.ts").resolve()) for name in enabled]
     return paths
-
-
-def agents_dir_extensions(ext_root: Path, names: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """What the agents directory offers and what the deployment chose:
-    (present, enabled), both sorted, the second a subset of the first in the
-    order the operator named them."""
-    present = tuple(sorted(
-        index.parent.name for index in ext_root.glob("*/index.ts") if index.is_file()
-    ))
-    enabled = tuple(name for name in names if name in present)
-    return present, enabled
 
 
 def build_agent_hosts(
@@ -178,41 +173,9 @@ def build_agent_hosts(
     return router
 
 
-# What lets a process read a neighbour's /proc/<pid>/environ: a shell, or a
-# built-in that reads files.
-_SHELL_LIKE = frozenset({"bash", "read", "grep", "edit"})
-
-
-def shared_process_agents(
-    specs: Sequence[AgentSpec],
-    *,
-    in_process: Callable[[str], bool],
-    confined: Callable[[str], bool] = lambda _name: False,
-) -> tuple[str, ...]:
-    """The user's agents that run in the engine's process space unconfined AND
-    can read a neighbour's environment. One is enough: the engine itself and
-    its own agent (support) are always neighbours, and their environments are
-    the engine's. A confined process cannot read another's environment — the
-    kernel refuses it outside the process's own domain — so it is not one of
-    them. See docs/security.md."""
-    return tuple(sorted(
-        spec.name for spec in specs
-        if in_process(spec.name) and not confined(spec.name) and _SHELL_LIKE & set(spec.tools)
-    ))
-
-
 # The variable naming the directory an agent's process writes files to send:
 # its agent's, or its conversation's when it is confined to one.
 FILES_DIR_ENV = "AGENT_FILES_DIR"
-
-SHARED_PROCESS_WARNING = (
-    "agents %s run unconfined in the engine's own process space with a shell: each "
-    "can read the environment of every other process here — the engine's own, "
-    "support's, every other agent's tool token and session proofs "
-    "(/proc/<pid>/environ). The boundary is confinement (RUNTIME_CONFINEMENT, on a "
-    "kernel with Landlock) or a container per agent — docs/security.md"
-)
-
 
 def _spec_or_none(profiles: ProfileStore, name: str) -> AgentSpec | None:
     try:
@@ -239,17 +202,6 @@ def _conversation_files_dir_for(
     return conversation_files_dir
 
 
-def confinement_line(levels: Mapping[str, str], abi: int) -> str:
-    """What confines the agents' processes and which run without it — the line
-    the engine logs at startup and `impi health` prints. ``abi`` 0: the kernel
-    has no Landlock, and every level is a wish."""
-    if not abi:
-        return "confinement: this kernel has no Landlock — every agent's process runs unconfined"
-    confined = ", ".join(f"{n}={lvl}" for n, lvl in sorted(levels.items()) if lvl != "off")
-    off = ", ".join(sorted(n for n, lvl in levels.items() if lvl == "off"))
-    return f"confinement: Landlock ABI {abi}; {confined or 'no agent confined'}; unconfined: {off or 'none'}"
-
-
 @dataclass
 class App:
     settings: ImpiSettings
@@ -270,6 +222,9 @@ class App:
     # The tool widget under a reply. None when interactivity or the widget is
     # off; the screen that answers its clicks is registered either way.
     tracer: ToolTrace | None = None
+    # Keeps the runtime's OAuth login fresh, so a confined process — which may
+    # only read the credential — never has to refresh it itself.
+    auth_refresher: AuthRefresher | None = None
 
 
 def _engine_version() -> str:
@@ -286,13 +241,6 @@ def _signal_reload() -> None:
     reload` does, raised from inside the process that installs the handler."""
     os.kill(os.getpid(), signal.SIGHUP)
 
-
-
-def _select_specs(settings: ImpiSettings, profiles: ProfileStore) -> list[AgentSpec]:
-    names = settings.enabled_agent_names()
-    if names is None:
-        return profiles.list()
-    return [profiles.get(name) for name in names]
 
 
 class ProfileBuilder:
@@ -436,14 +384,12 @@ def build_app(settings: ImpiSettings) -> App:
     # Resolve each agent's gateway config once, up front: it tells us which agents
     # are runnable and whether any needs the HTTP receiver — so the interaction
     # plumbing can be built complete (no post-loop finalize).
-    specs = [*_select_specs(settings, user_store), *engine_store.list()]
+    specs = select_specs(settings, user_store, engine_store)
     configs = {spec.name: resolve_gateway(settings, spec.name) for spec in specs}
-    needs_receiver = any(
-        cfg is not None and needs_http_receiver(cfg.kind) for cfg in configs.values()
-    )
     # A receiver with no secret trusts every callback on arrival; a deployment
     # that needs one gets a secret minted on its first start.
-    settings = ensure_receiver_secret(settings, needs_receiver=needs_receiver)
+    receiver_needed = needs_receiver(configs.values())
+    settings = ensure_receiver_secret(settings, needs_receiver=receiver_needed)
 
     # The app owns the registry of live agent presences (agent -> AgentSink); the
     # loop fills it, the interaction collaborators read it lazily via MappingPresence.
@@ -493,7 +439,7 @@ def build_app(settings: ImpiSettings) -> App:
     approvals = PendingApprovals() if settings.integrations.enabled else None
     interactions = InteractionWiring(
         settings.integrations, sessions, presence,
-        codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
+        codec=MattermostCallbackCodec(), needs_receiver=receiver_needed,
         command_tokens=settings.command_tokens_for,
         agents=lambda: runnable,
         default_agent=settings.agent_name,
@@ -532,22 +478,19 @@ def build_app(settings: ImpiSettings) -> App:
         files_dir_env=FILES_DIR_ENV,
         skills_root=settings.resolved_skills_path,
         unconfined_by_default=frozenset(engine_names),
+        # The runtime is built below, with these scopes; asked only when a
+        # process starts, by which time it exists.
+        has_process=lambda session_id: runtime.has_process(session_id),
     )
-    abi = landlock_abi()
-    line = confinement_line({spec.name: process_scopes.level_for(spec.name) for spec in specs}, abi)
-    (logger.info if abi else logger.warning)(line)
     hosts = build_agent_hosts(settings, specs, attachments.dir_for if attachments else None)
-    # The user's agents that actually run: an engine-owned one (support) is
-    # part of the engine and reads its configuration anyway, and an agent with
-    # no token starts no process.
-    running = [s for s in specs if s.name not in engine_names and configs.get(s.name) is not None]
-    shared = shared_process_agents(
-        running,
+    abi = landlock_abi()
+    line, shared_warning = confinement_report(
+        specs, configs, engine_names, level_for=process_scopes.level_for, abi=abi,
         in_process=lambda name: name not in hosts.remote_agents,
-        confined=lambda name: bool(abi) and process_scopes.level_for(name) != "off",
     )
-    if shared:
-        logger.warning(SHARED_PROCESS_WARNING, ", ".join(shared))
+    (logger.info if abi else logger.warning)(line)
+    if shared_warning:
+        logger.warning(shared_warning)
     runtime = PiRuntime(
         pi_bin=settings.pi_bin,
         session_dir=str(settings.resolved_pi_session_dir),
@@ -771,7 +714,31 @@ def build_app(settings: ImpiSettings) -> App:
         http_hub=http_hub,
         scheduler=scheduler,
         tracer=tracer,
+        auth_refresher=AuthRefresher(program=settings.pi_bin),
     )
+
+
+async def prepare_conversation_memory(settings: ImpiSettings, sessions: SessionStore) -> None:
+    """Before anything runs, so nothing live is using the memory touched:
+    memory kept before each conversation had a directory of its own moves into
+    one, and conversations idle past SESSION_RETENTION_DAYS are forgotten."""
+    moved = migrate_session_layout(settings.resolved_pi_session_dir)
+    if moved:
+        logger.info("moved %d conversation memories into a directory each", moved)
+    if settings.session_retention_days <= 0:
+        return
+    try:
+        forgotten = await purge_idle(
+            settings.resolved_pi_session_dir, sessions, days=settings.session_retention_days
+        )
+    except Exception:
+        # Forgetting is housekeeping: a store that cannot answer it must not
+        # keep the engine from serving.
+        logger.exception("could not forget idle conversations; carrying on")
+        return
+    if forgotten:
+        logger.info("forgot %d conversation(s) idle for %d+ days", len(forgotten),
+                    settings.session_retention_days)
 
 
 async def _supervise(
@@ -818,26 +785,7 @@ async def run(settings: ImpiSettings) -> None:
         if forgotten:
             logger.info("forgot %d answered message(s) older than %d days", forgotten,
                         settings.processed_posts_retention_days)
-    # Memory kept before each conversation had a directory of its own moves
-    # into one, before anything looks for it there.
-    moved = migrate_session_layout(settings.resolved_pi_session_dir)
-    if moved:
-        logger.info("moved %d conversation memories into a directory each", moved)
-    if settings.pi_session_retention_days > 0:
-        # Before anything runs: nothing is live yet, so nothing can be using
-        # the memory being forgotten.
-        try:
-            forgotten_sessions = await purge_idle(
-                settings, app.sessions, days=settings.pi_session_retention_days
-            )
-        except Exception:
-            # Forgetting is housekeeping: a store that cannot answer it must
-            # not keep the engine from serving.
-            logger.exception("could not forget idle conversations; carrying on")
-            forgotten_sessions = []
-        if forgotten_sessions:
-            logger.info("forgot %d conversation(s) idle for %d+ days", len(forgotten_sessions),
-                        settings.pi_session_retention_days)
+    await prepare_conversation_memory(settings, app.sessions)
     app.runtime.start()
     if app.tool_server is not None:
         # Up before the gateways: a pi turn may call a tool the moment it starts.
@@ -879,6 +827,8 @@ async def run(settings: ImpiSettings) -> None:
         ]
         if app.scheduler is not None:
             loops.append(_supervise("scheduler", app.scheduler.run))
+        if app.auth_refresher is not None:
+            loops.append(_supervise("runtime login refresh", app.auth_refresher.run))
         await asyncio.gather(*loops)
     finally:
         if app.scheduler is not None:

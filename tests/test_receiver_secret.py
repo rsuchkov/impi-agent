@@ -21,13 +21,13 @@ from tests.test_commands import SinkSpy
 SECRET = "k2Xy8qLmN0pRsTuVwZ"
 
 
-async def _server(port: int, store, *, secret: str) -> InteractionsServer:
+async def _server(port: int, store, *, secret: str, **over) -> InteractionsServer:
     dispatcher = InteractionDispatcher(
         store, presence_of(object(), sink=SinkSpy()), PendingUiRequests(), store  # type: ignore[arg-type]
     )
     server = InteractionsServer(
         dispatcher, MattermostCallbackCodec(), MappingPresence({}),
-        host="127.0.0.1", port=port, secret=secret,
+        host="127.0.0.1", port=port, secret=secret, **over,
     )
     await server.start()
     return server
@@ -85,7 +85,7 @@ async def test_a_mismatch_is_logged_with_the_fix(
     try:
         with caplog.at_level(logging.WARNING, logger="crucible.interactions.server"):
             await _post(8703, "/interact", {"user_id": "u1", "context": {}})
-        assert "docs/commands.md" in caplog.text
+        assert "INTEGRATIONS_SECRET" in caplog.text and "register it again" in caplog.text
         assert SECRET not in caplog.text
     finally:
         await server.stop()
@@ -158,6 +158,22 @@ async def test_the_access_log_never_writes_the_secret(
         access = [r.getMessage() for r in caplog.records if r.name == "aiohttp.access"]
         assert access and SECRET not in "\n".join(access)
         assert "/<secret>/interact" in access[0]
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_a_refusal_names_the_setting_of_the_application_that_owns_the_receiver(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The broker reuses this receiver; its operator fixes WARD_CALLBACK_SECRET,
+    not the engine's setting."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server = await _server(8709, store, secret=SECRET, secret_setting="WARD_CALLBACK_SECRET")
+    try:
+        with caplog.at_level(logging.WARNING, logger="crucible.interactions.server"):
+            await _post(8709, "/interact", {"user_id": "u1", "context": {}})
+        assert "WARD_CALLBACK_SECRET" in caplog.text and "INTEGRATIONS_SECRET" not in caplog.text
     finally:
         await server.stop()
         await store.close()

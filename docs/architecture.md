@@ -13,7 +13,7 @@ Where that subprocess runs is a deployment choice. By default it is a child of
 the engine's own process. Turn on [agent containers](agent-containers.md) and
 the engine asks a small host in the agent's own container to start it instead,
 over the same line-delimited protocol — everything above the transport is
-unchanged and unaware. Wherever it runs, it runs confined: under Landlock
+unchanged and unaware. By default, wherever it runs, it runs confined: under Landlock
 rules that leave it its own conversation's memory and files, its profile and
 skills, and nothing of other conversations, other agents or the engine
 (`crucible.confinement`, the `ProcessScopes` port, `RUNTIME_CONFINEMENT`; see
@@ -402,10 +402,10 @@ be produced deterministically) is better handled beside the agent, with
 `run_stateless` — see [commands.md](commands.md).
 
 **Widget click.** a user clicks a button/select → Mattermost `POST`s to the
-receiver (`/interact`) or Slack delivers it over the socket → the platform's
+receiver (`/<secret>/interact`) or Slack delivers it over the socket → the platform's
 `CallbackCodec` normalizes it → `InteractionDispatcher` resolves the blocking
 Future if a turn is paused on it, otherwise submits a synthetic message that
-starts a new turn. A form's modal submit hits `/dialog` and feeds the field values
+starts a new turn. A form's modal submit hits `/<secret>/dialog` and feeds the field values
 back the same way.
 
 ## Conventions

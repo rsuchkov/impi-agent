@@ -125,3 +125,19 @@ async def test_a_memoryless_run_gets_scratch_of_its_own_and_stale_scratch_is_cle
 async def test_an_unknown_agent_gets_nothing_beyond_its_scratch_space(tmp_path: Path) -> None:
     scope = await _scopes(tmp_path, {}).scope_for("ghost", None)
     assert scope is not None and scope.readable == (tmp_path / "skills",)
+
+
+async def test_the_scratch_of_a_conversation_whose_process_lives_on_is_kept(tmp_path: Path) -> None:
+    """A conversation that keeps talking keeps one process for days; its scratch
+    space was handed out long ago and is still in use."""
+    live = {"assistant--busy"}
+    scopes = _scopes(tmp_path, {"assistant": _spec(tmp_path)}, has_process=lambda sid: sid in live)
+    busy = await scopes.scope_for("assistant", "assistant--busy")
+    idle = await scopes.scope_for("assistant", "assistant--idle")
+    assert busy is not None and idle is not None
+    old = time.time() - 2 * 24 * 3600
+    for scope in (busy, idle):
+        os.utime(Path(scope.env["TMPDIR"]).parent, (old, old))
+    await scopes.scope_for("assistant", None)
+    assert Path(busy.env["TMPDIR"]).is_dir()
+    assert not Path(idle.env["TMPDIR"]).exists()

@@ -105,7 +105,7 @@ Say what it does and does not buy, rather than "it is isolated":
 - **"not reachable" in the engine's log** — that agent's container is down.
   `impi agent logs <agent>`, then `impi start`.
 - **An agent answers but has forgotten every conversation** — the migration was
-  skipped (or, for idle ones only, `PI_SESSION_RETENTION_DAYS` forgot them at
+  skipped (or, for idle ones only, `SESSION_RETENTION_DAYS` forgot them at
   startup — the engine log says so). `impi agent migrate <agent>` copies its session files into its own
   volume; the originals are still in the engine's data volume, so it is
   recoverable. This is the mistake to warn about BEFORE anyone turns the axis on.
@@ -126,15 +126,15 @@ Say what it does and does not buy, rather than "it is isolated":
   declared with `runtime.confinement_read` / `confinement_write` do not apply in
   a container of its own; give the agent `runtime.confinement: agent` or `off`.
 - **"the confinement launcher … is missing"** — the agent image predates
-  0.20. `impi agent sync` rebuilds it.
+  confinement. `impi agent sync` rebuilds it.
 - **A skill behaves as if something were not configured** — it is reading a
   variable from the engine's environment. A runtime in its own container does
   NOT inherit that; it gets its container's environment plus what the engine
   grants per spawn (model settings, `AGENT_NAME`, `TOOL_URL`, `TOOL_TOKEN`,
-  `AGENT_FILES_DIR`, the session id and its `TOOL_SESSION_PROOF`). Anything
-  else — `BROWSER_CDP_URL`, a variable
-  an operator added to the `impi` service — has to be added to that agent's own
-  service. This is the failure mode that announces nothing, so suspect it early.
+  `AGENT_FILES_DIR`, the session id and its `TOOL_SESSION_PROOF`). `impi agent
+  sync` writes `BROWSER_CDP_URL` when the browser is on; anything else — a
+  variable an operator added to the `impi` service — has to be added to that
+  agent's own service. This is the failure mode that announces nothing, so suspect it early.
 
 ## What you cannot do
 

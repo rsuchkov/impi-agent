@@ -155,3 +155,17 @@ def test_a_process_outside_the_domain_cannot_be_signalled() -> None:
         assert outside.poll() is None
     finally:
         outside.kill()
+
+
+def test_the_launcher_runs_on_the_standard_library_alone(tmp_path: Path) -> None:
+    """Started the way the engine and an agent's image start it — isolated,
+    without site packages — it confines (where the kernel can) and runs the
+    command, on any kernel."""
+    out = tmp_path / "ran"
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", str(LAUNCHER_PATH), "--readable", "/", "--writable", str(tmp_path),
+         "--", sys.executable, "-I", "-S", "-c", f"open({str(out)!r}, 'w').write('yes')"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert out.read_text() == "yes"

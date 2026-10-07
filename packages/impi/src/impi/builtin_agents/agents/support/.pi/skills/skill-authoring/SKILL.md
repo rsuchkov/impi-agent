@@ -89,5 +89,12 @@ overrides both.
   the model runs it via `bash` and reads its output.
 - Reference material needed only sometimes goes in `references/`, not the body,
   so the up-front cost stays low.
+- Write only to `$AGENT_FILES_DIR` (files to send) or `$TMPDIR` — the skill's
+  own directory and the library are read-only to the agent running it. Do not
+  rely on a cache in `$HOME` (`uv run`, `npx`, `pip install --user`): it is per
+  conversation and short-lived, so dependencies are fetched again and again.
+  Put them in the image instead — `runtime.packages` / `Dockerfile.include` in
+  a container of its own — or, without containers, vendor them into the
+  skill's directory; tell the user that is what the skill needs.
 - Test it: give the target agent a task that should trigger the skill and
   confirm it opens `SKILL.md` and follows it.

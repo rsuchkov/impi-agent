@@ -24,6 +24,9 @@ from crucible.confinement import ProcessScope
 from crucible.private_files import private_dir
 
 _DIGEST_CHARS = 12
+# What safe_session_id produces: alphanumeric first, then dots, dashes,
+# underscores. Only a file whose name carries one is a conversation's memory.
+_SESSION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 def safe_session_id(raw: str) -> str:
@@ -82,7 +85,7 @@ def migrate_session_layout(session_dir: Path) -> int:
         for path in agent_dir.iterdir():
             stamp, sep, rest = path.name.partition("_")
             session_id = rest.rsplit(".", 1)[0]
-            if not path.is_file() or not (sep and stamp and session_id):
+            if not path.is_file() or not (sep and stamp and _SESSION_ID_RE.fullmatch(session_id)):
                 continue
             target = private_dir(conversation_memory_dir(session_dir, agent_dir.name, session_id))
             path.rename(target / path.name)
@@ -134,6 +137,6 @@ class SpawnRequest:
     extensions: tuple[str, ...] = ()
     # What the application says this process may touch beyond what the host
     # adds for the runtime itself; None = unconfined.
-    scope: ProcessScope | None = None
+    process_scope: ProcessScope | None = None
     # Working-directory override for checkout-scoped runs; None = the profile dir.
     cwd: Path | None = None

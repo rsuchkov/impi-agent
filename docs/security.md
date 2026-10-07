@@ -86,14 +86,17 @@ allowlist).
 **Confinement closes that.** On a kernel with Landlock (Linux 5.13+), every
 runtime process starts under rules the engine computes (`RUNTIME_CONFINEMENT`,
 on by default) and each in a Landlock domain of its own: the kernel refuses it
-another process's `environ`, `mem` and signals outside that domain — another
-conversation's process, another agent's, the engine's. Its own environment is
-still its own; what it can read there is its own token and proof.
+another process's `environ` and `mem` outside that domain — another
+conversation's process, another agent's, the engine's — and, from Linux 6.12
+(Landlock ABI 6), its signals. Its own environment is still its own; what it
+can read there is its own token and proof. Below Linux 6.2 (ABI 3) the kernel
+cannot stop a confined process truncating a file its user may write, such as
+`conf/.env`: reading it stays refused, emptying it does not.
 
 What remains, and what the engine does about it:
 
 - an agent at level `off`, and every agent on a kernel without Landlock, is
-  unconfined; the engine names, at startup and in `impi health`, each user's
+  unconfined; the engine names, at startup and in `impi doctor`, each user's
   agent that runs unconfined in its process space with a shell-like built-in
   (`bash`, `read`, `grep`, `edit`) — one is enough, since the engine itself and
   `support` (unconfined by default, as part of the engine) are always its
@@ -124,9 +127,11 @@ are built on.
 Enforced by, by default: **confinement**. The process reads the system, its
 program, its own profile, the skill library and the files it is handed; it
 writes only its own memory, its own files and its own scratch `TMPDIR` and
-`HOME`; the credential file is rewritable in place and no other file can be
-created beside it (a settings file or an extension that would load into every
-agent). At level `conversation` (the default) "its own" is one
+`HOME`; it reads the model credential and cannot write it, nor create anything
+beside it (a settings file or an extension that would load into every agent).
+The credential is read-only because `pi` runs a key that begins with `!` on
+every model request: a process that could write the file could have a command
+run in every other process reading it. The engine refreshes the login itself. At level `conversation` (the default) "its own" is one
 conversation's: a process of one conversation cannot read another's memory or
 attachments, even of the same agent — for a deployment where one agent talks
 to many people. At `agent` an agent's conversations share its files. A skill
@@ -153,7 +158,7 @@ The honest summary, for an agent that has a shell:
 | the engine's own environment, via `/proc/<pid>/environ` | yes — little in it under compose, where secrets stay in `conf/.env`; everything if the deployment puts them in the environment | no | no |
 | another process's tool token / session proof | yes | no | no |
 | the chat server directly (not through tools) | yes | yes | a co-deployed Mattermost: no; an external or hosted one is reachable by URL like any internet host |
-| the model provider's credential | yes | yes (the one file, rewritable) | yes (shared) |
+| the model provider's credential | yes, and rewrite it | read | read (shared) |
 | the host's filesystem outside the mounts | no | no | no |
 
 If agents of different trust share a deployment — one reads public channels,
@@ -190,7 +195,7 @@ deployment configured; the engine makes no model calls itself.
 
 | data | goes to | kept where | for how long |
 |---|---|---|---|
-| messages the agent is given (its own conversation, replayed history, the sender's name) | the provider, inside the prompt | the runtime's session file, per conversation | until deleted (`impi sessions`), or `PI_SESSION_RETENTION_DAYS` when set |
+| messages the agent is given (its own conversation, replayed history, the sender's name) | the provider, inside the prompt | the runtime's session file, per conversation | until deleted (`impi sessions`), or `SESSION_RETENTION_DAYS` when set |
 | attachments people send | the provider only if the runtime shows them (images, inline); otherwise the path | the engine's data volume | `ATTACHMENT_RETENTION_DAYS`, 14 by default |
 | tool results (a channel's posts, a ticket, a file's content) | the provider, as the model reads them | the session file, as part of the conversation | as above |
 | tool **arguments** | nowhere beyond the engine | the inventory, as the [tool trace](tool-trace.md) | `TOOL_TRACE_RETENTION_DAYS`, 14 by default |
@@ -205,7 +210,7 @@ volume, a directory per conversation, readable by anything unconfined running
 as the engine's user (and by nobody else: the directories are 0700, like the
 inventory's 0600; a confined process reaches its own conversation's only), and they are the agent's
 memory — deleting one is how a conversation is forgotten. `impi sessions
-purge-idle --days N` is the knife, and `PI_SESSION_RETENTION_DAYS=N` makes the
+purge-idle --days N` is the knife, and `SESSION_RETENTION_DAYS=N` makes the
 engine use it at every start.
 
 ## Where the credentials live
@@ -214,7 +219,7 @@ engine use it at every start.
 |---|---|---|
 | the chat platform tokens, one per agent | `conf/.env` on the host, bind-mounted into the engine, mode 600 | the engine; an unconfined agent with `read` |
 | the gateway tokens for your programs (`WS_SERVICE_TOKEN__*`, `HTTP_CALLER_TOKEN__*`) | `conf/.env`, in the clear | as above |
-| the model provider's login | `~/.impi/pi/agent/auth.json` on the host (mode 600, directory 700), mounted into the engine as pi's home and into each agent container as that one file | the engine and every agent container |
+| the model provider's login | `~/.impi/pi/agent/auth.json` on the host (mode 600, directory 700), mounted into the engine as pi's home and into each agent container as that one file, read-only | read: every runtime process; written: the engine (which refreshes the login) and unconfined processes |
 | a custom endpoint's key (`LLM_API_KEY`) | `conf/.env`; passed to each runtime in its environment | every agent's runtime |
 | the agents' broker certificates | `~/.impi/certs`, mounted into the engine (or one each into its container) | see [secrets.md](secrets.md) |
 | the operator's broker certificate | `~/.impi/operator`, mounted into nothing an agent runs in | the operator |
@@ -244,7 +249,8 @@ decisions an operator makes.
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
 | per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks; a call naming no session is refused |
 | a tool's confirmation is addressed to the person who asked | a stranger who talked the model into a call in a shared channel cannot approve it; `TOOL_APPROVERS` names people instead |
-| the shared-process warning | at startup and in `impi health`: which user agents with a shell run unconfined in the engine's process space, and each agent's confinement level |
+| the model credential is read-only to every agent process | `pi` runs a key beginning with `!` on every model request, so no confined process or agent container can write the file; the engine refreshes an OAuth login an hour before it expires |
+| the shared-process warning | at startup and in `impi doctor`: which user agents with a shell run unconfined in the engine's process space, and each agent's confinement level |
 | `returns_untrusted` wrapping | other people's text arrives marked as such |
 | the prompt envelope is tagged per turn and quotes are escaped | a message cannot close a context block or pose as another speaker; the model is told so in its system prompt |
 | contained card text | what a caller supplies is content, never structure (newlines, fences, bidi) |
@@ -272,7 +278,7 @@ decisions an operator makes.
 | the [browser](browsing.md) | off | one browser serves every agent; cookies are shared between them |
 | egress | unrestricted | a proxy or firewall around the containers when the agents must not reach arbitrary hosts |
 | who answers a tool's confirmation (`TOOL_APPROVERS`) | the person who asked the agent | name the people instead when the asker should not be the one deciding |
-| retention (`ATTACHMENT_RETENTION_DAYS`, `TOOL_TRACE_RETENTION_DAYS`, `PI_SESSION_RETENTION_DAYS`) | 14 / 14 / never | data classification says so |
+| retention (`ATTACHMENT_RETENTION_DAYS`, `TOOL_TRACE_RETENTION_DAYS`, `SESSION_RETENTION_DAYS`) | 14 / 14 / never | data classification says so |
 
 ## Known limits
 
@@ -280,9 +286,12 @@ Things the design does not solve, stated so nobody relies on them by accident.
 
 - **Confinement needs Landlock.** A kernel without it (older than 5.13, or
   with Landlock left out of the boot's LSM list) runs every process
-  unconfined — the engine warns at startup and in `impi health`. There, an
+  unconfined — the engine warns at startup and in `impi doctor`. There, an
   unconfined neighbour with a shell reads the tool server's secrets, and the
-  boundary is the container, not the secret.
+  boundary is the container, not the secret. An older Landlock holds less:
+  before Linux 6.2 (ABI 3) a confined process can still truncate a file its
+  user may write, and before 6.12 (ABI 6) it can signal processes outside its
+  domain. `impi doctor` prints the ABI.
 - **Confinement covers files and processes, not the network.** A confined
   process reaches every address the deployment's network does — the chat
   server, the tool server (with its own token only), the internet. Landlock
@@ -295,14 +304,13 @@ Things the design does not solve, stated so nobody relies on them by accident.
   declared, so for an honest caller the card shows what runs; anything else in
   the container can claim any argv. A rule narrows what an honest caller may do
   quietly and is worth nothing against a compromised container.
-- **The runtime's model credential is shared, and writable.** Every agent calls
-  the model as the same account, and its container is handed the credential
-  file read-write so a token refresh can land. An agent with a shell can
-  therefore overwrite it — log everyone out, or swap in another account. The
-  one thing that would turn that into code running elsewhere, a key `pi` would
-  execute (`!…`), stops every process from starting instead. Each container
-  locks the file on its own, so two refreshing an expired token at once can
-  race.
+- **The runtime's model credential is shared.** Every agent calls the model
+  as the same account and can read the login — use it, or copy it. Only the
+  engine and unconfined processes can write the file: a confined process and
+  an agent's container get it read-only, because `pi` runs a key that begins
+  with `!` on every model request. An unconfined agent (`off`) could still
+  plant one; `pi` is then not started anywhere until a fresh login replaces
+  the file, but processes already running would read it.
 - **The engine does not restrict egress** and does not encrypt session files
   at rest; both are the deployment's.
 - **Prompt injection is bounded, not eliminated.** The allowlist, the gate and

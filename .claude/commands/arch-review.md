@@ -65,6 +65,8 @@ For each item, look at the diff AND the code around it; cite `file:line`.
    nested `X__Y`), have a default that keeps an existing deployment working or
    a CHANGELOG **Breaks:** line, and are validated where a bad value would fail
    late. Per-agent overrides follow the existing `AGENTS_<KIND>__<AGENT>` shape.
+   The one other family is `RUNTIME_ENV__<AXIS>` (compose overlays cannot merge
+   one list); a new family needs the same reason, written down in AGENTS.md.
 7. **Breaking changes before 1.0** (CLAUDE.md). A break needs (a) evidence it
    was discussed with the maintainer and (b) a **Breaks:** clause in
    `CHANGELOG.md` *Unreleased*. No legacy aliases or shims kept "for

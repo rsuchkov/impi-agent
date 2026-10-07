@@ -167,7 +167,7 @@ class RemoteHost:
         points the process at it. The rest of the scope is paths on this side
         — scratch space, a profile's declared paths — that mean nothing over
         there; the host gives the process its own memory and scratch space."""
-        scope = request.scope
+        scope = request.process_scope
         if scope is None:
             return {}
         writable: list[dict[str, str]] = []

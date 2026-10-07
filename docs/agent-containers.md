@@ -106,18 +106,19 @@ the level it needs.
 
 **The model credential is still shared; pi's home is not.** A subscription
 login is one file every agent's container is handed (`~/.impi/pi/agent/auth.json`
-on the host, read-write because the runtime refreshes the token in place),
-because every agent needs it to call a model. The rest of pi's home —
+on the host, read-only), because every agent needs it to call a model. The
+engine keeps the login fresh — it refreshes it an hour before it expires, and
+the runtime in each container re-reads the file. The rest of pi's home —
 `settings.json`, `extensions/`, anything a runtime is told to install — is a
 tmpfs of that container's own: written by one agent, it reaches no other and
 is gone at the next restart. So this axis separates agents from each other's
 *data* and *configuration*, not from the deployment's model account.
 
-Two consequences of sharing the file. An agent with a shell can overwrite it
-(`pi` is not started anywhere while it holds a value `pi` would run as a
-command, the one way that would reach other containers' processes). And each
-container takes its own lock on it, so two refreshing an expired token at the
-same moment can race; `impi login` puts it right.
+Read-only, because a file every runtime reads is one a writer could plant a
+command in (`pi` runs a key that begins with `!`, on every model request):
+written by one agent, it would run in every other's process. So an agent
+cannot log the others out or swap the account either. `pi` is not started
+anywhere while the file holds such a value, whatever wrote it.
 
 ## Giving one agent something the others do not have
 
@@ -250,6 +251,13 @@ not configured.
   agent images: `impi agent sync`.
 - **An agent runs in the engine even though the axis is on** — no token for it
   yet, which means it was never synced. The engine logs it by name at boot.
+- **"Permission denied" inside the agent** — first, the process is confined:
+  it writes only its conversation's memory and files and its own scratch
+  space. Paths a profile declares with `runtime.confinement_read` /
+  `confinement_write` do not apply in a container of its own; give the agent
+  the level it needs (`runtime.confinement: agent` or `off`).
+- **"the confinement launcher … is missing"** — the agent image predates
+  confinement. `impi agent sync` rebuilds it.
 - **"Permission denied" on a file the agent wrote, or the agent cannot read its
   own broker certificate** — on rootless podman the agent's container needs the
   same user mapping the engine gets, or the two see different owners on every

@@ -26,13 +26,13 @@ relationship with a person.
 **On disk, both are the owner's alone.** The SQLite file (with its write-ahead
 log) is created 0600, the runtime's session directories 0700, the per-agent
 tool manifests 0600, attachments 0600 under 0700 directories — whatever the
-process's umask. Where an earlier version left them wider, the inventory and
-the manifests are narrowed at the next start, a session directory the next
-time its agent runs, and attachments as they are written. The engine itself runs with `umask 077`. Neither kind is encrypted
+process's umask: a wider one found on disk is narrowed — the inventory and
+the manifests at start, a session directory when its agent runs, attachments
+as they are written. The engine itself runs with `umask 077`. Neither kind is encrypted
 at rest; that is the volume's or the disk's to do.
 
 **Conversation memory is kept until somebody deletes it**, unless you say
-otherwise: `PI_SESSION_RETENTION_DAYS=N` makes the engine forget, at startup,
+otherwise: `SESSION_RETENTION_DAYS=N` makes the engine forget, at startup,
 every conversation idle for N days or more — its record and the runtime's
 files for it, exactly what `impi sessions purge-idle --days N` does by hand.
 An agent in a container of its own keeps its files in that container's volume;

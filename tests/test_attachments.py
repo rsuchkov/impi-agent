@@ -140,3 +140,17 @@ async def test_retention_zero_keeps_everything(tmp_path: Path) -> None:
 )
 def test_sniff_image_reads_the_bytes_not_the_label(data: bytes, expected: str) -> None:
     assert sniff_image(data) == expected
+
+
+def test_two_conversation_ids_never_share_a_directory(tmp_path: Path) -> None:
+    """A caller that picks its own ids (a WebSocket service, an http realm) must
+    not reach another's directory by spelling an id that cleans to the same
+    name: a process confined to its conversation is given that directory."""
+    store = _store(tmp_path)
+    victim = store.conversation_dir("assistant", "svcB:conv42")
+    forged = store.conversation_dir("assistant", "evil:x/svcB_conv42")
+    assert victim != forged
+    assert store.conversation_dir("assistant", "a:b") != store.conversation_dir("assistant", "a_b")
+    # A platform id that is already a safe name stays as it is.
+    assert store.conversation_dir("assistant", "q7x3k9m2p4").name == "q7x3k9m2p4"
+    assert len(store.conversation_dir("assistant", "w:" + "x" * 300).name) <= 80

@@ -323,7 +323,7 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Confinement is plain OS machinery — it knows nothing of the engine"
 type = "forbidden"
-source_modules = ["crucible.confinement"]
+source_modules = ["crucible.confinement", "crucible.private_files"]
 forbidden_modules = [
     "crucible.approvals",
     "crucible.attachments",
@@ -337,6 +337,68 @@ forbidden_modules = [
     "crucible.runtimes",
     "crucible.scheduler",
     "crucible.skills",
+    "crucible.store",
+    "crucible.tools",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
+name = "Constant-time comparison is a leaf — it imports nothing of the workspace"
+type = "forbidden"
+source_modules = ["crucible.constant_time"]
+forbidden_modules = [
+    "crucible.approvals",
+    "crucible.attachments",
+    "crucible.config",
+    "crucible.flows",
+    "crucible.gateways",
+    "crucible.interactions",
+    "crucible.ports",
+    "crucible.profiles",
+    "crucible.runtimes",
+    "crucible.scheduler",
+    "crucible.skills",
+    "crucible.store",
+    "crucible.tools",
+]
+
+[[tool.importlinter.contracts]]
+name = "Process scopes decide paths from ports — no runtime, chat or engine machinery"
+type = "forbidden"
+source_modules = ["crucible.process_scopes"]
+forbidden_modules = [
+    "crucible.approvals",
+    "crucible.attachments",
+    "crucible.config",
+    "crucible.flows",
+    "crucible.gateways",
+    "crucible.interactions",
+    "crucible.profiles",
+    "crucible.runtimes",
+    "crucible.scheduler",
+    "crucible.skills",
+    "crucible.store",
+    "crucible.tools",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
+name = "The agent ports are neutral — no runtime, chat or engine machinery"
+type = "forbidden"
+source_modules = ["crucible.ports.agent"]
+forbidden_modules = [
+    "crucible.approvals",
+    "crucible.attachments",
+    "crucible.config",
+    "crucible.flows",
+    "crucible.gateways",
+    "crucible.interactions",
+    "crucible.process_scopes",
+    "crucible.profiles",
+    "crucible.runtimes",
+    "crucible.scheduler",
     "crucible.store",
     "crucible.tools",
     "mattermostautodriver",

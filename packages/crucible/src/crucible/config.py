@@ -7,7 +7,6 @@ injects it by constructor — tests construct their own without env games.
 from __future__ import annotations
 
 import os
-import re
 import socket
 from functools import cached_property
 from pathlib import Path
@@ -19,6 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from crucible.ports.agent.confinement import check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
+from crucible.receiver_paths import RECEIVER_SECRET_RE, callback_path
 
 # The backend names, spelled out rather than imported. `crucible.store` owns the
 # vocabulary and is the thing that rejects an unknown one; configuration sits
@@ -66,17 +66,16 @@ class ToolSettings(BaseModel):
         return self.public_url or f"http://{self.server_host}:{self.server_port}"
 
 
-# The receiver's secret: a segment of every callback path, so the platform that
-# was given the URL is the only party that can reach the endpoints behind it.
-# Path-safe by construction — letters, digits, `-` and `_`, sixteen at least.
-RECEIVER_SECRET_RE = re.compile(r"[A-Za-z0-9_-]{16,}")
-
-
-def callback_path(endpoint: str, *, secret: str = "") -> str:
-    """Where an endpoint of the receiver lives: ``/<secret>/<endpoint>`` when a
-    secret is set, the bare ``/<endpoint>`` when none is. The one rule both the
-    URLs handed to the platform and the receiver's own routes are built from."""
-    return f"/{secret}/{endpoint}" if secret else f"/{endpoint}"
+def _checked_env_names(key: str, raw: str) -> list[str]:
+    """The names a CSV setting lists, each one a name or family a runtime
+    process may inherit — or ValueError naming ``key``."""
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    for name in names:
+        try:
+            check_inherited_env(name)
+        except ValueError as exc:
+            raise ValueError(f"{key}: {exc}") from exc
+    return names
 
 
 class IntegrationsSettings(BaseModel):
@@ -265,7 +264,8 @@ class Settings(BaseSettings):
 
     # pi CLI (@earendil-works/pi-coding-agent), assumed on PATH.
     pi_bin: str = "pi"
-    pi_session_dir: str = ""  # default: {data_dir}/pi-sessions (per-agent subdirs)
+    # default: {data_dir}/pi-sessions — a directory per agent, one per conversation in it
+    pi_session_dir: str = ""
     pi_timeout: float = 180.0  # fallback when agent.yaml omits runtime.timeout
     pi_max_concurrent_sessions: int = 4
     # A second bound, per agent. 0 = only the global one. Worth setting once the
@@ -277,12 +277,16 @@ class Settings(BaseSettings):
     # Forget a conversation nobody has touched for this many days: its record
     # and the runtime's files for it, at startup. 0 = never — memory is kept
     # until somebody deletes it, which is what it always was.
-    pi_session_retention_days: int = 0
+    session_retention_days: int = 0
     # How far a runtime process is confined (crucible.ports.agent.confinement):
     # conversation, agent or off. Per agent: AGENTS_CONFINEMENT__<AGENT> or
     # runtime.confinement in its profile. A kernel without Landlock runs
     # every process unconfined, with a warning.
     runtime_confinement: str = "conversation"
+    # Names (or families, ``PREFIX_*``) of the engine's own environment
+    # variables every runtime process inherits beside the base set (CSV).
+    # Beside it, every RUNTIME_ENV__<AXIS> key — see runtime_env_names().
+    runtime_env: str = ""
     # How long a turn waits for a free slot before giving up with "the engine is
     # full". Rarely reached: with eviction on, a full pool gives up its idlest
     # session instead of making the new turn wait for the idle TTL.
@@ -341,6 +345,19 @@ class Settings(BaseSettings):
             return check_confinement_level(value)
         except ValueError as exc:
             raise ValueError(f"RUNTIME_CONFINEMENT: {exc}") from exc
+
+    @field_validator("runtime_env")
+    @classmethod
+    def _runtime_env_names_are_safe(cls, value: str) -> str:
+        _checked_env_names("RUNTIME_ENV", value)
+        return value
+
+    @model_validator(mode="after")
+    def _runtime_env_axes_are_safe(self) -> Settings:
+        # Checked as the settings load, like every other value, rather than
+        # when the first process is built.
+        self.runtime_env_names()
+        return self
 
     @field_validator("integrations_secret")
     @classmethod
@@ -445,28 +462,27 @@ class Settings(BaseSettings):
     def inherited_env_for(self, agent: str) -> tuple[str, ...] | None:
         """Per-agent override of the environment names it inherits:
         AGENTS_ENV__<AGENT> (CSV, env or .env). None = unset (keep the
-        agent.yaml list); a set value, even empty, replaces it."""
-        return self._csv_override(f"AGENTS_ENV__{agent.upper().replace('-', '_')}")
+        agent.yaml list); a set value, even empty, replaces it. ValueError,
+        naming the key, for a name no process may inherit."""
+        key = f"AGENTS_ENV__{agent.upper().replace('-', '_')}"
+        names = self._csv_override(key)
+        if names is not None:
+            _checked_env_names(key, ",".join(names))
+        return names
 
     def runtime_env_names(self) -> tuple[str, ...]:
         """Names (or globs) of the engine's own environment variables every
-        runtime process inherits, beside the base set: RUNTIME_ENV (CSV) plus
-        every RUNTIME_ENV__<AXIS> key, so each piece of a deployment that puts
-        a variable into the engine's environment for the agents' sake — a
+        runtime process inherits, beside the base set: RUNTIME_ENV plus every
+        RUNTIME_ENV__<AXIS> key. The one family of keys that is not per agent
+        (docs/configuration.md): each piece of a deployment that puts a
+        variable into the engine's environment for the agents' sake — a
         browser's address, a broker's — declares it under a key of its own,
-        and nothing has to merge one list."""
-        names: list[str] = []
-        sources: list[tuple[str, str]] = [
-            *((k, v) for k, v in self._dotenv.items()), *((k, v) for k, v in os.environ.items())
-        ]
-        for key, raw in sources:
-            if key == "RUNTIME_ENV" or key.startswith("RUNTIME_ENV__"):
-                for name in (n.strip() for n in raw.split(",") if n.strip()):
-                    try:
-                        check_inherited_env(name)
-                    except ValueError as exc:
-                        raise ValueError(f"{key}: {exc}") from exc
-                    names.append(name)
+        because compose overlays cannot merge one list. The environment
+        overrides the .env file key by key, as for every other setting."""
+        names = list(_checked_env_names("RUNTIME_ENV", self.runtime_env))
+        axes = {**self._dotenv, **os.environ}
+        for key in sorted(k for k in axes if k.startswith("RUNTIME_ENV__")):
+            names += _checked_env_names(key, axes[key])
         return tuple(dict.fromkeys(names))
 
     def _csv_override(self, key: str) -> tuple[str, ...] | None:
@@ -479,9 +495,16 @@ class Settings(BaseSettings):
 
     def confinement_for(self, agent: str) -> str | None:
         """Per-agent confinement level from config: AGENTS_CONFINEMENT__<AGENT>
-        (env or .env). None = unset (the profile's, else RUNTIME_CONFINEMENT)."""
+        (env or .env). None = unset (the profile's, else RUNTIME_CONFINEMENT).
+        ValueError, naming the key, for a value that is not a level."""
         key = f"AGENTS_CONFINEMENT__{agent.upper().replace('-', '_')}"
-        return os.environ.get(key) or self._dotenv.get(key) or None
+        value = os.environ.get(key) or self._dotenv.get(key) or None
+        if value is not None:
+            try:
+                check_confinement_level(value)
+            except ValueError as exc:
+                raise ValueError(f"{key}: {exc}") from exc
+        return value
 
     def skills_for(self, agent: str) -> tuple[str, ...] | None:
         """Per-agent skills override: AGENTS_SKILLS__<AGENT> (CSV, env or .env).

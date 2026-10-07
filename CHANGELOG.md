@@ -37,12 +37,14 @@ when a release is cut, and `impi update` shows the target version's section.
   `/command/<agent>` — and the receiver answers 403 off it. The engine mints
   `INTEGRATIONS_SECRET` into `conf/.env` on its first start (the installer
   and `impi start` do too); the broker's receiver has `WARD_CALLBACK_SECRET`
-  in `conf/ward.env`. `impi doctor` says whether both secrets are set,
-  `impi health` the engine's. Slack is unaffected (its clicks come down the
-  socket).
+  in `conf/ward.env`. `impi doctor` says whether both secrets are set and
+  prints the agents' command URL. Slack is unaffected (its clicks come down
+  the socket).
   **Breaks:** every slash command registered with Mattermost — the agents'
-  and `/ward` — must be re-registered under the new URL (`impi health` prints
-  it), and the buttons on cards posted before the upgrade answer 403.
+  and `/ward` — must be re-registered under the new URL (`impi doctor` prints
+  the agents'; `/ward` is `http://ward:8426/<WARD_CALLBACK_SECRET>/command/ward`,
+  the secret in `conf/ward.env`), and the buttons on cards posted before the
+  upgrade answer 403.
   A request with the right secret on a wrong method or endpoint is aiohttp's
   404/405, not a refusal, and no log prints the secret — the receiver's own
   refusals and aiohttp's access log alike, which wrote every request's path. An
@@ -88,19 +90,21 @@ when a release is cut, and `impi update` shows the target version's section.
   `fd` for its `grep`/`find` tools, so both images now ship `ripgrep` and
   `fd` 10.5 from its release, pinned by checksum (Debian's 8.6 lacks a flag
   `pi` 0.85 passes, which broke its `find`); a host running the engine
-  outside the images needs `rg` and a recent `fd` on `PATH` — and a `settings.json` package not yet installed is not installed.
+  outside the images needs `rg` and a recent `fd` on `PATH`. **Breaks:**
+  `PI_OFFLINE` also stops `pi` installing a package `settings.json` names
+  that is not installed yet — install it into the image instead.
 - **The engine names the agents that share its process space with a shell.**
   In the default arrangement every agent's runtime is a child of the engine,
   and an agent with `bash` or `read` can read a neighbour's tool token and
   session proofs out of `/proc`. The engine now says so at startup and in
   `impi health`, by name, whenever a user's agent runs there and has
-  a shell-like built-in; `docs/security.md` has the section on what holds and
+  a shell-like built-in — one is enough: the engine itself and `support` are
+  always its neighbours. `docs/security.md` has the section on what holds and
   what does not. Every process the runtime starts now proves itself to the
   tool server — a memoryless run under a one-off id — and the server refuses a
   call that names no session (`session required`). **Breaks:** a program that
   called the tool server with an agent's token and no `X-Runtime-Session`
   header is refused when the engine issues proofs (impi always does).
-  One is enough: the engine itself and `support` are always its neighbours.
 - **The images are built from pins, not tags.** The `pi` CLI and the browser
   tool come from `deploy/pi/package.json` and its lockfile — every dependency
   with an integrity hash, `npm ci --ignore-scripts`, so nothing runs at build
@@ -109,7 +113,8 @@ when a release is cut, and `impi update` shows the target version's section.
   engine, agent and broker are pinned by manifest digest, the broker's `uv`
   no longer `latest`. `PI_TELEMETRY=0` is set in the images. A per-agent
   image installs its npm extras with scripts ignored and accepts version pins
-  (`some-cli@1.2.0`, `pandas==2.2`) while refusing anything shell-like.
+  (`some-cli@1.2.0`, `pandas>=2.2`), each quoted as one shell word, while
+  refusing `$(`, quotes, `;`, `&`, `|` and whitespace.
   **Breaks:** an npm extra whose install hook mattered (one that downloads a
   binary in `postinstall`) stops working after `impi agent sync` — move it to
   `Dockerfile.include`; a package entry with characters outside a name and a
@@ -133,7 +138,7 @@ when a release is cut, and `impi update` shows the target version's section.
   session directory the next time its agent runs, attachments as they are
   written (old ones keep their mode until the retention sweep removes them).
   The engine refuses to write through a symbolic link in those directories. The engine runs with `umask 077`.
-- **Conversation memory can have a lifetime.** `PI_SESSION_RETENTION_DAYS=N`
+- **Conversation memory can have a lifetime.** `SESSION_RETENTION_DAYS=N`
   makes the engine forget, at startup, every conversation idle for N days or
   more — its record and the runtime's files, what `impi sessions purge-idle`
   does by hand. Off by default: memory is kept until deleted, as before. The
@@ -163,17 +168,18 @@ when a release is cut, and `impi update` shows the target version's section.
   whether the file is there. **Breaks:** where the credential lives, and
   `impi agent sync` must be re-run for agent containers.
   The directory the credential is bound into is memory of the container's own,
-  so `pi` can take the lock it keeps beside `auth.json`. The file itself stays
-  shared and writable — a token refresh writes it in place — so `pi` is not
-  started, in the engine or in an agent's container, while it holds a value
-  `pi` would run as a command (a key beginning with `!`): no login writes one,
-  and an agent with a shell could. Each container now locks on its own, so two
-  refreshing the same expired token at once may race; the next login settles
-  it. `impi start`/`update` carry the credential alone out of the old volume
+  so `pi` can take the lock it keeps beside `auth.json`. The file itself is
+  mounted read-only (see the confinement entry: the engine refreshes the
+  login), and `pi` is not started, in the engine or in an agent's container,
+  while it holds a value `pi` would run as a command (a key beginning with
+  `!`): no login writes one. `impi start`/`update` carry the credential alone out of the old volume
   (and list what they left: an agent could have planted `settings.json` or
   `extensions/` there), keep `auth.json` a file so a container cannot turn it
   into a directory, and `impi update` re-renders agent containers itself;
-  `impi doctor` names a generated file that still mounts `pi-auth`. **Breaks:** an agent
+  `impi doctor` names a generated file that still mounts `pi-auth`.
+  **Breaks:** the engine's own `models.json`, `settings.json` and installed
+  `pi` packages stay in the old volume — copy what you trust into
+  `~/.impi/pi/agent/` (`impi start` lists them). An agent
   container no longer sees `~/.pi/agent/models.json` or `settings.json`; a
   custom endpoint reaches it through `LLM_*`, anything else through a
   `compose.d/` bind into that agent's service.
@@ -194,15 +200,22 @@ when a release is cut, and `impi update` shows the target version's section.
   carried `BROWSER_CDP_URL`; with both axes on, the web-browsing skill found
   no browser. `impi agent sync` now writes it when the browser axis is on.
 - **An agent's runtime process runs confined.** On a kernel with Landlock
-  (Linux 5.13+; the images' hosts all qualify) the engine starts each `pi`
+  (Linux 5.13+, enabled in the boot's LSM list; `impi doctor` prints the
+  confinement line) the engine starts each `pi`
   under rules it computes: the process reads its profile, the skill library,
   the system and its own program; it writes only its files, its memory and
-  its own `TMPDIR` and `HOME`; the credential file is rewritable in place and
-  no other file can be created beside it. Everything else is out of reach —
+  its own `TMPDIR` and `HOME`; it reads the model credential and cannot write
+  it or create anything beside it. `pi` re-reads that file before every model
+  request and runs a key that begins with `!`, so a process that could write
+  it could have a command run in every other; the engine therefore refreshes
+  an OAuth login itself, an hour ahead (`crucible.runtimes.pi.auth_refresh`),
+  and agent containers mount the file read-only. Everything else is out of reach —
   the engine's `conf/.env`, other agents' profiles, memory and files, and
   other processes' environments in `/proc` (the tool token and session
   proofs a shell could read before), which the kernel refuses outside the
-  process's own domain; it cannot signal them either. `RUNTIME_CONFINEMENT`
+  process's own domain; from Linux 6.12 (Landlock ABI 6) it cannot signal them
+  either, and below Linux 6.2 (ABI 3) the kernel cannot stop it truncating a
+  file its user may write. `RUNTIME_CONFINEMENT`
   (`conversation`, the default; `agent`; `off`), per agent
   `runtime.confinement` or `AGENTS_CONFINEMENT__<AGENT>`; paths beyond its own
   in `runtime.confinement_read` / `confinement_write`. `support` is `off` by
@@ -213,14 +226,25 @@ when a release is cut, and `impi update` shows the target version's section.
   process has its own memory directory, its own attachments directory (which
   `AGENT_FILES_DIR` names) and its own scratch space, and cannot read another
   conversation's or see its process; a scheduled task's memoryless run gets
-  scratch space of its own. **Breaks:** a skill that wrote into its
+  scratch space of its own. Scratch space a day past its last use, with no
+  live process, is cleared. A conversation's attachments directory gets a
+  digest of the conversation's id in its name whenever the id is not already
+  a safe file name (every WebSocket and http conversation, whose ids carry a
+  `:`), so two callers' ids can no longer meet in one directory.
+  **Breaks:** a skill that wrote into its
   profile, or read or wrote outside its own paths, gets `Permission denied`
   — declare the paths or set the agent's level to `off`. A skill that kept
   files in the agent's attachments directory across conversations no longer
   sees them from another conversation — set the agent to `agent`.
   Conversation memory moves from `pi-sessions/<agent>/` into a directory per
   conversation, `pi-sessions/<agent>/<session-id>/`; the engine moves what is
-  there on its first start and logs how many it moved.
+  there on its first start and logs how many it moved. Attachments already
+  saved for a WebSocket or http conversation stay under the old directory
+  name, out of reach of that conversation's confined process, until the
+  retention sweep removes them. An OAuth login refreshed by an agent's own
+  process before now is refreshed by the engine; a deployment whose engine is
+  down for longer than a login lasts finds its agents unable to call the model
+  until it is back.
 - **Agents in containers of their own are confined inside them too.** The
   agent's host (`runtime-relay`) starts each runtime under the same rules,
   built from its own mounts: the engine names the part of the agent's files
@@ -231,7 +255,14 @@ when a release is cut, and `impi update` shows the target version's section.
   its host starts. **Breaks:** the host protocol is version 2 — the engine
   and the agents' images have to be updated together (`impi update` rebuilds
   both). A profile's `runtime.confinement_read` / `confinement_write` paths
-  do not apply in a container of its own.
+  do not apply in a container of its own. The host now compares its token as
+  bytes, so one that is not ASCII is refused rather than crashing the
+  request, and warns about a named extension that is not there.
+- **A setting the engine cannot load is one line, not a traceback.** The
+  `impi` commands report each bad value under its own key (`✘ settings:
+  RUNTIME_EXTENSIONS: '../x' is not an extension name …`); `RUNTIME_EXTENSIONS`,
+  `RUNTIME_ENV` and its axes are now checked as the settings load, like the
+  rest.
 - **`impi health` says how each agent is confined.** A line with the
   kernel's Landlock version, each agent's level and the agents running
   unconfined — or a warning when the kernel has no Landlock. The

@@ -24,6 +24,9 @@ class FakeSession:
         self.started = False
         self.closed = False
         self.busy = False
+        # The real session's: the id its process proves itself under ("" =
+        # none issued by this fake).
+        self.proof_session_id = ""
         self._result = result or PiResult(text="ok")
         self._prompt_error = prompt_error
         # The listener each turn handed over — one entry per prompt, None when
@@ -569,6 +572,7 @@ def test_memory_kept_side_by_side_moves_into_a_directory_per_conversation(tmp_pa
         "2026-10-04T10-00-00-000Z_assistant--c1.jsonl",
         "2026-10-03T10-00-00-000Z_assistant--c2.v1.jsonl",
         "notes",  # not a memory file: left where it is
+        "2026-10-03_ odd name.txt",  # not a session id after the stamp: left too
     ):
         (agent / name).write_text("{}\n")
 
@@ -576,7 +580,9 @@ def test_memory_kept_side_by_side_moves_into_a_directory_per_conversation(tmp_pa
     assert len(session_files(tmp_path, "assistant", "assistant--c1")) == 2
     assert len(session_files(tmp_path, "assistant", "assistant--c2.v1")) == 1
     assert (agent / "notes").is_file()
-    assert sorted(p.name for p in agent.iterdir()) == ["assistant--c1", "assistant--c2.v1", "notes"]
+    assert sorted(p.name for p in agent.iterdir()) == [
+        "2026-10-03_ odd name.txt", "assistant--c1", "assistant--c2.v1", "notes",
+    ]
     assert migrate_session_layout(tmp_path) == 0  # again: nothing left to move
     assert migrate_session_layout(tmp_path / "absent") == 0
 
@@ -809,7 +815,7 @@ async def test_the_applications_scope_reaches_the_spawn_whole(monkeypatch) -> No
     rt = PiRuntime(scopes=Scopes())
     await rt._spawn_session(_profile(), "assistant--c1")
     assert captured["asked"] == ("assistant", "assistant--c1")
-    assert captured["request"].scope.writable == (Path("/x"),)
+    assert captured["request"].process_scope.writable == (Path("/x"),)
     # Its variables name paths on one host's filesystem: the host applies them.
-    assert captured["request"].scope.env == {"TMPDIR": "/x/t"}
+    assert captured["request"].process_scope.env == {"TMPDIR": "/x/t"}
     assert "TMPDIR" not in captured["request"].env

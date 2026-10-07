@@ -2,14 +2,14 @@
 
 from pathlib import Path
 
-from scripts.check_pi_lock import lock_problems
+from scripts.check_pi_lock import lock_violations
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGES = (ROOT / "deploy" / "Dockerfile", ROOT / "deploy" / "Dockerfile.agent")
 
 
 def test_the_lock_resolves_the_manifests_pins_with_a_hash_for_everything() -> None:
-    assert lock_problems() == []
+    assert lock_violations() == []
 
 
 def test_both_images_install_from_the_lock_with_scripts_ignored() -> None:
@@ -51,7 +51,7 @@ def test_the_checker_names_a_lock_that_lags_the_manifest_and_a_hashless_entry(
         "node_modules/b": {"version": "1.0.0"},
     }}))
     monkeypatch.setattr(check_pi_lock, "PI_DIR", tmp_path)
-    found = check_pi_lock.lock_problems()
+    found = check_pi_lock.lock_violations()
     assert any("a: package.json pins 2.0.0, the lock has 1.0.0" in line for line in found)
     assert any("node_modules/b has no integrity hash" in line for line in found)
     assert len(found) == 2
@@ -82,7 +82,7 @@ def test_filling_takes_the_missing_hashes_from_the_registry_and_nothing_else(
     lock = json.loads((tmp_path / "package-lock.json").read_text())
     assert lock["packages"]["node_modules/a/node_modules/b"]["integrity"] == "sha512-fromregistry"
     assert lock["packages"]["node_modules/a"]["integrity"] == "sha512-kept"
-    assert check_pi_lock.lock_problems() == []
+    assert check_pi_lock.lock_violations() == []
 
 
 def test_the_registry_lookup_needs_no_npm(monkeypatch) -> None:

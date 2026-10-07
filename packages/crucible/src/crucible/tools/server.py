@@ -14,7 +14,6 @@ the store it opens, and an agent reaches it over mutual TLS.
 
 import asyncio
 import contextlib
-import hmac
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -22,6 +21,7 @@ from typing import Any
 from aiohttp import web
 
 from crucible.approvals.ports import ToolApproving
+from crucible.constant_time import find_by_secret
 from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
@@ -143,15 +143,7 @@ class ToolServer:
             self._runner = None
 
     def _agent_for_token(self, presented: str) -> str | None:
-        """Constant-time per token, every token compared: a lookup that stops
-        at the first match tells a guesser how far it got. Bytes, not str —
-        compare_digest refuses a non-ASCII str, and a header is whatever the
-        caller put there."""
-        found = None
-        for token, agent in self._tokens.items():
-            if hmac.compare_digest(token.encode(), presented.encode()):
-                found = agent
-        return found
+        return find_by_secret(self._tokens.items(), presented)
 
     async def _handle(self, request: web.Request) -> web.Response:
         agent = self._agent_for_token(request.headers.get(_TOKEN_HEADER, ""))

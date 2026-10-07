@@ -1,13 +1,14 @@
 """The runtime's credential file, checked before every process that reads it.
 
 pi resolves a credential's value through its config-value rules, and a value
-that starts with ``!`` is run as a shell command (its output is the key). The
-file is shared: the engine reads it, and every agent container is handed it
-read-write so its runtime can refresh the token in place. An agent with a shell
-could therefore write ``"key": "!<anything>"`` into it and have that run in
-the engine's process and in every other agent's, as their user, on their next
-spawn. No legitimate login writes such a value, so a process is not started
-while the file holds one.
+that starts with ``!`` is run as a shell command (its output is the key) — on
+every model request, since it re-reads the file whenever it changed. The file
+is shared by every runtime process, so whatever could write ``"key":
+"!<anything>"`` into it would have that run in every other process reading it.
+A confined process is therefore given the file to read only, and the
+application refreshes the login (``auth_refresh.py``). What is left is a file
+something unconfined wrote — no legitimate login writes such a value, so a
+process is not started while the file holds one.
 """
 
 import json

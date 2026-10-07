@@ -115,6 +115,23 @@ Any skill that runs scripts needs `read` + `bash` in the **agent's**
 `runtime.tools` allowlist. Assigning tells you when they're missing — without
 that check a skill installs cleanly and then quietly does nothing.
 
+## Where a skill keeps things
+
+A skill's own directory, like the whole library, is read-only to the agent
+running it: the agent's process is [confined](configuration.md) and, at the
+default level, writes only its conversation's files (`$AGENT_FILES_DIR`), its
+own `$TMPDIR` and its own `$HOME`. A skill that keeps state next to its scripts gets `Permission
+denied`; it writes to one of those instead, or the agent declares the path in
+`runtime.confinement_write`.
+
+`$HOME` is short-lived: at the default level one per conversation, cleared a
+day after it was last used — and in [a container of its own](agent-containers.md),
+gone when the process ends. So a cache there (`uv run`, `npx`, `pip install
+--user`) is refilled again and again. Dependencies a skill needs belong in the
+image — the agent's `runtime.packages` or `Dockerfile.include`, in a container
+of its own — or, without containers, vendored into the skill's own directory,
+which the agent can read.
+
 ## Skills written for other tools
 
 The `SKILL.md` format is shared with Claude Code, Hermes and ClawHub, so a skill

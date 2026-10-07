@@ -70,7 +70,7 @@ Grant it like any other tool (`open_screen` in `runtime.tools`); it needs
    is meant for. The **secret segment** is what says the request came from
    Mattermost at all: a callback carries no signature, so the receiver answers
    nothing off that path. The engine mints `INTEGRATIONS_SECRET` into
-   `conf/.env` on its first start (the installer does too); `impi health`
+   `conf/.env` on its first start (the installer does too); `impi doctor`
    prints the full URL to register. Request method must be **POST**.
 
    Or point it at **`/<secret>/command/default`** and let the engine choose: with one
@@ -220,7 +220,7 @@ the agent's tools — "`/deploy` staging", "`/whois` @user".
 | Symptom | Where to look |
 |---|---|
 | Mattermost says the command failed / nothing happens | Engine log: `command … rejected (token mismatch)` → wrong or missing `AGENTS_COMMAND_TOKENS__<AGENT>` (or `COMMAND_TOKENS` for the default agent); `resolves to no agent` → `/command/default` with several agents and no `AGENT_NAME` among them; no log line at all → the request never arrived (URL, port, `AllowedUntrustedInternalConnections`) |
-| A command or a click answers 403 | Engine log: `callback to /<?>/… refused: not on the receiver's secret path` → the command was registered without, or with an old, `INTEGRATIONS_SECRET`; re-register it with the URL `impi health` prints. Cards posted before the secret changed stay dead |
+| A command or a click answers 403 | Engine log: `callback to /<?>/… refused: not on the receiver's secret path` → the command was registered without, or with an old, `INTEGRATIONS_SECRET`; re-register it with the URL `impi doctor` prints. Cards posted before the secret changed stay dead |
 | Answer says the agent is unavailable | The named agent isn't running (check `app built: agents=[…]`) or the URL names a different agent |
 | Ephemeral message never appears (Mattermost) | The bot lacks `create_post_ephemeral` — `post_ephemeral` fails with a permission error (the `send_ephemeral` tool reports it as one) |
 | Slack shortcut does nothing | Callback ID must start with `SLACK_COMMAND_PREFIX` (default `crux_`); Interactivity must be on; the engine must be running (Socket Mode delivers to one connection) |

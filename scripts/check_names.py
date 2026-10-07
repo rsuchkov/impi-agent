@@ -39,8 +39,9 @@ LIBRARY = ROOT / "packages" / "crucible" / "src" / "crucible"
 # than saying "everything except the driver" keeps the two halves of the rule —
 # imports and words — describing the same set.
 NEUTRAL = (
-    "approvals", "attachments.py", "builtin_tools.py", "flows", "gateways",
-    "interactions", "ports", "profiles", "scheduler", "skills", "store", "tools",
+    "approvals", "attachments.py", "builtin_tools.py", "confinement", "constant_time.py", "containment.py",
+    "flows", "gateways", "interactions", "ports", "private_files.py", "process_scopes.py",
+    "profiles", "scheduler", "skills", "store", "tools",
 )
 
 # Escape hatch for a violation that is genuinely not worth the change it would

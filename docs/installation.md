@@ -163,14 +163,16 @@ Landlock: it writes its own conversation's memory and files and its own
 `Permission denied` rather than `Read-only file system` — a tmpfs does not
 help there; declare the path in the agent's profile or change its level
 (`RUNTIME_CONFINEMENT` in [configuration.md](configuration.md)). It needs a
-host kernel with Landlock (Linux 5.13+, enabled on every mainstream
-distribution's kernel); without it the engine warns and the agents run
-unconfined.
+host kernel with Landlock (Linux 5.13+, with Landlock in the boot's LSM list),
+and a container runtime whose seccomp profile lets the `landlock_*` calls
+through; the confinement line in `impi doctor` says what this host gives.
+Without it the engine warns and the agents run unconfined.
 
 An image of your own — a `Dockerfile.include` that installs something which
-writes under its own directory at run time, a JDK's cache, a tool's state in
-`$HOME` — hits the read-only root and fails with `Read-only file system`. The
-fix is a tmpfs for that path, in a drop-in, and nothing else changes:
+writes under its own directory at run time, a JDK's cache — hits the read-only
+root and fails with `Read-only file system`. (`$HOME` is not the case: it is
+memory already, and a confined process has a scratch `HOME` of its own.) The
+fix is a tmpfs for that path, in a drop-in:
 
 ```yaml
 # ~/.impi/compose.d/agent-cache.yaml
@@ -178,13 +180,19 @@ services:
   agent-assistant:
     tmpfs:
       - /tmp:mode=1777,size=256m
-      - /home/impi/.cache:mode=1777,size=64m
+      - /home/impi:mode=1777,size=64m
+      - /home/impi/.pi:mode=1777,size=16m
+      - /home/impi/.pi/agent:mode=1777,size=16m
+      - /opt/mytool/cache:mode=1777,size=64m
 ```
 
-(Depending on the compose implementation a drop-in's `tmpfs` list is merged
-with the generated one or replaces it; repeating `/tmp` and the generated
-entries is harmless in the first case and keeps the drop-in correct in the
-second.)
+Repeat the generated entries as above: depending on the compose implementation
+a drop-in's `tmpfs` list is merged with the generated one or replaces it, and a
+replaced list without `/home/impi/.pi/agent` leaves `pi` nowhere to take its
+lock — every turn then fails with "No API key found". At the default
+confinement level the runtime process cannot write the new path either; declare
+it in the agent's profile (`runtime.confinement_write` does not apply in a
+container of its own) — or give that agent `runtime.confinement: off`.
 Rootless podman needs no adjustment: `keep-id` and a read-only root compose,
 and `mode=` rather than `uid=` on the tmpfs is deliberate — podman supports no
 owner on one.

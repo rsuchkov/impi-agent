@@ -16,6 +16,7 @@ a message writes the same path instead of a second copy.
 """
 
 import asyncio
+import hashlib
 import logging
 import re
 import time
@@ -46,6 +47,8 @@ class IncomingFile:
 # Filesystem hygiene for names that come from a stranger's machine.
 _UNSAFE = re.compile(r"[^A-Za-z0-9._\- ]+")
 _MAX_NAME = 80
+# Hex characters of the digest that keeps two conversation ids apart.
+_DIGEST_CHARS = 12
 _FALLBACK_NAME = "file"
 # How often a save may trigger a retention sweep (the sweep also runs at startup).
 _SWEEP_INTERVAL_S = 3600.0
@@ -114,8 +117,19 @@ class AttachmentStore:
         return self.root / safe_name(agent)
 
     def conversation_dir(self, agent: str, conversation_id: str) -> Path:
-        """One conversation's attachments, inside its agent's tree."""
-        return self.dir_for(agent) / safe_name(conversation_id or "misc")
+        """One conversation's attachments, inside its agent's tree, under a name
+        no other conversation's maps to. ``safe_name`` alone would not do: it
+        drops everything before a ``/`` and folds other characters to ``_``, so
+        a caller choosing its own conversation ids (``x/a_b`` against another's
+        ``a:b``) could land in someone else's directory — the one a process
+        confined to that conversation is given. A digest of the id is appended
+        whenever cleaning changed it, as for a runtime session id."""
+        raw = conversation_id or "misc"
+        cleaned = safe_name(raw)
+        if cleaned == raw:
+            return self.dir_for(agent) / cleaned
+        digest = hashlib.sha256(raw.encode()).hexdigest()[:_DIGEST_CHARS]
+        return self.dir_for(agent) / f"{cleaned[: _MAX_NAME - _DIGEST_CHARS - 1]}-{digest}"
 
     async def save(
         self,

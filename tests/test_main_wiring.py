@@ -515,7 +515,7 @@ def test_one_agent_alone_in_the_engine_is_nobodys_neighbour(
 
 
 def test_shared_process_agents_is_about_shells_among_neighbours() -> None:
-    from impi.app import shared_process_agents
+    from impi.deployment_report import shared_process_agents
 
     def spec(name: str, *tools: str):
         return dataclasses.replace(
@@ -556,9 +556,11 @@ def test_an_extension_that_is_present_but_not_named_is_not_loaded_and_is_named_i
 
 
 def test_an_extension_name_that_could_walk_out_of_the_directory_is_refused(tmp_path: Path) -> None:
-    settings = _settings(tmp_path).model_copy(update={"runtime_extensions": "../engine"})
     with pytest.raises(ValueError, match="RUNTIME_EXTENSIONS"):
-        settings.runtime_extension_names()
+        Settings(
+            _env_file=None,  # pyright: ignore[reportCallIssue]
+            dotenv_path=str(tmp_path / "no-such.env"), runtime_extensions="../engine",
+        )
 
 
 def test_an_unwritable_env_file_does_not_stop_the_engine(tmp_path: Path) -> None:
@@ -639,6 +641,52 @@ def test_an_agent_in_a_container_of_its_own_is_told_where_its_files_are(
         host = app.runtime._hosts.for_agent("assistant")
         assert isinstance(host, RemoteHost)
         assert host._files_root == (settings.resolved_attachments_dir / "assistant").resolve()
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()
+
+
+def test_a_minted_receiver_secret_is_kept_on_the_next_start(tmp_path: Path) -> None:
+    """Minted once, then reused: a new one on every start would leave every
+    registered slash command and every posted card dead after a restart."""
+    from impi.provisioning import ensure_receiver_secret
+
+    dotenv = tmp_path / ".env"
+    settings = _settings(tmp_path).model_copy(update={"dotenv_path": str(dotenv)})
+    minted = ensure_receiver_secret(settings, needs_receiver=True)
+    assert minted.integrations_secret and f"INTEGRATIONS_SECRET={minted.integrations_secret}" in dotenv.read_text()
+    again = ensure_receiver_secret(minted, needs_receiver=True)
+    assert again is minted and dotenv.read_text().count("INTEGRATIONS_SECRET=") == 1
+
+
+def test_tool_approvers_reach_the_gate(tmp_path: Path) -> None:
+    from crucible.interactions.toolgate import ToolGate
+
+    settings = _settings(tmp_path).model_copy(
+        update={"integrations_secret": "k2Xy8qLmN0pRsTuVwZ", "tool_approvers": "U1, U2"}
+    )
+    app = build_app(settings)
+    try:
+        assert app.tool_server is not None
+        gate = app.tool_server._tool_gate
+        assert isinstance(gate, ToolGate) and gate._approvers == frozenset({"U1", "U2"})
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()
+
+
+def test_the_engine_keeps_the_login_fresh_and_spares_a_live_conversations_scratch(tmp_path: Path) -> None:
+    from crucible.runtimes.pi.auth_refresh import AuthRefresher
+
+    app = build_app(_settings(tmp_path))
+    try:
+        assert isinstance(app.auth_refresher, AuthRefresher)
+        assert isinstance(app.runtime, PiRuntime)
+        scopes = app.runtime._scopes
+        assert isinstance(scopes, AgentProcessScopes)
+        assert scopes._has_process("assistant--c1") is False
+        app.runtime._sessions["assistant--c1"] = object()  # type: ignore[assignment]
+        assert scopes._has_process("assistant--c1") is True
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
         app.sessions.close_sync()

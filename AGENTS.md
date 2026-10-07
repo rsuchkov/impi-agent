@@ -101,13 +101,14 @@ duplicate architecture here.
 
 - **Runtime-neutral core.** The neutral layers — `ports`, `flows`, `tools`,
   `interactions`, `store`, `profiles`, `gateways`, `scheduler`, `approvals`,
-  `skills`, `attachments` — name no concrete runtime, and not only in imports:
+  `skills`, `attachments`, `confinement`, `containment`, `process_scopes`,
+  `private_files` — name no concrete runtime, and not only in imports:
   comments, docstrings, names, and strings there use neutral terms ("the
   runtime", "the runtime's tool extension / session / UI request"), never
   "pi's …". `pi` specifics live only in `runtimes/pi/` and the composition root;
   the exceptions are the backend knobs in `config.py` (`pi_*`), an explicit
-  settings boundary, and `sessions_cli.py`, which deletes the runtime's own
-  session files.
+  settings boundary, and `sessions_cli.py` and `session_retention.py`, which
+  delete the runtime's own session files.
 
 - **The library names no application.** `crucible` is reusable, so nothing under
   it says "impi" — not in a message it emits, a file it writes, or a path it
@@ -153,7 +154,7 @@ duplicate architecture here.
   module after what it is about (`auth_file`, not `credentials`), a function
   after what it returns or does (`executable_entries`, `check_inherited_env`
   that raises — not `env_pattern_problem` returning a reason or `""`), a
-  predicate so its `True` reads (`_idle_before`). Before adding a name, grep
+  predicate so its `True` reads (`idle_before`). Before adding a name, grep
   for it: the same word must not mean values in one place and names in another
   (`env` vs `inherit`), nor two different lookups in two modules (`_agent_for`).
   Avoid catch-alls (`_guard`, `_open`, `problems`, `_BASE_*`) unless the module
@@ -210,11 +211,18 @@ Create a bot account, copy its token, and put it in `.env`. See
 ## Requirements and configuration
 
 - **[uv](https://docs.astral.sh/uv/)** and **Python 3.13** (`.python-version`).
-- The **`pi` CLI on `PATH`**: `npm i -g @earendil-works/pi-coding-agent` (needs Node.js).
+- The **`pi` CLI on `PATH`**: `npm i -g @earendil-works/pi-coding-agent` (needs Node.js),
+  with **`rg` and `fd` 10+** beside it — `pi`'s `grep`/`find` use them and, offline,
+  do not download them (Debian bookworm's `fd` 8.6 is too old).
 - For an agent with the web-browsing skill, the **`playwright-cli` on `PATH`**:
   `npm i -g @playwright/cli`. The engine's image installs it; a `make run` on the
   host does not, so an agent that browses would fail there with nothing to point
   at. It also needs a browser to attach to — see [docs/browsing.md](docs/browsing.md).
 - Configuration is pydantic-settings (`packages/*/src/*/config.py`); secrets live in
   `.env` (git-ignored), templated by `.env.example`. Full reference:
-  [docs/configuration.md](docs/configuration.md).
+  [docs/configuration.md](docs/configuration.md). Settings are flat fields,
+  validated as they load. Families of keys are the exception, read by a method:
+  the per-agent `AGENTS_<KIND>__<AGENT>`, and `RUNTIME_ENV__<AXIS>` — each
+  compose overlay names the variables it adds for the agents under a key of its
+  own, because overlays cannot merge one list. A new family needs a reason that
+  strong.

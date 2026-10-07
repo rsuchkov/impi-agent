@@ -15,7 +15,7 @@ from pathlib import Path
 PI_DIR = Path(__file__).resolve().parent.parent / "deploy" / "pi"
 
 
-def lock_problems() -> list[str]:
+def lock_violations() -> list[str]:
     manifest = json.loads((PI_DIR / "package.json").read_text(encoding="utf-8"))
     lock = json.loads((PI_DIR / "package-lock.json").read_text(encoding="utf-8"))
     packages = lock.get("packages", {})
@@ -70,7 +70,7 @@ def main() -> int:
     if "--fill" in sys.argv[1:]:
         for spec in fill_integrity():
             print(f"integrity filled from the registry: {spec}")
-    found = lock_problems()
+    found = lock_violations()
     for line in found:
         print(f"✘ {line}")
     if not found:

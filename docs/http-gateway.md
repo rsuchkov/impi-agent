@@ -143,8 +143,9 @@ what other people wrote.
 `200 {"outcome": "resolved" | "redrawn" | "not_mine" | "not_allowed"}`. A
 button answers with its own value (the body's `value` is ignored for it); a menu
 answers with one of its options, anything else is `422`. A click on a
-confirmation card for a tool call is answered by whoever is in the
-conversation — here, the caller's user; a request for a *credential* is
+confirmation card for a tool call is answered by the user whose message
+started the turn (the `X-User-Id` that message carried), or by the people
+`TOOL_APPROVERS` names — anyone else gets `not_allowed`; a request for a *credential* is
 addressed to named approvers by **user id**, which on this gateway is what the
 caller put in `X-User-Id` — so the program's claim about its user decides who
 may approve a credential, and refuses everyone else (`not_allowed`, the card

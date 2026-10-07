@@ -42,8 +42,13 @@ runtime adds to the application's scope: the system paths, where `pi` and
 node are installed, the profile, skills and extensions, files the environment
 points at, its memory for this conversation; its agent directory
 (`PI_CODING_AGENT_DIR`, set explicitly because `HOME` is the process's own)
-with `auth.json` and `models-store.json` rewritable in place and room for the
-lock directory `pi` takes beside them, and nothing else creatable there.
+with `auth.json` and `models-store.json` readable, room for the lock directory
+`pi` takes beside them, and nothing writable there. `pi` re-reads `auth.json`
+before every model request and runs a key that begins with `!`, so a process
+that could write it could have a command run in every other one; the
+application refreshes an OAuth login instead (`runtimes/pi/auth_refresh.py`:
+every 15 minutes, any login that expires within the hour, with `pi`'s own
+code). A confined process then never finds a login it would have to refresh.
 
 `impi escape <agent>` starts the same profile for a person in a terminal: the
 flags from `--tools` down are built by the same code (`interactive_args`
@@ -79,7 +84,9 @@ bundles, `PI_*`), then the names the deployment (`RUNTIME_ENV`,
 shared extra env, then the agent's per-agent env, then a per-session value.
 Everything else the engine holds stays in the engine. An engine-owned agent
 (`support`) inherits the whole environment instead. Every process also gets
-`PI_OFFLINE=1`, which stops `pi`'s startup version check and nothing else.
+`PI_OFFLINE=1`, which stops `pi`'s startup version check, its download of `rg`
+and `fd` for its `grep`/`find` tools (the images ship both), and its install of
+a package `settings.json` names that is not installed yet.
 
 - `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` (and `NODE_TLS_REJECT_UNAUTHORIZED`
   when `LLM_VERIFY_SSL=false`) — only when a custom endpoint is configured; consumed
@@ -165,7 +172,8 @@ with `stopReason: error` and the text "This operation was aborted" — the drive
 reads both as a cancel, never as a provider failure.)
 
 `PiRuntime.reset(agent, session_id)` is the opposite: end the process now and
-delete `<session_dir>/<agent>/*_<session_id>.*`, so the next turn starts from
-nothing. `has_memory(agent, session_id)` reads the same place. The layout lives
-in exactly one function, `runtimes/pi/spawn.session_files`, which the cleanup
-CLI uses too.
+delete `<session_dir>/<agent>/<session_id>/` — its files and the directory — so
+the next turn starts from nothing. `has_memory(agent, session_id)` reads the
+same place. The layout lives in `runtimes/pi/spawn` (`conversation_memory_dir`
+and the functions beside it), which the cleanup CLI and the retention sweep use
+too.

@@ -170,7 +170,7 @@ if [ "$AGENTS" = 1 ]; then
     check "the overlay was generated" test -f "$E2E_HOME/conf/agents.compose.yaml"
     check "the engine knows the agent's host token" \
         grep -q '^AGENTS_HOST_TOKEN__ASSISTANT=' "$E2E_HOME/conf/.env"
-    agent_up() { compose ps 2>/dev/null | grep -q "agent-assistant"; }
+    agent_up() { compose ps 2>/dev/null | grep -c "agent-assistant" >/dev/null; }
     check "the assistant's container is running" agent_up
     check "its host answers its own health endpoint" \
         in_agent assistant python -c \
@@ -204,7 +204,7 @@ if [ "$AGENTS" = 1 ]; then
     check "the engine reports the agent as remote" remote_logged
     # A new agent's container does not exist until somebody syncs — the whole
     # point of the trade, so it is asserted rather than assumed.
-    tester_has_no_container() { ! compose ps 2>/dev/null | grep -q "agent-tester"; }
+    tester_has_no_container() { ! compose ps 2>/dev/null | grep -c "agent-tester" >/dev/null; }
     check "a newly added agent has no container until sync" tester_has_no_container
 fi
 
@@ -321,7 +321,9 @@ playwright-cli detach >/dev/null
     # first and its browser probe has its own copy of the reasoning. A probe
     # that never runs is a probe nobody finds out is wrong.
     doctor_sees_chrome() {
-        IMPI_HOME=$E2E_HOME "$HOME/.local/bin/impi" doctor 2>&1 | grep -q "browser: Chrome/"
+        # -c, not -q: doctor is still printing after the browser line, and a
+        # grep that quits early SIGPIPEs it — pipefail then fails a match.
+        IMPI_HOME=$E2E_HOME "$HOME/.local/bin/impi" doctor 2>&1 | grep -c "browser: Chrome/" >/dev/null
     }
     check "impi doctor reports the browser" doctor_sees_chrome
 

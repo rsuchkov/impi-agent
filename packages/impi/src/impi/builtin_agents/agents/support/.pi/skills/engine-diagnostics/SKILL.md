@@ -64,8 +64,8 @@ An agent is skipped at startup, with a log line, when:
 A **new** agent needs a restart; agents are enumerated once at startup. Profile
 edits need only a reload.
 
-The **engine itself refuses to start** in three configurations, and says which
-in the first lines of `impi logs`:
+The **engine itself refuses to start** on a setting it cannot honour, and says
+which in the first lines of `impi logs`:
 
 - on MongoDB, after an update that made `sessions.runtime_session_id` unique:
   Mongo will not change an index in place, so the operator runs
@@ -76,7 +76,15 @@ in the first lines of `impi logs`:
   the model was already told had failed. Lower it.
 - on MongoDB, a `DB_COLLECTION_PREFIX` with a character outside letters,
   digits, `_` and `-`: the prefix goes on every collection name and must read
-  in a shell without quoting (`$IMPI_ROOT/docs/storage.md`).
+  in a shell without quoting (`$IMPI_ROOT/docs/storage.md`);
+- a `RUNTIME_ENV`, `RUNTIME_ENV__<AXIS>` or `AGENTS_ENV__<AGENT>` entry that is
+  not a variable name or a family with a real prefix, or that covers the
+  engine's own (`AGENTS_*`, `TOOL_*`, `LLM_*`, …) — the error names the key;
+- a `RUNTIME_EXTENSIONS` name that is not one (a `/`, `..`);
+- `RUNTIME_CONFINEMENT` or `AGENTS_CONFINEMENT__<AGENT>` that is not
+  `conversation`, `agent` or `off`;
+- an `INTEGRATIONS_SECRET` shorter than 16 characters or with characters
+  outside letters, digits, `-` and `_` (it is a segment of a URL).
 
 After that same update a `ws` agent **starts every conversation afresh once**:
 its session keys changed shape. That is expected, not a lost volume — the
@@ -84,6 +92,16 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
 
 ## 2. Turns fail
 
+- "refusing to start the runtime: … holds a value it would run as a command"
+  (engine log), or a host refusing a spawn with "replace the file with a fresh
+  login" — the model credential holds a key beginning with `!`, which `pi`
+  would run. No login writes one; something unconfined did. Nothing starts
+  until the operator replaces it with `impi login` — say so, and that what
+  wrote it is worth finding.
+- Every agent fails to call the model after working for days ("No API key",
+  "OAuth refresh failed") — the engine refreshes the shared login (log:
+  `refreshing the runtime's login failed: …`); a confined process cannot. A
+  fresh `impi login` fixes it.
 - "pi process exited unexpectedly" — the error carries the exit code and the
   last stderr lines; read them. Usual causes: a custom endpoint that is down,
   a provider/model the backend does not have, a missing `models.json`.
@@ -108,7 +126,7 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   stops while the gate waits. A turn that times out while a card is up has some
   other cause.
 - **An agent answers but remembers nothing of an old conversation** — besides
-  a skipped migration (agent containers), `PI_SESSION_RETENTION_DAYS` may have
+  a skipped migration (agent containers), `SESSION_RETENTION_DAYS` may have
   forgotten it at startup: the log says `forgot N conversation(s) idle for D+
   days`, and only idle ones go.
 

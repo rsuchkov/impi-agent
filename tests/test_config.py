@@ -132,11 +132,11 @@ def test_a_secret_that_is_not_path_safe_is_refused(bad: str) -> None:
         _settings(integrations_secret=bad)
 
 
-def test_env_for_mirrors_skills_for(monkeypatch) -> None:
+def test_inherited_env_for_mirrors_skills_for(monkeypatch) -> None:
     monkeypatch.delenv("AGENTS_ENV__MY_AGENT", raising=False)
     assert _no_dotenv().inherited_env_for("my-agent") is None
-    monkeypatch.setenv("AGENTS_ENV__MY_AGENT", "A, B_*")
-    assert _no_dotenv().inherited_env_for("my-agent") == ("A", "B_*")
+    monkeypatch.setenv("AGENTS_ENV__MY_AGENT", "A, BAR_*")
+    assert _no_dotenv().inherited_env_for("my-agent") == ("A", "BAR_*")
     monkeypatch.setenv("AGENTS_ENV__MY_AGENT", "")
     assert _no_dotenv().inherited_env_for("my-agent") == ()
 
@@ -159,11 +159,25 @@ def test_tool_approvers_parse_to_a_tuple_and_default_to_nobody_named() -> None:
 
 
 def test_runtime_env_refuses_a_pattern_that_would_hand_over_everything(monkeypatch) -> None:
+    """Refused as the settings load, naming the key — not when the first
+    process is built."""
     for key in [k for k in os.environ if k.startswith("RUNTIME_ENV")]:
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("RUNTIME_ENV", "*")
     with pytest.raises(ValueError, match="RUNTIME_ENV"):
-        _no_dotenv().runtime_env_names()
+        _settings(runtime_env="*")
+    monkeypatch.setenv("RUNTIME_ENV__BROWSER", "AGENTS_*")
+    with pytest.raises(ValueError, match="RUNTIME_ENV__BROWSER"):
+        _no_dotenv()
+
+
+def test_an_axis_key_in_the_environment_overrides_the_env_file(tmp_path, monkeypatch) -> None:
+    for key in [k for k in os.environ if k.startswith("RUNTIME_ENV")]:
+        monkeypatch.delenv(key, raising=False)
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("RUNTIME_ENV__BROWSER=FROM_FILE\nRUNTIME_ENV__OTHER=KEPT\n")
+    monkeypatch.setenv("RUNTIME_ENV__BROWSER", "FROM_ENV")
+    names = Settings(dotenv_path=str(dotenv)).runtime_env_names()
+    assert set(names) == {"FROM_ENV", "KEPT"}
 
 
 def test_runtime_confinement_defaults_to_conversation_and_refuses_anything_else() -> None:

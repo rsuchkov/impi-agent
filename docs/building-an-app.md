@@ -219,10 +219,13 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   the paths a process may read and write, or `None` for unconfined. The
   runtime adds what it needs itself — its program, its memory, its account.
   Without `scopes=` nothing is confined; on a kernel without Landlock nothing
-  is either, with a warning. Call
-  `crucible.runtimes.pi.spawn.migrate_session_layout(session_dir)` once at
-  startup if your deployment kept memory before 0.20: each conversation's
-  memory now has a directory of its own.
+  is either, with a warning. A confined process reads the model credential
+  and cannot write it, so it cannot refresh an expiring OAuth login: run
+  `AuthRefresher(program=...).run()` (`crucible.runtimes.pi.auth_refresh`)
+  as a loop of your own, which refreshes a login an hour before it expires.
+  Each conversation's memory has a directory of its own;
+  `crucible.runtimes.pi.spawn.migrate_session_layout(session_dir)` moves memory
+  kept side by side into that layout, and is harmless to call at every start.
 - **Replaying a conversation the runtime forgot.** The runtime's memory is a
   session on its disk; a pod rescheduled without that disk, an idle session
   evicted, an operator's `reset` all leave a conversation the store knows and

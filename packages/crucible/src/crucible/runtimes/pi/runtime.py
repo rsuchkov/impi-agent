@@ -53,7 +53,8 @@ logger = logging.getLogger(__name__)
 # RUNTIME_SESSION_ID, and what lets the tool server believe that id.
 SESSION_PROOF_ENV = "TOOL_SESSION_PROOF"
 # Granted to every process, wherever it runs. PI_OFFLINE stops the runtime's
-# startup network calls (its version check); a model call is not one of them.
+# own network calls — its version check, downloading rg/fd, installing a
+# package its settings name; a model call is not one of them.
 _ALWAYS_GRANTED = {"PI_OFFLINE": "1"}
 
 # (profile, session_id_or_None, cwd_or_None) -> a started session. No listener
@@ -164,6 +165,10 @@ class PiRuntime:
         self._reaper_task: asyncio.Task[None] | None = None
 
     # -- public API (RuntimeControl) ----------------------------------------
+
+    def has_process(self, session_id: str) -> bool:
+        """Whether this conversation has a process alive right now."""
+        return safe_session_id(session_id) in self._sessions
 
     def has_memory(self, agent: str, session_id: str) -> bool:
         """A live session, or memory on disk under the id the process was given.
@@ -445,9 +450,8 @@ class PiRuntime:
         finally:
             # A proof dies with its process — a memoryless run's included, which
             # no session key names.
-            proof_id = getattr(session, "proof_session_id", "")
-            if self._proofs is not None and proof_id:
-                self._proofs.revoke(proof_id)
+            if self._proofs is not None and session.proof_session_id:
+                self._proofs.revoke(session.proof_session_id)
             self._release(agent)
 
     async def _drop_session(self, key: str) -> None:
@@ -494,7 +498,7 @@ class PiRuntime:
             session_dir=Path(self._session_dir) if self._session_dir else None,
             extensions=tuple(self._extra_extensions),
             cwd=Path(cwd) if cwd else None,
-            scope=scope,
+            process_scope=scope,
         )
         transport = await self._hosts.for_agent(profile.name).open(request)
         # The coerced id, not the one the caller passed: it is what the tool

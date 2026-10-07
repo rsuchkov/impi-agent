@@ -170,6 +170,9 @@ this, the same way it has none for the secret store.
 `make run` runs the engine on the host, where `playwright-cli` is not installed
 and there is no browser container on a compose network. To work on this
 outside the stack, install the CLI (`npm i -g @playwright/cli`), start the
-browser on its own, and point `BROWSER_CDP_URL` at it. The overlay publishes no
+browser on its own, and export `BROWSER_CDP_URL` pointing at it together with
+`RUNTIME_ENV=BROWSER_CDP_URL` in the shell that runs `make run` — an agent's
+process inherits only what is named, and only from the engine's process
+environment (a line in `.env` does not reach it). The overlay publishes no
 host port on purpose, so that is a deliberate step rather than something that
 happens to be reachable.

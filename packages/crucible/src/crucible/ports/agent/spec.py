@@ -10,6 +10,8 @@ of any backend.
 from dataclasses import dataclass
 from pathlib import Path
 
+from crucible.ports.agent.confinement import ConfinementLevel
+
 
 @dataclass(frozen=True)
 class AgentSpec:
@@ -30,14 +32,15 @@ class AgentSpec:
     skills: tuple[str, ...] = ()
     # Names of variables in the ENGINE's environment that this agent's runtime
     # process may inherit, beside the base set every process gets (PATH, HOME,
-    # locale, proxies, certificates). A runtime process is handed what the
+    # the user, locale, proxies, certificates, PI_*). A runtime process is handed what the
     # engine grants it, never everything the engine happens to hold: the
     # difference is the engine's entire secret set. Globs are allowed
     # (``MYSERVICE_*``), checked by ``inherited_env.check_inherited_env``.
     inherit: tuple[str, ...] = ()
     # How far this agent's processes are confined; None = the deployment's
-    # default. Paths beyond its own it may read or write, absolute, for a
-    # skill that needs more (a mounted checkout, a cache it keeps).
-    confinement: str | None = None
+    # default. Paths beyond its own it may read or write, for a skill that
+    # needs more (a mounted checkout, a cache it keeps) — absolute here; the
+    # profile may give them relative to its own directory.
+    confinement: ConfinementLevel | None = None
     confinement_readable: tuple[Path, ...] = ()
     confinement_writable: tuple[Path, ...] = ()

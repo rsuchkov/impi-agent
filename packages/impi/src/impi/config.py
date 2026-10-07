@@ -9,6 +9,8 @@ import os
 import re
 from typing import ClassVar
 
+from pydantic import field_validator
+
 from crucible.config import Settings
 
 # A directory name under _extensions/, nothing that could walk out of it.
@@ -36,18 +38,28 @@ class ImpiSettings(Settings):
     # can add to is not where that decision belongs.
     runtime_extensions: str = ""
 
-    def runtime_extension_names(self) -> tuple[str, ...]:
-        names = tuple(dict.fromkeys(n.strip() for n in self.runtime_extensions.split(",") if n.strip()))
-        for name in names:
+    @field_validator("runtime_extensions")
+    @classmethod
+    def _extension_names_are_names(cls, value: str) -> str:
+        for name in _csv_names(value):
             if not EXTENSION_NAME_RE.fullmatch(name):
                 raise ValueError(
                     f"RUNTIME_EXTENSIONS: {name!r} is not an extension name (a directory "
                     "name under _extensions/: letters, digits, '-' and '_')"
                 )
-        return names
+        return value
+
+    def runtime_extension_names(self) -> tuple[str, ...]:
+        """The extensions the deployment named, in its order, each once —
+        checked as the settings loaded."""
+        return _csv_names(self.runtime_extensions)
     agent_max_hops: int = 4  # refuse an agent turn past this depth from a human
     agent_rate_limit_turns: int = 6  # max agent-triggered turns...
     agent_rate_window_s: float = 60.0  # ...per conversation per this window
+
+
+def _csv_names(raw: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(n.strip() for n in raw.split(",") if n.strip()))
 
 
 def load_settings() -> ImpiSettings:

@@ -371,6 +371,8 @@ def test_the_receiver_knows_where_a_modal_submits(tmp_path: Path) -> None:
     assert settings.dialog_url == "http://ward:8426/dialog"
     assert isinstance(ward.listener, InteractionsServer)
     assert ward.listener._dialog_submit_url == settings.dialog_url
+    # A refused callback sends the operator to the broker's own setting.
+    assert ward.listener._secret_setting == "WARD_CALLBACK_SECRET"
     ward.store._conn.close()
 
 
@@ -417,7 +419,6 @@ def test_the_receiver_is_keyed_with_the_callback_secret(tmp_path: Path) -> None:
     ward = build(settings)
     assert settings.interact_url == "http://ward:8426/k2Xy8qLmN0pRsTuVwZ/interact"
     assert settings.dialog_url == "http://ward:8426/k2Xy8qLmN0pRsTuVwZ/dialog"
-    assert settings.command_url == "http://ward:8426/k2Xy8qLmN0pRsTuVwZ/command/ward"
     assert isinstance(ward.listener, InteractionsServer)
     assert ward.listener._secret == "k2Xy8qLmN0pRsTuVwZ"
     ward.store._conn.close()

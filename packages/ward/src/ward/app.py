@@ -126,6 +126,7 @@ class _Mattermost:
             host=self._settings.callback_host,
             port=self._settings.callback_port,
             secret=self._settings.callback_secret,
+            secret_setting="WARD_CALLBACK_SECRET",
             dialog_submit_url=self._settings.dialog_url,
             command_tokens=lambda _agent: self._settings.tokens,
         )

@@ -248,3 +248,19 @@ def test_the_operators_override_wins_over_the_profile(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", _yaml_with_runtime("  confinement: agent\n"))
     store = FsProfileStore(tmp_path, confinement_override=lambda name: "off", library=None)
     assert store.get("assistant").confinement == "off"
+
+
+def test_a_bad_override_is_reported_under_its_own_key(tmp_path: Path, monkeypatch) -> None:
+    """An invalid AGENTS_CONFINEMENT__ / AGENTS_ENV__ value sends the operator to
+    the setting, not to a correct agent.yaml."""
+    from crucible.config import Settings
+
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime("  confinement: agent\n  env: [MY_VAR]\n"))
+    settings = Settings(dotenv_path="no-such.env")
+    monkeypatch.setenv("AGENTS_CONFINEMENT__ASSISTANT", "none")
+    with pytest.raises(ProfileError, match="^AGENTS_CONFINEMENT__ASSISTANT"):
+        FsProfileStore(tmp_path, confinement_override=settings.confinement_for, library=None)
+    monkeypatch.delenv("AGENTS_CONFINEMENT__ASSISTANT")
+    monkeypatch.setenv("AGENTS_ENV__ASSISTANT", "AGENTS_*")
+    with pytest.raises(ProfileError, match="^AGENTS_ENV__ASSISTANT"):
+        FsProfileStore(tmp_path, inherit_override=settings.inherited_env_for, library=None)

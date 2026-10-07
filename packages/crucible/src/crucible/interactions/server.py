@@ -16,7 +16,6 @@ posted or a command registered, and checked here before anything is routed.
 Off that path the receiver answers 403 and nothing else.
 """
 
-import hmac
 import logging
 from collections.abc import Awaitable, Callable
 
@@ -24,7 +23,7 @@ from aiohttp import web
 from aiohttp.abc import AbstractAccessLogger
 
 from crucible.approvals import ApprovalOutcome
-from crucible.config import callback_path
+from crucible.constant_time import matches_any
 from crucible.interactions.callbacks import CallbackCodec
 from crucible.interactions.dispatcher import InteractionDispatcher
 from crucible.interactions.presence import AgentPresence
@@ -37,6 +36,7 @@ from crucible.ports.chat.types import (
     KIND_THREAD,
     NOT_AN_APPROVER_TEXT,
 )
+from crucible.receiver_paths import callback_path
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,7 @@ class InteractionsServer:
         host: str = "0.0.0.0",
         port: int = 8423,
         secret: str = "",
+        secret_setting: str = "INTEGRATIONS_SECRET",
         dialog_submit_url: str = "",
         command_tokens: CommandTokens | None = None,
         agents: LiveAgents | None = None,
@@ -98,6 +99,9 @@ class InteractionsServer:
         self._host = host
         self._port = port
         self._secret = secret
+        # The setting an operator changes to fix a refused callback — the
+        # application's own name for it, so the log points at the right file.
+        self._secret_setting = secret_setting
         self._dialog_submit_url = dialog_submit_url
         self._command_tokens = command_tokens
         self._agents = agents
@@ -130,15 +134,15 @@ class InteractionsServer:
         shape = callback_path("", secret="<secret>" if self._secret else "").rstrip("/")
         logger.info(
             "integrations receiver on http://%s:%d (%s/interact, %s/dialog, "
-            "%s/command/{agent}); /command/%s -> %s",
-            self._host, self._port, shape, shape, shape, DEFAULT_AGENT_PATH,
+            "%s/command/{agent}); %s/command/%s -> %s",
+            self._host, self._port, shape, shape, shape, shape, DEFAULT_AGENT_PATH,
             self._agent_for(DEFAULT_AGENT_PATH) or "nothing (name one with AGENT_NAME)",
         )
         if not self._secret:
             logger.warning(
                 "the receiver has no secret: every callback that reaches port %d is "
-                "trusted on arrival — set INTEGRATIONS_SECRET (docs/commands.md)",
-                self._port,
+                "trusted on arrival — set %s",
+                self._port, self._secret_setting,
             )
 
     @web.middleware
@@ -153,15 +157,16 @@ class InteractionsServer:
         # aiohttp, not a refusal — and must never be what the log prints.
         _, _, rest = request.path.partition("/")
         presented, _, _ = rest.partition("/")
-        if not hmac.compare_digest(self._secret.encode(), presented.encode()):
+        if not matches_any([self._secret], presented):
             logger.warning(
                 "callback to %s refused: not on the receiver's secret path — a card "
-                "posted or a slash command registered before INTEGRATIONS_SECRET was "
-                "set or changed still points at the old URL (docs/commands.md)",
+                "posted or a slash command registered before %s was set or changed "
+                "still points at the old URL; register it again under the new one",
                 # Refused means the first segment is not the secret; the path
                 # is logged as it came, with the secret masked should it
                 # appear further along.
-                request.path.replace(self._secret, "<secret>"),
+                request.path.replace(self._secret, "<secret>") if self._secret else request.path,
+                self._secret_setting,
             )
             return web.json_response({"error": "forbidden"}, status=403)
         return await handler(request)
@@ -280,12 +285,7 @@ class InteractionsServer:
             return web.json_response({"error": "no default agent"}, status=404)
 
         allowed = self._command_tokens(agent) if self._command_tokens else ()
-        # Every registered token compared, each in constant time.
-        matched = False
-        for token in allowed:
-            if hmac.compare_digest(token.encode(), cb.token.encode()):
-                matched = True
-        if not matched:
+        if not matches_any(allowed, cb.token):
             # Anything that can reach this port could otherwise run a turn as the
             # agent: an unconfigured agent or a wrong token is a hard stop.
             logger.warning("command %s for %s: rejected (token mismatch)", cb.command, agent)

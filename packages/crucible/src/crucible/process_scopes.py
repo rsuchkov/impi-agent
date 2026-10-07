@@ -30,8 +30,9 @@ from crucible.ports.agent.spec import AgentSpec
 from crucible.private_files import private_dir
 
 # This side does not see a process end, so a conversation's or a memoryless
-# run's scratch directory outlives it. One left untouched for longer than any
-# process lives is cleared when the next process of that agent starts.
+# run's scratch directory outlives it. One whose conversation has no live
+# process and that was last handed out a day ago is cleared when the next
+# process of that agent starts — a day being longer than any memoryless run.
 _RUN_PREFIX = "run-"
 _SCRATCH_KEPT_S = 24 * 3600
 # The agent level's own scratch, beside the per-conversation directories.
@@ -54,6 +55,7 @@ class AgentProcessScopes:
         skills_root: Path | None = None,
         scratch_root: Path | None = None,
         unconfined_by_default: frozenset[str] = frozenset(),
+        has_process: Callable[[str], bool] = lambda _session_id: False,
     ) -> None:
         # Read on every spawn, so a reloaded profile's level and paths apply
         # to the next process.
@@ -72,6 +74,10 @@ class AgentProcessScopes:
         # operator's assistant that reads the application's own configuration):
         # off unless their profile says otherwise.
         self._unconfined_by_default = unconfined_by_default
+        # Whether a conversation's process is alive (by runtime session id): a
+        # conversation that keeps talking keeps its process for days, and its
+        # scratch space is in use however long ago it was handed out.
+        self._has_process = has_process
 
     def level_for(self, agent: str) -> ConfinementLevel:
         spec = self._spec_for(agent)
@@ -123,18 +129,17 @@ class AgentProcessScopes:
             os.utime(scratch)  # in use: not stale — before the sweep looks
         else:
             scratch = Path(tempfile.mkdtemp(prefix=_RUN_PREFIX, dir=agent_scratch))
-        _clear_stale_scratch(agent_scratch)
+        self._clear_stale_scratch(agent_scratch)
         return scratch
 
-
-def _clear_stale_scratch(agent_scratch: Path) -> None:
-    cutoff = time.time() - _SCRATCH_KEPT_S
-    for path in agent_scratch.iterdir():
-        try:
-            if (
-                path.name not in _AGENT_SCRATCH and path.is_dir() and not path.is_symlink()
-                and path.stat().st_mtime < cutoff
-            ):
-                shutil.rmtree(path, ignore_errors=True)
-        except OSError:
-            continue
+    def _clear_stale_scratch(self, agent_scratch: Path) -> None:
+        cutoff = time.time() - _SCRATCH_KEPT_S
+        for path in agent_scratch.iterdir():
+            try:
+                if (
+                    path.name not in _AGENT_SCRATCH and path.is_dir() and not path.is_symlink()
+                    and path.stat().st_mtime < cutoff and not self._has_process(path.name)
+                ):
+                    shutil.rmtree(path, ignore_errors=True)
+            except OSError:
+                continue

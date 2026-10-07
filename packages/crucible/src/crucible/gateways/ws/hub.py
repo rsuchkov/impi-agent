@@ -13,7 +13,6 @@ drops them).
 """
 
 import base64
-import hmac
 import json
 import logging
 from collections import deque
@@ -23,6 +22,7 @@ from dataclasses import replace
 from aiohttp import WSMsgType, web
 
 from crucible.attachments import AttachmentStore
+from crucible.constant_time import find_by_secret
 from crucible.gateways.ws.events import (
     frame_error,
     frame_files,
@@ -144,15 +144,7 @@ class WsHub:
     # -- inbound ---------------------------------------------------------------
 
     def _service_for_token(self, presented: str) -> tuple[str, tuple[str, ...] | None] | None:
-        """Constant-time per token, every token compared: a lookup that stops
-        at the first match tells a guesser how far it got. Bytes, not str —
-        compare_digest refuses a non-ASCII str, and a header is whatever the
-        caller put there."""
-        found = None
-        for token, entry in self._by_token.items():
-            if hmac.compare_digest(token.encode(), presented.encode()):
-                found = entry
-        return found
+        return find_by_secret(self._by_token.items(), presented)
 
     async def _handle(self, request: web.Request) -> web.StreamResponse:
         token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()

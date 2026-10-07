@@ -8,13 +8,13 @@ same shape as the ws gateway's services, a bearer token per calling program
 and the person's identity in headers that program is trusted to fill.
 """
 
-import hmac
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from aiohttp import web
 
+from crucible.constant_time import find_by_secret
 from crucible.ports.turn import TurnScope
 
 USER_HEADER = "X-User-Id"
@@ -86,13 +86,7 @@ class TokenCallers:
         self._callers = [(token, (name, allow)) for name, (token, allow) in callers.items() if token]
 
     def _lookup(self, presented: str) -> tuple[str, tuple[str, ...] | None] | None:
-        """Constant-time per token, every token compared: the list is short and
-        a lookup that stops at the first match tells a guesser how far it got."""
-        found = None
-        for token, entry in self._callers:
-            if hmac.compare_digest(token.encode(), presented.encode()):
-                found = entry
-        return found
+        return find_by_secret(self._callers, presented)
 
     async def authenticate(self, request: web.Request, body: dict[str, Any] | None) -> Caller | None:
         token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()

@@ -18,13 +18,13 @@ never writes and reports an empty stand.
 
 import argparse
 import asyncio
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from crucible.config import Settings, load_settings
 from crucible.runtimes.pi.spawn import forget_conversation_memory, session_files
+from crucible.session_retention import purge_idle
 from crucible.store import open_store
-from crucible.store.base import SessionRecord, SessionStore, Store
+from crucible.store.base import SessionRecord, Store
 
 
 def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
@@ -60,38 +60,8 @@ async def cmd_delete(settings: Settings, store: Store, args: argparse.Namespace)
     print(f"deleted {record.agent}/{record.conversation_id} (pi files removed: {removed})")
 
 
-async def purge_idle(
-    settings: Settings, store: SessionStore, *, days: int, agent: str | None = None
-) -> list[SessionRecord]:
-    """Forget every conversation idle for ``days`` or more: the record and the
-    runtime's files for it. Returns what was forgotten. The one place this is
-    done — the command below and an engine that purges at startup both call it."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    victims = [r for r in await store.list(agent) if _idle_before(r, cutoff)]
-    for record in victims:
-        await store.delete(record.agent, record.conversation_id)
-        _forget_memory(settings, record)
-    return victims
-
-
-def _idle_before(record: SessionRecord, cutoff: datetime) -> bool:
-    """Whether ``record`` was last active before ``cutoff``. A value that does
-    not parse is kept, not forgotten — and never stops the sweep; a naive one
-    is read as UTC, which is what the engine writes."""
-    value: object = record.last_active  # a string; a Mongo row may carry a datetime
-    try:
-        moment: datetime = (
-            value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
-        )
-    except ValueError:
-        return False
-    if moment.tzinfo is None:
-        moment = datetime.combine(moment.date(), moment.time(), tzinfo=timezone.utc)
-    return moment < cutoff
-
-
 async def cmd_purge_idle(settings: Settings, store: Store, args: argparse.Namespace) -> None:
-    victims = await purge_idle(settings, store, days=args.days, agent=args.agent)
+    victims = await purge_idle(settings.resolved_pi_session_dir, store, days=args.days, agent=args.agent)
     if not victims:
         print(f"nothing idle for {args.days}+ days")
         return

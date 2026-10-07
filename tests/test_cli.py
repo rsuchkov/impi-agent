@@ -430,13 +430,21 @@ def test_health_reports_the_receiver_secret(
     command URL looks like once it does — the one thing an operator has to
     re-register."""
     monkeypatch.setattr(cli.httpx, "get", lambda url, timeout: _Pong())
-    (Path(_isolated_env).parent / "profiles" / "agents").mkdir(parents=True)
+    root = Path(_isolated_env).parent / "profiles" / "agents" / "alpha"
+    root.mkdir(parents=True)
+    (root / "agent.yaml").write_text("name: alpha\nrole: helper\n", encoding="utf-8")
+    # No agent runs (no token): no receiver is built, and no secret is owed —
+    # what the engine itself decides, however GATEWAY reads.
+    _isolated_env.write_text("GATEWAY=mattermost\n")
+    assert cli.main(["health"]) == 0
+    assert "INTEGRATIONS_SECRET" not in capsys.readouterr().err
+
+    _isolated_env.write_text("GATEWAY=mattermost\nAGENTS_MM_TOKEN__ALPHA=a\n")
     assert cli.main(["health"]) == 1
-    captured = capsys.readouterr()
-    assert "INTEGRATIONS_SECRET" in captured.err
+    assert "INTEGRATIONS_SECRET" in capsys.readouterr().err
 
     _isolated_env.write_text(
-        "GATEWAY=mattermost\nINTEGRATIONS_PUBLIC_URL=http://impi:8423\n"
+        "GATEWAY=mattermost\nAGENTS_MM_TOKEN__ALPHA=a\nINTEGRATIONS_PUBLIC_URL=http://impi:8423\n"
         "INTEGRATIONS_SECRET=k2Xy8qLmN0pRsTuVwZ\n"
     )
     assert cli.main(["health"]) == 0

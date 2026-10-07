@@ -19,10 +19,11 @@ import sys
 from pathlib import Path
 
 import httpx
+from pydantic import ValidationError
 
 from crucible import sessions_cli
 from crucible.confinement import landlock_abi
-from crucible.gateways.factory import needs_http_receiver
+from crucible.ports.agent import AgentSpec
 from crucible.ports.tasks import TaskError
 from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles.errors import ProfileError
@@ -44,13 +45,13 @@ from crucible.store import open_store
 from crucible.store.base import Store
 from impi import provisioning as prov
 from impi.agent_containers import RenderError, sync
-from impi.app import (
-    SHARED_PROCESS_WARNING,
-    agents_dir_extensions,
-    confinement_line,
-    shared_process_agents,
-)
 from impi.config import ImpiSettings, load_settings
+from impi.deployment_report import (
+    agents_dir_extensions,
+    confinement_report,
+    needs_receiver,
+    select_specs,
+)
 from impi.escape import EscapeError, build_plan, parse_map, render_nul, render_text
 from impi.gateways import resolve_gateway
 from impi.profiles import open_profile_stores
@@ -717,17 +718,19 @@ def _cmd_health(args: argparse.Namespace) -> int:
     except httpx.HTTPError as exc:
         _fail(f"Mattermost unreachable ({settings.mattermost_url}): {exc}")
         failures += 1
-    # Per agent, as the engine decides it: a deployment on Slack with one agent
-    # on Mattermost still builds a receiver, and it needs its secret too.
+    # The agents as the engine sees them — the same selection, the same
+    # gateways (deployment_report), so health says what the engine does.
+    specs: list[AgentSpec] = []
+    engine_names: set[str] = set()
+    profile_error = ""
     try:
-        user_names = [s.name for s in open_profile_stores(settings, _library(args))[0].list()]
-    except ProfileError:
-        user_names = []
-    configs = [resolve_gateway(settings, name) for name in user_names]
-    needs_receiver = settings.gateway == "mattermost" or any(
-        cfg is not None and needs_http_receiver(cfg.kind) for cfg in configs
-    )
-    if needs_receiver and settings.integrations.enabled:
+        user_store, engine_store = open_profile_stores(settings, _library(args))
+        engine_names = {spec.name for spec in engine_store.list()}
+        specs = select_specs(settings, user_store, engine_store)
+    except ProfileError as exc:
+        profile_error = str(exc)
+    configs = {spec.name: resolve_gateway(settings, spec.name) for spec in specs}
+    if needs_receiver(configs.values()) and settings.integrations.enabled:
         # The receiver's secret: without it, anything that reaches the port can
         # click a card or submit a form as any user it names.
         if settings.integrations_secret:
@@ -746,47 +749,27 @@ def _cmd_health(args: argparse.Namespace) -> int:
     if agents_dir and agents_dir.is_dir():
         count = len(list(agents_dir.glob("*/agent.yaml")))
         _ok(f"agents dir: {agents_dir} ({count} profile(s))")
-        # Who shares the engine's process space with a shell — the same check
-        # the engine logs at startup, so an operator can ask without a restart.
-        # Only with profiles to read: an empty directory is not a broken one.
-        specs = []
-        engine_specs = []
-        try:
-            if count == 0:
-                raise ProfileError("")
-            user_store, engine_store = open_profile_stores(settings, _library(args))
-            # The user's agents that would run: one without a token starts no
-            # process, and the engine's own agent is part of the engine.
-            specs = [s for s in user_store.list() if resolve_gateway(settings, s.name) is not None]
-            engine_specs = [s for s in engine_store.list() if resolve_gateway(settings, s.name) is not None]
-        except ProfileError as exc:
-            if str(exc):
-                _fail(f"profiles: {exc}")
-                failures += 1
-        # The same levels the engine gives each agent, from the same profiles.
-        by_name = {s.name: s for s in (*specs, *engine_specs)}
+        if profile_error and count:  # an empty directory is not a broken one
+            _fail(f"profiles: {profile_error}")
+            failures += 1
+        # How each agent is confined, and who can read its neighbours'
+        # environments — the lines the engine logs at startup, so an operator
+        # can ask without a restart.
+        by_name = {spec.name: spec for spec in specs}
         scopes = AgentProcessScopes(
             by_name.get, default_level=settings.runtime_confinement,
-            unconfined_by_default=frozenset(s.name for s in engine_specs),
+            unconfined_by_default=frozenset(engine_names),
         )
         abi = landlock_abi()
-        line = confinement_line({name: scopes.level_for(name) for name in by_name}, abi)
-        (_ok if abi else _warn)(line)
-        shared = shared_process_agents(
-            specs,
+        line, shared_warning = confinement_report(
+            specs, configs, engine_names, level_for=scopes.level_for, abi=abi,
             in_process=lambda name: not settings.agent_host_for(name)[0],
-            confined=lambda name: bool(abi) and scopes.level_for(name) != "off",
         )
-        if shared:
-            _warn(SHARED_PROCESS_WARNING % ", ".join(shared))
+        (_ok if abi else _warn)(line)
+        if shared_warning:
+            _warn(shared_warning)
         ext_root = Path(settings.agents_path) / "_extensions"
-        try:
-            names = settings.runtime_extension_names()
-        except ValueError as exc:
-            _fail(str(exc))
-            failures += 1
-            names = ()
-        present, enabled = agents_dir_extensions(ext_root, names)
+        present, enabled = agents_dir_extensions(ext_root, settings.runtime_extension_names())
         if present:
             _ok(f"extensions in {ext_root}: {', '.join(present)}; enabled (RUNTIME_EXTENSIONS): "
                 f"{', '.join(enabled) or 'none'}")
@@ -1269,6 +1252,12 @@ def main(argv: list[str] | None = None) -> int:
         # An expected refusal — no such task, a schedule that doesn't parse — is
         # a message, not a stack trace.
         print(f"✘ {exc}", file=sys.stderr)
+        return 1
+    except ValidationError as exc:
+        # A setting the engine would refuse to start on: said the way the
+        # engine's own check words it, once per bad value.
+        for error in exc.errors():
+            print(f"✘ settings: {error['msg'].removeprefix('Value error, ')}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("\naborted", file=sys.stderr)

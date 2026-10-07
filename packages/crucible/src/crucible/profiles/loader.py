@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from crucible.ports.agent import AgentSpec
-from crucible.ports.agent.confinement import check_confinement_level
+from crucible.ports.agent.confinement import ConfinementLevel, check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.profiles.errors import ProfileError
 
@@ -174,19 +174,26 @@ class FsProfileStore:
         env_names = runtime.get("env") or []
         if not isinstance(env_names, list) or not all(isinstance(e, str) for e in env_names):
             raise ProfileError(f"{manifest}: runtime.env must be a list of variable names")
-        inherit_override = self._inherit_override(name) if self._inherit_override else None
-        inherit = inherit_override if inherit_override is not None else tuple(env_names)
-        for pattern in inherit:
+        # An override is checked where it is read, and its error names its own
+        # key: the operator is sent to the setting, not to an agent.yaml that
+        # is fine.
+        inherit_override = _read_override(self._inherit_override, name)
+        if inherit_override is not None:
+            inherit = inherit_override
+        else:
+            inherit = tuple(env_names)
+            for pattern in inherit:
+                try:
+                    check_inherited_env(pattern)
+                except ValueError as exc:
+                    raise ProfileError(f"{manifest}: runtime.env entry {exc}") from exc
+        overridden = _read_override(self._confinement_override, name)
+        confinement: ConfinementLevel | None = None
+        if overridden is not None:
+            confinement = check_confinement_level(overridden)  # checked already, under its own key
+        elif runtime.get("confinement") is not None:
             try:
-                check_inherited_env(pattern)
-            except ValueError as exc:
-                raise ProfileError(f"{manifest}: runtime.env entry {exc}") from exc
-        confinement = self._confinement_override(name) if self._confinement_override else None
-        if confinement is None and runtime.get("confinement") is not None:
-            confinement = str(runtime["confinement"])
-        if confinement is not None:
-            try:
-                check_confinement_level(confinement)
+                confinement = check_confinement_level(str(runtime["confinement"]))
             except ValueError as exc:
                 raise ProfileError(f"{manifest}: runtime.confinement: {exc}") from exc
         readable = _confinement_paths(runtime, "confinement_read", manifest)
@@ -212,6 +219,17 @@ class FsProfileStore:
             confinement_readable=readable,
             confinement_writable=writable,
         )
+
+
+def _read_override[T](read: Callable[[str], T | None] | None, agent: str) -> T | None:
+    """A configured override for ``agent``, or None — its own error, naming its
+    key, as a ProfileError."""
+    if read is None:
+        return None
+    try:
+        return read(agent)
+    except ValueError as exc:
+        raise ProfileError(str(exc)) from exc
 
 
 def _confinement_paths(runtime: dict, key: str, manifest: Path) -> tuple[Path, ...]:

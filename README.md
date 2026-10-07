@@ -131,6 +131,9 @@ This is a [uv](https://docs.astral.sh/uv/) workspace of six packages:
 - **The `pi` CLI on `PATH`** — `npm i -g @earendil-works/pi-coding-agent`
   (requires Node.js). Authenticate it once (`pi` supports a subscription login or
   an OpenAI-compatible endpoint — see [docs/runtime-notes.md](docs/runtime-notes.md)).
+- **`rg` and `fd` 10 or later on `PATH`** — `pi`'s `grep` and `find` tools use
+  them and, offline, will not download them (Debian bookworm's `fd` 8.6 is too
+  old). The images ship both.
 - **podman or docker** — only for the local Mattermost stack in development.
 
 ## Quickstart
@@ -180,6 +183,7 @@ To add your own agent (its profile, tools, and personality), see
 
 - [docs/installation.md](docs/installation.md) — the installer, the `impi` wrapper, updates.
 - [docs/architecture.md](docs/architecture.md) — how the engine works, the layers, and the request flows.
+- [docs/building-an-app.md](docs/building-an-app.md) — a bot of your own on the `crucible` library.
 - [docs/creating-agents.md](docs/creating-agents.md) — write and register an agent.
 - [docs/skills.md](docs/skills.md) — the shared skill library and `/skills`.
 - [docs/tasks.md](docs/tasks.md) — scheduled and recurring work, and why a run didn't happen.

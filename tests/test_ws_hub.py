@@ -338,7 +338,7 @@ async def test_a_token_that_is_not_ascii_is_refused_not_crashed() -> None:
             try:
                 await session.ws_connect(
                     "http://127.0.0.1:8489/ws",
-                    headers={"Authorization": "Bearer " + "тайна".encode().decode("latin-1")},
+                    headers={"Authorization": "Bearer " + "тайна".encode().decode("latin-1")},  # Non-ASCII on purpose
                 )
                 raise AssertionError("expected WSServerHandshakeError")
             except aiohttp.WSServerHandshakeError as exc:

@@ -456,7 +456,7 @@ def test_what_the_engine_shipped_is_written_for_this_user_alone(tmp_path: Path) 
     assert stat.S_IMODE(scratch.stat().st_mode) == 0o700
 
 
-def test_the_host_loads_only_the_extensions_it_was_named(tmp_path: Path) -> None:
+def test_the_host_loads_only_the_extensions_it_was_named(tmp_path: Path, caplog) -> None:
     """A mounted directory alone loads nothing; the names do."""
     from runtime_relay.config import (
         ENV_EXTENSION_NAMES,
@@ -471,6 +471,7 @@ def test_the_host_loads_only_the_extensions_it_was_named(tmp_path: Path) -> None
     assert _extensions({ENV_EXTENSIONS_DIR: str(root)}) == ()
     loaded = _extensions({ENV_EXTENSIONS_DIR: str(root), ENV_EXTENSION_NAMES: "jira, ghost"})
     assert loaded == (root / "jira" / "index.ts",)
+    assert "extension ghost is named but" in caplog.text  # said, not silently dropped
     with pytest.raises(Exception, match="not an extension name"):
         _extensions({ENV_EXTENSIONS_DIR: str(root), ENV_EXTENSION_NAMES: "../x"})
 
@@ -483,11 +484,11 @@ def _scoped(profile: Path, library: Path, tmp_path: Path, **over: object) -> Spa
 
     scope = ProcessScope(readable=(tmp_path / "skills",), writable=(tmp_path / "files",),
                          env={"TMPDIR": str(tmp_path / "t"), "HOME": str(tmp_path / "h")})
-    return _request(profile, library, scope=scope, **over)
+    return _request(profile, library, process_scope=scope, **over)
 
 
 def test_the_runtime_adds_what_it_needs_to_the_applications_scope(tmp_path: Path, monkeypatch) -> None:
-    from crucible.runtimes.pi.hosts.local import runtime_scope
+    from crucible.runtimes.pi.hosts.local import runtime_process_scope
 
     profile, library = _dirs(tmp_path)
     monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pihome"))
@@ -497,12 +498,15 @@ def test_the_runtime_adds_what_it_needs_to_the_applications_scope(tmp_path: Path
     plain_manifest.write_text("{}")
     request = _scoped(profile, library, tmp_path, env_files={"TOOL_MANIFEST": manifest},
                       env={"OTHER_MANIFEST": str(plain_manifest), "TOOL_TOKEN": "t"})
-    scope = runtime_scope(request, tmp_path / "sessions" / "assistant", program="pi")
+    scope = runtime_process_scope(request, tmp_path / "sessions" / "assistant", program="pi")
     assert tmp_path / "skills" in scope.readable and tmp_path / "files" in scope.writable  # the application's
     assert Path("/usr") in scope.readable and profile in scope.readable
     assert manifest in scope.readable and plain_manifest in scope.readable
     assert tmp_path / "sessions" / "assistant" in scope.writable  # its memory
-    assert tmp_path / "pihome" / "auth.json" in scope.writable_files
+    # The credential is read, never written: rewritten, it could carry a command
+    # every other runtime process would run.
+    assert tmp_path / "pihome" in scope.readable
+    assert not any(str(p).startswith(str(tmp_path / "pihome")) for p in (*scope.writable, *scope.writable_files))
     assert tmp_path / "pihome" in scope.mkdir_only  # a lock, no planted file
     assert tmp_path / "pihome" not in scope.writable
 
@@ -554,7 +558,7 @@ def _confined_request(profile: Path, library: Path, files: Path, **over: object)
         writable=(Path("/engine/scratch/tmp"), own, Path("/srv/declared")),
         env={"TMPDIR": "/engine/scratch/tmp", "AGENT_FILES_DIR": str(own)},
     )
-    return _request(profile, library, scope=scope, **over)
+    return _request(profile, library, process_scope=scope, **over)
 
 
 def test_the_scope_crosses_the_wire_as_names_the_host_resolves(tmp_path: Path) -> None:
@@ -697,3 +701,84 @@ async def test_the_hosts_own_variables_stay_out_of_an_unconfined_process(tmp_pat
         await rig.stop()
     assert started["token"] == ""
     assert "--no-session" in started["args"] and "--session-dir" not in started["args"]
+
+
+# --- the host's own rules, held to the engine's ---------------------------------
+
+
+def test_the_host_confines_a_process_to_the_same_system_paths_as_the_engine() -> None:
+    """Two copies of one security rule — the host may not import the library —
+    held equal here, so one side cannot quietly grant more than the other."""
+    from crucible.confinement import launcher
+    from crucible.runtimes.pi.hosts import local
+    from runtime_relay import confinement as relay
+
+    assert relay.SYSTEM_READABLE == local.SYSTEM_READABLE
+    assert relay.DEVICE_WRITABLE == local.DEVICE_WRITABLE
+    assert relay.install_roots("pi") == local.install_roots("pi")
+    options = (relay.READABLE, relay.WRITABLE, relay.WRITABLE_FILE, relay.MKDIR_ONLY)
+    assert options == (launcher.READABLE, launcher.WRITABLE, launcher.WRITABLE_FILE, launcher.MKDIR_ONLY)
+
+
+def test_the_host_asks_the_launcher_whether_the_kernel_can_confine(tmp_path: Path, caplog) -> None:
+    from crucible.confinement import LAUNCHER_PATH, landlock_abi
+    from runtime_relay.confinement import landlock_abi as relay_abi
+    from runtime_relay.confinement import log_confinement
+
+    assert relay_abi(LAUNCHER_PATH) == landlock_abi()
+    assert relay_abi(tmp_path / "missing.py") is None
+    broken = tmp_path / "broken.py"
+    broken.write_text("raise RuntimeError('no')\n")
+    with caplog.at_level("INFO"):
+        assert relay_abi(broken) is None  # said, and the host still starts
+        log_confinement(tmp_path / "missing.py")
+    assert "no working launcher" in caplog.text
+
+
+async def test_a_planted_credential_stops_the_host_starting_a_runtime(tmp_path: Path, monkeypatch) -> None:
+    agent_dir = tmp_path / "pihome"
+    agent_dir.mkdir()
+    (agent_dir / "auth.json").write_text(json.dumps({"openai": {"type": "api_key", "key": "!id"}}))
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(agent_dir))
+    rig = await _serve(tmp_path)
+    profile, library = _dirs(tmp_path)
+    host = RemoteHost(url=rig.url, token="shared", library_root=library)
+    try:
+        with pytest.raises(PiHostError, match="command value"):
+            await host.open(_request(profile, library, skills=()))
+    finally:
+        await host.aclose()
+        await rig.stop()
+
+
+async def test_a_token_that_is_not_ascii_is_refused_not_crashed(tmp_path: Path) -> None:
+    rig = await _serve(tmp_path)
+    try:
+        async with aiohttp.ClientSession() as client:
+            # Non-ASCII on purpose: a header is whatever the caller sent.
+            async with client.get(f"{rig.url}{host_wire.SESSION_PATH}",
+                                  headers={host_wire.TOKEN_HEADER: "тайна".encode().decode("latin-1")}) as response:
+                assert response.status == 401
+    finally:
+        await rig.stop()
+
+
+def test_the_host_never_lets_a_confined_process_write_the_credential(tmp_path: Path, monkeypatch) -> None:
+    """Rewritten, the credential could carry a command every runtime reading
+    it would run: the host's rules leave it readable, never writable."""
+    from runtime_relay.spawn import Confinement
+
+    agent_dir = tmp_path / "pihome"
+    agent_dir.mkdir()
+    (agent_dir / "auth.json").write_text("{}")
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(agent_dir))
+    launcher = tmp_path / "launcher.py"
+    launcher.write_text("")
+    profile, library = _dirs(tmp_path)
+    server = RelayServer(_host_config(tmp_path, profile, library, launcher=launcher))
+    env: dict[str, str] = {}
+    command = server._confined_command(["pi"], Confinement(), env, tmp_path / "work" / "s", None)
+    rules = list(zip(command[4:command.index("--")][::2], command[5:command.index("--")][::2], strict=True))
+    written = [path for option, path in rules if option in ("--writable", "--writable-file")]
+    assert not any(path.startswith(str(agent_dir)) for path in written)
+    assert ("--readable", str(agent_dir)) in rules and ("--mkdir-only", str(agent_dir)) in rules

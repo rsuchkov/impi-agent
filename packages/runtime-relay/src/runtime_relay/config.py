@@ -6,6 +6,7 @@ those mean on this side. That is the whole point of the split — the two
 containers do not share a filesystem, and nothing should quietly assume they do.
 """
 
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -53,6 +54,8 @@ ENV_LAUNCHER = "RUNTIME_RELAY_LAUNCHER"
 # ask this host for a process nobody granted.
 RELAY_VARIABLE_PREFIX = "RUNTIME_RELAY_"
 DEFAULT_LAUNCHER = "/app/confinement/launcher.py"
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 8427
 
@@ -137,4 +140,8 @@ def _extensions(env: Mapping[str, str]) -> tuple[Path, ...]:
             index = root / name / "index.ts"
             if index.is_file():
                 paths.append(index)
+            else:
+                # Named and not there: the operator expects it to load. The
+                # engine says the same of its own copy.
+                logger.warning("extension %s is named but %s does not exist; not loading it", name, index)
     return tuple(paths)

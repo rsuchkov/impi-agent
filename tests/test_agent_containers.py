@@ -472,6 +472,14 @@ def test_a_pinned_package_passes_and_shell_metacharacters_do_not(tmp_path: Path)
             _names([bad], "a", "npm")
 
 
+def test_a_version_specifier_reaches_the_installer_as_one_word() -> None:
+    """`pandas>=2.2` unquoted in a RUN line is a redirect into a file named
+    `=2.2`, and `pkg[x]` a glob: each name is quoted."""
+    text = render_dockerfile(AgentBuild(name="analyst", pip=("pandas>=2.2", "pkg[x]<3"), npm=("@scope/cli@^2",)))
+    assert "pip install --no-cache-dir --break-system-packages 'pandas>=2.2' 'pkg[x]<3'" in text
+    assert "npm install -g --ignore-scripts '@scope/cli@^2'" in text
+
+
 def test_npm_extras_are_installed_with_scripts_ignored(tmp_path: Path) -> None:
     spec = _spec(tmp_path, "tooling", manifest="runtime:\n  packages:\n    npm: [some-cli@1.0.0]\n")
     rendered = render_dockerfile(read_build(spec))
@@ -518,7 +526,7 @@ def test_an_agent_is_handed_the_auth_file_and_not_the_runtimes_home() -> None:
     its own in memory."""
     parsed = yaml.safe_load(_rendered())
     service = parsed["services"][f"{SERVICE_PREFIX}assistant"]
-    assert "${IMPI_HOME:?set in compose.env}/pi/agent/auth.json:/home/impi/.pi/agent/auth.json:z" in service["volumes"]
+    assert "${IMPI_HOME:?set in compose.env}/pi/agent/auth.json:/home/impi/.pi/agent/auth.json:ro,z" in service["volumes"]
     assert not any(v.startswith("pi-auth:") for v in service["volumes"])
     assert "pi-auth" not in parsed.get("volumes", {})
 

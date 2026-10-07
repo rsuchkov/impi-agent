@@ -11,7 +11,7 @@ from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from crucible.config import RECEIVER_SECRET_RE, callback_path
+from crucible.receiver_paths import RECEIVER_SECRET_RE, callback_path
 
 
 class WardSettings(BaseSettings):
@@ -158,11 +158,6 @@ class WardSettings(BaseSettings):
     @property
     def interact_url(self) -> str:
         return self._endpoint("interact")
-
-    @property
-    def command_url(self) -> str:
-        """Where the platform's `/ward` command is registered to post."""
-        return self._endpoint("command/ward")
 
     @property
     def dialog_url(self) -> str:

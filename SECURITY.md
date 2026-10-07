@@ -31,7 +31,12 @@ answered without a human, a credential value reaching the model or the
 inventory, one agent's container reaching another's, a door the engine opens
 answering without its token.
 
-Out of scope is what that page lists as a known limit — a neighbour process
-reading another's environment inside one container, egress from an agent's
-shell, the shared browser — and the runtime itself (`pi`), which has its own
-reporting channel upstream.
+A confined agent's process reaching outside its scope — another
+conversation's memory or files, another process's environment, the engine's
+configuration — is in scope.
+
+Out of scope is what that page lists as a known limit — an **unconfined**
+neighbour (confinement `off`, or a kernel without Landlock) reading another's
+environment inside one container, egress from an agent's shell, the shared
+browser — and the runtime itself (`pi`), which has its own reporting channel
+upstream.

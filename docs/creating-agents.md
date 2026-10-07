@@ -64,7 +64,7 @@ to put a package in. The same goes for a `Dockerfile.include` beside
   deployment enabled: an extension is code in every agent's process, so being
   present in the directory is not enough — `RUNTIME_EXTENSIONS=<name>,…` in
   `.env` names what loads, and the engine logs what is present but not named.
-  `impi health` lists both.
+  `impi doctor` lists both.
 - the engine's typed tools (e.g. the multi-agent choreography tools).
 
 Naming a tool is the only way to enable it; an **empty list means the agent gets
@@ -233,7 +233,11 @@ token, the session id and its proof, `AGENT_NAME`, `AGENT_FILES_DIR`, and the
 model settings (`LLM_*`) when a custom endpoint is configured. A skill that
 reads a variable of its own from the engine's environment names it in
 `runtime.env`, or the operator names it once in `RUNTIME_ENV`; otherwise the
-skill sees it unset. The bundled `support` agent is part of the engine and
+skill sees it unset. A name or a family `PREFIX_*` (a literal prefix of three
+characters or more, never one of the engine's own families such as `AGENTS_`,
+`TOOL_` or `LLM_`). The value has to be in the engine's process environment —
+a compose `environment:` entry or a `compose.d/` drop-in; a line in
+`conf/.env` does not reach the agent. The bundled `support` agent is part of the engine and
 inherits everything, because the engine's own CLI it runs needs the engine's
 settings.
 

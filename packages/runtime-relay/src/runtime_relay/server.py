@@ -9,7 +9,6 @@ first, the process is stopped, because nobody is listening to it any more.
 import asyncio
 import collections
 import hmac
-import importlib.util
 import json
 import logging
 import os
@@ -21,7 +20,18 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 
 from runtime_relay import wire
+from runtime_relay.auth_file import auth_file_path, executable_entries
 from runtime_relay.config import RELAY_VARIABLE_PREFIX, HostConfig
+from runtime_relay.confinement import (
+    DEVICE_WRITABLE,
+    MKDIR_ONLY,
+    READABLE,
+    SYSTEM_READABLE,
+    WRITABLE,
+    WRITABLE_FILE,
+    install_roots,
+    log_confinement,
+)
 from runtime_relay.spawn import (
     Confinement,
     Spawn,
@@ -43,13 +53,6 @@ STDERR_TAIL_CHARS = 1500
 STREAM_LIMIT = wire.MAX_FRAME_BYTES
 # How long a stopped process is given to go quietly before it is killed.
 TERMINATE_GRACE_S = 5.0
-# What a confined process reads wherever its agent's files are: the system,
-# the device nodes, the process table (another process's private entries stay
-# out of reach — the kernel refuses them outside the domain). The engine's
-# local host grants the same (crucible.runtimes.pi.hosts.local).
-SYSTEM_READABLE = ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc", "/opt", "/proc", "/dev")
-# Device nodes a shell writes to: discarding output, a terminal, randomness.
-DEVICE_WRITABLE = ("/dev/null", "/dev/zero", "/dev/full", "/dev/tty", "/dev/ptmx")
 
 
 class RelayServer:
@@ -71,7 +74,7 @@ class RelayServer:
             moved = migrate_session_layout(self._config.session_dir)
             if moved:
                 logger.info("moved %d conversation memories into a directory each", moved)
-        _log_confinement(self._config.launcher)
+        log_confinement(self._config.launcher)
         runner = web.AppRunner(self.app())
         await runner.setup()
         site = web.TCPSite(runner, self._config.host, self._config.port)
@@ -119,8 +122,10 @@ class RelayServer:
     # -- handshake ----------------------------------------------------------
 
     def _authorized(self, request: web.Request) -> bool:
-        presented = request.headers.get(wire.TOKEN_HEADER, "")
-        return hmac.compare_digest(presented, self._config.token)
+        # Bytes, not str: compare_digest refuses a str that is not ASCII, and a
+        # header is whatever the caller sent.
+        presented = request.headers.get(wire.TOKEN_HEADER, "").encode("utf-8", "surrogateescape")
+        return hmac.compare_digest(presented, self._config.token.encode("utf-8"))
 
     async def _accept(self, ws: web.WebSocketResponse) -> Spawn | None:
         """Read the opening frame. None = the caller went away without asking."""
@@ -184,15 +189,13 @@ class RelayServer:
     async def _start(
         self, spawn: Spawn, scratch: Path
     ) -> asyncio.subprocess.Process:
-        # The credential file is shared with the engine and every other agent,
-        # read-write; a value the runtime would execute (``!…``) is not one a
-        # login wrote. Same rule as the engine's (crucible.runtimes.pi.auth_file);
-        # kept here because this package does not depend on the library.
-        planted = _executable_entries(_auth_file_path())
+        # The credential file is shared with the engine and every other agent;
+        # a value the runtime would execute (``!…``) is not one a login wrote.
+        planted = executable_entries(auth_file_path())
         if planted:
             raise OSError(
                 f"the runtime's credential file holds a command value ({', '.join(planted)}); "
-                "not starting — replace it with `impi login`"
+                "not starting — replace the file with a fresh login"
             )
         session_dir: Path | None = None
         # A memoryless run keeps nothing, so it is given nowhere to keep it.
@@ -259,19 +262,19 @@ class RelayServer:
         at what it was given. It reads the system, its program, its profile,
         the skill library, its extensions and the files the engine shipped; it
         writes its own memory, its own scratch ``TMPDIR`` and ``HOME`` and the
-        parts of the files directory the engine named; the credential file is
-        rewritable in place and nothing else can be created beside it."""
+        parts of the files directory the engine named; it reads the credential
+        file, with room for the lock beside it and nothing else creatable."""
         launcher = self._config.launcher
         if not launcher.is_file():
             raise OSError(f"the confinement launcher {launcher} is missing — the image is out of date")
         tmp, home = _private_dir(_private_dir(scratch) / "tmp"), _private_dir(scratch / "home")
-        agent_dir = _auth_file_path().parent
+        agent_dir = auth_file_path().parent
         for directory in confinement.writable:
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         env.update({"TMPDIR": str(tmp), "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent_dir)})
         env.update({name: str(path) for name, path in confinement.variables.items()})
         readable = [Path(p) for p in SYSTEM_READABLE]
-        readable += _install_roots(self._config.runtime_bin)
+        readable += install_roots(self._config.runtime_bin)
         readable += [Path(sys.prefix), self._config.profile_dir, scratch, agent_dir]
         readable += [extension.parent for extension in self._config.extensions]
         if self._config.library_dir is not None:
@@ -282,14 +285,16 @@ class RelayServer:
         writable = [tmp, home, *confinement.writable]
         if session_dir is not None:
             writable.append(session_dir)
+        # The credential is read, not written: rewritten, it could carry a
+        # command every runtime reading it would run. The engine keeps the
+        # login fresh.
         writable_files = [Path(p) for p in DEVICE_WRITABLE]
-        writable_files += [agent_dir / "auth.json", agent_dir / "models-store.json"]
         rules: list[str] = []
         for option, paths in (
-            ("--readable", readable),
-            ("--writable", writable),
-            ("--writable-file", writable_files),
-            ("--mkdir-only", [agent_dir]),
+            (READABLE, readable),
+            (WRITABLE, writable),
+            (WRITABLE_FILE, writable_files),
+            (MKDIR_ONLY, [agent_dir]),
         ):
             for path in paths:
                 rules += [option, str(path)]
@@ -389,63 +394,3 @@ def _private_dir(path: Path) -> Path:
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     path.chmod(0o700)
     return path
-
-
-def _install_roots(program: str) -> list[Path]:
-    """Where the runtime and node live when that is outside the system paths:
-    the package tree the program resolves into, and node's prefix."""
-    roots: list[Path] = []
-    for name in (program, "node"):
-        found = shutil.which(name)
-        if not found:
-            continue
-        real = Path(found).resolve()
-        package_root = next((p.parent for p in real.parents if p.name == "node_modules"), real.parent)
-        roots += [package_root, real.parent.parent]
-    return roots
-
-
-def _log_confinement(launcher: Path) -> None:
-    """One line at startup: whether the processes this host starts can be
-    confined. The launcher answers, so the check is the one that will run."""
-    if not launcher.is_file():
-        logger.warning("confinement: no launcher at %s — a confined spawn will be refused", launcher)
-        return
-    spec = importlib.util.spec_from_file_location("confinement_launcher", launcher)
-    if spec is None or spec.loader is None:
-        logger.warning("confinement: %s cannot be loaded", launcher)
-        return
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    abi = int(module.landlock_abi())
-    if abi:
-        logger.info("confinement: Landlock ABI %d", abi)
-    else:
-        logger.warning("confinement: this kernel has no Landlock — processes run unconfined")
-
-
-def _auth_file_path() -> Path:
-    agent_dir = os.environ.get("PI_CODING_AGENT_DIR") or str(Path.home() / ".pi" / "agent")
-    return Path(agent_dir) / "auth.json"
-
-
-def _executable_entries(path: Path) -> list[str]:
-    """Entries of the credential file the runtime would run as a command."""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    found: list[str] = []
-
-    def walk(node: object, where: str) -> None:
-        if isinstance(node, dict):
-            for key, value in node.items():
-                walk(value, f"{where}.{key}" if where else str(key))
-        elif isinstance(node, list):
-            for index, value in enumerate(node):
-                walk(value, f"{where}[{index}]")
-        elif isinstance(node, str) and node.startswith("!"):
-            found.append(where)
-
-    walk(data, "")
-    return found

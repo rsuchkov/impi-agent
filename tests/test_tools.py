@@ -1311,7 +1311,7 @@ async def test_server_refuses_a_token_that_is_not_ascii_without_crashing() -> No
             async with s.post(
                 "http://127.0.0.1:8469/tool/list_agents",
                 json={},
-                headers={"X-Tool-Token": "тайна".encode().decode("latin-1")},
+                headers={"X-Tool-Token": "тайна".encode().decode("latin-1")},  # Non-ASCII on purpose
             ) as resp:
                 assert resp.status == 401
     finally:

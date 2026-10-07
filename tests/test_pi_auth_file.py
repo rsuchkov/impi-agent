@@ -9,7 +9,7 @@ from crucible.runtimes.pi.auth_file import executable_entries
 from crucible.runtimes.pi.errors import PiHostError
 from crucible.runtimes.pi.hosts.local import LocalHost
 from crucible.runtimes.pi.spawn import SpawnRequest
-from runtime_relay.server import _executable_entries as relay_entries
+from runtime_relay.auth_file import executable_entries as relay_entries
 
 PLANTED = {"openai": {"type": "api_key", "key": "!id > /tmp/pwned; echo sk-x"}}
 HONEST = {"openai-codex": {"type": "oauth", "access": "ey...", "refresh": "rt"},
