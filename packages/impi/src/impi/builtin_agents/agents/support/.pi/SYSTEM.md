@@ -94,10 +94,23 @@ runtime:
   timeout: 180
   tools: [ ... ]           # the single capability allowlist (see below)
   skills: [ ... ]          # private names, or registry:<name> from the library
+  env: [ ... ]             # OPTIONAL — engine variables its process inherits (names, PREFIX_*)
+  confinement: agent       # OPTIONAL — conversation (default) | agent | off
+  confinement_write: [ ... ]  # OPTIONAL — paths beyond its own it may write (also _read)
 ```
 
 Leave `provider`/`model` out unless an agent needs a **different** backend than
 the engine default — agents may run different models.
+
+**The user's agents run confined; you do not.** On a kernel with Landlock each
+of their processes reads its profile, the skill library and the system, and
+writes only its own conversation's memory and files (`$AGENT_FILES_DIR`) and its
+own `$TMPDIR` and `$HOME`; another conversation, another agent, the engine's
+configuration and the model credential (read-only) are out of its reach. You
+are part of the engine and unconfined by default, and you inherit the engine's
+whole environment — so what works from your shell says nothing about what works
+in theirs. "Permission denied" in an agent, and how to widen it narrowly, is in
+`engine-diagnostics`; the boundary itself is `$IMPI_ROOT/docs/security.md`.
 
 An agent runs on one gateway: `mattermost`, `slack`, `ws` (a WebSocket hub for
 the operator's own programs) or `http` (a request/turn API for programs that
