@@ -340,8 +340,10 @@ class RelayServer:
                     return
                 text = raw.decode("utf-8", errors="replace").rstrip()
                 if text:
-                    logger.warning("runtime stderr: %s", text)
-                    tail.append(text)
+                    level = _stderr_level(text)
+                    logger.log(level, "runtime stderr: %s", text)
+                    if level >= logging.WARNING:  # the tail is for what went wrong
+                        tail.append(text)
         except asyncio.CancelledError:
             return
 
@@ -394,3 +396,16 @@ def _private_dir(path: Path) -> Path:
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     path.chmod(0o700)
     return path
+
+
+def _stderr_level(text: str) -> int:
+    """The same reading of the runtime's stderr as the engine's own
+    (crucible.runtimes.pi.transport): a new conversation's session notice and
+    the settings lock are routine, a move to a fallback model is worth seeing
+    and not a failure, everything else may be one."""
+    if "settings.json.lock" in text or "No project session found with id" in text:
+        return logging.DEBUG
+    if text.startswith("fallback: "):
+        return logging.INFO
+    return logging.WARNING
+

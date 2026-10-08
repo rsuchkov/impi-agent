@@ -84,3 +84,23 @@ async def test_exit_detail_clips_long_tails() -> None:
     detail = await transport.exit_detail()
     assert len(detail) < 2000  # bounded: 40-line deque + char clip
     await transport.aclose()
+
+
+def test_a_move_to_a_fallback_model_is_info() -> None:
+    # Worth seeing, and the turn goes on: not a failure.
+    line = "fallback: dead/m1 failed (Connection error.); switching to openai-codex/gpt-5.5"
+    assert _stderr_log_level(line) == logging.INFO
+    # Only as the extension's own line, not wherever the word appears.
+    assert _stderr_log_level("Error: no fallback: available") == logging.WARNING
+
+
+def test_the_relay_reads_the_runtimes_stderr_the_same_way() -> None:
+    from runtime_relay.server import _stderr_level
+
+    for line in (
+        "fallback: dead/m1 failed (Connection error.); switching to b/y",
+        "Warning: No project session found with id 'x'; creating a new session with that id.",
+        "Warning: EROFS mkdir '/agents/a/.pi/settings.json.lock'",
+        "TypeError: undefined",
+    ):
+        assert _stderr_level(line) == _stderr_log_level(line), line

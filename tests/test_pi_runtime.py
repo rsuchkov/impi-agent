@@ -891,3 +891,57 @@ def test_no_unconfined_warning_without_landlock_or_with_scopes(
         monkeypatch.setattr("crucible.runtimes.pi.runtime.landlock_abi", lambda: 7)
         PiRuntime(scopes=_Scopes())
     assert "unconfined" not in caplog.text
+
+
+async def test_a_profile_with_fallback_models_loads_the_fallback_extension_and_names_its_chain(monkeypatch) -> None:
+    from crucible.runtimes.pi.runtime import (
+        FALLBACK_EXTENSION_PATH,
+        FALLBACK_MODELS_ENV,
+    )
+
+    captured: list = []
+
+    async def fake_open(self, request):
+        captured.append(request)
+        return SimpleNamespace()
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.LocalHost.open", fake_open)
+    rt = PiRuntime(extra_extensions=["/bridge/index.ts"])
+    await rt._spawn_session(dataclasses.replace(_profile(), fallback_models=("a/x", "b/y")), "assistant--c1")
+    await rt._spawn_session(_profile(), "assistant--c2")
+    chained, plain = captured
+    assert chained.env[FALLBACK_MODELS_ENV] == "a/x,b/y"
+    assert chained.extensions == ("/bridge/index.ts", str(FALLBACK_EXTENSION_PATH))
+    # Without a chain, neither: the process starts as it always did.
+    assert FALLBACK_MODELS_ENV not in plain.env and plain.extensions == ("/bridge/index.ts",)
+    assert FALLBACK_EXTENSION_PATH.is_file()
+
+
+async def test_the_chain_skips_the_profiles_own_model_and_repeats(monkeypatch) -> None:
+    """Its own model in the chain would send a failed turn back where it failed:
+    the extension moves past the model that failed. However the spec was made."""
+    from crucible.runtimes.pi.runtime import FALLBACK_MODELS_ENV
+
+    captured: list = []
+
+    async def fake_open(self, request):
+        captured.append(request)
+        return SimpleNamespace()
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.LocalHost.open", fake_open)
+    rt = PiRuntime()
+    own = dataclasses.replace(_profile(), provider="p", model="m")
+    await rt._spawn_session(dataclasses.replace(own, fallback_models=("b/y", "p/m", "c/z", "b/y")), "assistant--c1")
+    await rt._spawn_session(dataclasses.replace(own, fallback_models=("p/m",)), "assistant--c2")
+    assert captured[0].env[FALLBACK_MODELS_ENV] == "b/y,c/z"
+    # Nothing left to move on to: no chain, no extension.
+    assert FALLBACK_MODELS_ENV not in captured[1].env
+
+
+def test_build_pi_profile_carries_the_fallback_models(tmp_path: Path) -> None:
+    from crucible.ports.agent import AgentSpec
+    from crucible.runtimes.pi.profiles import build_pi_profile
+
+    spec = AgentSpec(name="a", display_name="a", role="r", description="", profile_dir=tmp_path,
+                     fallback_models=("a/x",))
+    assert build_pi_profile(spec).fallback_models == ("a/x",)

@@ -36,6 +36,9 @@ class PiResult:
     tool_calls: list[str] = field(default_factory=list)
     duration_s: float = 0.0
     stop_reason: str | None = None
+    # The model that gave the answer, as provider/model — another than the
+    # agent's own when the turn moved on to a fallback. "" when not reported.
+    model: str = ""
 
 
 class _Turn:
@@ -371,6 +374,7 @@ class PiRpcSession:
             text=text,
             tool_calls=turn.tool_calls,
             stop_reason=_stop_reason_from_agent_end(event, abort_requested=turn.abort_requested),
+            model=_model_from_agent_end(event),
         )
         if not turn.future.done():
             turn.future.set_result(result)
@@ -485,6 +489,14 @@ def _assistant_messages(event: PiEvent) -> list[dict]:
     if not isinstance(messages, list):
         return []
     return [m for m in messages if isinstance(m, dict) and m.get("role") == "assistant"]
+
+
+def _model_from_agent_end(event: PiEvent) -> str:
+    """provider/model of the run's last answer, "" when it names none."""
+    answers = _assistant_messages(event)
+    last = answers[-1] if answers else {}
+    provider, model = last.get("provider"), last.get("model")
+    return f"{provider}/{model}" if isinstance(provider, str) and isinstance(model, str) and provider and model else ""
 
 
 def _final_text_from_agent_end(event: PiEvent) -> str:

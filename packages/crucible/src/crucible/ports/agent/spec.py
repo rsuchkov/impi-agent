@@ -44,3 +44,9 @@ class AgentSpec:
     confinement: ConfinementLevel | None = None
     confinement_readable: tuple[Path, ...] = ()
     confinement_writable: tuple[Path, ...] = ()
+    # Models to turn to, in order, when a turn's model fails in a way the
+    # runtime retries (an overloaded or unreachable service), as
+    # ``provider/model`` (``model_ref.check_model_ref``). The runtime skips
+    # the agent's own model and repeats when it starts a process.
+    fallback_models: tuple[str, ...] = ()
+

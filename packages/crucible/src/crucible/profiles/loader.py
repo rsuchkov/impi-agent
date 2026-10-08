@@ -16,6 +16,7 @@ import yaml
 from crucible.ports.agent import AgentSpec
 from crucible.ports.agent.confinement import ConfinementLevel, check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
+from crucible.ports.agent.model_ref import check_model_ref
 from crucible.profiles.errors import ProfileError
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,8 @@ class FsProfileStore:
         skills_override: Callable[[str], tuple[str, ...] | None] | None = None,
         inherit_override: Callable[[str], tuple[str, ...] | None] | None = None,
         confinement_override: Callable[[str], str | None] | None = None,
+        default_fallback_models: tuple[str, ...] = (),
+        fallback_models_override: Callable[[str], tuple[str, ...] | None] | None = None,
         # REQUIRED, with no default on purpose. It had one, and two of the three
         # places that build a store forgot to pass it — one of them for five
         # releases, because the store works perfectly until a profile happens to
@@ -99,6 +102,10 @@ class FsProfileStore:
         self._inherit_override = inherit_override
         # The confinement level an operator set for one agent from config.
         self._confinement_override = confinement_override
+        # The models an agent turns to when its own fails: the deployment's
+        # list unless agent.yaml names one, and an operator's override above both.
+        self._default_fallback_models = default_fallback_models
+        self._fallback_models_override = fallback_models_override
         # Resolves a shared-library skill name to its directory (None = unknown).
         # A callback for the same reason: the library lives in config, not here.
         self._library = library
@@ -201,6 +208,9 @@ class FsProfileStore:
         timeout = runtime.get("timeout", self._default_timeout)
         if not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ProfileError(f"{manifest}: runtime.timeout must be a positive number")
+        provider = str(runtime["provider"]).strip() if runtime.get("provider") else (self._default_provider or None)
+        model = str(runtime["model"]).strip() if runtime.get("model") else (self._default_model or None)
+        fallback_models = self._fallback_models(name, runtime, manifest)
 
         return AgentSpec(
             name=name,
@@ -209,8 +219,8 @@ class FsProfileStore:
             description=str(data.get("description") or ""),
             profile_dir=manifest.parent,
             # agent.yaml value wins; else the store's default; else None (runtime decides).
-            provider=str(runtime["provider"]).strip() if runtime.get("provider") else (self._default_provider or None),
-            model=str(runtime["model"]).strip() if runtime.get("model") else (self._default_model or None),
+            provider=provider,
+            model=model,
             timeout=float(timeout),
             tools=tuple(tools),
             skills=skill_paths,
@@ -218,7 +228,26 @@ class FsProfileStore:
             confinement=confinement,
             confinement_readable=readable,
             confinement_writable=writable,
+            fallback_models=fallback_models,
         )
+
+    def _fallback_models(self, name: str, runtime: dict, manifest: Path) -> tuple[str, ...]:
+        """The list as configured, each entry checked; what the runtime makes
+        of it (skipping the agent's own model, repeats) is the runtime's."""
+        overridden = _read_override(self._fallback_models_override, name)
+        if overridden is not None:
+            refs, where = overridden, "the override"  # checked already, under its own key
+        elif runtime.get("fallback_models") is not None:
+            raw = runtime["fallback_models"]
+            if not isinstance(raw, list) or not all(isinstance(r, str) for r in raw):
+                raise ProfileError(f"{manifest}: runtime.fallback_models must be a list of provider/model")
+            refs, where = tuple(raw), f"{manifest}: runtime.fallback_models"
+        else:
+            refs, where = self._default_fallback_models, "the default fallback models"
+        try:
+            return tuple(check_model_ref(ref) for ref in refs)
+        except ValueError as exc:
+            raise ProfileError(f"{where}: {exc}") from exc
 
 
 def _read_override[T](read: Callable[[str], T | None] | None, agent: str) -> T | None:

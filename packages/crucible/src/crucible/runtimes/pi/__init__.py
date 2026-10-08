@@ -22,7 +22,7 @@ from crucible.runtimes.pi.hosts import (
     RuntimeHost,
 )
 from crucible.runtimes.pi.profiles import PiProfile, build_pi_profile
-from crucible.runtimes.pi.runtime import PiRuntime
+from crucible.runtimes.pi.runtime import FALLBACK_EXTENSION_PATH, PiRuntime
 from crucible.runtimes.pi.session import PiResult, PiRpcSession
 from crucible.runtimes.pi.spawn import SpawnRequest, safe_session_id
 
@@ -46,6 +46,7 @@ __all__ = [
     "PiRpcSession",
     "PiRuntime",
     "EXTENSION_PATH",
+    "FALLBACK_EXTENSION_PATH",
     "build_pi_profile",
     "safe_session_id",
 ]

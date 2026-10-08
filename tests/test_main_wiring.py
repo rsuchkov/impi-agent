@@ -682,3 +682,23 @@ def test_the_engine_keeps_the_login_fresh(tmp_path: Path) -> None:
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
         app.sessions.close_sync()
+
+
+def test_the_deployments_fallback_models_reach_every_agents_profile(tmp_path: Path, monkeypatch) -> None:
+    """The default chain and the per-agent override reach the user's agents and
+    the engine's own alike, and from there the process the runtime starts."""
+    from crucible.skills import SkillLibrary
+    from impi.profiles import open_profile_stores
+
+    settings = _settings(tmp_path).model_copy(update={"default_fallback_models": "other/big"})
+    monkeypatch.setenv("AGENTS_FALLBACK_MODELS__SUPPORT", "local/small")
+    user, engine = open_profile_stores(settings, SkillLibrary(tmp_path / "skills"))
+    assert user.get("assistant").fallback_models == ("other/big",)
+    assert engine.get("support").fallback_models == ("local/small",)
+    app = build_app(settings)
+    try:
+        profile = app.units[0].flow._profile
+        assert isinstance(profile, PiProfile) and profile.fallback_models == ("other/big",)
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()

@@ -57,6 +57,9 @@ SKILLS_MOUNT = "/app/skills"
 SESSIONS_MOUNT = "/app/sessions"
 FILES_MOUNT = "/app/files"
 EXTENSION_PATH_IN_IMAGE = "/app/extension/index.ts"
+# Loaded into every runtime too, and inert unless the engine names fallback
+# models for the agent (crucible.runtimes.pi.runtime.FALLBACK_MODELS_ENV).
+FALLBACK_EXTENSION_PATH_IN_IMAGE = "/app/extension/fallback.ts"
 # Where the broker's identities are mounted, in both containers. The engine
 # mounts the whole directory because it is what hands them out; an agent gets
 # its own two files and the authority, and nothing else.
@@ -325,7 +328,7 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         f"      RUNTIME_RELAY_LIBRARY_DIR: {SKILLS_MOUNT}",
         f"      RUNTIME_RELAY_SESSION_DIR: {SESSIONS_MOUNT}",
         f"      RUNTIME_RELAY_FILES_DIR: {FILES_MOUNT}/{name}",
-        f"      RUNTIME_RELAY_EXTENSIONS: {EXTENSION_PATH_IN_IMAGE}",
+        f"      RUNTIME_RELAY_EXTENSIONS: {EXTENSION_PATH_IN_IMAGE}:{FALLBACK_EXTENSION_PATH_IN_IMAGE}",
         f'      RUNTIME_RELAY_PORT: "{HOST_PORT}"',
         "      RUNTIME_RELAY_WORK_DIR: /tmp/runtime-relay",
     ]

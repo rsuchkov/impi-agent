@@ -105,6 +105,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # The engine's tool bridge: the client half of the tool-server contract, loaded
 # into every runtime this host starts. It ships with the driver rather than with
 # the agent, which is why it is copied out of the library rather than installed.
+# Beside it the fallback extension, loaded every time and inert unless the
+# engine names fallback models for the agent.
 COPY packages/crucible/src/crucible/runtimes/pi/extension/ /app/extension/
 # The launcher that confines each runtime process with Landlock before it
 # starts. One file, standard library only — the engine's own, copied for the
@@ -119,7 +121,7 @@ ENV PATH=/app/.venv/bin:$PATH \
     RUNTIME_RELAY_PROFILE_DIR=/app/agents \
     RUNTIME_RELAY_LIBRARY_DIR=/app/skills \
     RUNTIME_RELAY_SESSION_DIR=/app/sessions \
-    RUNTIME_RELAY_EXTENSIONS=/app/extension/index.ts \
+    RUNTIME_RELAY_EXTENSIONS=/app/extension/index.ts:/app/extension/fallback.ts \
     RUNTIME_RELAY_LAUNCHER=/app/confinement/launcher.py \
     RUNTIME_RELAY_WORK_DIR=/tmp/runtime-relay
 RUN mkdir -p /app/agents /app/skills /app/sessions /app/files /home/impi/.pi \

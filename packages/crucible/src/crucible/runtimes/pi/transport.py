@@ -25,14 +25,18 @@ def _stderr_log_level(text: str) -> int:
     the normal start of every conversation, not a problem.
 
     Keep these out of WARNING; everything else stays WARNING so real problems
-    surface.
+    surface. A turn moving on to a fallback model (extension/fallback.ts) is
+    INFO: worth seeing, and not a failure — the turn goes on.
     """
     if any(marker in text for marker in _ROUTINE_STDERR):
         return logging.DEBUG
+    if text.startswith(_FALLBACK_STDERR):
+        return logging.INFO
     return logging.WARNING
 
 
 _ROUTINE_STDERR = ("settings.json.lock", "No project session found with id")
+_FALLBACK_STDERR = "fallback: "
 
 
 @runtime_checkable

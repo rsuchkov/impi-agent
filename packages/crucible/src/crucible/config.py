@@ -18,6 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from crucible.ports.agent.confinement import check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
+from crucible.ports.agent.model_ref import check_model_ref
 from crucible.receiver_paths import RECEIVER_SECRET_RE, callback_path
 
 # The backend names, spelled out rather than imported. `crucible.store` owns the
@@ -76,6 +77,18 @@ def _checked_env_names(key: str, raw: str) -> list[str]:
         except ValueError as exc:
             raise ValueError(f"{key}: {exc}") from exc
     return names
+
+
+def _checked_model_refs(key: str, raw: str) -> tuple[str, ...]:
+    """The provider/model references a CSV setting lists — or ValueError
+    naming ``key``."""
+    refs: list[str] = []
+    for part in (p for p in raw.split(",") if p.strip()):
+        try:
+            refs.append(check_model_ref(part))
+        except ValueError as exc:
+            raise ValueError(f"{key}: {exc}") from exc
+    return tuple(refs)
 
 
 class IntegrationsSettings(BaseModel):
@@ -299,6 +312,10 @@ class Settings(BaseSettings):
     # picks the model within it (--model).
     default_provider: str = ""
     default_model: str = ""
+    # Models every agent turns to, in order, when its own fails in a way the
+    # runtime retries (CSV of provider/model). An agent's runtime.fallback_models
+    # replaces it; AGENTS_FALLBACK_MODELS__<AGENT> replaces both.
+    default_fallback_models: str = ""
 
     # Tool SERVER (env: TOOL_ENABLED / TOOL_SERVER_HOST / TOOL_SERVER_PORT) —
     # read grouped via `.tools`. Per-tool settings live with each tool
@@ -345,6 +362,12 @@ class Settings(BaseSettings):
             return check_confinement_level(value)
         except ValueError as exc:
             raise ValueError(f"RUNTIME_CONFINEMENT: {exc}") from exc
+
+    @field_validator("default_fallback_models")
+    @classmethod
+    def _fallback_models_are_refs(cls, value: str) -> str:
+        _checked_model_refs("DEFAULT_FALLBACK_MODELS", value)
+        return value
 
     @field_validator("runtime_env")
     @classmethod
@@ -505,6 +528,21 @@ class Settings(BaseSettings):
             except ValueError as exc:
                 raise ValueError(f"{key}: {exc}") from exc
         return value
+
+    def default_fallback_chain(self) -> tuple[str, ...]:
+        """DEFAULT_FALLBACK_MODELS as references (checked as the settings load)."""
+        return _checked_model_refs("DEFAULT_FALLBACK_MODELS", self.default_fallback_models)
+
+    def fallback_models_for(self, agent: str) -> tuple[str, ...] | None:
+        """Per-agent fallback models: AGENTS_FALLBACK_MODELS__<AGENT> (CSV, env
+        or .env). None = unset; a set value, even empty, replaces the profile's
+        list (empty = no fallback). ValueError, naming the key, for one that is
+        not provider/model."""
+        key = f"AGENTS_FALLBACK_MODELS__{agent.upper().replace('-', '_')}"
+        refs = self._csv_override(key)
+        if refs is not None:
+            _checked_model_refs(key, ",".join(refs))
+        return refs
 
     def skills_for(self, agent: str) -> tuple[str, ...] | None:
         """Per-agent skills override: AGENTS_SKILLS__<AGENT> (CSV, env or .env).

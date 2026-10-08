@@ -54,6 +54,11 @@ logger = logging.getLogger(__name__)
 # The per-session secret's name in the process environment: beside
 # RUNTIME_SESSION_ID, and what lets the tool server believe that id.
 SESSION_PROOF_ENV = "TOOL_SESSION_PROOF"
+# The fallback extension ships with the driver, like the tool bridge, and is
+# loaded for a profile that names fallback models — by this runtime itself, so
+# an application cannot forget it. It reads its chain from FALLBACK_MODELS_ENV.
+FALLBACK_EXTENSION_PATH = Path(__file__).with_name("extension") / "fallback.ts"
+FALLBACK_MODELS_ENV = "RUNTIME_FALLBACK_MODELS"
 # Granted to every process, wherever it runs. PI_OFFLINE stops the runtime's
 # own network calls — its version check, downloading rg/fd, installing a
 # package its settings name; a model call is not one of them.
@@ -77,6 +82,14 @@ def _appended_system_prompt(profile: PiProfile) -> str:
     then the profile's own addition (a gateway's formatting rules)."""
     parts = (ENVELOPE_NOTE if profile.envelope_note else "", profile.append_system_prompt)
     return "\n\n".join(part for part in parts if part)
+
+
+def _fallback_chain(profile: PiProfile) -> tuple[str, ...]:
+    """The models the process may move on to, in order: without the profile's
+    own (the extension moves past the model that failed, so its own model in
+    the list would send a turn back to where it failed) and without repeats."""
+    own = f"{profile.provider}/{profile.model}" if profile.provider and profile.model else None
+    return tuple(dict.fromkeys(ref for ref in profile.fallback_models if ref != own))
 
 
 def _require_pi_profile(profile: AgentProfile) -> PiProfile:
@@ -299,13 +312,14 @@ class PiRuntime:
 
             managed.last_used = self._now()
             logger.info(
-                "pi turn: session=%s profile=%s %.1fs tools=%d text=%d chars stop=%s",
+                "pi turn: session=%s profile=%s %.1fs tools=%d text=%d chars stop=%s model=%s",
                 session_id,
                 pi_profile.name,
                 result.duration_s,
                 len(result.tool_calls),
                 len(result.text),
                 result.stop_reason,
+                result.model or "-",
             )
             return result
 
@@ -500,6 +514,11 @@ class PiRuntime:
         env["RUNTIME_SESSION_ID"] = proof_id
         if self._proofs is not None:
             env[SESSION_PROOF_ENV] = self._proofs.issue(proof_id)
+        extensions = list(self._extra_extensions)
+        chain = _fallback_chain(profile)
+        if chain:
+            env[FALLBACK_MODELS_ENV] = ",".join(chain)
+            extensions.append(str(FALLBACK_EXTENSION_PATH))
         scope = await self._scopes.scope_for(profile.name, safe_id) if self._scopes else None
         request = SpawnRequest(
             agent=profile.name,
@@ -515,7 +534,7 @@ class PiRuntime:
             inherit_all=profile.inherit_all,
             env_files={name: Path(value) for name, value in profile.env_files.items()},
             session_dir=Path(self._session_dir) if self._session_dir else None,
-            extensions=tuple(self._extra_extensions),
+            extensions=tuple(extensions),
             cwd=Path(cwd) if cwd else None,
             process_scope=scope,
         )

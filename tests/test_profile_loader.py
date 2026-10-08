@@ -264,3 +264,46 @@ def test_a_bad_override_is_reported_under_its_own_key(tmp_path: Path, monkeypatc
     monkeypatch.setenv("AGENTS_ENV__ASSISTANT", "AGENTS_*")
     with pytest.raises(ProfileError, match="^AGENTS_ENV__ASSISTANT"):
         FsProfileStore(tmp_path, inherit_override=settings.inherited_env_for, library=None)
+
+
+def test_fallback_models_are_read_as_written(tmp_path: Path) -> None:
+    # What the runtime makes of the list (its own model, repeats) is the
+    # runtime's: the store keeps what the operator wrote, checked.
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime(
+        "  fallback_models: [openrouter/anthropic/claude-x, openai-codex/gpt-5.5]\n"
+    ))
+    spec = FsProfileStore(tmp_path, library=None).get("assistant")
+    assert spec.fallback_models == ("openrouter/anthropic/claude-x", "openai-codex/gpt-5.5")
+
+
+def test_fallback_models_default_and_override(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "plain", GOOD_YAML.replace("name: assistant", "name: plain"))
+    _write_agent(tmp_path, "own", _yaml_with_runtime("  fallback_models: [local/small]\n").replace(
+        "name: assistant", "name: own"
+    ))
+    store = FsProfileStore(tmp_path, default_fallback_models=("other/big",), library=None)
+    assert store.get("plain").fallback_models == ("other/big",)
+    assert store.get("own").fallback_models == ("local/small",)  # agent.yaml replaces the default
+    overridden = FsProfileStore(
+        tmp_path, default_fallback_models=("other/big",),
+        fallback_models_override=lambda name: () if name == "own" else None, library=None,
+    )
+    assert overridden.get("own").fallback_models == ()  # an empty override turns it off
+    assert overridden.get("plain").fallback_models == ("other/big",)
+
+
+@pytest.mark.parametrize("value", ["[gpt-5.5]", "[\"openai-codex/ gpt\"]", "openai-codex/gpt-5.5", "[1]"])
+def test_fallback_models_that_are_not_references_are_refused(tmp_path: Path, value: str) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime(f"  fallback_models: {value}\n"))
+    with pytest.raises(ProfileError, match="runtime.fallback_models"):
+        FsProfileStore(tmp_path, library=None)
+
+
+def test_a_bad_fallback_override_is_reported_under_its_own_key(tmp_path: Path, monkeypatch) -> None:
+    from crucible.config import Settings
+
+    _write_agent(tmp_path, "assistant", GOOD_YAML)
+    monkeypatch.setenv("AGENTS_FALLBACK_MODELS__ASSISTANT", "gpt-5.5")
+    settings = Settings(dotenv_path="no-such.env")
+    with pytest.raises(ProfileError, match="^AGENTS_FALLBACK_MODELS__ASSISTANT"):
+        FsProfileStore(tmp_path, fallback_models_override=settings.fallback_models_for, library=None)

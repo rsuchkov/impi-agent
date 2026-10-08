@@ -50,6 +50,9 @@ class PiProfile:
     # prompt in (ports/agent/envelope.py), ahead of ``append_system_prompt``.
     # Off only for a process whose prompts are not framed that way.
     envelope_note: bool = True
+    # Models the process turns to, in order, when its own fails in a way the
+    # runtime retries ("provider/model"); see extension/fallback.ts.
+    fallback_models: tuple[str, ...] = ()
 
 
 def build_pi_profile(spec: AgentSpec) -> PiProfile:
@@ -66,6 +69,7 @@ def build_pi_profile(spec: AgentSpec) -> PiProfile:
         provider=spec.provider,
         model=spec.model,
         inherit=spec.inherit,
+        fallback_models=spec.fallback_models,
     )
 
 

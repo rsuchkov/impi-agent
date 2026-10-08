@@ -191,3 +191,22 @@ def test_confinement_for_reads_the_per_agent_key(monkeypatch) -> None:
     assert _no_dotenv().confinement_for("my-agent") is None
     monkeypatch.setenv("AGENTS_CONFINEMENT__MY_AGENT", "off")
     assert _no_dotenv().confinement_for("my-agent") == "off"
+
+
+def test_default_fallback_models_are_checked_as_the_settings_load() -> None:
+    assert _settings(default_fallback_models="a/x, b/y/z").default_fallback_chain() == ("a/x", "b/y/z")
+    assert _settings().default_fallback_chain() == ()
+    with pytest.raises(ValidationError, match="DEFAULT_FALLBACK_MODELS"):
+        _settings(default_fallback_models="a/x,just-a-model")
+
+
+def test_fallback_models_for_reads_the_per_agent_key(monkeypatch) -> None:
+    monkeypatch.delenv("AGENTS_FALLBACK_MODELS__MY_AGENT", raising=False)
+    assert _no_dotenv().fallback_models_for("my-agent") is None
+    monkeypatch.setenv("AGENTS_FALLBACK_MODELS__MY_AGENT", "a/x,b/y")
+    assert _no_dotenv().fallback_models_for("my-agent") == ("a/x", "b/y")
+    monkeypatch.setenv("AGENTS_FALLBACK_MODELS__MY_AGENT", "")
+    assert _no_dotenv().fallback_models_for("my-agent") == ()  # set and empty: no fallback
+    monkeypatch.setenv("AGENTS_FALLBACK_MODELS__MY_AGENT", "nope")
+    with pytest.raises(ValueError, match="^AGENTS_FALLBACK_MODELS__MY_AGENT"):
+        _no_dotenv().fallback_models_for("my-agent")

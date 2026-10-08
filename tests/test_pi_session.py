@@ -623,3 +623,30 @@ async def test_the_same_words_without_an_abort_from_the_session_are_a_failure() 
     session.start()
     with pytest.raises(PiProcessError, match="aborted"):
         await session.prompt("hi", timeout=1.0)
+
+
+async def test_the_result_names_the_model_that_answered() -> None:
+    # After a move to a fallback the answer comes from another model than the
+    # agent's own; the run's last answer says which.
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        transport.emit({"type": "agent_end", "messages": [
+            {"role": "assistant", "content": "", "stopReason": "error", "provider": "dead", "model": "m1"},
+            {"role": "assistant", "content": "ok", "provider": "openai-codex", "model": "gpt-5.5"},
+        ]})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    assert (await session.prompt("x", timeout=1.0)).model == "openai-codex/gpt-5.5"
+
+
+async def test_a_result_without_a_named_model_says_none() -> None:
+    transport = FakeTransport()
+    transport._reactor = lambda command: transport.emit(
+        {"type": "agent_end", "messages": [{"role": "assistant", "content": "ok"}]}
+    )
+    session = PiRpcSession(transport)
+    session.start()
+    assert (await session.prompt("x", timeout=1.0)).model == ""
