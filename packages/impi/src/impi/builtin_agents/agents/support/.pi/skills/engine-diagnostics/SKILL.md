@@ -127,8 +127,9 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
 - A conversation that fails on **every** turn after someone sent a picture: the
   session replays its history. Reset just that conversation:
   `impi sessions delete <agent> <conversation>`.
-- A turn that ran tools leaves a message above its reply — `Running 3 tools ·
-  1 failed →`. Ask the operator to open it and paste the row that failed: it
+- A turn that ran tools leaves a message — `Running 3 tools · 1 failed →` —
+  above the reply in a thread, or in a thread under the person's message in a
+  direct message or a channel. Ask the operator to open it and paste the row that failed: it
   names the tool, its arguments and how long it ran. It never shows a result,
   by design (`$IMPI_ROOT/docs/tool-trace.md`), so "what did the tool return"
   still has to come from the log.

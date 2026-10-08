@@ -362,3 +362,18 @@ async def test_sweep_drops_only_what_is_past_the_retention(store) -> None:
     fortnight = ToolTrace(store, callback_url=CB, retention_days=14, now=lambda: now)
     assert await fortnight.sweep() == 1
     assert await store.get_trace("new") is not None
+
+
+def test_trace_ref_hangs_the_trace_off_a_top_level_message_only() -> None:
+    from dataclasses import replace
+
+    from crucible.interactions.tooltrace import trace_ref
+    from crucible.ports.chat.types import KIND_DM, KIND_THREAD, ConversationRef
+
+    dm = replace(_record(), kind=KIND_DM, conversation_id="dm1", channel_id="dm1")
+    prompt = ConversationRef(channel_id="dm1", conversation_id="dm1", message_id="p9")
+    assert trace_ref(dm, prompt) == ConversationRef("dm1", "dm1", message_id="p9", thread_root_id="p9")
+    assert trace_ref(dm, None).thread_root_id == ""  # nothing real to hang it on
+    assert trace_ref(dm, replace(prompt, message_id="")) == trace_ref(dm, None)
+    thread = replace(_record(), kind=KIND_THREAD, conversation_id="root1")
+    assert trace_ref(thread, prompt).thread_root_id == "root1"  # a thread keeps it

@@ -191,7 +191,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/security.md](docs/security.md) — the boundaries, where data and credentials go, the hardening checklist ([SECURITY.md](SECURITY.md): reporting a vulnerability).
 - [docs/browsing.md](docs/browsing.md) — a real browser the agents drive, and what isolates it.
 - [docs/agent-containers.md](docs/agent-containers.md) — a container per agent, and what that isolates.
-- [docs/tool-trace.md](docs/tool-trace.md) — the message above a reply that lists the tools the turn ran.
+- [docs/tool-trace.md](docs/tool-trace.md) — the message that lists the tools a turn ran.
 - [docs/files.md](docs/files.md) — files and photos, in both directions.
 - [docs/commands.md](docs/commands.md) — slash commands and shortcuts, and how to answer one privately.
 - [docs/ws-gateway.md](docs/ws-gateway.md) — plug your own service in over WebSocket.

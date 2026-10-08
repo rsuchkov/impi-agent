@@ -1288,3 +1288,40 @@ async def test_a_message_that_starts_with_a_bracket_keeps_it(tmp_path: Path) -> 
         assert runtime.calls[0][1] == "[@roman]: [x] done\n\\[ ] next"
     finally:
         await store.close()
+
+
+async def test_in_a_direct_message_the_trace_goes_into_a_thread_under_the_prompt(tmp_path: Path) -> None:
+    """The conversation holds the replies; the trace hangs off the message the
+    turn answered. The reply itself stays where it was."""
+    flow, store = _traced_flow(tmp_path, _StreamingRuntime(events=_TOOL_EVENTS))
+    chat = _OrderedChat()
+
+    await flow.handle(_dm(), chat)
+
+    trace_ref = chat.posted_cards[0][0]
+    assert (trace_ref.channel_id, trace_ref.thread_root_id, trace_ref.message_id) == ("dm1", "p1", "p1")
+    assert chat.replies[-1][0].thread_root_id == ""
+    await store.close()
+
+
+async def test_in_a_thread_the_trace_stays_in_the_thread(tmp_path: Path) -> None:
+    flow, store = _traced_flow(tmp_path, _StreamingRuntime(events=_TOOL_EVENTS))
+    chat = _OrderedChat()
+
+    await flow.handle(_thread_msg(root="root1", post="p2"), chat)
+
+    assert chat.posted_cards[0][0].thread_root_id == "root1"  # the thread, not under p2
+    await store.close()
+
+
+async def test_a_turn_with_no_real_message_keeps_the_trace_beside_the_reply(tmp_path: Path) -> None:
+    # A click, a command, a scheduled run: its id is none the platform issued.
+    from dataclasses import replace
+
+    flow, store = _traced_flow(tmp_path, _StreamingRuntime(events=_TOOL_EVENTS))
+    chat = _OrderedChat()
+
+    await flow.handle(replace(_dm(), synthetic=True), chat)
+
+    assert chat.posted_cards[0][0].thread_root_id == ""
+    await store.close()

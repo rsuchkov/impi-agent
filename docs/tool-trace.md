@@ -1,13 +1,18 @@
 # The tool trace
 
-When an agent's turn calls tools, one extra message appears — above the reply,
-because it appears before the reply exists:
+When an agent's turn calls tools, one extra message appears. In a thread it
+sits in the thread, above the reply, because it appears before the reply
+exists. Anywhere else — a direct message, a channel the agent answers in — it
+goes into a thread under the message the turn answers, so the conversation
+itself holds the messages and the replies and nothing else; a turn with no
+real message to hang it on (a click, a slash command, a scheduled run) keeps
+it beside the reply:
 
 ```
 ⚙️ Running 2 tools…          ← while the turn runs; the count grows
 ```
 
-When the turn ends it settles into a button, and the reply lands under it:
+When the turn ends it settles into a button, and the reply follows:
 
 ```
 [ Running 3 tools · 1 failed → ]

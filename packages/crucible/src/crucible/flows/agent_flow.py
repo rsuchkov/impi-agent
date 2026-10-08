@@ -33,6 +33,7 @@ from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_THREAD,
     Attachment,
+    ConversationRef,
     IncomingMessage,
     PostSnippet,
 )
@@ -135,7 +136,12 @@ class TurnTracer(Protocol):
     its one rule — it depends on ports and the store, not on the machinery that
     posts widgets."""
 
-    def begin(self, record: SessionRecord, chat: ChatClient) -> ActiveTrace: ...
+    def begin(
+        self, record: SessionRecord, chat: ChatClient, *, anchor: ConversationRef | None = None
+    ) -> ActiveTrace:
+        """``anchor`` is the message the turn answers — None when there is no
+        real one (a click, a command, a scheduled run)."""
+        ...
 
 
 class AgentFlow:
@@ -275,7 +281,10 @@ class AgentFlow:
             await chat.add_reaction(anchor.ref, LOADING_REACTION)
         # The trace posts nothing until the first tool runs, so a turn that
         # only talks leaves no extra message.
-        trace = self._tracer.begin(record, chat) if self._tracer is not None else None
+        trace = (
+            self._tracer.begin(record, chat, anchor=None if anchor.synthetic else anchor.ref)
+            if self._tracer is not None else None
+        )
         # The anchor's scope is the turn's: a batch is one turn, and the newest
         # message is the one whose credentials are freshest.
         bound = (

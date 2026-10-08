@@ -172,10 +172,10 @@ class HttpTurns:
 
     # -- TurnTracer: the flow hands us the runtime's events -----------------------
 
-    def begin(self, record, chat) -> _Trace:
+    def begin(self, record, chat, *, anchor=None) -> _Trace:
         """Called by the flow as the turn starts, with the conversation's
         session record — which is where the turn learns its runtime session id
-        (what a cancel needs)."""
+        (what a cancel needs). The journal has no threads: ``anchor`` is moot."""
         turn = self._active.get(record.conversation_id)
         if turn is not None:
             turn.runtime_session_id = record.runtime_session_id

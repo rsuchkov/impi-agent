@@ -116,6 +116,13 @@ when a release is cut, and `impi update` shows the target version's section.
     new conversation's session notice at DEBUG, a switch at INFO.
 
   Agent images change (`impi update` rebuilds them).
+- **The tool trace no longer sits in the conversation's own stream.** In a
+  direct message or a channel the "Running N tools" message now goes into a
+  thread under the message the turn answers; the reply stays where it was. In
+  a thread nothing changes, and a turn with no real message to hang it on (a
+  click, a slash command, a scheduled run) keeps it beside the reply.
+  **Breaks:** `TurnTracer.begin` is called with `anchor=` (the message the
+  turn answers, or None); a tracer of your own takes the keyword.
 - **An unconfined runtime says so.** `PiRuntime` built without `scopes=` on a
   kernel with Landlock logs a warning: its processes can read each other's
   conversations, and nothing used to say that.

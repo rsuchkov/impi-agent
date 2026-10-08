@@ -301,7 +301,9 @@ its own: `crucible.interactions.tooltrace`. The flow hands each turn a trace and
 feeds it the runtime's neutral tool events (`ToolStarted`/`ToolFinished`, from
 `ports/agent/events.py`); the trace draws a live counter through the agent's own
 `ChatClient`, writes the calls to the store when the turn ends, and settles the
-message into a button. Its screen is registered but not listed — clicks route to
+message into a button. It posts in the conversation's thread, or — when the
+conversation is not one — in a thread under the message the turn answers
+(`trace_ref`; the flow passes that message as `anchor`, none for a synthetic one). Its screen is registered but not listed — clicks route to
 it, nobody is offered it by name. See [tool-trace.md](tool-trace.md).
 
 ## The composition root
