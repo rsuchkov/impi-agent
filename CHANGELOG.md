@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.21.0 — 2026-10-09
+
 - **A message over the http or ws gateway carries its time.** Both hubs left
   `IncomingMessage.timestamp` empty, so the prompt's speaker line had no time
   and the model had no idea what "today" was. Each now stamps the moment it
