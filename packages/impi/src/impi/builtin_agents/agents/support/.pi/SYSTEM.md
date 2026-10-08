@@ -91,6 +91,7 @@ description: ...
 runtime:
   provider: openai-codex   # OPTIONAL — omit to inherit DEFAULT_PROVIDER
   model: gpt-5.5           # OPTIONAL — omit to inherit DEFAULT_MODEL
+  fallback_models: [ ... ] # OPTIONAL — provider/model, tried in order when the model is down
   timeout: 180
   tools: [ ... ]           # the single capability allowlist (see below)
   skills: [ ... ]          # private names, or registry:<name> from the library

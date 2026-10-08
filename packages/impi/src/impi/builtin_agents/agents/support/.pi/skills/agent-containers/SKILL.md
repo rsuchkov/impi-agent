@@ -96,7 +96,11 @@ Say what it does and does not buy, rather than "it is isolated":
   handed one file, `~/.impi/pi/agent/auth.json`, over a home of its own in
   memory: `settings.json`, `models.json`, `pi install` do not reach the
   container or survive a restart. A custom endpoint goes through `LLM_*`. Do not
-  describe agents as fully separated without saying the account is shared.
+  describe agents as fully separated without saying the account is shared. So a
+  fallback model (`runtime.fallback_models`) for an agent in a container needs
+  its provider's login in `auth.json`; a provider defined only in `models.json`
+  is one it cannot switch to (`impi doctor` says so). Its switch lines are in
+  `impi agent logs <agent>`.
 - **Re-run `impi agent sync`** after upgrading to this layout, and after any
   change to `RUNTIME_EXTENSIONS` (the names are written into each service).
 
