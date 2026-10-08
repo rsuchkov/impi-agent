@@ -110,6 +110,10 @@ class AgentProcessScopes:
             # Never the agent's directory for a process that may not write it:
             # a skill told to put a file there would fail on every call.
             env[self._files_dir_env] = str(files_dir or tmp)
+        # Held last, once nothing above can fail: a scope that never reached
+        # its caller is never released, and would keep its scratch for good.
+        if level != "agent":
+            self._in_use[scratch] = self._in_use.get(scratch, 0) + 1
         return ProcessScope(readable=tuple(readable), writable=tuple(writable), env=env)
 
     async def _files_dir(self, agent: str, session_id: str | None, level: ConfinementLevel) -> Path | None:
@@ -149,8 +153,9 @@ class AgentProcessScopes:
         if session_id:
             scratch = private_dir(agent_scratch / session_id)
         else:
+            # Left behind if the scope fails before it is handed out: unheld,
+            # it goes by age like any other.
             scratch = Path(tempfile.mkdtemp(prefix=_RUN_PREFIX, dir=agent_scratch))
-        self._in_use[scratch] = self._in_use.get(scratch, 0) + 1
         return scratch
 
     def _clear_stale_scratch(self, agent_scratch: Path) -> None:

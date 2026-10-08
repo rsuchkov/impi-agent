@@ -125,7 +125,8 @@ denied`; it writes to one of those instead, or the agent declares the path in
 `runtime.confinement_write`.
 
 `$HOME` is short-lived: at the default level one per conversation, cleared a
-day after it was last used — and in [a container of its own](agent-containers.md),
+day after the conversation's last process ended (a scheduled run's when its
+process ends) — and in [a container of its own](agent-containers.md),
 gone when the process ends. So a cache there (`uv run`, `npx`, `pip install
 --user`) is refilled again and again. Dependencies a skill needs belong in the
 image — the agent's `runtime.packages` or `Dockerfile.include`, in a container

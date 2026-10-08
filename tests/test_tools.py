@@ -872,9 +872,11 @@ def test_send_ephemeral_declares_ephemeral_capability() -> None:
 
 async def test_server_resolves_conversation_into_context() -> None:
     # A tool that echoes the resolved conversation context; the server fills
-    # ctx.channel_id/user_id from the injected resolver keyed on the session header.
+    # ctx.channel_id/user_id/files_dir from one resolver, asked with the
+    # calling agent and the session header.
     from typing import ClassVar
 
+    from crucible.ports.conversation import SessionConversation
     from crucible.tools.base import Tool
     from crucible.tools.registry import ToolRegistry
 
@@ -888,12 +890,13 @@ async def test_server_resolves_conversation_into_context() -> None:
 
     reg = ToolRegistry((_Echo(),))  # type: ignore[arg-type]
 
-    async def resolver(rsid: str):
-        return ("C-resolved", "U-resolved") if rsid == "assistant--conv" else None
+    asked: list[tuple[str, str]] = []
 
-    async def files_dir(agent: str, rsid: str):
-        # Asked with the calling agent, not only the session it names.
-        return Path(f"/files/{agent}/conv") if rsid == "assistant--conv" else None
+    async def resolver(agent: str, rsid: str):
+        asked.append((agent, rsid))
+        if rsid != "assistant--conv":
+            return None
+        return SessionConversation("C-resolved", "U-resolved", Path(f"/files/{agent}/conv"))
 
     server = ToolServer(
         reg,
@@ -902,8 +905,7 @@ async def test_server_resolves_conversation_into_context() -> None:
         tokens={"tok": "assistant"},
         allowlists={"assistant": frozenset({"echo_ctx"})},
         port=8470,
-        session_resolver=resolver,
-        files_dir_resolver=files_dir,
+        conversation_resolver=resolver,
     )
     await server.start()
     try:
@@ -916,6 +918,7 @@ async def test_server_resolves_conversation_into_context() -> None:
         assert body == {
             "channel_id": "C-resolved", "user_id": "U-resolved", "files_dir": "/files/assistant/conv",
         }
+        assert asked == [("assistant", "assistant--conv")]  # once per call, with the caller
     finally:
         await server.stop()
 

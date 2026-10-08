@@ -58,12 +58,13 @@ _FILES_PER_BODY = 4
 _SEP = ":"
 
 
-# One of the application's own readiness checks: None when it may take
-# requests, else why not — a short reason, which the response carries.
-ReadyCheck = Callable[[], Awaitable[str | None]]
-# How long one check may take before it counts as a failure: a probe that
-# hangs reads as a pod that is not ready, never as a hub that stops answering.
-READY_CHECK_TIMEOUT_S = 2.0
+# One of the application's own say in readiness: None when it may take
+# requests, else why not — a short reason, which the response carries. It
+# answers rather than raises; one that raises counts as a "no".
+ReadinessProbe = Callable[[], Awaitable[str | None]]
+# How long one probe may take before it counts as a "no": a probe that hangs
+# reads as a pod that is not ready, never as a hub that stops answering.
+READINESS_PROBE_TIMEOUT_S = 2.0
 
 
 def _conversation_key(caller: Caller, conversation_id: str) -> str:
@@ -71,15 +72,15 @@ def _conversation_key(caller: Caller, conversation_id: str) -> str:
     return f"{caller.realm}{_SEP}{conversation_id}"
 
 
-async def _run_check(check: ReadyCheck) -> str | None:
-    """A check's reason, or a reason of its own when it raised or hung. What it
-    raised is logged, not answered: a probe's response is no place for an
+async def _probe_reason(probe: ReadinessProbe) -> str | None:
+    """A probe's reason, or a reason of its own when it raised or hung. What it
+    raised is logged, not answered: a readiness response is no place for an
     exception's text."""
-    name = getattr(check, "__name__", "ready check")
+    name = getattr(probe, "__name__", "readiness probe")
     try:
-        return await asyncio.wait_for(check(), READY_CHECK_TIMEOUT_S)
+        return await asyncio.wait_for(probe(), READINESS_PROBE_TIMEOUT_S)
     except asyncio.TimeoutError:
-        logger.warning("readiness: %s took over %.0fs", name, READY_CHECK_TIMEOUT_S)
+        logger.warning("readiness: %s took over %.0fs", name, READINESS_PROBE_TIMEOUT_S)
         return f"{name}: timed out"
     except Exception:
         logger.warning("readiness: %s failed", name, exc_info=True)
@@ -101,7 +102,7 @@ class HttpHub:
         max_wait_s: float = 8.0,
         routes: Sequence[web.RouteDef] = (),
         middlewares: Sequence[Middleware] = (),
-        ready_checks: Sequence[ReadyCheck] = (),
+        readiness_probes: Sequence[ReadinessProbe] = (),
     ) -> None:
         self._host = host
         self._port = port
@@ -133,7 +134,7 @@ class HttpHub:
         # own store, say). Whether a dependency belongs here is its choice — a
         # pod taken out of rotation moves its users, which a store outage
         # every pod shares does not cure.
-        self._ready_checks = list(ready_checks)
+        self._readiness_probes = list(readiness_probes)
         self._settling: set[asyncio.Task[None]] = set()
         self._runner: web.AppRunner | None = None
         self._started = False
@@ -312,8 +313,8 @@ class HttpHub:
             return web.json_response({"ready": False, "reason": "starting"}, status=503)
         if self._draining:
             return web.json_response({"ready": False, "reason": "draining"}, status=503)
-        for check in self._ready_checks:
-            reason = await _run_check(check)
+        for probe in self._readiness_probes:
+            reason = await _probe_reason(probe)
             if reason is not None:
                 return web.json_response({"ready": False, "reason": reason}, status=503)
         return web.json_response({"ready": True})

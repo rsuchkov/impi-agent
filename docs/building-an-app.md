@@ -163,12 +163,14 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   echoes it on every call. Two conversations never share one (the derivation
   appends a digest whenever it had to coerce a character, and the store
   enforces uniqueness), so an application may key whatever it holds per
-  running turn by that id and resolve it from a tool. The conversation's files
-  directory — where what people sent in it was saved — is already resolved:
-  `ToolContext.files_dir`, when the server was built with
-  `files_dir_resolver=conversation_files_dir_lookup(attachments, store)`
-  (`crucible.conversation_files`). Do not derive it from a conversation id
-  yourself: `AttachmentStore` renames an id it cannot use as a directory name.
+  running turn by that id and resolve it from a tool. What a tool usually
+  needs is already resolved — `ToolContext.channel_id`, `user_id` (who spoke
+  last) and `files_dir` (where what people sent was saved) — when the server
+  was built with `conversation_resolver=conversation_lookup(attachments,
+  store)` (`crucible.conversation_files`): one read of the session record per
+  call, and nothing for a session that is not the calling agent's. Do not
+  derive the files directory from a conversation id yourself:
+  `AttachmentStore` renames an id it cannot use as a directory name.
 - **Name a confirmed tool for a person.** `display_name = "Add a comment"` on
   the tool class puts that on its card — "wants to run “Add a comment”." — where
   the id would read as engine output; the id stays on the card as a `Tool`
@@ -333,7 +335,7 @@ profile = replace(build_pi_profile(spec), env=tools.profile_env(spec) or {})
 runtime = PiRuntime(..., extra_extensions=[str(EXTENSION_PATH.resolve())])
 tool_server = tools.build_server(
     directory=directory, interaction_svc=None, dotenv_path=settings.dotenv_path,
-    session_resolver=my_resolver,              # runtime session id -> (channel, user)
+    conversation_resolver=my_resolver,         # (agent, session id) -> SessionConversation
     tool_gate=my_gate,                         # your ToolApproving: however you ask a person
     clock=runtime,                             # the turn waits while they decide
     session_proofs=proofs,                     # the same SessionProofBook the runtime got
@@ -352,10 +354,13 @@ credential, is another user's credential.
   them is not advertised.
 - `confirmations_on=True` with your own `ToolApproving` is how confirmation
   works without a chat card: the server calls your gate, with the tool's
-  preview, and pauses the turn's clock through `clock=runtime` while it waits.
-- `session_resolver` maps the runtime session id a tool call carries back to
-  whatever you key your conversations by; it is the same id you passed to
-  `run_stateful`.
+  preview and its `display_name`, and pauses the turn's clock through `clock=runtime` while it waits.
+- `conversation_resolver` maps the calling agent and the runtime session id a
+  tool call carries — the same id you passed to `run_stateful` — to a
+  `SessionConversation` (`crucible.ports.conversation`): channel, last
+  speaker, files directory, or None for a session that is not that agent's.
+  Over crucible's own session store, `conversation_lookup(attachments, store)`
+  (`crucible.conversation_files`) is that resolver.
 - **Per-turn data for tools — a credential the person sent with the message,
   say — rides in `IncomingMessage.turn` as a `TurnScope`.** Build one in your
   gateway or API handler (`TurnSecrets({"cookie": …})` for anything that must
@@ -394,7 +399,7 @@ credential, is another user's credential.
   go on the hub's port through `HttpHub(routes=…, middlewares=…)`, with
   `hub.caller()`, `hub.conversation_key()` and `hub.refuse()` for what the
   hub's handlers have; `hub.drain()` / `await hub.idle(timeout)` are the
-  shutdown pair, and `HttpHub(ready_checks=…)` gives your own dependencies a
+  shutdown pair, and `HttpHub(readiness_probes=…)` gives your own dependencies a
   say in `/readyz` — see [http-gateway.md](http-gateway.md).
 - **Testing without a model.** `crucible.runtimes.pi.testing.ScriptedHost`
   replaces the runtime's process and nothing else. Hand it to the runtime as

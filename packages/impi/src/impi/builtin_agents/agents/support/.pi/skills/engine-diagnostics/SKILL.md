@@ -110,9 +110,11 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   failed too.
 - Which model answered: every turn's `pi turn: … model=<provider/model>` line in
   the engine log. A move to a fallback is a line of its own, `fallback: <from>
-  failed (<error>); switching to <to>` (INFO); "is not a model this runtime
-  knows" or "cannot switch" there means the fallback has no login or
-  definition — `impi health` names those.
+  failed (<error>); switching to <to>` (INFO) — in the engine log, or for an
+  agent in a container of its own in `impi agent logs <agent>` (as `runtime
+  stderr: fallback: …`). "is not a model this runtime knows" or "cannot
+  switch" there means the fallback has no login or definition — `impi health`
+  names those.
 - Every turn fails from the start with `EACCES` or `EROFS` on `auth.json` —
   look for `the runtime's agent directory …` at ERROR in the engine log, from
   startup. The engine creates the credential files there before any agent
@@ -128,8 +130,10 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   session replays its history. Reset just that conversation:
   `impi sessions delete <agent> <conversation>`.
 - A turn that ran tools leaves a message — `Running 3 tools · 1 failed →` —
-  above the reply in a thread, or in a thread under the person's message in a
-  direct message or a channel. Ask the operator to open it and paste the row that failed: it
+  above the reply in a thread, in a thread under the person's message in a
+  direct message or a channel, and beside the reply after a click, a slash
+  command or a scheduled run. Ask the operator to open it and paste the row
+  that failed: it
   names the tool, its arguments and how long it ran. It never shows a result,
   by design (`$IMPI_ROOT/docs/tool-trace.md`), so "what did the tool return"
   still has to come from the log.
@@ -238,6 +242,14 @@ And from the session check:
   next start; slash commands are then re-registered under the URL health prints.
 - `extensions in …: a, b; enabled (RUNTIME_EXTENSIONS): none` — an extension
   in `_extensions/` loads only when named in `RUNTIME_EXTENSIONS`.
+- `fallback models: a: p/m → q/n; …` — the models each running agent moves on
+  to when its own fails the way a service fails, as configured.
+- `! fallback models with no login or definition for their provider where the
+  agent runs: a → q/n …` — the runtime will not switch to that model. A login
+  in `auth.json` (`impi login`) or, for an agent the engine runs, a definition
+  in `models.json` fixes it; an agent in its own container is handed
+  `auth.json` alone. A key the runtime takes from the environment is not seen
+  here, so with `LLM_*` this may be a false alarm.
 
 ## 4. Widgets, forms or commands never arrive
 

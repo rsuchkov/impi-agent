@@ -175,7 +175,7 @@ The agents this caller may address: `{"agents": [{"name", "role", "description"}
 ### `GET /healthz`, `GET /readyz`, `GET /stats`
 
 Unauthenticated. `readyz` is `503` while the engine starts or drains, or while
-one of the application's own checks says it cannot serve — **not** while
+one of the application's own readiness probes says it cannot serve — **not** while
 every runtime slot is busy. A full pool is a busy pod, not a broken one: a new
 turn waits for a slot or evicts an idle session, and a load balancer that took
 the pod out of rotation (a Kubernetes readiness probe does exactly that) would
@@ -184,10 +184,10 @@ hash, onto a pod that has none of their state. Load belongs to whoever scales
 or watches: `stats` answers `{"runtime": {alive, busy, capacity, waiting} |
 null, "turns": {"active"}}`.
 
-An application adds its own checks with `HttpHub(ready_checks=[…])`: each is
-`async () -> str | None`, `None` when it may take requests, else a short reason
-that the `503` carries as `reason`. A check that raises or takes over two
-seconds counts as failed (`"<name>: failed"`, `"<name>: timed out"`); what it
+An application adds its own probes with `HttpHub(readiness_probes=[…])`: each
+is `async () -> str | None`, `None` when it may take requests, else a short
+reason that the `503` carries as `reason`. A probe that raises or takes over two
+seconds counts as a "no" (`"<name>: failed"`, `"<name>: timed out"`); what it
 raised goes to the log, not into the response. Whether a dependency belongs
 there is a choice: taking a pod out of rotation moves its users, which cures
 nothing when every pod shares the dependency that is down.

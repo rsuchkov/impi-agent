@@ -49,4 +49,3 @@ class AgentSpec:
     # ``provider/model`` (``model_ref.check_model_ref``). The runtime skips
     # the agent's own model and repeats when it starts a process.
     fallback_models: tuple[str, ...] = ()
-

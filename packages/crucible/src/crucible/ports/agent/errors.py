@@ -80,7 +80,10 @@ _CONTEXT = re.compile(
 # The model's service failing or out of reach: a 5xx it answered with (a
 # status at the start of the provider's message), its words for one, or a
 # connection that never completed. Checked after the kinds above, which a
-# 5xx-shaped body may also name.
+# 5xx-shaped body may also name. The connection words (fetch failed, socket
+# hang up, ECONNREFUSED…) are how today's runtime, on Node, reports a
+# transport failure: a runtime in another language says it in its own words,
+# and its driver would add them here or map them to these.
 _MODEL_UNAVAILABLE = re.compile(
     r"(?:^|:\s*)5\d\d\b|service unavailable|bad gateway|gateway time-?out|overloaded|"
     r"internal server error|connection error|request timed out|fetch failed|socket hang up|"

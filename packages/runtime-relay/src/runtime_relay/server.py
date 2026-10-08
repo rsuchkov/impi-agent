@@ -408,4 +408,3 @@ def _stderr_level(text: str) -> int:
     if text.startswith("fallback: "):
         return logging.INFO
     return logging.WARNING
-

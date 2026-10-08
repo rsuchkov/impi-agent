@@ -101,6 +101,8 @@ a package `settings.json` names that is not installed yet.
 - `RUNTIME_FALLBACK_MODELS` — the agent's fallback models, `provider/model`
   comma-separated, without its own model and repeats; only for an agent that
   names some.
+- For engine-owned agents (`support`): `AGENTS_PATH` (their editable workspace) and
+  `IMPI_ROOT` (the engine checkout, read-only, so `support` can diagnose the engine).
 
 ### Fallback models
 
@@ -124,9 +126,10 @@ model's own setting, else the configured default.
 The engine logs the switch at INFO (`pi stderr: fallback: <from> failed
 (<error>); switching to <to>`), and every turn's line names the model that
 answered (`pi turn: … model=<provider/model>`). A model the runtime does not
-know, or has no login for, is not switched to; the line says so.
-- For engine-owned agents (`support`): `AGENTS_PATH` (their editable workspace) and
-  `IMPI_ROOT` (the engine checkout, read-only, so `support` can diagnose the engine).
+know, or has no login for, is not switched to; the line says so. For an agent
+in a container of its own the switch line is in that agent's log (`impi agent
+logs <agent>`, as `runtime stderr: fallback: …`), while the `model=` line stays
+in the engine's.
 
 ## Built-in tools & the working directory
 

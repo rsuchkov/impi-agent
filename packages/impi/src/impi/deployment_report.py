@@ -1,7 +1,8 @@
 """What the engine says about its own deployment: at startup in its log, and on
 request in `impi health`. One place, so the two cannot disagree — which agents
 run, whether a receiver is needed, how each agent's process is confined and
-which of them can read their neighbours' environments.
+which of them can read their neighbours' environments, and which models each
+agent falls back to and which of those it has no login for.
 """
 
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
@@ -97,14 +98,16 @@ def fallback_report(
     operator wrote it — and the fallback models whose provider the runtime
     that agent runs on has no login or definition for (``providers_for``):
     it would refuse to switch to them. (None, None) when no agent names any."""
-    chains = {s.name: s for s in specs if configs.get(s.name) is not None and s.fallback_models}
-    if not chains:
+    with_fallbacks = {s.name: s for s in specs if configs.get(s.name) is not None and s.fallback_models}
+    if not with_fallbacks:
         return None, None
-    line = "fallback: " + "; ".join(
-        f"{name}: {' → '.join(spec.fallback_models)}" for name, spec in sorted(chains.items())
+    # Not "fallback: " — that is how the runtime words a switch, and an
+    # operator searching the log for switches should find switches.
+    line = "fallback models: " + "; ".join(
+        f"{name}: {' → '.join(spec.fallback_models)}" for name, spec in sorted(with_fallbacks.items())
     )
     missing = [
-        f"{name} → {ref}" for name, spec in sorted(chains.items())
+        f"{name} → {ref}" for name, spec in sorted(with_fallbacks.items())
         for ref in spec.fallback_models if ref.partition("/")[0] not in providers_for(name)
     ]
     warning = (

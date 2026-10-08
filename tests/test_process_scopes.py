@@ -6,6 +6,8 @@ import stat
 import time
 from pathlib import Path
 
+import pytest
+
 from crucible.ports.agent.spec import AgentSpec
 from crucible.process_scopes import AgentProcessScopes
 
@@ -165,3 +167,24 @@ async def test_the_agent_levels_shared_scratch_is_never_taken_back(tmp_path: Pat
 async def test_an_unknown_agent_gets_nothing_beyond_its_scratch_space(tmp_path: Path) -> None:
     scope = await _scopes(tmp_path, {}).scope_for("ghost", None)
     assert scope is not None and scope.readable == (tmp_path / "skills",)
+
+
+async def test_a_scope_that_fails_before_it_is_handed_out_holds_nothing(tmp_path: Path) -> None:
+    """The store that says which conversation a session serves may be down: the
+    caller gets an error and no scope, so nothing will ever release it."""
+
+    async def store_down(agent: str, session_id: str) -> Path | None:
+        raise RuntimeError("store unreachable")
+
+    scopes = _scopes(tmp_path, {"assistant": _spec(tmp_path)}, conversation_files_dir_for=store_down)
+    with pytest.raises(RuntimeError):
+        await scopes.scope_for("assistant", "assistant--c1")
+    assert scopes._in_use == {}
+    # So its scratch goes by age like any other.
+    scratch = tmp_path / "scratch" / "assistant" / "assistant--c1"
+    old = time.time() - 2 * 24 * 3600
+    os.utime(scratch, (old, old))
+    run = await scopes.scope_for("assistant", None)  # a memoryless run asks no store
+    assert run is not None
+    scopes.release("assistant", run)
+    assert not scratch.exists()

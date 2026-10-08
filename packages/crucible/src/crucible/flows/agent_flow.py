@@ -320,9 +320,10 @@ class AgentFlow:
             if acknowledge:
                 await chat.remove_reaction(anchor.ref, LOADING_REACTION)
             if trace is not None:
-                # Settled before the reply is posted, so the widget sits above
-                # it — and on the timeout and error paths too, so a turn that
-                # broke mid-tool still says which tool it was in.
+                # Settled before the reply is posted, so in a thread the
+                # widget sits above it — and on the timeout and error paths
+                # too, so a turn that broke mid-tool still says which tool it
+                # was in.
                 await trace.end(interrupted=interrupted)
 
         await self._sessions.touch(self._agent_name, anchor.conversation_id)

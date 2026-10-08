@@ -74,7 +74,7 @@ logger = logging.getLogger(__name__)
 
 # What the card's headline is rewritten to once the question is closed. The
 # card keeps its facts — it is the history of what was decided about what.
-_ANSWERED = "— {verdict}: {tool}."
+_ANSWERED = "— {words}: {tool}."
 _EXPIRED = "— ⌛ nobody answered in time, so {tool} was refused."
 _ABANDONED = "— ⌛ {tool} was withdrawn before anyone answered."
 # The raw arguments on a card without a preview, at most. A platform refuses a
@@ -228,7 +228,7 @@ class ToolGate:
             )
             raise
         verdict, words = verdict_of(answer)
-        headline = _ANSWERED.format(verdict=words, tool=named)
+        headline = _ANSWERED.format(words=words, tool=named)
         await self._rewrite(poster, post_id, _closed(card, headline, verdict, answer.grant_s))
         return answer
 

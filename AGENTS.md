@@ -102,7 +102,7 @@ duplicate architecture here.
 - **Runtime-neutral core.** The neutral layers — `ports`, `flows`, `tools`,
   `interactions`, `store`, `profiles`, `gateways`, `scheduler`, `approvals`,
   `skills`, `attachments`, `confinement`, `containment`, `process_scopes`,
-  `private_files` — name no concrete runtime, and not only in imports:
+  `conversation_files`, `private_files` — name no concrete runtime, and not only in imports:
   comments, docstrings, names, and strings there use neutral terms ("the
   runtime", "the runtime's tool extension / session / UI request"), never
   "pi's …". `pi` specifics live only in `runtimes/pi/` and the composition root;

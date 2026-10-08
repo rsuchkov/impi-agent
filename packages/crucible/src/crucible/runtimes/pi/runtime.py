@@ -394,7 +394,7 @@ class PiRuntime:
             session.start()
             return session
         except Exception:
-            self._release(profile.name)
+            self._release_permits(profile.name)
             raise
 
     async def _acquire(self, agent: str) -> None:
@@ -457,7 +457,7 @@ class PiRuntime:
         )
         await self._drop_session(victim)
 
-    def _release(self, agent: str) -> None:
+    def _release_permits(self, agent: str) -> None:
         self._semaphore.release()
         agent_permit = self._agent_semaphore(agent)
         if agent_permit is not None:
@@ -485,7 +485,7 @@ class PiRuntime:
                 if self._scopes is not None and session.process_scope is not None:
                     self._scopes.release(agent, session.process_scope)
             finally:
-                self._release(agent)
+                self._release_permits(agent)
 
     async def _drop_session(self, key: str) -> None:
         managed = self._sessions.pop(key, None)

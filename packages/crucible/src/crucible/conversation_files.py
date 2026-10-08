@@ -1,34 +1,48 @@
-"""Which files directory belongs to the conversation a runtime session serves.
+"""What a runtime session's conversation is, from crucible's own session store:
+where it happens, who spoke last, and its files directory.
 
-Asked from two sides: the confinement, for the one directory of files a
-process confined to its conversation may write (``process_scopes``), and the
-tool server, for the directory a tool works in (``ToolContext.files_dir``).
-Both get it from here, so neither the application nor a tool derives a
-conversation's directory itself — the name ``AttachmentStore`` gives a
-conversation id is its own business (a digest where it had to change one).
+Asked from two sides. The tool server fills a tool's context from it
+(``ports.conversation``), and the confinement gives a process confined to its
+conversation that one directory of files to write (``process_scopes``). Both
+get it from here — one read of the session record, one rule for whose it is —
+so neither the application nor a tool derives a conversation's facts itself:
+the name ``AttachmentStore`` gives a conversation id is its own business (a
+digest where it had to change one).
 """
 
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from crucible.attachments import AttachmentStore
+from crucible.ports.conversation import ConversationResolver, SessionConversation
 from crucible.store.base import SessionStore
+
+
+def conversation_lookup(attachments: AttachmentStore | None, sessions: SessionStore) -> ConversationResolver:
+    """(agent, runtime session id) -> its conversation: None for a session the
+    store does not know, or one that belongs to another agent. ``files_dir``
+    is None without attachments."""
+
+    async def conversation(agent: str, runtime_session_id: str) -> SessionConversation | None:
+        record = await sessions.get_by_runtime_session(runtime_session_id)
+        if record is None or record.agent != agent:
+            return None
+        files_dir = attachments.conversation_dir(agent, record.conversation_id) if attachments else None
+        return SessionConversation(record.channel_id, record.last_user_id, files_dir)
+
+    return conversation
 
 
 def conversation_files_dir_lookup(
     attachments: AttachmentStore | None, sessions: SessionStore
 ) -> Callable[[str, str], Awaitable[Path | None]]:
-    """(agent, runtime session id) -> that conversation's files directory,
-    over the store that knows which conversation a session serves. None for a
-    session the store does not know, one that belongs to another agent, or a
-    deployment without attachments."""
+    """(agent, runtime session id) -> that conversation's files directory, by
+    the same lookup — what ``AgentProcessScopes(conversation_files_dir_for=…)``
+    takes."""
+    lookup = conversation_lookup(attachments, sessions)
 
     async def conversation_files_dir_for(agent: str, runtime_session_id: str) -> Path | None:
-        if attachments is None:
-            return None
-        record = await sessions.get_by_runtime_session(runtime_session_id)
-        if record is None or record.agent != agent:
-            return None
-        return attachments.conversation_dir(agent, record.conversation_id)
+        found = await lookup(agent, runtime_session_id)
+        return found.files_dir if found is not None else None
 
     return conversation_files_dir_for

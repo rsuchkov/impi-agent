@@ -13,8 +13,8 @@ What every application that runs the runtime needs at startup, in one call:
   memory together (``session_retention.py``).
 
 Like ``session_retention``, it knows where the runtime keeps things. The
-process's umask is not set here: it is the first line of ``main()``, before
-anything — a store included — creates a file.
+process's umask is not set here: the application sets it before anything — a
+store included — creates a file.
 """
 
 import logging
@@ -22,7 +22,11 @@ import os
 from pathlib import Path
 
 from crucible.config import Settings
-from crucible.runtimes.pi.auth_file import auth_file_path
+from crucible.runtimes.pi.auth_file import (
+    AUTH_FILE,
+    MODELS_STORE_FILE,
+    runtime_agent_dir,
+)
 from crucible.runtimes.pi.spawn import migrate_session_layout
 from crucible.session_retention import purge_idle
 from crucible.store.base import SessionStore
@@ -30,15 +34,16 @@ from crucible.store.base import SessionStore
 logger = logging.getLogger(__name__)
 
 # What the runtime keeps in its agent directory and reads on every turn. Empty
-# is what it reads as "nothing yet", and what the installer reads as "no login".
-RUNTIME_AGENT_DIR_FILES = ("auth.json", "models-store.json")
+# is what it reads as "nothing yet" — and what a check for a login (a file
+# with something in it) still reads as none.
+RUNTIME_AGENT_DIR_FILES = (AUTH_FILE, MODELS_STORE_FILE)
 
 
 async def prepare_runtime_storage(settings: Settings, sessions: SessionStore) -> None:
     """Before anything runs, so nothing live is using what is touched. Every
     step is housekeeping: a failure is said in the log and the application
     carries on serving."""
-    prepare_runtime_agent_dir(auth_file_path().parent)
+    prepare_runtime_agent_dir(runtime_agent_dir())
     session_dir = settings.resolved_pi_session_dir
     moved = migrate_session_layout(session_dir)
     if moved:

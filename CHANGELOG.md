@@ -32,14 +32,24 @@ when a release is cut, and `impi update` shows the target version's section.
   writable — on a read-only root, every turn fails there.
   **Breaks:** `impi.app.prepare_conversation_memory` is gone; call
   `prepare_runtime_storage`.
-- **A tool is told its conversation's files directory.**
-  `ToolContext.files_dir` is where what people sent in the conversation was
-  saved, resolved by the tool server like `channel_id`. Build the server with
-  `files_dir_resolver=conversation_files_dir_lookup(attachments, store)`
-  (`crucible.conversation_files`); the same lookup is what
-  `AgentProcessScopes(conversation_files_dir_for=…)` takes. An application no
-  longer derives the directory from a conversation id, which went wrong
-  whenever `AttachmentStore` had to rename the id.
+- **A tool is told its conversation's files directory, and the tool server
+  asks about a conversation once.** `ToolContext.files_dir` is where what
+  people sent in the conversation was saved. The tool server fills it, with
+  `channel_id` and `user_id`, from one `conversation_resolver(agent,
+  runtime_session_id)` returning a `SessionConversation`
+  (`crucible.ports.conversation`) — one read of the session record per call,
+  and nothing for a session that is not the calling agent's.
+  `conversation_lookup(attachments, store)` (`crucible.conversation_files`) is
+  that resolver over crucible's store, which every application used to write;
+  `conversation_files_dir_lookup` is the same lookup for
+  `AgentProcessScopes(conversation_files_dir_for=…)`. An application no longer
+  derives the directory from a conversation id, which went wrong whenever
+  `AttachmentStore` had to rename the id.
+  **Breaks:** `ToolServer`/`ToolWiring.build_server` take
+  `conversation_resolver=` instead of `session_resolver=` (and the
+  `SessionResolver` type is gone): pass `conversation_lookup(attachments,
+  store)`, or wrap your own lookup to take the agent and return a
+  `SessionConversation`.
 - **The runtime hands a process's paths back when the process ends.**
   `ProcessScopes.release(agent, scope)` is called once a process has ended or
   failed to start. `AgentProcessScopes` used to guess which scratch space was
@@ -70,14 +80,14 @@ when a release is cut, and `impi update` shows the target version's section.
 - **A model service that fails or cannot be reached has its own notice.** A
   5xx from the provider or the gateway in front of it, or a connection that
   never completed, used to read "something broke on my side", which sent
-  users and operators to the wrong place. It is now `model_unavailable`: the
-  model's service is not answering, the request is fine, try again in a
-  minute.
-- **An application's own checks take part in `/readyz`.**
-  `HttpHub(ready_checks=[…])`: each check is `async () -> str | None`, and a
-  reason takes the pod out of rotation with that reason. A check that raises
-  or hangs past two seconds counts as failed; what it raised goes to the log,
-  not to the probe.
+  users and operators to the wrong place (code `agent_error`). It is now
+  `model_unavailable`: the model's service is not answering, the request is
+  fine, try again in a minute.
+- **An application's own readiness probes take part in `/readyz`.**
+  `HttpHub(readiness_probes=[…])`: each probe is `async () -> str | None`, and
+  a reason takes the pod out of rotation with that reason. A probe that raises
+  or hangs past two seconds counts as a "no"; what it raised goes to the log,
+  not into the response.
 - **An application can test against a scripted runtime process.**
   `crucible.runtimes.pi.testing.ScriptedHost` stands in for the runtime's
   process and nothing else: `PiRuntime`, its sessions, the spawn request and
@@ -101,7 +111,8 @@ when a release is cut, and `impi update` shows the target version's section.
 - **An agent can name fallback models.** `runtime.fallback_models:
   [provider/model, …]` in `agent.yaml`, `DEFAULT_FALLBACK_MODELS` for every
   agent, `AGENTS_FALLBACK_MODELS__<AGENT>` to override one. When the agent's
-  model fails the way a service fails — overloaded, 5xx, unreachable — the turn
+  model fails the way a service fails — overloaded, rate-limited (429), 5xx,
+  unreachable — the turn
   moves on to the next model and goes on, without asking anything again; the
   next message starts on the agent's own model. A spent quota or a refused key
   still ends the turn.

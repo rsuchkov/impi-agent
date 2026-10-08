@@ -34,7 +34,10 @@ import impi.task_tools  # noqa: E402,F401
 from crucible.approvals import PendingApprovals
 from crucible.attachments import AttachmentStore
 from crucible.confinement import landlock_abi
-from crucible.conversation_files import conversation_files_dir_lookup
+from crucible.conversation_files import (
+    conversation_files_dir_lookup,
+    conversation_lookup,
+)
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import (
@@ -454,8 +457,8 @@ def build_app(settings: ImpiSettings) -> App:
     # read, its files and its own scratch space to write. support is part of
     # the engine (it reads the engine's own configuration) and runs
     # unconfined unless its profile says otherwise.
-    # The one answer to "which files directory is this session's
-    # conversation's", for the confinement and for the tools alike.
+    # The same lookup as the tools' (crucible.conversation_files), so the
+    # confinement and a tool name one directory for a conversation.
     conversation_files_dir = conversation_files_dir_lookup(attachments, sessions)
     process_scopes = AgentProcessScopes(
         lambda name: _spec_or_none(profiles, name),
@@ -588,13 +591,6 @@ def build_app(settings: ImpiSettings) -> App:
     if not units:
         raise RuntimeError("No agents with a gateway token — nothing to run")
 
-    async def _resolve_conversation(runtime_session_id: str) -> tuple[str, str] | None:
-        # Gives tools the current turn's channel + triggering user (e.g. for an
-        # ephemeral reply). Strings only cross into the tool layer; the store
-        # stays here.
-        record = await sessions.get_by_runtime_session(runtime_session_id)
-        return (record.channel_id, record.last_user_id) if record else None
-
     # Which directories each agent may send files from: its own profile (the
     # runtime's working directory), its own attachments, and the system temp dir.
     file_svc = None
@@ -642,8 +638,9 @@ def build_app(settings: ImpiSettings) -> App:
         file_svc=file_svc,
         task_svc=task_admin,
         dotenv_path=settings.dotenv_path,
-        session_resolver=_resolve_conversation,
-        files_dir_resolver=conversation_files_dir,
+        # Tools get the turn's channel and last speaker (an ephemeral reply,
+        # say) and its files directory, in one read of the session record.
+        conversation_resolver=conversation_lookup(attachments, sessions),
         tool_gate=interactions.tool_gate,
         # While the gate waits for a person, the turn's timeout waits too.
         clock=runtime,

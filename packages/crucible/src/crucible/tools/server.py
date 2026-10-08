@@ -15,8 +15,7 @@ the store it opens, and an agent reaches it over mutual TLS.
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable, Mapping
-from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from aiohttp import web
@@ -29,6 +28,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.chat.types import CallPreview
+from crucible.ports.conversation import ConversationResolver
 from crucible.ports.tasks import TaskService
 from crucible.ports.turn import TurnScopes
 from crucible.tools.base import (
@@ -43,14 +43,6 @@ from crucible.tools.proofs import SessionProofBook
 from crucible.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
-
-# Resolve a runtime session id -> (channel_id, last_user_id) for the current
-# turn, or None if unknown. A plain callable so the tool layer never imports the
-# store; the composition root supplies it from the session store.
-SessionResolver = Callable[[str], Awaitable[tuple[str, str] | None]]
-# (agent, runtime session id) -> the conversation's files directory, or None;
-# crucible.conversation_files builds one over the store.
-FilesDirResolver = Callable[[str, str], Awaitable[Path | None]]
 
 _TOKEN_HEADER = "X-Tool-Token"
 # The engine ↔ tool-extension contract (not the runtime's — it only relays
@@ -90,8 +82,7 @@ class ToolServer:
         interaction_svc: InteractionService | None = None,
         file_svc: FileService | None = None,
         task_svc: TaskService | None = None,
-        session_resolver: SessionResolver | None = None,
-        files_dir_resolver: FilesDirResolver | None = None,
+        conversation_resolver: ConversationResolver | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
@@ -108,8 +99,10 @@ class ToolServer:
         self._interaction_svc = interaction_svc
         self._file_svc = file_svc
         self._task_svc = task_svc
-        self._session_resolver = session_resolver
-        self._files_dir_resolver = files_dir_resolver
+        # Which conversation a call runs inside, asked once per call with the
+        # calling agent and its proven session (ports/conversation.py): a plain
+        # callable, so the tool layer never imports the store.
+        self._conversation_resolver = conversation_resolver
         # Asks a human before a tool that declares it runs — the only gate there
         # is; see interactions/toolgate.py for why it has to live here.
         self._tool_gate = tool_gate
@@ -194,14 +187,10 @@ class ToolServer:
                     tool.name, agent, runtime_session_id,
                 )
                 return web.json_response({"error": "session not proven"}, status=403)
-        channel_id, user_id = "", ""
-        if self._session_resolver is not None and runtime_session_id:
-            resolved = await self._session_resolver(runtime_session_id)
-            if resolved is not None:
-                channel_id, user_id = resolved
-        files_dir = None
-        if self._files_dir_resolver is not None and runtime_session_id:
-            files_dir = await self._files_dir_resolver(agent, runtime_session_id)
+        conversation = (
+            await self._conversation_resolver(agent, runtime_session_id)
+            if self._conversation_resolver is not None and runtime_session_id else None
+        )
 
         ctx = ToolContext(
             agent_name=agent,
@@ -212,9 +201,9 @@ class ToolServer:
             interaction_svc=self._interaction_svc,
             file_svc=self._file_svc,
             task_svc=self._task_svc,
-            channel_id=channel_id,
-            user_id=user_id,
-            files_dir=files_dir,
+            channel_id=conversation.channel_id if conversation else "",
+            user_id=conversation.user_id if conversation else "",
+            files_dir=conversation.files_dir if conversation else None,
             turn=self._turns.current(runtime_session_id) if self._turns is not None else None,
         )
 

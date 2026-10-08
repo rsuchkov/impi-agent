@@ -47,13 +47,14 @@ run different models. See [runtime-notes.md](runtime-notes.md) for how
 provider/model are resolved.
 
 `fallback_models` lists models, as `provider/model`, that a turn moves on to
-when the agent's own model fails the way a service fails: overloaded, 5xx, a
-connection that never completes. The turn goes on there without anything being
-asked again, and the next message starts on the agent's own model. A spent
-quota or a refused key is not such a failure, and still ends the turn. Each
-model needs a login or a definition the runtime has (`impi health` names one
-that does not). The deployment can set one list for every agent
-(`DEFAULT_FALLBACK_MODELS`); `AGENTS_FALLBACK_MODELS__<NAME>` overrides an agent.
+when the agent's own model fails the way a service fails: overloaded,
+rate-limited (429), 5xx, a connection that never completes. The turn goes on
+there without anything being asked again, and the next message starts on the
+agent's own model. A spent quota or a refused key is not such a failure, and
+still ends the turn. Each model needs a login or a definition the runtime has
+where the agent runs (`impi doctor` — `impi health` in a source checkout —
+names one that does not). The deployment can set one list for every agent
+(`DEFAULT_FALLBACK_MODELS`); `AGENTS_FALLBACK_MODELS__<AGENT>` overrides an agent.
 
 `.pi/SYSTEM.md` is the agent's true personality — who it is, its scope, its house
 rules. Write it in whatever language the agent should think in. `pi` loads it
@@ -152,9 +153,10 @@ it. Two things follow, and they are worth knowing when writing a `SYSTEM.md`:
   what the posted message does not say. The engine posts whatever the agent
   writes; nothing is dropped.
 
-Separately from what an agent asks, the engine itself posts a message above
-every reply whose turn ran tools — a live counter that settles into a button
-listing the calls. Nothing in a profile turns it on; see
+Separately from what an agent asks, the engine itself posts a message for
+every turn that ran tools — in a thread, above the reply; in a direct message
+or a channel, in a thread under the message the turn answers — a live counter
+that settles into a button listing the calls. Nothing in a profile turns it on; see
 [tool-trace.md](tool-trace.md).
 
 ### Form field types

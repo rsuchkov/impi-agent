@@ -13,7 +13,11 @@ from pathlib import Path
 
 from crucible.confinement import ProcessScope, confined_command, landlock_abi
 from crucible.private_files import private_dir
-from crucible.runtimes.pi.auth_file import auth_file_path, executable_entries
+from crucible.runtimes.pi.auth_file import (
+    auth_file_path,
+    executable_entries,
+    runtime_agent_dir,
+)
 from crucible.runtimes.pi.errors import PiHostError
 from crucible.runtimes.pi.spawn import SpawnRequest, conversation_memory_dir
 from crucible.runtimes.pi.transport import PiTransport, SubprocessTransport
@@ -49,7 +53,7 @@ class LocalHost:
             # TMPDIR and HOME, its files directory. HOME is the process's own
             # now; pi still has to find its account.
             env.update(request.process_scope.env)
-            env["PI_CODING_AGENT_DIR"] = str(auth_file_path().parent)
+            env["PI_CODING_AGENT_DIR"] = str(runtime_agent_dir())
         if request.process_scope is not None and self._can_confine():
             scope = runtime_process_scope(request, session_dir, program=self._program)
             command = confined_command(scope, [self._program, *args])
@@ -199,7 +203,7 @@ def runtime_process_scope(request: SpawnRequest, session_dir: Path | None, *, pr
     # file it was meant to read — a manifest passed as a plain variable, a
     # certificate bundle. Without this it would fail to open it, quietly.
     readable += [Path(v) for v in request.env.values() if v.startswith("/") and Path(v).is_file()]
-    agent_dir = auth_file_path().parent
+    agent_dir = runtime_agent_dir()
     readable.append(agent_dir)
     writable = [session_dir] if session_dir is not None else []
     return ProcessScope(

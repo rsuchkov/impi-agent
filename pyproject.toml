@@ -233,6 +233,23 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "What a session's conversation is, to a tool, is a leaf — the tool server and the application's lookup both hold it"
+type = "forbidden"
+source_modules = ["crucible.ports.conversation"]
+forbidden_modules = [
+    "crucible.runtimes",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.tools",
+    "crucible.interactions",
+    "crucible.store",
+    "crucible.attachments",
+    "crucible.profiles",
+    "crucible.ports.chat",
+    "crucible.ports.agent",
+]
+
+[[tool.importlinter.contracts]]
 name = "Asking a human is a leaf primitive — it knows nobody"
 type = "forbidden"
 source_modules = ["crucible.approvals"]
@@ -379,6 +396,42 @@ forbidden_modules = [
     "crucible.scheduler",
     "crucible.skills",
     "crucible.store",
+    "crucible.tools",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
+name = "Conversation files resolve paths from the store and the attachments — no runtime, chat or engine machinery"
+type = "forbidden"
+source_modules = ["crucible.conversation_files"]
+forbidden_modules = [
+    "crucible.approvals",
+    "crucible.config",
+    "crucible.flows",
+    "crucible.gateways",
+    "crucible.interactions",
+    "crucible.profiles",
+    "crucible.runtimes",
+    "crucible.scheduler",
+    "crucible.skills",
+    "crucible.tools",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
+name = "Runtime storage and retention touch the runtime's files and the store — no chat or engine machinery"
+type = "forbidden"
+source_modules = ["crucible.runtime_storage", "crucible.session_retention"]
+forbidden_modules = [
+    "crucible.approvals",
+    "crucible.flows",
+    "crucible.gateways",
+    "crucible.interactions",
+    "crucible.profiles",
+    "crucible.scheduler",
+    "crucible.skills",
     "crucible.tools",
     "mattermostautodriver",
     "slack_bolt",

@@ -721,7 +721,7 @@ def test_the_fallback_report_covers_running_agents_with_a_chain(tmp_path: Path) 
         specs, {"a": cfg, "b": cfg, "off": None, "boxed": cfg},
         providers_for=lambda name: {"p"} if name == "boxed" else {"p", "d"},
     )
-    assert line == "fallback: a: p/x → q/y; boxed: d/z"  # b names none, off does not run
+    assert line == "fallback models: a: p/x → q/y; boxed: d/z"  # b names none, off does not run
     assert warning is not None and "a → q/y" in warning and "boxed → d/z" in warning
     assert "p/x" not in warning
     assert fallback_report([spec("b")], {"b": cfg}, providers_for=lambda name: ()) == (None, None)

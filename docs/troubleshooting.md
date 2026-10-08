@@ -44,8 +44,11 @@ provider's status page, not the agent.
 
 An agent with `runtime.fallback_models` moves on to them before it shows that
 notice. Which model answered a turn is on its `pi turn: … model=` line in the
-engine log, and a switch is a `fallback:` line of its own; `impi health` names
-a fallback model whose provider has no login or definition.
+engine log, and a switch is a `fallback:` line of its own — in the engine log,
+or for an agent in a container of its own in `impi agent logs <agent>` (as
+`runtime stderr: fallback: …`). `impi doctor` (`impi health` in a source
+checkout) names a fallback model whose provider has no login or definition
+where the agent runs.
 
 ## "pi process exited unexpectedly"
 
@@ -191,6 +194,13 @@ configuration problem — the log names the agent whose token it was.
 The containers run with a read-only root; something wrote outside its
 volumes and memory. See [installation.md](installation.md#the-boxes-the-services-run-in)
 for the drop-in that gives a path a tmpfs.
+
+Every turn failing with `EACCES` or `EROFS` on `auth.json` is the runtime's
+agent directory (`IMPI_HOME/pi/agent` on a compose install,
+`PI_CODING_AGENT_DIR` wherever it points): the engine logs `the runtime's agent
+directory …` at ERROR at startup. The runtime locks beside `auth.json` before
+every model call and the engine creates its files there before any agent runs,
+so the directory must be writable by the engine.
 
 ## A conversation keeps failing after someone sent a picture
 

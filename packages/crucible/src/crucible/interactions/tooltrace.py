@@ -1,4 +1,5 @@
-"""The message under a reply that says what tools the turn ran.
+"""The message that says what tools a turn ran — in the conversation's thread,
+or in a thread under the message the turn answers (``trace_ref``).
 
 Three states of one message. While the turn runs it is a counter — ``Running
 3 tools…`` — so a pause reads as work rather than silence. When the turn ends it

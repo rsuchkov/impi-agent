@@ -561,7 +561,7 @@ def test_health_names_each_agents_fallback_models_and_the_ones_with_no_login(
     )
     assert cli.main(["health"]) == 0
     out = capsys.readouterr().out
-    assert "fallback: alpha: openai-codex/gpt-5.5 → nowhere/model" in out
+    assert "fallback models: alpha: openai-codex/gpt-5.5 → nowhere/model" in out
     assert "alpha → nowhere/model" in out and "alpha → openai-codex" not in out
 
     # Defined in models.json: enough for an agent the engine runs, not for one

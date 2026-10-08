@@ -29,7 +29,7 @@ full resolution order.
 |---|---|---|
 | `DEFAULT_PROVIDER` | `""` | `pi` backend for agents that don't set one (e.g. `openai-codex`) |
 | `DEFAULT_MODEL` | `""` | model within that backend |
-| `DEFAULT_FALLBACK_MODELS` | `""` | CSV of `provider/model` every agent moves on to, in order, when its own model fails the way a service fails (overloaded, 5xx, unreachable) — not on a spent quota or a refused key. An agent's `runtime.fallback_models` replaces it; the agent's own model in the list is skipped |
+| `DEFAULT_FALLBACK_MODELS` | `""` | CSV of `provider/model` every agent moves on to, in order, when its own model fails the way a service fails (overloaded, rate-limited/429, 5xx, unreachable) — not on a spent quota or a refused key. An agent's `runtime.fallback_models` replaces it; the agent's own model in the list is skipped |
 | `AGENTS_FALLBACK_MODELS__<AGENT>` | — | that agent's fallback models, overriding its profile and the default; set and empty = none |
 | `SUPPORT_PROVIDER` | `""` | override for the bundled `support` agent (falls back to `DEFAULT_PROVIDER`) |
 | `SUPPORT_MODEL` | `""` | same, for the model |
@@ -134,6 +134,7 @@ as defaults — set only the ones you need.
 | `AGENTS_GATEWAY__<AGENT>` | that agent's gateway (`mattermost` \| `slack` \| `ws` \| `http`) |
 | `AGENTS_SKILLS__<AGENT>` | override that agent's skills (CSV of names; empty = none; unset = its `agent.yaml`) |
 | `AGENTS_ENV__<AGENT>` | override the engine environment variables that agent's process inherits (CSV of names, `*` allowed; empty = none beyond the base set; unset = its `agent.yaml` `runtime.env`) |
+| `AGENTS_FALLBACK_MODELS__<AGENT>` | override that agent's fallback models (CSV of `provider/model`; empty = none; unset = its `agent.yaml`, else `DEFAULT_FALLBACK_MODELS`) |
 
 An agent is present only if its token is set; a tokenless profile is skipped.
 

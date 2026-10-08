@@ -163,8 +163,8 @@ mounted and reloads as usual.
   `confinement_write` — ask the user which paths, rather than reaching for `off`.
 - `runtime.fallback_models` in `agent.yaml` (`provider/model`, in order) /
   `AGENTS_FALLBACK_MODELS__<NAME>` / `DEFAULT_FALLBACK_MODELS` for every agent —
-  where a turn goes when the agent's model is overloaded, failing or
-  unreachable. Not for a spent quota or a refused key. Each model needs a login
+  where a turn goes when the agent's model is overloaded, rate-limited,
+  failing or unreachable. Not for a spent quota or a refused key. Each model needs a login
   the runtime has; `impi health` names one that does not.
 - Shared extensions live at `$AGENTS_PATH/_extensions/<name>/index.ts` and load only
   when the operator names them in `RUNTIME_EXTENSIONS` in `.env` — writing one is

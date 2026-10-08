@@ -21,6 +21,7 @@ from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
+from crucible.ports.conversation import ConversationResolver
 from crucible.ports.tasks import TaskService
 from crucible.ports.turn import TurnScopes
 from crucible.tools.base import (
@@ -33,7 +34,7 @@ from crucible.tools.base import (
 )
 from crucible.tools.proofs import SessionProofBook
 from crucible.tools.registry import ToolRegistry, build_registry
-from crucible.tools.server import FilesDirResolver, SessionResolver, ToolServer
+from crucible.tools.server import ToolServer
 
 logger = logging.getLogger(__name__)
 
@@ -173,8 +174,7 @@ class ToolWiring:
         file_svc: FileService | None = None,
         task_svc: TaskService | None = None,
         dotenv_path: str,
-        session_resolver: SessionResolver | None = None,
-        files_dir_resolver: FilesDirResolver | None = None,
+        conversation_resolver: ConversationResolver | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
@@ -207,8 +207,7 @@ class ToolWiring:
             interaction_svc=interaction_svc,
             file_svc=file_svc,
             task_svc=task_svc,
-            session_resolver=session_resolver,
-            files_dir_resolver=files_dir_resolver,
+            conversation_resolver=conversation_resolver,
             tool_gate=tool_gate,
             clock=clock,
             turns=turns,

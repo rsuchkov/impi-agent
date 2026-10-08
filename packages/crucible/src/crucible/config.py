@@ -529,7 +529,7 @@ class Settings(BaseSettings):
                 raise ValueError(f"{key}: {exc}") from exc
         return value
 
-    def default_fallback_chain(self) -> tuple[str, ...]:
+    def default_fallback_model_refs(self) -> tuple[str, ...]:
         """DEFAULT_FALLBACK_MODELS as references (checked as the settings load)."""
         return _checked_model_refs("DEFAULT_FALLBACK_MODELS", self.default_fallback_models)
 

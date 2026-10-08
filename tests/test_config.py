@@ -194,8 +194,8 @@ def test_confinement_for_reads_the_per_agent_key(monkeypatch) -> None:
 
 
 def test_default_fallback_models_are_checked_as_the_settings_load() -> None:
-    assert _settings(default_fallback_models="a/x, b/y/z").default_fallback_chain() == ("a/x", "b/y/z")
-    assert _settings().default_fallback_chain() == ()
+    assert _settings(default_fallback_models="a/x, b/y/z").default_fallback_model_refs() == ("a/x", "b/y/z")
+    assert _settings().default_fallback_model_refs() == ()
     with pytest.raises(ValidationError, match="DEFAULT_FALLBACK_MODELS"):
         _settings(default_fallback_models="a/x,just-a-model")
 

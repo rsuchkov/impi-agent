@@ -1011,7 +1011,7 @@ async def test_a_hub_started_again_takes_messages_again() -> None:
         await hub.stop()
 
 
-async def test_the_applications_own_checks_decide_readiness_too(
+async def test_the_applications_own_probes_decide_readiness_too(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A dependency the application cannot serve without takes the pod out of
@@ -1029,8 +1029,8 @@ async def test_the_applications_own_checks_decide_readiness_too(
         await asyncio.sleep(10)
         return None
 
-    hub, _ = _hub(8509, ready_checks=[store])
-    flaky, _ = _hub(8510, ready_checks=[broken])
+    hub, _ = _hub(8509, readiness_probes=[store])
+    flaky, _ = _hub(8510, readiness_probes=[broken])
     await hub.start()
     await flaky.start()
     try:
@@ -1048,8 +1048,8 @@ async def test_the_applications_own_checks_decide_readiness_too(
         await hub.stop()
         await flaky.stop()
 
-    monkeypatch.setattr("crucible.gateways.http.hub.READY_CHECK_TIMEOUT_S", 0.05)
-    slow, _ = _hub(8509, ready_checks=[stuck])
+    monkeypatch.setattr("crucible.gateways.http.hub.READINESS_PROBE_TIMEOUT_S", 0.05)
+    slow, _ = _hub(8509, readiness_probes=[stuck])
     await slow.start()
     try:
         async with aiohttp.ClientSession() as s:

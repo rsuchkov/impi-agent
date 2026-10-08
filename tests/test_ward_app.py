@@ -433,3 +433,30 @@ def test_a_broker_without_a_callback_secret_says_so(
         ward = build(settings)
     assert "WARD_CALLBACK_SECRET" in caplog.text
     ward.store._conn.close()
+
+
+def test_the_broker_scrubs_what_it_logs(monkeypatch) -> None:
+    """It handles secrets by name all day: what slips into a line goes first."""
+    import argparse
+    import logging
+    from types import SimpleNamespace
+
+    import ward.cli as entry
+    from crucible.redaction import ScrubbingFilter
+
+    async def no_run(settings) -> None:
+        return None
+
+    monkeypatch.setattr(entry, "load_settings", lambda: SimpleNamespace(log_level="INFO"))
+    monkeypatch.setattr(entry, "run", no_run)
+    root = logging.getLogger()
+    try:
+        assert entry._cmd_serve(argparse.Namespace()) == 0
+        assert root.handlers and all(
+            any(isinstance(f, ScrubbingFilter) for f in handler.filters) for handler in root.handlers
+        )
+    finally:
+        for handler in root.handlers:
+            for scrubber in [f for f in handler.filters if isinstance(f, ScrubbingFilter)]:
+                handler.removeFilter(scrubber)
+

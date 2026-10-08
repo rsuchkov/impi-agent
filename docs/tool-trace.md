@@ -84,7 +84,7 @@ one redraw a second, not one per call.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `TOOL_TRACE_ENABLED` | `true` | draw the widget under replies |
+| `TOOL_TRACE_ENABLED` | `true` | draw the widget for turns that ran tools |
 | `TOOL_TRACE_RETENTION_DAYS` | `14` | drop traces older than this at startup; `0` keeps them all |
 
 It needs interactivity (`INTEGRATIONS_ENABLED`, on by default): the button has

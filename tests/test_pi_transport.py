@@ -104,3 +104,26 @@ def test_the_relay_reads_the_runtimes_stderr_the_same_way() -> None:
         "TypeError: undefined",
     ):
         assert _stderr_level(line) == _stderr_log_level(line), line
+
+
+async def test_the_relay_keeps_only_what_went_wrong_in_the_stderr_tail() -> None:
+    """The tail travels back with an exit as its cause: a switch to a fallback
+    or a new conversation's notice is not one."""
+    import asyncio
+    import collections
+    from types import SimpleNamespace
+
+    from runtime_relay.server import RelayServer
+
+    stderr = asyncio.StreamReader()
+    for line in (
+        "fallback: dead/m1 failed (Connection error.); switching to b/y",
+        "Warning: No project session found with id 'x'; creating a new session with that id.",
+        "TypeError: undefined is not a function",
+    ):
+        stderr.feed_data((line + "\n").encode())
+    stderr.feed_eof()
+    tail: collections.deque[str] = collections.deque(maxlen=20)
+    await RelayServer._drain_stderr(None, SimpleNamespace(stderr=stderr), tail)  # type: ignore[arg-type]
+    assert list(tail) == ["TypeError: undefined is not a function"]
+

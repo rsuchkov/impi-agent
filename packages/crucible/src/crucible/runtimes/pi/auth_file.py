@@ -9,18 +9,31 @@ A confined process is therefore given the file to read only, and the
 application refreshes the login (``auth_refresh.py``). What is left is a file
 something unconfined wrote — no legitimate login writes such a value, so a
 process is not started while the file holds one.
+
+It is also the one place that knows the runtime's agent directory and what
+the runtime keeps there.
 """
 
 import json
 import os
 from pathlib import Path
 
+# What the runtime keeps in its agent directory: the credential, the models it
+# is told about, and the store of the catalogs it refreshes itself.
+AUTH_FILE = "auth.json"
+MODELS_FILE = "models.json"
+MODELS_STORE_FILE = "models-store.json"
+
+
+def runtime_agent_dir() -> Path:
+    """This process's runtime's agent directory: ``PI_CODING_AGENT_DIR``,
+    else ``~/.pi/agent``."""
+    return Path(os.environ.get("PI_CODING_AGENT_DIR") or str(Path.home() / ".pi" / "agent"))
+
 
 def auth_file_path() -> Path:
-    """Where this process's runtime reads its credential: the runtime's agent
-    directory (``PI_CODING_AGENT_DIR``, else ``~/.pi/agent``)."""
-    agent_dir = os.environ.get("PI_CODING_AGENT_DIR") or str(Path.home() / ".pi" / "agent")
-    return Path(agent_dir) / "auth.json"
+    """Where this process's runtime reads its credential."""
+    return runtime_agent_dir() / AUTH_FILE
 
 
 def executable_entries(path: Path) -> list[str]:
@@ -53,9 +66,9 @@ def configured_providers(agent_dir: Path | None = None, *, definitions: bool = T
     definition in ``models.json``. Without them: what a process that is handed
     the credential file alone can use. A key the runtime would take from the
     environment is not seen here."""
-    agent_dir = agent_dir or auth_file_path().parent
+    agent_dir = agent_dir or runtime_agent_dir()
     found: set[str] = set()
-    sources = (("auth.json", None), ("models.json", "providers")) if definitions else (("auth.json", None),)
+    sources = ((AUTH_FILE, None), (MODELS_FILE, "providers")) if definitions else ((AUTH_FILE, None),)
     for name, key in sources:
         try:
             data = json.loads((agent_dir / name).read_text(encoding="utf-8"))
@@ -65,4 +78,3 @@ def configured_providers(agent_dir: Path | None = None, *, definitions: bool = T
         if isinstance(section, dict):
             found.update(str(provider) for provider in section)
     return frozenset(found)
-
