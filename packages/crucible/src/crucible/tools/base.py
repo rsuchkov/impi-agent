@@ -160,6 +160,9 @@ class ToolContext:
 class Tool(Protocol):
     name: ClassVar[str]
     description: ClassVar[str]
+    # What a person is shown instead of the id — "Add a comment" for
+    # add_comment — on a confirmation card. "" = the id.
+    display_name: ClassVar[str] = ""
     parameters: ClassVar[dict[str, Any]]  # JSON Schema for the tool's arguments
     # Optional: a settings model (env-bound) this tool needs. The registry loads
     # it generically at wiring time and injects the instance as ctx.settings, so

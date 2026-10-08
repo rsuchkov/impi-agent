@@ -14,6 +14,7 @@ from crucible.approvals.controls import (
     GRANT_LADDER,
     approval_actions,
     humanize,
+    verdict_of,
     windows,
 )
 from crucible.approvals.pending import (
@@ -41,5 +42,6 @@ __all__ = [
     "decide",
     "humanize",
     "render_card",
+    "verdict_of",
     "windows",
 ]

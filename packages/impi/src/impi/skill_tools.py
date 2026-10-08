@@ -159,6 +159,7 @@ class ListSkills(Tool):
 @tool
 class InstallSkill(Tool):
     name: ClassVar[str] = "install_skill"
+    display_name: ClassVar[str] = "Install a skill"
     requires_confirmation: ClassVar[bool] = True
     settings_cls: ClassVar[type | None] = SkillSettings
     description: ClassVar[str] = (
@@ -315,6 +316,7 @@ class AssignSkill(Tool):
 @tool
 class RemoveSkill(Tool):
     name: ClassVar[str] = "remove_skill"
+    display_name: ClassVar[str] = "Remove a skill"
     requires_confirmation: ClassVar[bool] = True
     settings_cls: ClassVar[type | None] = SkillSettings
     description: ClassVar[str] = (

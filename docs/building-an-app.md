@@ -169,6 +169,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   `files_dir_resolver=conversation_files_dir_lookup(attachments, store)`
   (`crucible.conversation_files`). Do not derive it from a conversation id
   yourself: `AttachmentStore` renames an id it cannot use as a directory name.
+- **Name a confirmed tool for a person.** `display_name = "Add a comment"` on
+  the tool class puts that on its card — "wants to run “Add a comment”." — where
+  the id would read as engine output; the id stays on the card as a `Tool`
+  row, for the operator and the audit. A tool without one is named by its id.
 - **Say what the call would do, not what the model said.** A confirmed tool
   should implement `describe(ctx, args) -> CallPreview | None` (`Describing` in
   `crucible.tools`; `CallPreview`/`PreviewRow` in `crucible.ports.chat.types`,
@@ -382,7 +386,8 @@ credential, is another user's credential.
   go on the hub's port through `HttpHub(routes=…, middlewares=…)`, with
   `hub.caller()`, `hub.conversation_key()` and `hub.refuse()` for what the
   hub's handlers have; `hub.drain()` / `await hub.idle(timeout)` are the
-  shutdown pair — see [http-gateway.md](http-gateway.md).
+  shutdown pair, and `HttpHub(ready_checks=…)` gives your own dependencies a
+  say in `/readyz` — see [http-gateway.md](http-gateway.md).
 - For tests without a `pi` binary, `tests/fakes/fake_transport.py` in this
   repository is an in-process `PiTransport` you can copy: a reactor answers the
   commands the session sends, and the session logic runs unchanged.

@@ -17,7 +17,8 @@ class ToolApproving(Protocol):
     that declares ``requires_confirmation``. Returning False means the call does
     not happen — a refusal, a silence, or nobody available to ask. ``preview``
     is what the tool itself says the call would do (``Tool.describe``), for the
-    card; None means the person is shown the arguments.
+    card; None means the person is shown the arguments. ``display_name`` is the
+    tool's name for a person (``Tool.display_name``), "" when it declares none.
     """
 
     async def confirm(
@@ -28,4 +29,5 @@ class ToolApproving(Protocol):
         *,
         runtime_session_id: str,
         preview: CallPreview | None = None,
+        display_name: str = "",
     ) -> bool: ...

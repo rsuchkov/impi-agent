@@ -145,6 +145,17 @@ class CallPreview:
     danger: bool = False
 
 
+# How a closed card was decided, for a program that draws its own line rather
+# than show the headline: allowed for this call, allowed for a window
+# (``grant_s`` long), refused, nobody answered in time, or the caller withdrew
+# the question before anyone did.
+VERDICT_ALLOWED_ONCE = "allowed_once"
+VERDICT_ALLOWED_FOR = "allowed_for"
+VERDICT_DENIED = "denied"
+VERDICT_EXPIRED = "expired"
+VERDICT_WITHDRAWN = "withdrawn"
+
+
 @dataclass(frozen=True)
 class ApprovalCard:
     """A request for a human's yes, as data: who asks, what for, and the facts
@@ -158,7 +169,9 @@ class ApprovalCard:
     person must read as written — a command line, the raw arguments — under
     ``block_label``; ``danger`` asks for a warning; ``expires_at`` (ISO-8601
     UTC) is until when the question stands. Values may be the caller's text:
-    renderers harden them, the card does not."""
+    renderers harden them, the card does not. A closed card says its verdict
+    in ``headline`` for a person and in ``verdict`` (``VERDICT_*``, "" while
+    the question stands) for a program, with ``grant_s`` for a window."""
 
     agent: str
     headline: str
@@ -168,6 +181,8 @@ class ApprovalCard:
     block: str = ""
     danger: bool = False
     expires_at: str = ""
+    verdict: str = ""
+    grant_s: int = 0
 
 
 @dataclass(frozen=True)

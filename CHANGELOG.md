@@ -53,6 +53,31 @@ when a release is cut, and `impi update` shows the target version's section.
   **Breaks:** `AgentProcessScopes(has_process=…)` and `PiRuntime.has_process`
   are gone, and an implementation of `ProcessScopes` of your own needs a
   `release` method.
+- **A closed confirmation says its verdict as a code.** `ApprovalCard` has
+  `verdict` (`allowed_once`, `allowed_for`, `denied`, `expired`, `withdrawn`;
+  `""` while it still asks) and `grant_s`, set on every card the tool gate and
+  the broker close. The http gateway's `confirmation.updated` carries them as
+  `verdict` and `grantS`, so a client draws its own decision line instead of
+  parsing the English headline. `crucible.approvals.verdict_of(answer)` is the
+  one place an answer becomes a verdict and its words.
+- **A confirmed tool can be named for a person.** `Tool.display_name` ("Add a
+  comment") is what its card says — "wants to run “Add a comment”." — instead
+  of the id, which stays on the card as a `Tool` row. impi's own confirmed
+  tools have display names: "Create an agent", "Install a skill", "Remove a
+  skill".
+  **Breaks:** `ToolApproving.confirm` is called with `display_name=`; a gate
+  of your own takes the keyword.
+- **A model service that fails or cannot be reached has its own notice.** A
+  5xx from the provider or the gateway in front of it, or a connection that
+  never completed, used to read "something broke on my side", which sent
+  users and operators to the wrong place. It is now `model_unavailable`: the
+  model's service is not answering, the request is fine, try again in a
+  minute.
+- **An application's own checks take part in `/readyz`.**
+  `HttpHub(ready_checks=[…])`: each check is `async () -> str | None`, and a
+  reason takes the pod out of rotation with that reason. A check that raises
+  or hangs past two seconds counts as failed; what it raised goes to the log,
+  not to the probe.
 - **An unconfined runtime says so.** `PiRuntime` built without `scopes=` on a
   kernel with Landlock logs a warning: its processes can read each other's
   conversations, and nothing used to say that.

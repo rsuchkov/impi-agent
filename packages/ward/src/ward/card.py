@@ -43,7 +43,13 @@ def approval_card(
 
 
 def verdict_card(
-    verdict: str, agent: str, *, references: tuple[str, ...], command: tuple[str, ...]
+    words: str,
+    agent: str,
+    *,
+    references: tuple[str, ...],
+    command: tuple[str, ...],
+    verdict: str,
+    grant_s: int = 0,
 ) -> ApprovalCard:
     """What the card is rewritten to once it has been answered.
 
@@ -54,15 +60,20 @@ def verdict_card(
     Same containment as the request it replaces — the argv is still the
     caller's text, and a card that stopped escaping it once answered would just
     move the forgery one click later.
+
+    ``words`` is the verdict as the headline says it; ``verdict`` the same as
+    a code (``VERDICT_*``), for a program that draws its own line.
     """
     label = "Secret" if len(references) == 1 else "Secrets"
     return ApprovalCard(
         agent=agent,
-        headline=f"— {verdict}.",
+        headline=f"— {words}.",
         icon="🔐",
         fields=(PreviewRow(label, ", ".join(references)),),
         block_label="Command",
         block=command_line(command),
+        verdict=verdict,
+        grant_s=grant_s,
     )
 
 

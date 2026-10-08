@@ -31,6 +31,7 @@ _SUPPORT_AGENT = "support"
 @tool
 class CreateAgent(Tool):
     name: ClassVar[str] = "create_agent"
+    display_name: ClassVar[str] = "Create an agent"
     requires_confirmation: ClassVar[bool] = True
     settings_cls: ClassVar[type | None] = CreateAgentSettings
     description: ClassVar[str] = (

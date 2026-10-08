@@ -584,7 +584,7 @@ async def test_a_denial_and_a_silence_are_recorded_apart(tmp_path: Path) -> None
             DECISION_TIMEOUT, DECISION_DENIED,
         ]
         # The card is rewritten with the verdict — still a card, not a sentence.
-        assert any("in time" in u.card.headline for u in rig.poster.updated)
+        assert any("in time" in u.card.headline and u.card.verdict == "expired" for u in rig.poster.updated)
         assert rig.poster.retracted == []
     finally:
         await rig.store.close()
@@ -722,7 +722,9 @@ async def test_a_card_cannot_be_answered_twice(tmp_path: Path) -> None:
         assert rig.approvals.resolve(_token(card), "grant:3600", APPROVER) is ApprovalOutcome.NOT_MINE
         assert await rig.store.list_grants(now=T0, kind=KIND_SECRET) == []
         # And the message says what happened, so a stale card can't mislead.
-        assert any("Allowed once" in u.card.headline for u in rig.poster.updated)
+        assert any(
+            "Allowed once" in u.card.headline and u.card.verdict == "allowed_once" for u in rig.poster.updated
+        )
     finally:
         await rig.store.close()
 
@@ -823,6 +825,7 @@ async def test_the_answered_card_contains_the_command_it_cannot_be_forged_by(
         # As data: the argv is the block and nothing else, the one field is real.
         assert answered.fields == (PreviewRow("Secret", "vault://github-token"),)
         assert "vault://innocent" in answered.block and "Denied" in answered.headline
+        assert answered.verdict == "denied"
         # And drawn as Markdown, the block stays one fenced block.
         lines = card_markdown(answered).splitlines()
         fences = [i for i, line in enumerate(lines) if set(line) == {"`"}]

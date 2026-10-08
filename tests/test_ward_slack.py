@@ -230,6 +230,7 @@ async def test_the_verdict_rewrites_the_slack_card_as_fields_without_buttons(sta
         verdict_card(
             "Allowed for 15 min", "assistant",
             references=("vault://github-token",), command=("gh", "release", "create", "v1"),
+            verdict="allowed_for", grant_s=900,
         ),
     )
     update = stand.web.last("chat_update")

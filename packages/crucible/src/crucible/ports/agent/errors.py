@@ -52,6 +52,10 @@ UNAVAILABLE_MESSAGE = (
     "The runtime that answers for me is not reachable, so nothing ran. This one "
     "is for whoever looks after the deployment."
 )
+MODEL_UNAVAILABLE_MESSAGE = (
+    "The model's service is not answering right now — nothing is wrong with "
+    "your request. Try again in a minute."
+)
 
 # What a provider's own wording looks like. Matching text is a heuristic and is
 # meant to be: the string comes from somebody else's API and nobody versions it.
@@ -73,6 +77,16 @@ _CONTEXT = re.compile(
     r"prompt is too long",
     re.I,
 )
+# The model's service failing or out of reach: a 5xx it answered with (a
+# status at the start of the provider's message), its words for one, or a
+# connection that never completed. Checked after the kinds above, which a
+# 5xx-shaped body may also name.
+_MODEL_UNAVAILABLE = re.compile(
+    r"(?:^|:\s*)5\d\d\b|service unavailable|bad gateway|gateway time-?out|overloaded|"
+    r"internal server error|connection error|request timed out|fetch failed|socket hang up|"
+    r"econnrefused|econnreset|etimedout|enotfound|eai_again",
+    re.I,
+)
 
 
 # The kinds of failure a notice can report, as codes a client may act on: a
@@ -85,6 +99,7 @@ NOTICE_QUOTA = "quota"
 NOTICE_CREDENTIALS = "credentials"
 NOTICE_CONTEXT = "context"
 NOTICE_TIMEOUT = "timeout"
+NOTICE_MODEL_UNAVAILABLE = "model_unavailable"
 NOTICE_AGENT_ERROR = "agent_error"
 
 
@@ -108,6 +123,8 @@ def notice_for(error: Exception) -> tuple[str, str]:
         return NOTICE_CREDENTIALS, CREDENTIALS_MESSAGE
     if _CONTEXT.search(text):
         return NOTICE_CONTEXT, CONTEXT_MESSAGE
+    if _MODEL_UNAVAILABLE.search(text):
+        return NOTICE_MODEL_UNAVAILABLE, MODEL_UNAVAILABLE_MESSAGE
     if isinstance(error, AgentTimeout):
         return NOTICE_TIMEOUT, LLM_FALLBACK_MESSAGE
     return NOTICE_AGENT_ERROR, INTERNAL_ERROR_MESSAGE

@@ -121,10 +121,10 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | `tool.started` | `callId`, `tool` | a tool began |
 | `tool.finished` | `callId`, `tool`, `ok` | it ended |
 | `message` | `messageId`, `format: "markdown"`, `text` | the agent's answer |
-| `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `runtime_unavailable`, `agent_error`, `empty_answer` — or a flag a tool left on the turn (`session_expired`, whatever the application defines), after the answer; `text` is a sentence for a person, `code` is for you |
+| `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `model_unavailable`, `runtime_unavailable`, `agent_error`, `empty_answer` — or a flag a tool left on the turn (`session_expired`, whatever the application defines), after the answer; `text` is a sentence for a person, `code` is for you |
 | `actions` | `postId`, `text`, `actions[]` | a question with controls — what the runtime asks mid-turn (`ask_user_confirm`); the turn waits (`awaiting_input`) |
-| `confirmation` | `postId`, `agent`, `icon`, `headline`, `fields[{label, value, before}]`, `block {label, text} \| null`, `danger`, `expiresAt`, `actions[]` | a request for a yes, as data — a tool that needs confirming, a credential an agent asks for. Nothing is rendered: draw the headline, the facts (a `before` means a change), the verbatim block (a command line, raw arguments — show it as written), a warning when `danger`, a countdown to `expiresAt`; the turn waits (`awaiting_input`) |
-| `confirmation.updated` | `postId`, the same fields as `confirmation`, `actions[]` | that card rewritten — the verdict once it is answered, has expired or was withdrawn (a tool call or a credential alike), a notice folding another occurrence into itself (a `Times` field). Redraw the post; empty `actions` means nothing is left to click and the turn no longer waits. A `confirmation` posted with empty `actions` in the first place is a notice: told, not asked, and the turn does not wait |
+| `confirmation` | `postId`, `agent`, `icon`, `headline`, `fields[{label, value, before}]`, `block {label, text} \| null`, `danger`, `expiresAt`, `verdict`, `grantS`, `actions[]` | a request for a yes, as data — a tool that needs confirming, a credential an agent asks for. Nothing is rendered: draw the headline, the facts (a `before` means a change), the verbatim block (a command line, raw arguments — show it as written), a warning when `danger`, a countdown to `expiresAt`; the turn waits (`awaiting_input`) |
+| `confirmation.updated` | `postId`, the same fields as `confirmation`, `actions[]` | that card rewritten — the verdict once it is answered, has expired or was withdrawn (a tool call or a credential alike): in `headline` as a sentence, and in `verdict` as a code to draw your own line from — `allowed_once`, `allowed_for` (for `grantS` seconds), `denied`, `expired`, `withdrawn`; `""` while the card still asks; a notice folding another occurrence into itself (a `Times` field). Redraw the post; empty `actions` means nothing is left to click and the turn no longer waits. A `confirmation` posted with empty `actions` in the first place is a notice: told, not asked, and the turn does not wait |
 | `actions.retired` | `postId`, `text` | the controls of an `actions` post are gone; show `text` in their place |
 | `cards` | `postId`, `cards[{text, accent, actions[]}]` | a message built from cards; the same `postId` again means redraw it |
 | `file` | `name`, `mime`, `data` (base64), `text` | a file the agent sent (the caption rides with the first) |
@@ -174,7 +174,8 @@ The agents this caller may address: `{"agents": [{"name", "role", "description"}
 
 ### `GET /healthz`, `GET /readyz`, `GET /stats`
 
-Unauthenticated. `readyz` is `503` only while the engine starts or drains — **not** while
+Unauthenticated. `readyz` is `503` while the engine starts or drains, or while
+one of the application's own checks says it cannot serve — **not** while
 every runtime slot is busy. A full pool is a busy pod, not a broken one: a new
 turn waits for a slot or evicts an idle session, and a load balancer that took
 the pod out of rotation (a Kubernetes readiness probe does exactly that) would
@@ -182,6 +183,14 @@ move its users away from the turns running on it — with a per-user consistent
 hash, onto a pod that has none of their state. Load belongs to whoever scales
 or watches: `stats` answers `{"runtime": {alive, busy, capacity, waiting} |
 null, "turns": {"active"}}`.
+
+An application adds its own checks with `HttpHub(ready_checks=[…])`: each is
+`async () -> str | None`, `None` when it may take requests, else a short reason
+that the `503` carries as `reason`. A check that raises or takes over two
+seconds counts as failed (`"<name>: failed"`, `"<name>: timed out"`); what it
+raised goes to the log, not into the response. Whether a dependency belongs
+there is a choice: taking a pod out of rotation moves its users, which cures
+nothing when every pod shares the dependency that is down.
 
 ## Routes of your own
 

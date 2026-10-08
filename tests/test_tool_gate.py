@@ -241,6 +241,8 @@ async def test_a_call_that_skips_the_runtime_is_still_asked_about(tmp_path: Path
         await _answer(rig, ANSWER_ONCE)
         assert await pending == 200
         assert rig.tool.ran == 1
+        # The verdict as a code too, for a program drawing its own line.
+        assert (rig.poster.updated[-1].card.verdict, rig.poster.updated[-1].card.grant_s) == ("allowed_once", 0)
     finally:
         await _close(rig)
 
@@ -252,6 +254,7 @@ async def test_a_refusal_means_the_tool_does_not_run(tmp_path: Path) -> None:
         await _answer(rig, ANSWER_DENY)
         assert await pending == 403
         assert rig.tool.ran == 0
+        assert rig.poster.updated[-1].card.verdict == "denied"
     finally:
         await _close(rig)
 
@@ -266,6 +269,7 @@ async def test_nobody_answering_is_a_refusal(tmp_path: Path) -> None:
         assert closed.post_id == rig.poster.posts[-1].post_id and closed.actions == []
         assert "in time" in closed.card.headline and "dangerous" in closed.card.headline
         assert closed.card.expires_at == ""  # nothing left to count down to
+        assert closed.card.verdict == "expired"
         assert rig.poster.retracted == []
         assert (await rig.store.list_audit())[0].decision == "timeout"
     finally:
@@ -371,6 +375,7 @@ async def test_a_call_abandoned_while_waiting_cannot_be_approved_later(tmp_path:
         assert [(u.post_id, u.card.headline) for u in rig.poster.updated] == [
             (card.post_id, toolgate._ABANDONED.format(tool="dangerous")),
         ]
+        assert rig.poster.updated[-1].card.verdict == "withdrawn"
         assert rig.approvals.resolve(token, ANSWER_ONCE, CLICKER).name == "NOT_MINE"
         assert rig.tool.ran == 0
         assert [row.decision for row in await rig.store.list_audit()] == ["abandoned"]
@@ -620,11 +625,37 @@ async def test_the_verdict_rewrites_the_card_with_its_facts_kept(tmp_path: Path)
         closed = rig.poster.updated[-1]
         assert closed.post_id == asked.post_id and closed.actions == []
         assert closed.card.headline == "— Allowed for 15 min: dangerous."
+        assert (closed.card.verdict, closed.card.grant_s) == ("allowed_for", 900)
         assert closed.card.fields == asked.card.fields  # type: ignore[union-attr]
         assert closed.card.expires_at == ""
         assert "Allowed for 15 min" in card_markdown(closed.card)
     finally:
         await _close(rig)
+
+
+async def test_a_tool_with_a_display_name_is_named_by_it_and_keeps_its_id_as_a_row(tmp_path: Path) -> None:
+    """A person reads "Add a comment", not an identifier; the operator and the
+    audit still get the id."""
+    rig = await _rig(tmp_path, 8558, timeout_s=0.05)
+    rig.tool.display_name = "Add a comment"  # pyright: ignore[reportAttributeAccessIssue]
+    rig.tool.preview = CallPreview("comment on IPA-7", ())
+    try:
+        assert await _call(rig, "dangerous") == 403
+        asked = rig.poster.posts[-1].card
+        assert asked is not None
+        assert asked.headline == "wants to run “Add a comment”."
+        assert asked.fields == (PreviewRow("Action", "comment on IPA-7"), PreviewRow("Tool", "dangerous"))
+        closed = rig.poster.updated[-1].card
+        assert closed.headline == toolgate._EXPIRED.format(tool="“Add a comment”")
+        assert (await rig.store.list_audit())[0].scope.startswith("dangerous@")
+    finally:
+        await _close(rig)
+
+
+def test_a_card_without_a_preview_keeps_the_id_beside_the_arguments() -> None:
+    card = toolgate._card("assistant", "add_comment", {"body": "hi"}, display_name="Add a comment")
+    assert card.headline == "wants to run “Add a comment”."
+    assert card.fields == (PreviewRow("Tool", "add_comment"),) and card.block_label == "Arguments"
 
 
 @pytest.mark.parametrize("hostile", [

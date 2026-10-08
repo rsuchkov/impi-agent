@@ -48,6 +48,8 @@ def _wire_card(card: ApprovalCard) -> dict:
         "block": {"label": card.block_label, "text": card.block} if card.block else None,
         "danger": card.danger,
         "expiresAt": card.expires_at,
+        "verdict": card.verdict,
+        "grantS": card.grant_s,
     }
 
 

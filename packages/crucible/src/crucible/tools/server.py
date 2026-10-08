@@ -239,7 +239,7 @@ class ToolServer:
                 preview = await self._preview_of(tool, ctx, args)
                 allowed = await self._tool_gate.confirm(
                     agent, tool.name, args, runtime_session_id=runtime_session_id,
-                    preview=preview,
+                    preview=preview, display_name=tool.display_name,
                 )
             if not allowed:
                 return web.json_response({"error": "declined by the user"}, status=403)

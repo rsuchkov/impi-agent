@@ -10,8 +10,16 @@ from crucible.approvals.pending import (
     ANSWER_GRANT_PREFIX,
     ANSWER_ONCE,
     APPROVAL_KEY,
+    Approval,
 )
-from crucible.ports.chat.types import ACTION_SELECT, Action, Choice
+from crucible.ports.chat.types import (
+    ACTION_SELECT,
+    VERDICT_ALLOWED_FOR,
+    VERDICT_ALLOWED_ONCE,
+    VERDICT_DENIED,
+    Action,
+    Choice,
+)
 
 # An hour is the coarsest useful answer and a minute the finest: below that the
 # window closes before the thing it was opened for finishes, and above it the
@@ -67,3 +75,14 @@ def approval_actions(token: str, *, offers: tuple[int, ...] = ()) -> list[Action
         Action(id="deny", label=_DENY_LABEL, value=ANSWER_DENY, style="danger", context=context)
     )
     return actions
+
+
+def verdict_of(answer: Approval) -> tuple[str, str]:
+    """How an answered card closes: its verdict (``ApprovalCard.verdict``)
+    and the words its headline says it in. A window's length is
+    ``answer.grant_s``."""
+    if not answer.allowed:
+        return VERDICT_DENIED, "Denied"
+    if answer.grant_s > 0:
+        return VERDICT_ALLOWED_FOR, f"Allowed for {humanize(answer.grant_s)}"
+    return VERDICT_ALLOWED_ONCE, "Allowed once"

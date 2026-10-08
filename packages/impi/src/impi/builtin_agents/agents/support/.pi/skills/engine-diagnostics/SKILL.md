@@ -102,6 +102,10 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   "OAuth refresh failed") — the engine refreshes the shared login (log:
   `refreshing the runtime's login failed: …`); a confined process cannot. A
   fresh `impi login` fixes it.
+- "The model's service is not answering right now" — the provider (or the
+  gateway in front of it) answered with a 5xx or could not be reached. Not the
+  agent, not the request: the engine log's `pi LLM error:` line names it.
+  Usually gone in a minute; if not, the endpoint or the provider is down.
 - Every turn fails from the start with `EACCES` or `EROFS` on `auth.json` —
   look for `the runtime's agent directory …` at ERROR in the engine log, from
   startup. The engine creates the credential files there before any agent

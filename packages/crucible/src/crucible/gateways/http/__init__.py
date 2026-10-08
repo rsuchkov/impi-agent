@@ -23,7 +23,7 @@ from crucible.gateways.http.auth import (
 )
 from crucible.gateways.http.client import HttpChatClient
 from crucible.gateways.http.gateway import HttpGateway
-from crucible.gateways.http.hub import HttpHub
+from crucible.gateways.http.hub import HttpHub, ReadyCheck
 from crucible.gateways.http.turns import HttpTurns
 
 # No formatting hint: replies carry Markdown as-is; rendering is the client's.
@@ -38,6 +38,7 @@ __all__ = [
     "HttpGateway",
     "HttpHub",
     "HttpTurns",
+    "ReadyCheck",
     "Refusal",
     "TokenCallers",
 ]

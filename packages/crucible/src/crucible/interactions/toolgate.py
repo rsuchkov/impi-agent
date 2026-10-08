@@ -43,11 +43,18 @@ from crucible.approvals import (
     PendingApprovals,
     approval_actions,
     humanize,
+    verdict_of,
     windows,
 )
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.service import conversation_ref
-from crucible.ports.chat.types import ApprovalCard, CallPreview, PreviewRow
+from crucible.ports.chat.types import (
+    VERDICT_EXPIRED,
+    VERDICT_WITHDRAWN,
+    ApprovalCard,
+    CallPreview,
+    PreviewRow,
+)
 from crucible.store.base import (
     DECISION_ABANDONED,
     DECISION_APPROVED_GRANT,
@@ -76,6 +83,9 @@ _ABANDONED = "— ⌛ {tool} was withdrawn before anyone answered."
 ARGUMENTS_LIMIT = 2000
 # The preview's one-line account of the call, as the card's first row.
 ACTION_LABEL = "Action"
+# The tool's id, as a row, on a card whose headline names it by its display
+# name: the operator and the audit speak in ids.
+TOOL_LABEL = "Tool"
 
 
 def _now() -> str:
@@ -116,6 +126,7 @@ class ToolGate:
         *,
         runtime_session_id: str,
         preview: CallPreview | None = None,
+        display_name: str = "",
     ) -> bool:
         started = asyncio.get_running_loop().time()
         request_id = f"rq_{tokens.token_hex(6)}"
@@ -130,7 +141,7 @@ class ToolGate:
             return True
 
         try:
-            answer = await self._ask(agent, tool, args, runtime_session_id, preview)
+            answer = await self._ask(agent, tool, args, runtime_session_id, preview, display_name)
         except asyncio.CancelledError:
             # The caller hung up — the turn was aborted or timed out while the
             # card was up. Nothing may run on this card now, whatever is clicked.
@@ -166,6 +177,7 @@ class ToolGate:
         args: dict[str, Any],
         runtime_session_id: str,
         preview: CallPreview | None,
+        display_name: str,
     ) -> Approval | None:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
         poster = self._presence.poster(agent)
@@ -186,7 +198,8 @@ class ToolGate:
         expires_at = (
             datetime.now(timezone.utc) + timedelta(seconds=self._timeout)
         ).isoformat(timespec="seconds")
-        card = _card(agent, tool, args, preview, expires_at=expires_at)
+        card = _card(agent, tool, args, preview, display_name=display_name, expires_at=expires_at)
+        named = _named(tool, display_name)
         try:
             post_id = await poster.post_confirmation(
                 conversation_ref(record),
@@ -203,14 +216,20 @@ class ToolGate:
             answer = await asyncio.wait_for(future, timeout=self._timeout)
         except TimeoutError:
             self._approvals.discard(token)
-            await self._rewrite(poster, post_id, _closed(card, _EXPIRED.format(tool=tool)))
+            await self._rewrite(
+                poster, post_id, _closed(card, _EXPIRED.format(tool=named), VERDICT_EXPIRED)
+            )
             return Approval(allowed=False, timed_out=True)
         except asyncio.CancelledError:
             # Retire the card first: a click after this must find no question.
             self._approvals.discard(token)
-            await self._rewrite(poster, post_id, _closed(card, _ABANDONED.format(tool=tool)))
+            await self._rewrite(
+                poster, post_id, _closed(card, _ABANDONED.format(tool=named), VERDICT_WITHDRAWN)
+            )
             raise
-        await self._rewrite(poster, post_id, _closed(card, _verdict(tool, answer)))
+        verdict, words = verdict_of(answer)
+        headline = _ANSWERED.format(verdict=words, tool=named)
+        await self._rewrite(poster, post_id, _closed(card, headline, verdict, answer.grant_s))
         return answer
 
     async def _open_window(self, agent: str, tool: str, scope: str, answer: Approval) -> str:
@@ -290,51 +309,53 @@ def _arguments(args: dict[str, Any]) -> str:
     return rendered
 
 
+def _named(tool: str, display_name: str) -> str:
+    """The tool as the card's sentences name it: its display name, quoted, or
+    its id."""
+    return f"“{display_name}”" if display_name else tool
+
+
 def _card(
     agent: str,
     tool: str,
     args: dict[str, Any],
     preview: CallPreview | None = None,
     *,
+    display_name: str = "",
     expires_at: str = "",
 ) -> ApprovalCard:
     """The request as data. With a preview: what the tool says the call would
     do — its one-line account as the first row, then row by row, a change as
     ``before → value``. Without one: the arguments, verbatim, as the card's
-    block. The headline is the engine's sentence and nothing else goes in it:
-    the title, like every value, is the tool's text and takes the channel's
-    hardening as a field, where a line break or a mention cannot restyle the
-    card. Each channel renders it."""
+    block. The headline is the engine's sentence and nothing the model or a
+    person wrote goes in it — the tool, by its display name when it declares
+    one (the application's own words, like its id), else by its id; the id
+    then stays a row. The preview's title, like every value, is the tool's text and takes
+    the channel's hardening as a field, where a line break or a mention cannot
+    restyle the card. Each channel renders it."""
+    headline = f"wants to run {_named(tool, display_name)}."
+    tool_row = (PreviewRow(TOOL_LABEL, tool),) if display_name else ()
     if preview is None:
         return ApprovalCard(
             agent=agent,
-            headline=f"wants to run {tool}.",
+            headline=headline,
+            fields=tool_row,
             block_label="Arguments" if args else "",
             block=_arguments(args) if args else "",
             expires_at=expires_at,
         )
-    title = (PreviewRow(ACTION_LABEL, preview.title),) if preview.title else ()
+    action = (PreviewRow(ACTION_LABEL, preview.title),) if preview.title else ()
     return ApprovalCard(
         agent=agent,
-        headline=f"wants to run {tool}.",
+        headline=headline,
         icon="⚠️" if preview.danger else "⚙️",
-        fields=title + tuple(preview.rows),
+        fields=action + tuple(preview.rows) + tool_row,
         danger=preview.danger,
         expires_at=expires_at,
     )
 
 
-def _closed(card: ApprovalCard, headline: str) -> ApprovalCard:
+def _closed(card: ApprovalCard, headline: str, verdict: str, grant_s: int = 0) -> ApprovalCard:
     """The card once the question is over: same facts, the verdict for a
-    headline, no deadline left to count down to."""
-    return replace(card, headline=headline, expires_at="")
-
-
-def _verdict(tool: str, answer: Approval) -> str:
-    if not answer.allowed:
-        verdict = "Denied"
-    elif answer.grant_s > 0:
-        verdict = f"Allowed for {humanize(answer.grant_s)}"
-    else:
-        verdict = "Allowed once"
-    return _ANSWERED.format(verdict=verdict, tool=tool)
+    headline and as a code, no deadline left to count down to."""
+    return replace(card, headline=headline, verdict=verdict, grant_s=grant_s, expires_at="")

@@ -24,11 +24,12 @@ from crucible.approvals import (
     PendingApprovals,
     approval_actions,
     humanize,
+    verdict_of,
     windows,
 )
 from crucible.containment import command_line
 from crucible.ports.chat.admin import ChatAdmin
-from crucible.ports.chat.types import ApprovalCard, ConversationRef
+from crucible.ports.chat.types import VERDICT_EXPIRED, ApprovalCard, ConversationRef
 from crucible.store.base import (
     DECISION_APPROVED_GRANT,
     DECISION_APPROVED_ONCE,
@@ -290,9 +291,9 @@ class SecretBroker:
             answer = await asyncio.wait_for(future, timeout=self._timeout)
         except TimeoutError:
             self._approvals.discard(token)
-            await self._rewrite(poster, post_id, _verdict_of(request, None))
+            await self._rewrite(poster, post_id, _answered_card(request, None))
             return Approval(allowed=False, timed_out=True)
-        await self._rewrite(poster, post_id, _verdict_of(request, answer))
+        await self._rewrite(poster, post_id, _answered_card(request, answer))
         return answer
 
     async def _approval_conversation(self, agent: str, approvers: frozenset[str]) -> str:
@@ -497,16 +498,13 @@ def _summarize(decisions: dict[str, str]) -> str:
     return DECISION_AUTO
 
 
-def _verdict_of(request: LeaseRequest, answer: Approval | None) -> ApprovalCard:
+def _answered_card(request: LeaseRequest, answer: Approval | None) -> ApprovalCard:
     """The answered card. ``None`` means nobody answered in time."""
     if answer is None:
-        verdict = f"⌛ {_EXPIRED}, so the request was refused"
-    elif not answer.allowed:
-        verdict = "Denied"
-    elif answer.grant_s > 0:
-        verdict = f"Allowed for {humanize(answer.grant_s)}"
+        verdict, words, grant_s = VERDICT_EXPIRED, f"⌛ {_EXPIRED}, so the request was refused", 0
     else:
-        verdict = "Allowed once"
+        (verdict, words), grant_s = verdict_of(answer), answer.grant_s
     return verdict_card(
-        verdict, request.agent, references=request.references, command=request.command
+        words, request.agent, references=request.references, command=request.command,
+        verdict=verdict, grant_s=grant_s,
     )

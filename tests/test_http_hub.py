@@ -871,6 +871,7 @@ async def test_a_confirmation_arrives_as_data_not_as_a_rendered_card() -> None:
             assert card["fields"] == [{"label": "Status", "value": "Done", "before": "Open"}]
             assert card["block"] == {"label": "Arguments", "text": '{"key": "IPA-7"}'}
             assert card["expiresAt"] == "2026-10-04T12:00:00+00:00"
+            assert (card["verdict"], card["grantS"]) == ("", 0)  # still asking
             assert card["actions"][0]["id"] == "yes" and page["status"] == STATUS_AWAITING_INPUT
             # Answered like any card: by postId and actionId.
             status, _ = await _post(s, 8504, f"/v1/turns/{started['turnId']}/actions",
@@ -898,9 +899,10 @@ async def test_an_updated_confirmation_is_the_same_post_rewritten_as_data() -> N
         await chat.update_confirmation(
             post_id,
             ApprovalCard(
-                agent="helper", headline="— Allowed once.", icon="🔐",
+                agent="helper", headline="— Allowed for 15 min.", icon="🔐",
                 fields=(PreviewRow("Secret", "github-token"),),
                 block_label="Command", block="gh release create v1",
+                verdict="allowed_for", grant_s=900,
             ),
         )
         await go_on.wait()  # the turn is still running: what does the client see meanwhile?
@@ -919,7 +921,9 @@ async def test_an_updated_confirmation_is_the_same_post_rewritten_as_data() -> N
             assert page["status"] == STATUS_RUNNING  # nobody is waited on any more
             updated = next(e for e in page["events"] if e["type"] == "confirmation.updated")
             assert updated["postId"] == card["postId"]
-            assert updated["headline"] == "— Allowed once." and updated["actions"] == []
+            assert updated["headline"] == "— Allowed for 15 min." and updated["actions"] == []
+            # The verdict as data too: a client draws its own line from it.
+            assert (updated["verdict"], updated["grantS"]) == ("allowed_for", 900)
             assert updated["fields"] == [{"label": "Secret", "value": "github-token", "before": ""}]
             assert updated["block"] == {"label": "Command", "text": "gh release create v1"}
             assert "actions.retired" not in [e["type"] for e in page["events"]]
@@ -1005,3 +1009,50 @@ async def test_a_hub_started_again_takes_messages_again() -> None:
             assert status == 202
     finally:
         await hub.stop()
+
+
+async def test_the_applications_own_checks_decide_readiness_too(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dependency the application cannot serve without takes the pod out of
+    rotation, with its reason; one that raises or hangs does too, and what it
+    raised goes to the log, not to the probe."""
+    state: dict[str, str | None] = {"store": None}
+
+    async def store() -> str | None:
+        return state["store"]
+
+    async def broken() -> str | None:
+        raise RuntimeError("mongodb://admin:hunter2@db")
+
+    async def stuck() -> str | None:
+        await asyncio.sleep(10)
+        return None
+
+    hub, _ = _hub(8509, ready_checks=[store])
+    flaky, _ = _hub(8510, ready_checks=[broken])
+    await hub.start()
+    await flaky.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            assert await _get(s, 8509, "/readyz", headers={}) == (200, {"ready": True})
+            state["store"] = "dialog store unreachable"
+            assert await _get(s, 8509, "/readyz", headers={}) == (
+                503, {"ready": False, "reason": "dialog store unreachable"},
+            )
+            with caplog.at_level("WARNING", logger="crucible.gateways.http.hub"):
+                status, body = await _get(s, 8510, "/readyz", headers={})
+            assert (status, body) == (503, {"ready": False, "reason": "broken: failed"})
+            assert "hunter2" not in str(body) and "broken" in caplog.text
+    finally:
+        await hub.stop()
+        await flaky.stop()
+
+    monkeypatch.setattr("crucible.gateways.http.hub.READY_CHECK_TIMEOUT_S", 0.05)
+    slow, _ = _hub(8509, ready_checks=[stuck])
+    await slow.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            assert await _get(s, 8509, "/readyz", headers={}) == (503, {"ready": False, "reason": "stuck: timed out"})
+    finally:
+        await slow.stop()

@@ -35,6 +35,13 @@ Confirm the agent's `provider`/`model` resolve to something the backend accepts
 (see [runtime-notes.md](runtime-notes.md)). An agent that omits them inherits
 `DEFAULT_PROVIDER`/`DEFAULT_MODEL`.
 
+"The model's service is not answering right now" (notice code
+`model_unavailable`) means the provider or the gateway in front of it answered
+with a 5xx, or could not be reached at all: the request was fine and nothing
+in the deployment broke. The engine log has the provider's own words on the
+`pi LLM error:` line. If it persists, check the endpoint (`LLM_BASE_URL`) or the
+provider's status page, not the agent.
+
 ## "pi process exited unexpectedly"
 
 The `pi` subprocess died mid-turn. The error now carries the **exit code and
