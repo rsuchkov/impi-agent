@@ -45,3 +45,24 @@ def executable_entries(path: Path) -> list[str]:
 
     walk(data, "")
     return found
+
+
+def configured_providers(agent_dir: Path | None = None, *, definitions: bool = True) -> frozenset[str]:
+    """The providers the runtime has something for in its agent directory: a
+    login or key in the credential file, and — with ``definitions`` — a
+    definition in ``models.json``. Without them: what a process that is handed
+    the credential file alone can use. A key the runtime would take from the
+    environment is not seen here."""
+    agent_dir = agent_dir or auth_file_path().parent
+    found: set[str] = set()
+    sources = (("auth.json", None), ("models.json", "providers")) if definitions else (("auth.json", None),)
+    for name, key in sources:
+        try:
+            data = json.loads((agent_dir / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        section = data.get(key) if key and isinstance(data, dict) else data
+        if isinstance(section, dict):
+            found.update(str(provider) for provider in section)
+    return frozenset(found)
+

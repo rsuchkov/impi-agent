@@ -4,7 +4,7 @@ run, whether a receiver is needed, how each agent's process is confined and
 which of them can read their neighbours' environments.
 """
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 
 from crucible.gateways import GatewayConfig, needs_http_receiver
@@ -85,6 +85,35 @@ def confinement_report(
         confined=lambda name: bool(abi) and level_for(name) != "off",
     )
     return line, (SHARED_PROCESS_WARNING % ", ".join(shared)) if shared else None
+
+
+def fallback_report(
+    specs: Sequence[AgentSpec],
+    configs: Mapping[str, GatewayConfig | None],
+    *,
+    providers_for: Callable[[str], Collection[str]],
+) -> tuple[str | None, str | None]:
+    """Which running agents move on to which models when theirs fails, as the
+    operator wrote it — and the fallback models whose provider the runtime
+    that agent runs on has no login or definition for (``providers_for``):
+    it would refuse to switch to them. (None, None) when no agent names any."""
+    chains = {s.name: s for s in specs if configs.get(s.name) is not None and s.fallback_models}
+    if not chains:
+        return None, None
+    line = "fallback: " + "; ".join(
+        f"{name}: {' → '.join(spec.fallback_models)}" for name, spec in sorted(chains.items())
+    )
+    missing = [
+        f"{name} → {ref}" for name, spec in sorted(chains.items())
+        for ref in spec.fallback_models if ref.partition("/")[0] not in providers_for(name)
+    ]
+    warning = (
+        "fallback models with no login or definition for their provider where the agent "
+        "runs: " + ", ".join(missing) + " — the runtime will not switch to them (an agent "
+        "in its own container has the credential file alone, not models.json; a key taken "
+        "from the environment is not seen here)"
+    ) if missing else None
+    return line, warning
 
 
 def agents_dir_extensions(ext_root: Path, names: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:

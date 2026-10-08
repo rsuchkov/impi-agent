@@ -98,6 +98,24 @@ when a release is cut, and `impi update` shows the target version's section.
   The engine and the broker install the filter on their log at startup. A
   card's click is now logged as `card <first characters>…` rather than as
   `token=…`.
+- **An agent can name fallback models.** `runtime.fallback_models:
+  [provider/model, …]` in `agent.yaml`, `DEFAULT_FALLBACK_MODELS` for every
+  agent, `AGENTS_FALLBACK_MODELS__<AGENT>` to override one. When the agent's
+  model fails the way a service fails — overloaded, 5xx, unreachable — the turn
+  moves on to the next model and goes on, without asking anything again; the
+  next message starts on the agent's own model. A spent quota or a refused key
+  still ends the turn.
+  - The runtime's own fallback extension does it, shipped beside the tool
+    bridge: the runtime loads it for a profile with fallback models, and an
+    agent's container loads it every time (it does nothing without the chain).
+  - Every turn's log line names the model that answered (`model=`), and a
+    switch is a `fallback:` line at INFO.
+  - `impi health` and the startup log list each agent's fallback models, and
+    warn about one whose provider has no login or definition.
+  - The relay now logs the runtime's stderr at the levels the engine does: a
+    new conversation's session notice at DEBUG, a switch at INFO.
+
+  Agent images change (`impi update` rebuilds them).
 - **An unconfined runtime says so.** `PiRuntime` built without `scopes=` on a
   kernel with Landlock logs a warning: its processes can read each other's
   conversations, and nothing used to say that.

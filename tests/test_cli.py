@@ -540,3 +540,38 @@ def test_health_checks_the_receiver_secret_when_one_agent_is_on_mattermost(
     )
     assert cli.main(["health"]) == 1
     assert "INTEGRATIONS_SECRET" in capsys.readouterr().err
+
+
+def test_health_names_each_agents_fallback_models_and_the_ones_with_no_login(
+    monkeypatch, _isolated_env, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cli.httpx, "get", lambda url, timeout: _Pong())
+    agent_dir = tmp_path / "pi-agent"
+    agent_dir.mkdir()
+    (agent_dir / "auth.json").write_text('{"openai-codex": {"type": "oauth"}}')
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(agent_dir))
+    root = Path(_isolated_env).parent / "profiles" / "agents"
+    (root / "alpha").mkdir(parents=True)
+    (root / "alpha" / "agent.yaml").write_text(
+        "name: alpha\nrole: helper\nruntime:\n  fallback_models: [openai-codex/gpt-5.5, nowhere/model]\n",
+        encoding="utf-8",
+    )
+    _isolated_env.write_text(
+        "GATEWAY=mattermost\nINTEGRATIONS_SECRET=k2Xy8qLmN0pRsTuVwZ\nAGENTS_MM_TOKEN__ALPHA=a\n"
+    )
+    assert cli.main(["health"]) == 0
+    out = capsys.readouterr().out
+    assert "fallback: alpha: openai-codex/gpt-5.5 → nowhere/model" in out
+    assert "alpha → nowhere/model" in out and "alpha → openai-codex" not in out
+
+    # Defined in models.json: enough for an agent the engine runs, not for one
+    # in its own container, which is handed the credential file alone.
+    (agent_dir / "models.json").write_text('{"providers": {"nowhere": {"baseUrl": "http://x"}}}')
+    assert cli.main(["health"]) == 0
+    assert "alpha → nowhere/model" not in capsys.readouterr().out
+    _isolated_env.write_text(
+        "GATEWAY=mattermost\nINTEGRATIONS_SECRET=k2Xy8qLmN0pRsTuVwZ\nAGENTS_MM_TOKEN__ALPHA=a\n"
+        "AGENT_HOSTS_ENABLED=true\nAGENTS_HOST_TOKEN__ALPHA=h\n"
+    )
+    assert cli.main(["health"]) == 0
+    assert "alpha → nowhere/model" in capsys.readouterr().out

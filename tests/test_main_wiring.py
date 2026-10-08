@@ -702,3 +702,39 @@ def test_the_deployments_fallback_models_reach_every_agents_profile(tmp_path: Pa
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
         app.sessions.close_sync()
+
+
+def test_the_fallback_report_covers_running_agents_with_a_chain(tmp_path: Path) -> None:
+    from crucible.gateways import GatewayConfig
+    from crucible.ports.agent import AgentSpec
+    from impi.deployment_report import fallback_report
+
+    def spec(name: str, *chain: str) -> AgentSpec:
+        return AgentSpec(name=name, display_name=name, role="r", description="", profile_dir=tmp_path,
+                         fallback_models=chain)
+
+    cfg = GatewayConfig(kind="mattermost")
+    specs = [spec("a", "p/x", "q/y"), spec("b"), spec("off", "q/y"), spec("boxed", "d/z")]
+    # "d" is defined here (models.json) but an agent in its own container
+    # gets the credential file alone.
+    line, warning = fallback_report(
+        specs, {"a": cfg, "b": cfg, "off": None, "boxed": cfg},
+        providers_for=lambda name: {"p"} if name == "boxed" else {"p", "d"},
+    )
+    assert line == "fallback: a: p/x → q/y; boxed: d/z"  # b names none, off does not run
+    assert warning is not None and "a → q/y" in warning and "boxed → d/z" in warning
+    assert "p/x" not in warning
+    assert fallback_report([spec("b")], {"b": cfg}, providers_for=lambda name: ()) == (None, None)
+
+
+def test_configured_providers_are_the_logins_and_the_definitions(tmp_path: Path) -> None:
+    from crucible.runtimes.pi.auth_file import configured_providers
+
+    (tmp_path / "auth.json").write_text('{"openai-codex": {"type": "oauth"}, "anthropic": {"type": "api_key"}}')
+    (tmp_path / "models.json").write_text('{"providers": {"gateway": {"baseUrl": "http://g"}}}')
+    assert configured_providers(tmp_path) == {"openai-codex", "anthropic", "gateway"}
+    # What a process handed the credential file alone can use.
+    assert configured_providers(tmp_path, definitions=False) == {"openai-codex", "anthropic"}
+    (tmp_path / "models.json").write_text("not json")
+    (tmp_path / "auth.json").unlink()
+    assert configured_providers(tmp_path) == frozenset()

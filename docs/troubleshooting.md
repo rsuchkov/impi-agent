@@ -42,6 +42,11 @@ in the deployment broke. The engine log has the provider's own words on the
 `pi LLM error:` line. If it persists, check the endpoint (`LLM_BASE_URL`) or the
 provider's status page, not the agent.
 
+An agent with `runtime.fallback_models` moves on to them before it shows that
+notice. Which model answered a turn is on its `pi turn: … model=` line in the
+engine log, and a switch is a `fallback:` line of its own; `impi health` names
+a fallback model whose provider has no login or definition.
+
 ## "pi process exited unexpectedly"
 
 The `pi` subprocess died mid-turn. The error now carries the **exit code and

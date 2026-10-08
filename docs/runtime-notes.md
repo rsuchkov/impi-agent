@@ -13,7 +13,7 @@ For each turn the driver spawns `pi` roughly like this (see
 pi --mode rpc --approve
    --session-id <agent>--<conversation>     # or --no-session for a stateless run
    --session-dir <DATA_DIR>/pi-sessions/<agent>/<session-id>  # absent for a stateless run
-   -e <engine tool-bridge> [-e <extension> ...]
+   -e <engine tool-bridge> [-e <extension> ...] [-e <fallback extension>]
    --tools <csv>                            # the single allowlist
    --no-skills [--skill <path> ...]
    [--provider <p>] [--model <m>]
@@ -26,7 +26,7 @@ pi --mode rpc --approve
 | `--approve` | RPC mode otherwise ignores the project's `.pi/` resources; approving loads them (`SYSTEM.md`, settings) from the agent's profile dir non-interactively. |
 | `--session-id` | resumes the agent's on-disk memory for this conversation; `--no-session` for a memoryless run. |
 | `--session-dir` | the conversation's own session directory under `DATA_DIR` — one per conversation, so a confined process writes its memory and no other. |
-| `-e <path>` | loads a TypeScript extension. The engine always loads its tool-bridge first, then the `AGENTS_PATH/_extensions/<name>/index.ts` named in `RUNTIME_EXTENSIONS` — none by default. |
+| `-e <path>` | loads a TypeScript extension. The engine always loads its tool-bridge first, then the `AGENTS_PATH/_extensions/<name>/index.ts` named in `RUNTIME_EXTENSIONS` — none by default — and, for an agent with fallback models, the runtime's fallback extension (`runtimes/pi/extension/fallback.ts`). An agent's own container loads both of the runtime's extensions every time; the fallback one does nothing without its variable. |
 | `--tools <csv>` | the ONE allowlist over built-in, extension, and typed tools. Empty = no tools at all. |
 | `--no-skills` + `--skill` | disables ambient skill discovery, then loads exactly the agent's declared skills. |
 | `--provider` / `--model` | select the backend and model (omitted when unset). |
@@ -98,6 +98,33 @@ a package `settings.json` names that is not installed yet.
   its allowed tools). Plus, per session, `RUNTIME_SESSION_ID` and
   `TOOL_SESSION_PROOF` — the secret that makes the server believe the id, since
   the token alone is the agent's and the same in every conversation's process.
+- `RUNTIME_FALLBACK_MODELS` — the agent's fallback models, `provider/model`
+  comma-separated, without its own model and repeats; only for an agent that
+  names some.
+
+### Fallback models
+
+`pi` retries a failed request by itself — three times, after 2, 4 and 8
+seconds (`retry` in its settings) — when the failure is one it judges
+transient: overloaded, 429, 5xx, a connection error, a timeout, a stream cut
+short. A spent quota, a billing error and a refused key are not retried. The
+retry continues the turn with the session's *current* model, and an extension
+may change that model between the failure and the retry.
+
+The fallback extension does exactly that. On a run that failed in a way `pi`
+will retry (`isRetryableAssistantError`, the same classifier), it calls
+`pi.setModel` with the next model of `RUNTIME_FALLBACK_MODELS`, and `pi`'s own
+retry goes there. Nothing is prompted again, so the conversation's memory
+holds the person's message once; the failed attempt stays in it as an answer
+with an error. The next prompt starts on the model the turn started on, and a
+new process starts on the profile's `--provider`/`--model` whatever the
+session last used. The thinking level is `pi`'s to choose on the switch: the
+model's own setting, else the configured default.
+
+The engine logs the switch at INFO (`pi stderr: fallback: <from> failed
+(<error>); switching to <to>`), and every turn's line names the model that
+answered (`pi turn: … model=<provider/model>`). A model the runtime does not
+know, or has no login for, is not switched to; the line says so.
 - For engine-owned agents (`support`): `AGENTS_PATH` (their editable workspace) and
   `IMPI_ROOT` (the engine checkout, read-only, so `support` can diagnose the engine).
 

@@ -39,6 +39,7 @@ description: <one line>
 runtime:
   provider: openai-codex     # optional; omit to inherit the engine default
   model: gpt-5.5             # optional; omit to inherit the engine default
+  # fallback_models: [other-provider/other-model]   # optional; when the model is down
   timeout: 180               # seconds per turn
   tools: [read, bash]        # the ONE allowlist (see "Tool gating")
   skills: [<name>, registry:<name>]   # private, and/or from the shared library
@@ -160,6 +161,11 @@ mounted and reloads as usual.
   A skill that writes outside `$AGENT_FILES_DIR` / `$TMPDIR` or reads outside
   its profile and the library needs the path in `runtime.confinement_read` /
   `confinement_write` — ask the user which paths, rather than reaching for `off`.
+- `runtime.fallback_models` in `agent.yaml` (`provider/model`, in order) /
+  `AGENTS_FALLBACK_MODELS__<NAME>` / `DEFAULT_FALLBACK_MODELS` for every agent —
+  where a turn goes when the agent's model is overloaded, failing or
+  unreachable. Not for a spent quota or a refused key. Each model needs a login
+  the runtime has; `impi health` names one that does not.
 - Shared extensions live at `$AGENTS_PATH/_extensions/<name>/index.ts` and load only
   when the operator names them in `RUNTIME_EXTENSIONS` in `.env` — writing one is
   not enabling it; say so, and that a restart follows. Once named, it loads for

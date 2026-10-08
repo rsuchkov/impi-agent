@@ -29,6 +29,7 @@ description: <one line>
 runtime:
   provider: openai-codex  # OPTIONAL — omit to inherit the engine default (DEFAULT_PROVIDER)
   model: gpt-5.5          # OPTIONAL — omit for the default; agents may run different models
+  fallback_models: [other-provider/other-model]  # optional; tried in order when the model is down
   timeout: 180            # seconds per turn
   tools: [read, bash]     # the single capability allowlist (see "Tool gating")
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
@@ -44,6 +45,15 @@ Only `name` and `role` are required. Leave `provider`/`model` out unless the age
 needs a different backend or model than the engine default — different agents can
 run different models. See [runtime-notes.md](runtime-notes.md) for how
 provider/model are resolved.
+
+`fallback_models` lists models, as `provider/model`, that a turn moves on to
+when the agent's own model fails the way a service fails: overloaded, 5xx, a
+connection that never completes. The turn goes on there without anything being
+asked again, and the next message starts on the agent's own model. A spent
+quota or a refused key is not such a failure, and still ends the turn. Each
+model needs a login or a definition the runtime has (`impi health` names one
+that does not). The deployment can set one list for every agent
+(`DEFAULT_FALLBACK_MODELS`); `AGENTS_FALLBACK_MODELS__<NAME>` overrides an agent.
 
 `.pi/SYSTEM.md` is the agent's true personality — who it is, its scope, its house
 rules. Write it in whatever language the agent should think in. `pi` loads it

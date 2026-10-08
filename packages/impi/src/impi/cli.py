@@ -28,6 +28,7 @@ from crucible.ports.tasks import TaskError
 from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles.errors import ProfileError
 from crucible.profiles.loader import FsProfileStore
+from crucible.runtimes.pi.auth_file import configured_providers
 from crucible.scheduler.admin import TaskAdmin, local_time
 from crucible.scheduler.health import ALIVE, liveness
 from crucible.scheduler.triggers import from_iso, to_iso, utc_now
@@ -49,6 +50,7 @@ from impi.config import ImpiSettings, load_settings
 from impi.deployment_report import (
     agents_dir_extensions,
     confinement_report,
+    fallback_report,
     needs_receiver,
     select_specs,
 )
@@ -768,6 +770,16 @@ def _cmd_health(args: argparse.Namespace) -> int:
         (_ok if abi else _warn)(line)
         if shared_warning:
             _warn(shared_warning)
+        # An agent in its own container is handed the credential file alone.
+        here, own_container = configured_providers(), configured_providers(definitions=False)
+        fallback_line, fallback_warning = fallback_report(
+            specs, configs,
+            providers_for=lambda name: own_container if settings.agent_host_for(name)[0] else here,
+        )
+        if fallback_line:
+            _ok(fallback_line)
+        if fallback_warning:
+            _warn(fallback_warning)
         ext_root = Path(settings.agents_path) / "_extensions"
         present, enabled = agents_dir_extensions(ext_root, settings.runtime_extension_names())
         if present:

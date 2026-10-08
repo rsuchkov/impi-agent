@@ -69,6 +69,7 @@ from crucible.runtimes.pi import (
     RemoteHost,
     build_pi_profile,
 )
+from crucible.runtimes.pi.auth_file import configured_providers
 from crucible.runtimes.pi.auth_refresh import AuthRefresher
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.scheduler.admin import TaskAdmin
@@ -83,6 +84,7 @@ from impi.config import ImpiSettings
 from impi.deployment_report import (
     agents_dir_extensions,
     confinement_report,
+    fallback_report,
     needs_receiver,
     select_specs,
 )
@@ -473,6 +475,16 @@ def build_app(settings: ImpiSettings) -> App:
     (logger.info if abi else logger.warning)(line)
     if shared_warning:
         logger.warning(shared_warning)
+    # An agent in its own container is handed the credential file alone.
+    here, own_container = configured_providers(), configured_providers(definitions=False)
+    fallback_line, fallback_warning = fallback_report(
+        specs, configs,
+        providers_for=lambda name: own_container if name in hosts.remote_agents else here,
+    )
+    if fallback_line:
+        logger.info(fallback_line)
+    if fallback_warning:
+        logger.warning(fallback_warning)
     runtime = PiRuntime(
         pi_bin=settings.pi_bin,
         session_dir=str(settings.resolved_pi_session_dir),

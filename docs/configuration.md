@@ -29,6 +29,8 @@ full resolution order.
 |---|---|---|
 | `DEFAULT_PROVIDER` | `""` | `pi` backend for agents that don't set one (e.g. `openai-codex`) |
 | `DEFAULT_MODEL` | `""` | model within that backend |
+| `DEFAULT_FALLBACK_MODELS` | `""` | CSV of `provider/model` every agent moves on to, in order, when its own model fails the way a service fails (overloaded, 5xx, unreachable) — not on a spent quota or a refused key. An agent's `runtime.fallback_models` replaces it; the agent's own model in the list is skipped |
+| `AGENTS_FALLBACK_MODELS__<AGENT>` | — | that agent's fallback models, overriding its profile and the default; set and empty = none |
 | `SUPPORT_PROVIDER` | `""` | override for the bundled `support` agent (falls back to `DEFAULT_PROVIDER`) |
 | `SUPPORT_MODEL` | `""` | same, for the model |
 

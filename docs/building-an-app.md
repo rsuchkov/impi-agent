@@ -238,6 +238,14 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   expiring OAuth login: run
   `AuthRefresher(program=...).run()` (`crucible.runtimes.pi.auth_refresh`)
   as a loop of your own, which refreshes a login an hour before it expires.
+- **Fallback models.** `AgentSpec.fallback_models` (`provider/model`, in
+  order) is all an agent needs: the runtime loads its fallback extension for
+  such a profile itself and hands it the chain, without the profile's own
+  model and repeats. `FsProfileStore(default_fallback_models=…,
+  fallback_models_override=…)` gives every agent a list and an operator a
+  per-agent say; `crucible.ports.agent.model_ref.check_model_ref` is the
+  format's one check. See [runtime-notes.md](runtime-notes.md) for what
+  moves a turn on and what does not.
 - **Getting the runtime's storage ready at startup.** Make `os.umask(0o077)`
   the first line of `main()`, before anything creates a file, so what the
   application and its runtime processes write is theirs alone. Then, once the
