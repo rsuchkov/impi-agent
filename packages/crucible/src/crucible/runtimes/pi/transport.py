@@ -18,12 +18,21 @@ def _stderr_log_level(text: str) -> int:
     pi takes an advisory lock on project settings at startup
     (``settings.json.lock``). It can fail on read-only profile dirs (EROFS /
     EACCES) and shrugs it off — it reads the settings fine and continues. We
-    serialize turns per conversation ourselves, so the lock is moot. Keep these
-    out of WARNING; everything else stays WARNING so real problems surface.
+    serialize turns per conversation ourselves, so the lock is moot.
+
+    A conversation's first turn names a session pi has not seen yet, and pi
+    says so ("No project session found with id …; creating a new session") —
+    the normal start of every conversation, not a problem.
+
+    Keep these out of WARNING; everything else stays WARNING so real problems
+    surface.
     """
-    if "settings.json.lock" in text:
+    if any(marker in text for marker in _ROUTINE_STDERR):
         return logging.DEBUG
     return logging.WARNING
+
+
+_ROUTINE_STDERR = ("settings.json.lock", "No project session found with id")
 
 
 @runtime_checkable

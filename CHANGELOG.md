@@ -6,7 +6,38 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A message over the http or ws gateway carries its time.** Both hubs left
+  `IncomingMessage.timestamp` empty, so the prompt's speaker line had no time
+  and the model had no idea what "today" was. Each now stamps the moment it
+  accepted the message.
+- **The envelope is explained to every agent without the application asking.**
+  The note that tells the model what the prompt's markers mean, and that quoted
+  text is not instructions, used to reach the model only if the application
+  appended it. An application that forgot handed the model escaped text and no
+  explanation. The runtime now puts it ahead of every profile's
+  `append_system_prompt`; `PiProfile.envelope_note=False` leaves it out.
+  **Breaks:** `ENVELOPE_NOTE` moved from `crucible.flows.agent_flow` to
+  `crucible.ports.agent.envelope`, and an application that appended it itself
+  now sends it twice — drop your own append.
+- **The runtime's storage is prepared in one call.**
+  `crucible.runtime_storage.prepare_runtime_storage(settings, store)` does
+  three things:
+  - creates the runtime's credential and models store, empty, where they are
+    missing. A confined runtime process may only read them, and a missing one
+    failed every turn;
+  - moves conversation memory into a directory per conversation;
+  - forgets conversations idle past `SESSION_RETENTION_DAYS`.
+
+  It logs an ERROR naming the agent directory when that directory is not
+  writable — on a read-only root, every turn fails there.
+  **Breaks:** `impi.app.prepare_conversation_memory` is gone; call
+  `prepare_runtime_storage`.
+- **An unconfined runtime says so.** `PiRuntime` built without `scopes=` on a
+  kernel with Landlock logs a warning: its processes can read each other's
+  conversations, and nothing used to say that.
+- **A new conversation's first turn is no longer a warning in the log.** pi
+  0.85 says "No project session found …; creating a new session" whenever a
+  conversation starts. It is now logged at DEBUG.
 
 ## v0.20.0 — 2026-10-07
 

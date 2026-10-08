@@ -1,6 +1,7 @@
 """Pure frame normalization for the ws gateway."""
 
 import base64
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -34,6 +35,13 @@ def test_message_frame_maps_to_incoming_with_dm_defaults() -> None:
     assert msg.text == "привет"
     assert msg.kind == KIND_DM and msg.is_dm and msg.mentioned
     assert msg.username == "vasya" and not msg.is_from_bot
+
+
+def test_a_message_carries_the_time_it_arrived() -> None:
+    # The speaker line's time is the only "now" the model gets.
+    msg = frame_to_incoming("s", {"agent": "a", "conversation_id": "c", "text": "t"})
+    assert msg.timestamp is not None
+    assert abs(datetime.now(timezone.utc) - msg.timestamp) < timedelta(seconds=5)
 
 
 def test_kinds_map_and_default() -> None:

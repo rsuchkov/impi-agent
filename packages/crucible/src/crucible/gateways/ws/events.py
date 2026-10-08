@@ -10,6 +10,7 @@ stripped again on the way out.
 """
 
 import base64
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from crucible.attachments import IncomingFile
@@ -119,5 +120,8 @@ def frame_to_incoming(service: str, data: dict) -> IncomingMessage:
         # The service forwarded this message specifically to this agent — that
         # IS the mention; there is no channel chatter to stay silent in.
         mentioned=True,
+        # When the engine got it: the speaker line's time is how the model
+        # knows what "now" is.
+        timestamp=datetime.now(timezone.utc),
         raw=data,
     )

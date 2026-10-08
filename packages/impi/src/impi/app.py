@@ -34,7 +34,7 @@ import impi.task_tools  # noqa: E402,F401
 from crucible.approvals import PendingApprovals
 from crucible.attachments import AttachmentStore
 from crucible.confinement import landlock_abi
-from crucible.flows.agent_flow import ENVELOPE_NOTE, AgentFlow
+from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import (
     GatewayConfig,
@@ -60,6 +60,7 @@ from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.profiles.errors import ProfileError
 from crucible.reloader import ProfileReloader
+from crucible.runtime_storage import prepare_runtime_storage
 from crucible.runtimes.pi import (
     EXTENSION_PATH,
     HostRouter,
@@ -69,10 +70,8 @@ from crucible.runtimes.pi import (
 )
 from crucible.runtimes.pi.auth_refresh import AuthRefresher
 from crucible.runtimes.pi.runtime import PiRuntime
-from crucible.runtimes.pi.spawn import migrate_session_layout
 from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
-from crucible.session_retention import purge_idle
 from crucible.skills import SkillLibrary
 from crucible.store import open_store
 from crucible.store.base import SessionStore
@@ -263,12 +262,12 @@ class ProfileBuilder:
 
     def build(self, spec: AgentSpec) -> AgentProfile:
         base = build_pi_profile(spec)
-        # Every agent is told how its prompt is framed and that the quoted
-        # text in it is not instructions; a gateway's formatting rules follow.
-        hint = self.hints.get(spec.name, "")
-        suffix = "\n\n".join(part for part in (ENVELOPE_NOTE, hint) if part)
+        # The runtime tells every agent how its prompt is framed; what is
+        # added here is its gateway's formatting rules.
         base = dataclasses.replace(
-            base, append_system_prompt=suffix, inherit_all=spec.name in self._engine_owned
+            base,
+            append_system_prompt=self.hints.get(spec.name, ""),
+            inherit_all=spec.name in self._engine_owned,
         )
         env = self._tools.profile_env(spec)
         if env is None:
@@ -718,29 +717,6 @@ def build_app(settings: ImpiSettings) -> App:
     )
 
 
-async def prepare_conversation_memory(settings: ImpiSettings, sessions: SessionStore) -> None:
-    """Before anything runs, so nothing live is using the memory touched:
-    memory kept before each conversation had a directory of its own moves into
-    one, and conversations idle past SESSION_RETENTION_DAYS are forgotten."""
-    moved = migrate_session_layout(settings.resolved_pi_session_dir)
-    if moved:
-        logger.info("moved %d conversation memories into a directory each", moved)
-    if settings.session_retention_days <= 0:
-        return
-    try:
-        forgotten = await purge_idle(
-            settings.resolved_pi_session_dir, sessions, days=settings.session_retention_days
-        )
-    except Exception:
-        # Forgetting is housekeeping: a store that cannot answer it must not
-        # keep the engine from serving.
-        logger.exception("could not forget idle conversations; carrying on")
-        return
-    if forgotten:
-        logger.info("forgot %d conversation(s) idle for %d+ days", len(forgotten),
-                    settings.session_retention_days)
-
-
 async def _supervise(
     name: str, run_loop: Callable[[], Awaitable[None]], *, sleep=asyncio.sleep
 ) -> None:
@@ -785,7 +761,7 @@ async def run(settings: ImpiSettings) -> None:
         if forgotten:
             logger.info("forgot %d answered message(s) older than %d days", forgotten,
                         settings.processed_posts_retention_days)
-    await prepare_conversation_memory(settings, app.sessions)
+    await prepare_runtime_storage(settings, app.sessions)
     app.runtime.start()
     if app.tool_server is not None:
         # Up before the gateways: a pi turn may call a tool the moment it starts.

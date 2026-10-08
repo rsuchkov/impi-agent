@@ -218,14 +218,31 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   `ProcessScopes` port yourself (`crucible.ports.agent.confinement`): return
   the paths a process may read and write, or `None` for unconfined. The
   runtime adds what it needs itself — its program, its memory, its account.
-  Without `scopes=` nothing is confined; on a kernel without Landlock nothing
-  is either, with a warning. A confined process reads the model credential
-  and cannot write it, so it cannot refresh an expiring OAuth login: run
+  Without `scopes=` nothing is confined, and on a kernel that has Landlock
+  the runtime says so in a warning when it is built; on a kernel without
+  Landlock nothing is confined either, with a warning. A confined process
+  reads the model credential and cannot write it, so it cannot refresh an
+  expiring OAuth login: run
   `AuthRefresher(program=...).run()` (`crucible.runtimes.pi.auth_refresh`)
   as a loop of your own, which refreshes a login an hour before it expires.
-  Each conversation's memory has a directory of its own;
-  `crucible.runtimes.pi.spawn.migrate_session_layout(session_dir)` moves memory
-  kept side by side into that layout, and is harmless to call at every start.
+- **Getting the runtime's storage ready at startup.** Make `os.umask(0o077)`
+  the first line of `main()`, before anything creates a file, so what the
+  application and its runtime processes write is theirs alone. Then, once the
+  session store is open and before the runtime starts, await
+  `prepare_runtime_storage(settings, store)` (`crucible.runtime_storage`):
+  - it creates the runtime's credential and models store in its agent
+    directory (`PI_CODING_AGENT_DIR`) when they are missing. A confined
+    process may only read them, so it could not create them itself;
+  - it moves conversation memory kept side by side into a directory per
+    conversation;
+  - it forgets conversations idle past `SESSION_RETENTION_DAYS`.
+
+  Every step is housekeeping: a failure is logged and the application carries
+  on. The runtime takes a lock beside its credential before every model call,
+  so the agent directory must be writable. On a read-only root, point
+  `PI_CODING_AGENT_DIR` at a writable volume and copy your `models.json`
+  there; the function logs an ERROR naming the directory when it is not
+  writable.
 - **Replaying a conversation the runtime forgot.** The runtime's memory is a
   session on its disk; a pod rescheduled without that disk, an idle session
   evicted, an operator's `reset` all leave a conversation the store knows and
@@ -255,9 +272,11 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   message is — a leading `[` on any line is escaped, structural characters go —
   so neither your transcript nor your preamble has to be sanitised first, and
   neither can close the block it sits in (the tag on the closer is the turn's).
-  Append `crucible.flows.agent_flow.ENVELOPE_NOTE` to the system prompt of
-  every agent you build, as `impi` does: it tells the model what the markers
-  mean and that the quoted text is not instructions.
+  The runtime puts `ENVELOPE_NOTE` (`crucible.ports.agent.envelope`) ahead of
+  every agent's appended system prompt, which tells the model what the markers
+  mean and that the quoted text is not instructions. Set
+  `PiProfile.envelope_note=False` only for a profile whose prompts are not
+  framed this way.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base

@@ -102,6 +102,12 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   "OAuth refresh failed") — the engine refreshes the shared login (log:
   `refreshing the runtime's login failed: …`); a confined process cannot. A
   fresh `impi login` fixes it.
+- Every turn fails from the start with `EACCES` or `EROFS` on `auth.json` —
+  look for `the runtime's agent directory …` at ERROR in the engine log, from
+  startup. The engine creates the credential files there before any agent
+  runs, and the runtime locks beside them on every model call, so that
+  directory (`IMPI_HOME/pi/agent` on a compose install) must be writable by
+  the engine.
 - "pi process exited unexpectedly" — the error carries the exit code and the
   last stderr lines; read them. Usual causes: a custom endpoint that is down,
   a provider/model the backend does not have, a missing `models.json`.

@@ -46,6 +46,10 @@ class PiProfile:
     # Extra text appended to the agent's system prompt (--append-system-prompt),
     # e.g. gateway-specific response-formatting rules. "" = nothing appended.
     append_system_prompt: str = ""
+    # Whether the system prompt also explains the envelope the flow wraps each
+    # prompt in (ports/agent/envelope.py), ahead of ``append_system_prompt``.
+    # Off only for a process whose prompts are not framed that way.
+    envelope_note: bool = True
 
 
 def build_pi_profile(spec: AgentSpec) -> PiProfile:

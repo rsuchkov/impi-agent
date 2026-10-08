@@ -28,7 +28,9 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from pathlib import Path
 
+from crucible.confinement import landlock_abi
 from crucible.ports.agent.confinement import ProcessScopes
+from crucible.ports.agent.envelope import ENVELOPE_NOTE
 from crucible.ports.agent.runtime import (
     AgentProfile,
     PromptImage,
@@ -68,6 +70,13 @@ class _ManagedSession:
     agent: str  # whose per-agent permit this session holds
     created_at: float
     last_used: float = 0.0
+
+
+def _appended_system_prompt(profile: PiProfile) -> str:
+    """What follows the agent's own system prompt: how its prompts are framed,
+    then the profile's own addition (a gateway's formatting rules)."""
+    parts = (ENVELOPE_NOTE if profile.envelope_note else "", profile.append_system_prompt)
+    return "\n\n".join(part for part in parts if part)
 
 
 def _require_pi_profile(profile: AgentProfile) -> PiProfile:
@@ -120,6 +129,15 @@ class PiRuntime:
         # Where the application says each process's paths are; None = every
         # process unconfined.
         self._scopes = scopes
+        if scopes is None and session_factory is None and landlock_abi():
+            # The kernel could confine every process and nobody asked it to (a
+            # session_factory starts none, so it has nothing to confine) —
+            # an application that left `scopes` out would otherwise never
+            # learn that its agents can read each other's conversations.
+            logger.warning(
+                "runtime processes run unconfined although this kernel has Landlock: "
+                "pass scopes= (crucible.process_scopes.AgentProcessScopes) to confine them"
+            )
         # Loaded via `-e` on every spawn. Provider extensions must load early
         # (before project trust), so they go here rather than in profile settings.
         self._extra_extensions = extra_extensions or []
@@ -490,7 +508,7 @@ class PiRuntime:
             skills=profile.skills,
             provider=profile.provider,
             model=profile.model,
-            append_system_prompt=profile.append_system_prompt,
+            append_system_prompt=_appended_system_prompt(profile),
             env=env,
             inherit=(*self._inherit, *profile.inherit),
             inherit_all=profile.inherit_all,

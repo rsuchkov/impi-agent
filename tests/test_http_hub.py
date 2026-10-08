@@ -3,6 +3,7 @@
 import asyncio
 import base64
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiohttp
@@ -153,6 +154,9 @@ async def test_a_message_becomes_a_turn_whose_journal_the_client_reads() -> None
             msg = sink.submitted[0]
             assert msg.conversation_id == "portal:c1" and msg.ref.message_id == "portal:m1"
             assert msg.user_id == "u-7" and msg.username == "alice" and msg.is_dm
+            # Stamped on arrival: the speaker line's time is the model's "now".
+            assert msg.timestamp is not None
+            assert abs(datetime.now(timezone.utc) - msg.timestamp) < timedelta(seconds=5)
 
             # Over: the conversation has no active turn, and the journal still answers.
             _, conv = await _get(s, 8480, "/v1/agents/helper/conversations/c1")

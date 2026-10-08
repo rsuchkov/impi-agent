@@ -43,7 +43,9 @@ node are installed, the profile, skills and extensions, files the environment
 points at, its memory for this conversation; its agent directory
 (`PI_CODING_AGENT_DIR`, set explicitly because `HOME` is the process's own)
 with `auth.json` and `models-store.json` readable, room for the lock directory
-`pi` takes beside them, and nothing writable there. `pi` re-reads `auth.json`
+`pi` takes beside them, and nothing writable there. `pi` creates either file
+when it is missing, which a confined process cannot do, so the application
+creates both, empty, at startup (`crucible.runtime_storage`). `pi` re-reads `auth.json`
 before every model request and runs a key that begins with `!`, so a process
 that could write it could have a command run in every other one; the
 application refreshes an OAuth login instead (`runtimes/pi/auth_refresh.py`:

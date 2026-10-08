@@ -85,7 +85,9 @@ caller, so two programs never reach each other's conversations.
 
 `clientMessageId` is required (1–128 characters of `A-Za-z0-9_.:-`) and is what makes a
 submit idempotent; generate one per message, reuse it on retry. `text` may be
-empty only when files are attached — a photo is a message.
+empty only when files are attached — a photo is a message. The message is
+stamped with the time the hub accepted it, and the model reads that time in
+the prompt — it is how the agent knows what "today" is.
 
 Files travel inline, base64, like on the ws gateway, and are handled like any
 other attachment ([files.md](files.md)): saved under the agent's files, named

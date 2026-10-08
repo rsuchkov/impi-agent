@@ -18,6 +18,7 @@ import logging
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any
 
 from aiohttp import web
@@ -372,6 +373,9 @@ class HttpHub:
             kind=KIND_DM,
             is_dm=True,
             mentioned=True,
+            # When the hub accepted it: the speaker line's time is how the
+            # model knows what "now" is.
+            timestamp=datetime.now(timezone.utc),
             # The hub's turn id travels on the scope: a flow or a tool that keeps
             # a transcript of its own then shares a key with the journal. Fresh
             # flags: `replace` would hand the authenticator's own set to the

@@ -114,14 +114,14 @@ async def test_build_app_picks_slack_gateway_when_configured(tmp_path: Path) -> 
     )
     app = build_app(settings)
     try:
-        from crucible.flows.agent_flow import ENVELOPE_NOTE
         from crucible.gateways.slack import PROMPT_HINT, SlackGateway
 
         assert isinstance(app.units[0].gateway, SlackGateway)
         profile = app.units[0].flow._profile
         assert isinstance(profile, PiProfile)
-        # the Slack agent's system prompt gets Slack's formatting rules...
-        assert profile.append_system_prompt == f"{ENVELOPE_NOTE}\n\n{PROMPT_HINT}"
+        # the Slack agent's system prompt gets Slack's formatting rules (the
+        # runtime puts the envelope note ahead of them)...
+        assert profile.append_system_prompt == PROMPT_HINT and profile.envelope_note
         # ...and a Slack-only deployment builds no HTTP callback receiver.
         assert app.integrations is None
     finally:
@@ -133,12 +133,10 @@ def test_mattermost_agent_gets_only_the_envelope_note_and_builds_the_receiver(tm
     # The default MM agent needs no formatting hint (Markdown is native), so its
     # system prompt suffix is the envelope note alone; its HTTP callback
     # receiver is built.
-    from crucible.flows.agent_flow import ENVELOPE_NOTE
-
     app = build_app(_settings(tmp_path))
     profile = app.units[0].flow._profile
     assert isinstance(profile, PiProfile)
-    assert profile.append_system_prompt == ENVELOPE_NOTE
+    assert profile.append_system_prompt == "" and profile.envelope_note
     assert app.integrations is not None
     assert isinstance(app.sessions, SqliteSessionStore)
     app.sessions.close_sync()

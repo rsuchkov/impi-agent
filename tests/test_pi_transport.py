@@ -13,6 +13,15 @@ def test_settings_lock_noise_is_debug() -> None:
     assert _stderr_log_level(line) == logging.DEBUG
 
 
+def test_a_new_conversations_session_notice_is_debug() -> None:
+    # Every conversation's first turn: pi creates the session it was asked for.
+    line = (
+        "Warning: No project session found with id 'c0ffee'; "
+        "creating a new session with that id."
+    )
+    assert _stderr_log_level(line) == logging.DEBUG
+
+
 def test_other_stderr_stays_warning() -> None:
     assert _stderr_log_level("TypeError: cannot read properties of undefined") == logging.WARNING
     # A different EROFS (not the settings lock) must still warn — could be real.

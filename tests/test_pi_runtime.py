@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import dataclasses
 import re
 from collections.abc import Sequence
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import cast
 
 import pytest
 
+from crucible.ports.agent.envelope import ENVELOPE_NOTE
 from crucible.ports.agent.runtime import PromptImage, RuntimeStats
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
@@ -313,7 +315,14 @@ async def test_empty_allowlist_passes_empty_tools_no_skills(monkeypatch) -> None
     assert "--no-skills" in cap["args"]
     assert "--skill" not in cap["args"]
     assert cap["cwd"] == str(Path("agents") / "assistant")
-    assert "--append-system-prompt" not in cap["args"]  # none set on this profile
+    # Nothing of its own: the system prompt is told about the envelope alone.
+    assert cap["args"][cap["args"].index("--append-system-prompt") + 1] == ENVELOPE_NOTE
+
+
+async def test_a_profile_can_leave_the_envelope_note_out(monkeypatch) -> None:
+    profile = dataclasses.replace(_profile(), envelope_note=False)
+    cap = await _capture_spawn(monkeypatch, profile)
+    assert "--append-system-prompt" not in cap["args"]
 
 
 async def test_append_system_prompt_flag(monkeypatch) -> None:
@@ -325,7 +334,8 @@ async def test_append_system_prompt_flag(monkeypatch) -> None:
     )
     cap = await _capture_spawn(monkeypatch, profile)
     i = cap["args"].index("--append-system-prompt")
-    assert cap["args"][i + 1] == "Format as Slack mrkdwn"
+    # The envelope note first, then the profile's own addition.
+    assert cap["args"][i + 1] == f"{ENVELOPE_NOTE}\n\nFormat as Slack mrkdwn"
 
 
 async def test_tools_allowlist_is_the_single_gate(monkeypatch) -> None:
@@ -819,3 +829,27 @@ async def test_the_applications_scope_reaches_the_spawn_whole(monkeypatch) -> No
     # Its variables name paths on one host's filesystem: the host applies them.
     assert captured["request"].process_scope.env == {"TMPDIR": "/x/t"}
     assert "TMPDIR" not in captured["request"].env
+
+
+def test_a_runtime_left_unconfined_on_a_kernel_with_landlock_says_so(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr("crucible.runtimes.pi.runtime.landlock_abi", lambda: 7)
+    with caplog.at_level("WARNING", logger="crucible.runtimes.pi.runtime"):
+        PiRuntime()
+    assert "run unconfined although this kernel has Landlock" in caplog.text
+
+
+def test_no_unconfined_warning_without_landlock_or_with_scopes(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class _Scopes:
+        async def scope_for(self, agent: str, session_id: str | None) -> None:
+            return None
+
+    with caplog.at_level("WARNING", logger="crucible.runtimes.pi.runtime"):
+        monkeypatch.setattr("crucible.runtimes.pi.runtime.landlock_abi", lambda: 0)
+        PiRuntime()
+        monkeypatch.setattr("crucible.runtimes.pi.runtime.landlock_abi", lambda: 7)
+        PiRuntime(scopes=_Scopes())
+    assert "unconfined" not in caplog.text

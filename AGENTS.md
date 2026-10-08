@@ -107,8 +107,9 @@ duplicate architecture here.
   runtime", "the runtime's tool extension / session / UI request"), never
   "pi's …". `pi` specifics live only in `runtimes/pi/` and the composition root;
   the exceptions are the backend knobs in `config.py` (`pi_*`), an explicit
-  settings boundary, and `sessions_cli.py` and `session_retention.py`, which
-  delete the runtime's own session files.
+  settings boundary, `sessions_cli.py` and `session_retention.py`, which
+  delete the runtime's own session files, and `runtime_storage.py`, which
+  prepares them and the runtime's agent directory.
 
 - **The library names no application.** `crucible` is reusable, so nothing under
   it says "impi" — not in a message it emits, a file it writes, or a path it

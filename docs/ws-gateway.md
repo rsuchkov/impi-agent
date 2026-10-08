@@ -93,6 +93,9 @@ code yourself; ignore codes you do not know.
   reconnect. An engine restart drops the buffer.
 - **Dedupe.** Redelivered frames with the same `message_id` are processed
   once (per agent). Without `message_id` every frame is a fresh message.
+- **Time.** A message is stamped with the time the engine received it, and
+  the model reads that time in the prompt — it is how the agent knows what
+  "today" is.
 - **No widgets.** Don't give ws agents `ask_user_*`/`open_form` tools; the
   widget verbs degrade to a plain-text notice.
 - **Files.** Inline bytes are saved like any other attachment and named in the

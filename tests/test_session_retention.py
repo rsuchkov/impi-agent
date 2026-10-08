@@ -1,15 +1,23 @@
-"""Forgetting conversations by age, and the engine's housekeeping at startup."""
+"""Forgetting conversations by age, and the runtime's storage at startup."""
 
 import asyncio
+import logging
+import stat
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from crucible.config import Settings
 from crucible.ports.chat.types import KIND_DM
+from crucible.runtime_storage import (
+    RUNTIME_AGENT_DIR_FILES,
+    prepare_runtime_agent_dir,
+    prepare_runtime_storage,
+)
 from crucible.session_retention import idle_before, purge_idle
 from crucible.store.base import SessionRecord
 from crucible.store.sqlite import SqliteSessionStore
-from impi.app import prepare_conversation_memory
 from impi.config import ImpiSettings
 
 
@@ -58,7 +66,10 @@ async def test_a_record_whose_time_does_not_parse_is_kept_and_does_not_stop_the_
     assert idle_before(rec("2999-01-01T00:00:00+00:00"), cutoff) is False
 
 
-async def test_the_engine_moves_old_memory_then_forgets_idle_conversations_at_startup(tmp_path: Path) -> None:
+async def test_the_engine_moves_old_memory_then_forgets_idle_conversations_at_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pi-agent"))
     settings = ImpiSettings(
         _env_file=None,  # pyright: ignore[reportCallIssue]
         data_dir=str(tmp_path / "data"), session_retention_days=30,
@@ -78,9 +89,43 @@ async def test_the_engine_moves_old_memory_then_forgets_idle_conversations_at_st
         kept = agent_dir / "2026-01-01T00-00-00-000Z_assistant--other.jsonl"
         kept.write_text("{}")
 
-        await prepare_conversation_memory(settings, store)
+        await prepare_runtime_storage(settings, store)
         assert not flat.exists() and not (agent_dir / old.runtime_session_id).exists()  # moved, then forgotten
         assert (agent_dir / "assistant--other" / kept.name).is_file()  # moved, kept
         assert await store.list("assistant") == []
+        # ...and the runtime's agent directory holds what a confined process reads.
+        assert all((tmp_path / "pi-agent" / name).is_file() for name in RUNTIME_AGENT_DIR_FILES)
     finally:
         await store.close()
+
+
+def test_the_agent_directory_gets_empty_private_stores_and_keeps_existing_ones(tmp_path: Path) -> None:
+    # A confined runtime process may only read these files; it cannot create one.
+    agent_dir = tmp_path / "pi" / "agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "auth.json").write_text('{"p": {"type": "api_key"}}')
+
+    assert prepare_runtime_agent_dir(agent_dir)
+    assert (agent_dir / "auth.json").read_text() == '{"p": {"type": "api_key"}}'  # untouched
+    store = agent_dir / "models-store.json"
+    # Empty: the runtime reads it as nothing yet, the installer as no login.
+    assert store.read_bytes() == b""
+    assert stat.S_IMODE(store.stat().st_mode) == 0o600
+    assert prepare_runtime_agent_dir(agent_dir)  # again: nothing to do
+
+
+def test_an_agent_directory_the_runtime_cannot_lock_in_is_an_error(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    for name in RUNTIME_AGENT_DIR_FILES:
+        (agent_dir / name).touch()
+    agent_dir.chmod(0o500)  # a read-only image's directory
+    try:
+        with caplog.at_level(logging.ERROR, logger="crucible.runtime_storage"):
+            assert not prepare_runtime_agent_dir(agent_dir)
+    finally:
+        agent_dir.chmod(0o700)
+    assert "point PI_CODING_AGENT_DIR at a writable directory" in caplog.text
+    assert str(agent_dir) in caplog.text
