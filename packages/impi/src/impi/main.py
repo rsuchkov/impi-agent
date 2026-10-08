@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 
+from crucible.redaction import ScrubbingFilter
 from impi.app import run
 from impi.config import load_settings
 
@@ -23,6 +24,10 @@ def main() -> None:
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # What a line may carry by accident — a header, an environment, a URL
+    # with a token in it — goes before it is written.
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(ScrubbingFilter())
     # Ctrl+C and SIGTERM (`make stop`, a container runtime) both end run()'s
     # main task — see `stop_on_sigterm` in app.py — so its finally closes the
     # runtime and terminates every pi subprocess instead of orphaning them (the

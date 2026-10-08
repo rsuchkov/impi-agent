@@ -78,6 +78,26 @@ when a release is cut, and `impi update` shows the target version's section.
   reason takes the pod out of rotation with that reason. A check that raises
   or hangs past two seconds counts as failed; what it raised goes to the log,
   not to the probe.
+- **An application can test against a scripted runtime process.**
+  `crucible.runtimes.pi.testing.ScriptedHost` stands in for the runtime's
+  process and nothing else: `PiRuntime`, its sessions, the spawn request and
+  the tool server stay real. A scripted turn answers with text, calls tools
+  first — over HTTP, with the token and session proof the process was
+  given, so the allowlist, the proof check and the gate run as in production
+  — or fails the way the runtime reports a model service's failure.
+- **Secrets are scrubbed from the log.** `crucible.redaction` has three
+  pieces:
+  - `scrub(text)` replaces what looks like a secret and keeps its name: the
+    tool token and session proof (header and variable), a receiver's secret
+    path, bearer and Slack tokens, OAuth values, credentials in a URL,
+    private keys. An application adds its own patterns;
+  - `scrub_data(event)` does the same through an error report, for Sentry's
+    `before_send`;
+  - `ScrubbingFilter` does it for every log record, the traceback included.
+
+  The engine and the broker install the filter on their log at startup. A
+  card's click is now logged as `card <first characters>…` rather than as
+  `token=…`.
 - **An unconfined runtime says so.** `PiRuntime` built without `scopes=` on a
   kernel with Landlock logs a warning: its processes can read each other's
   conversations, and nothing used to say that.

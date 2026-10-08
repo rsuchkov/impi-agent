@@ -344,9 +344,9 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "Constant-time comparison is a leaf — it imports nothing of the workspace"
+name = "Constant-time comparison and log redaction are leaves — they import nothing of the workspace"
 type = "forbidden"
-source_modules = ["crucible.constant_time"]
+source_modules = ["crucible.constant_time", "crucible.redaction"]
 forbidden_modules = [
     "crucible.approvals",
     "crucible.attachments",

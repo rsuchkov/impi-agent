@@ -16,6 +16,7 @@ import logging
 import sys
 from typing import TextIO
 
+from crucible.redaction import ScrubbingFilter
 from ward.app import run
 from ward.ca import OPERATOR_CN, CertificateAuthority, Issued
 from ward.config import WardSettings, load_settings
@@ -186,6 +187,10 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # The broker handles secrets by name all day: a value that slips into a
+    # line by accident goes before it is written.
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(ScrubbingFilter())
     try:
         asyncio.run(run(settings))
     except KeyboardInterrupt:

@@ -388,9 +388,27 @@ credential, is another user's credential.
   hub's handlers have; `hub.drain()` / `await hub.idle(timeout)` are the
   shutdown pair, and `HttpHub(ready_checks=…)` gives your own dependencies a
   say in `/readyz` — see [http-gateway.md](http-gateway.md).
-- For tests without a `pi` binary, `tests/fakes/fake_transport.py` in this
-  repository is an in-process `PiTransport` you can copy: a reactor answers the
-  commands the session sends, and the session logic runs unchanged.
+- **Testing without a model.** `crucible.runtimes.pi.testing.ScriptedHost`
+  replaces the runtime's process and nothing else. Hand it to the runtime as
+  `PiRuntime(hosts=HostRouter(ScriptedHost(script)), …)`, where
+  `script(request, message)` returns a `ScriptedTurn`: the `text` the model
+  answers with, the `tool_calls` it makes first (`ToolCall(name, args)`), or
+  an `error` its service failed with. The runtime, its sessions, the spawn
+  request it builds and your tool server stay the real ones. A tool call goes
+  over HTTP with the token, the session id and the session proof the process
+  was given, as the runtime's tool extension sends them, so the allowlist,
+  the proof check and the confirmation gate are all exercised.
+  `host.opened` holds every spawn request, `host.tool_outcomes` what each
+  call came back with.
+- **Keeping secrets out of the log.** `crucible.redaction.ScrubbingFilter`
+  on each handler of the root logger scrubs every record. It replaces the
+  value and keeps the name for: the tool token and session proof by header
+  and by variable, a receiver's secret path, bearer and Slack tokens, OAuth
+  values, credentials in a URL, private keys. `scrub_data` does the same
+  through an error report, so `before_send=lambda event, hint:
+  scrub_data(event)` covers Sentry without crucible depending on it. Your
+  own patterns go in `extra=`; a pattern's first group is kept. `impi` and
+  `ward` install the filter at startup.
 
 ## Why not a `build_engine(config)`?
 

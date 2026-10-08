@@ -6,6 +6,7 @@ turns in flight finds them already cancelled.
 """
 
 import asyncio
+import logging
 import os
 import signal
 
@@ -57,9 +58,19 @@ def test_the_engine_starts_with_a_umask_that_keeps_its_files_to_itself(monkeypat
 
     monkeypatch.setattr(entry, "load_settings", lambda: SimpleNamespace(log_level="INFO"))
     monkeypatch.setattr(entry, "run", no_run)
+    from crucible.redaction import ScrubbingFilter
+
     before = os.umask(0o022)
+    root = logging.getLogger()
     try:
         entry.main()
         assert os.umask(0o022) == 0o077
+        # And what it logs is scrubbed before it is written.
+        assert root.handlers and all(
+            any(isinstance(f, ScrubbingFilter) for f in handler.filters) for handler in root.handlers
+        )
     finally:
         os.umask(before)
+        for handler in root.handlers:
+            for scrubber in [f for f in handler.filters if isinstance(f, ScrubbingFilter)]:
+                handler.removeFilter(scrubber)
