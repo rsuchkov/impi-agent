@@ -89,55 +89,79 @@ async def test_a_process_confined_to_its_conversation_writes_that_conversations_
     assert lost is not None and lost.env["AGENT_FILES_DIR"] == lost.env["TMPDIR"]
 
 
-async def test_a_memoryless_run_gets_scratch_of_its_own_and_stale_scratch_is_cleared(tmp_path: Path) -> None:
+async def test_a_memoryless_runs_scratch_goes_when_its_process_ends(tmp_path: Path) -> None:
     scopes = _scopes(tmp_path, {"assistant": _spec(tmp_path)})
     first = await scopes.scope_for("assistant", None)
     second = await scopes.scope_for("assistant", None)
-    talk = await scopes.scope_for("assistant", "assistant--c1")
-    assert first is not None and second is not None and talk is not None
+    assert first is not None and second is not None
     one, two = Path(first.env["TMPDIR"]).parent, Path(second.env["TMPDIR"]).parent
     assert one != two and one.name.startswith("run-")
     assert first.env["AGENT_FILES_DIR"] == first.env["TMPDIR"]
+    scopes.release("assistant", first)
+    assert not one.exists() and two.exists()
 
-    old = time.time() - 2 * 24 * 3600
-    conversation = Path(talk.env["TMPDIR"]).parent
-    for path in (one, conversation):
-        os.utime(path, (old, old))
-    agent_level = await _scopes(
-        tmp_path, {"assistant": _spec(tmp_path, confinement="agent")}
-    ).scope_for("assistant", None)
-    assert agent_level is not None
-    os.utime(Path(agent_level.env["TMPDIR"]), (old, old))
-    await scopes.scope_for("assistant", None)
-    assert not one.exists() and not conversation.exists() and two.exists()
-    assert Path(agent_level.env["TMPDIR"]).exists()  # the agent level's own is not a run's
 
-    # A conversation that is talking is not stale, however old its directory.
+async def test_a_conversations_scratch_is_kept_a_day_after_its_last_process(tmp_path: Path) -> None:
+    scopes = _scopes(tmp_path, {"assistant": _spec(tmp_path)})
     talk = await scopes.scope_for("assistant", "assistant--c1")
     assert talk is not None
-    kept = Path(talk.env["TMPDIR"]) / "draft"
+    scratch = Path(talk.env["TMPDIR"]).parent
+    kept = Path(talk.env["HOME"]) / ".gitconfig"
     kept.write_text("x")
-    os.utime(kept.parent.parent, (old, old))
-    await scopes.scope_for("assistant", "assistant--c1")
+    # The process lived for days: the day it is kept counts from its end.
+    old = time.time() - 2 * 24 * 3600
+    os.utime(scratch, (old, old))
+    scopes.release("assistant", talk)
     assert kept.is_file()
+    # The conversation's next process finds its HOME as it was left.
+    again = await scopes.scope_for("assistant", "assistant--c1")
+    assert again is not None and again.env["HOME"] == talk.env["HOME"] and kept.is_file()
+    scopes.release("assistant", again)
+    # A day after the last one ended, the agent's next release clears it.
+    os.utime(scratch, (old, old))
+    run = await scopes.scope_for("assistant", None)
+    assert run is not None
+    scopes.release("assistant", run)
+    assert not scratch.exists()
+
+
+async def test_scratch_in_use_is_never_cleared_however_old(tmp_path: Path) -> None:
+    """A conversation that keeps talking keeps one process for days; its scratch
+    space was handed out long ago and is still in use. One a stopped
+    application left behind is not, and goes by age."""
+    scopes = _scopes(tmp_path, {"assistant": _spec(tmp_path)})
+    busy = await scopes.scope_for("assistant", "assistant--busy")
+    twice = await scopes.scope_for("assistant", "assistant--twice")
+    second = await scopes.scope_for("assistant", "assistant--twice")
+    assert busy is not None and twice is not None and second is not None
+    left = tmp_path / "scratch" / "assistant" / "assistant--left"
+    left.mkdir()
+    scopes.release("assistant", twice)  # one of its two processes ended
+    old = time.time() - 2 * 24 * 3600
+    for path in (Path(busy.env["TMPDIR"]).parent, Path(twice.env["TMPDIR"]).parent, left):
+        os.utime(path, (old, old))
+    run = await scopes.scope_for("assistant", None)
+    assert run is not None
+    scopes.release("assistant", run)
+    assert Path(busy.env["TMPDIR"]).is_dir() and Path(twice.env["TMPDIR"]).is_dir()
+    assert not left.exists()
+
+
+async def test_the_agent_levels_shared_scratch_is_never_taken_back(tmp_path: Path) -> None:
+    scopes = _scopes(tmp_path, {"assistant": _spec(tmp_path, confinement="agent")})
+    shared = await scopes.scope_for("assistant", None)
+    assert shared is not None
+    old = time.time() - 2 * 24 * 3600
+    os.utime(Path(shared.env["TMPDIR"]), (old, old))
+    scopes.release("assistant", shared)
+    # Even when a conversation-level neighbour sweeps the same agent's space.
+    neighbours = _scopes(tmp_path, {"assistant": _spec(tmp_path)})
+    run = await neighbours.scope_for("assistant", None)
+    assert run is not None
+    neighbours.release("assistant", run)
+    assert Path(shared.env["TMPDIR"]).is_dir() and Path(shared.env["HOME"]).is_dir()
 
 
 async def test_an_unknown_agent_gets_nothing_beyond_its_scratch_space(tmp_path: Path) -> None:
     scope = await _scopes(tmp_path, {}).scope_for("ghost", None)
     assert scope is not None and scope.readable == (tmp_path / "skills",)
-
-
-async def test_the_scratch_of_a_conversation_whose_process_lives_on_is_kept(tmp_path: Path) -> None:
-    """A conversation that keeps talking keeps one process for days; its scratch
-    space was handed out long ago and is still in use."""
-    live = {"assistant--busy"}
-    scopes = _scopes(tmp_path, {"assistant": _spec(tmp_path)}, has_process=lambda sid: sid in live)
-    busy = await scopes.scope_for("assistant", "assistant--busy")
-    idle = await scopes.scope_for("assistant", "assistant--idle")
-    assert busy is not None and idle is not None
-    old = time.time() - 2 * 24 * 3600
-    for scope in (busy, idle):
-        os.utime(Path(scope.env["TMPDIR"]).parent, (old, old))
-    await scopes.scope_for("assistant", None)
-    assert Path(busy.env["TMPDIR"]).is_dir()
-    assert not Path(idle.env["TMPDIR"]).exists()

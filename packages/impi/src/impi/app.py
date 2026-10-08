@@ -34,6 +34,7 @@ import impi.task_tools  # noqa: E402,F401
 from crucible.approvals import PendingApprovals
 from crucible.attachments import AttachmentStore
 from crucible.confinement import landlock_abi
+from crucible.conversation_files import conversation_files_dir_lookup
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import (
@@ -181,24 +182,6 @@ def _spec_or_none(profiles: ProfileStore, name: str) -> AgentSpec | None:
         return profiles.get(name)
     except ProfileError:
         return None
-
-
-def _conversation_files_dir_for(
-    attachments: AttachmentStore | None, sessions: SessionStore
-) -> Callable[[str, str], Awaitable[Path | None]]:
-    """Which attachments directory belongs to the conversation a runtime
-    session serves — the one directory of files a process confined to its
-    conversation may write."""
-
-    async def conversation_files_dir(agent: str, runtime_session_id: str) -> Path | None:
-        if attachments is None:
-            return None
-        record = await sessions.get_by_runtime_session(runtime_session_id)
-        if record is None or record.agent != agent:
-            return None
-        return attachments.conversation_dir(agent, record.conversation_id)
-
-    return conversation_files_dir
 
 
 @dataclass
@@ -469,17 +452,17 @@ def build_app(settings: ImpiSettings) -> App:
     # read, its files and its own scratch space to write. support is part of
     # the engine (it reads the engine's own configuration) and runs
     # unconfined unless its profile says otherwise.
+    # The one answer to "which files directory is this session's
+    # conversation's", for the confinement and for the tools alike.
+    conversation_files_dir = conversation_files_dir_lookup(attachments, sessions)
     process_scopes = AgentProcessScopes(
         lambda name: _spec_or_none(profiles, name),
         default_level=settings.runtime_confinement,
         files_dir_for=attachments.dir_for if attachments else (lambda name: None),
-        conversation_files_dir_for=_conversation_files_dir_for(attachments, sessions),
+        conversation_files_dir_for=conversation_files_dir,
         files_dir_env=FILES_DIR_ENV,
         skills_root=settings.resolved_skills_path,
         unconfined_by_default=frozenset(engine_names),
-        # The runtime is built below, with these scopes; asked only when a
-        # process starts, by which time it exists.
-        has_process=lambda session_id: runtime.has_process(session_id),
     )
     hosts = build_agent_hosts(settings, specs, attachments.dir_for if attachments else None)
     abi = landlock_abi()
@@ -648,6 +631,7 @@ def build_app(settings: ImpiSettings) -> App:
         task_svc=task_admin,
         dotenv_path=settings.dotenv_path,
         session_resolver=_resolve_conversation,
+        files_dir_resolver=conversation_files_dir,
         tool_gate=interactions.tool_gate,
         # While the gate waits for a person, the turn's timeout waits too.
         clock=runtime,

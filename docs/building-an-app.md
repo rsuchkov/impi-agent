@@ -163,7 +163,12 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   echoes it on every call. Two conversations never share one (the derivation
   appends a digest whenever it had to coerce a character, and the store
   enforces uniqueness), so an application may key whatever it holds per
-  running turn by that id and resolve it from a tool.
+  running turn by that id and resolve it from a tool. The conversation's files
+  directory — where what people sent in it was saved — is already resolved:
+  `ToolContext.files_dir`, when the server was built with
+  `files_dir_resolver=conversation_files_dir_lookup(attachments, store)`
+  (`crucible.conversation_files`). Do not derive it from a conversation id
+  yourself: `AttachmentStore` renames an id it cannot use as a directory name.
 - **Say what the call would do, not what the model said.** A confirmed tool
   should implement `describe(ctx, args) -> CallPreview | None` (`Describing` in
   `crucible.tools`; `CallPreview`/`PreviewRow` in `crucible.ports.chat.types`,
@@ -212,11 +217,15 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   profiles — give it the profile lookup, a default level (`conversation`,
   `agent`, `off`), where an agent's files are and, for the `conversation`
   level, an async `conversation_files_dir_for(agent, session_id)` that maps
-  a runtime session to that conversation's files directory (the store's
-  `get_by_runtime_session` answers it). `files_dir_env` names the variable
+  a runtime session to that conversation's files directory —
+  `conversation_files_dir_lookup(attachments, store)`
+  (`crucible.conversation_files`) is that answer, the same one the tool server
+  takes. `files_dir_env` names the variable
   that tells the process which directory it was given. Or implement the
-  `ProcessScopes` port yourself (`crucible.ports.agent.confinement`): return
-  the paths a process may read and write, or `None` for unconfined. The
+  `ProcessScopes` port yourself (`crucible.ports.agent.confinement`):
+  `scope_for` returns the paths a process may read and write, or `None` for
+  unconfined; `release(agent, scope)` is called once that process has ended
+  (or failed to start), so whatever you set aside for it can go. The
   runtime adds what it needs itself — its program, its memory, its account.
   Without `scopes=` nothing is confined, and on a kernel that has Landlock
   the runtime says so in a warning when it is built; on a kernel without

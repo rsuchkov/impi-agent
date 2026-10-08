@@ -184,10 +184,6 @@ class PiRuntime:
 
     # -- public API (RuntimeControl) ----------------------------------------
 
-    def has_process(self, session_id: str) -> bool:
-        """Whether this conversation has a process alive right now."""
-        return safe_session_id(session_id) in self._sessions
-
     def has_memory(self, agent: str, session_id: str) -> bool:
         """A live session, or memory on disk under the id the process was given.
 
@@ -466,11 +462,16 @@ class PiRuntime:
         try:
             await session.close()
         finally:
-            # A proof dies with its process — a memoryless run's included, which
-            # no session key names.
-            if self._proofs is not None and session.proof_session_id:
-                self._proofs.revoke(session.proof_session_id)
-            self._release(agent)
+            try:
+                # A proof dies with its process — a memoryless run's included,
+                # which no session key names — and its paths go back to the
+                # application.
+                if self._proofs is not None and session.proof_session_id:
+                    self._proofs.revoke(session.proof_session_id)
+                if self._scopes is not None and session.process_scope is not None:
+                    self._scopes.release(agent, session.process_scope)
+            finally:
+                self._release(agent)
 
     async def _drop_session(self, key: str) -> None:
         managed = self._sessions.pop(key, None)
@@ -518,7 +519,12 @@ class PiRuntime:
             cwd=Path(cwd) if cwd else None,
             process_scope=scope,
         )
-        transport = await self._hosts.for_agent(profile.name).open(request)
+        try:
+            transport = await self._hosts.for_agent(profile.name).open(request)
+        except BaseException:
+            if self._scopes is not None and scope is not None:
+                self._scopes.release(profile.name, scope)  # never started
+            raise
         # The coerced id, not the one the caller passed: it is what the tool
         # extension reports and what the store keys on, so the UI bridge must
         # resolve the same conversation from it.
@@ -527,6 +533,7 @@ class PiRuntime:
             ui_bridge=self._ui_bridge,
             session_id=safe_id or "",
             proof_session_id=proof_id,
+            process_scope=scope,
         )
 
     async def _reap_loop(self, interval: float) -> None:

@@ -6,6 +6,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 
+from crucible.confinement import ProcessScope
 from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.ports.agent.runtime import AgentEvent, PromptImage
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
@@ -80,11 +81,15 @@ class PiRpcSession:
         ui_bridge: UiBridge | None = None,
         session_id: str = "",
         proof_session_id: str = "",
+        process_scope: ProcessScope | None = None,
     ) -> None:
         self._transport = transport
         # The id this process proves itself under to the tool server: the
         # session's, or a one-off for a memoryless run. Revoked when it closes.
         self.proof_session_id = proof_session_id
+        # The paths the application handed this process (None = unconfined).
+        # Handed back when it closes.
+        self.process_scope = process_scope
         self._allowed_ui_tools = allowed_ui_tools
         self._on_event = on_event
         # When set, interactive UI requests are routed to a human via the bridge

@@ -7,6 +7,7 @@ only Python — never the TypeScript bridge.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from pydantic_settings import BaseSettings
@@ -102,6 +103,11 @@ class ToolContext:
     # when the server can't resolve them (e.g. no session yet).
     channel_id: str = ""
     user_id: str = ""
+    # That conversation's files directory — where what people sent in it was
+    # saved, and the one directory of files its confined process may write.
+    # Resolved the same way, so a tool never derives it; it may not exist yet.
+    # None without attachments, or when the server can't resolve it.
+    files_dir: Path | None = None
     # What belongs to this turn alone — a credential sent with the message, a
     # request id, a place to leave a note for the flow. None when the
     # application binds none (every chat gateway today).

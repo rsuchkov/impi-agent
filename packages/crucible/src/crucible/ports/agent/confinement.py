@@ -32,8 +32,16 @@ def check_confinement_level(value: str) -> ConfinementLevel:
 
 
 class ProcessScopes(Protocol):
-    """The paths of one agent's process, for one conversation or for a
-    memoryless run (``session_id`` None). None = this process runs unconfined
-    (its agent's level is ``off``)."""
+    """The paths of one agent's process: handed out when it starts, taken back
+    when it has ended. The runtime sees both moments; whatever the application
+    set aside for the process (scratch space) is its own to keep or clear."""
 
-    async def scope_for(self, agent: str, session_id: str | None) -> ProcessScope | None: ...
+    async def scope_for(self, agent: str, session_id: str | None) -> ProcessScope | None:
+        """For one conversation, or for a memoryless run (``session_id``
+        None). None = this process runs unconfined (its agent's level is
+        ``off``)."""
+        ...
+
+    def release(self, agent: str, scope: ProcessScope) -> None:
+        """The process ``scope`` was handed to has ended — or never started."""
+        ...

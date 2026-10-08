@@ -33,7 +33,7 @@ from crucible.tools.base import (
 )
 from crucible.tools.proofs import SessionProofBook
 from crucible.tools.registry import ToolRegistry, build_registry
-from crucible.tools.server import SessionResolver, ToolServer
+from crucible.tools.server import FilesDirResolver, SessionResolver, ToolServer
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +174,7 @@ class ToolWiring:
         task_svc: TaskService | None = None,
         dotenv_path: str,
         session_resolver: SessionResolver | None = None,
+        files_dir_resolver: FilesDirResolver | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
@@ -207,6 +208,7 @@ class ToolWiring:
             file_svc=file_svc,
             task_svc=task_svc,
             session_resolver=session_resolver,
+            files_dir_resolver=files_dir_resolver,
             tool_gate=tool_gate,
             clock=clock,
             turns=turns,

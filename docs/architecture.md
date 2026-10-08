@@ -185,7 +185,8 @@ capabilities it `requires`). At runtime:
   session id only when its proof matches (the token is shared by every process
   of the agent, so without the proof any of them could name another
   conversation), builds a `ToolContext` scoped to that agent and that turn (its
-  own `ChatAdmin`, the directory, the widget/form services, the turn's scope),
+  own `ChatAdmin`, the directory, the widget/form services, the turn's scope,
+  the conversation's files directory),
   and runs the tool. The proof defeats a claim made from knowledge; a process
   that could read another's `/proc/<pid>/environ` would defeat it, and
   confinement is what stops a runtime process from doing so — the kernel

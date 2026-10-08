@@ -32,6 +32,27 @@ when a release is cut, and `impi update` shows the target version's section.
   writable — on a read-only root, every turn fails there.
   **Breaks:** `impi.app.prepare_conversation_memory` is gone; call
   `prepare_runtime_storage`.
+- **A tool is told its conversation's files directory.**
+  `ToolContext.files_dir` is where what people sent in the conversation was
+  saved, resolved by the tool server like `channel_id`. Build the server with
+  `files_dir_resolver=conversation_files_dir_lookup(attachments, store)`
+  (`crucible.conversation_files`); the same lookup is what
+  `AgentProcessScopes(conversation_files_dir_for=…)` takes. An application no
+  longer derives the directory from a conversation id, which went wrong
+  whenever `AttachmentStore` had to rename the id.
+- **The runtime hands a process's paths back when the process ends.**
+  `ProcessScopes.release(agent, scope)` is called once a process has ended or
+  failed to start. `AgentProcessScopes` used to guess which scratch space was
+  still in use: by its age, and through a `has_process` closure every
+  application wired over a runtime that did not exist yet. Now it knows:
+  - a scheduled run's scratch goes when its process ends;
+  - a conversation's scratch is kept a day after its last process ended, so
+    the next one finds its `HOME`;
+  - space held by a running process is never cleared.
+
+  **Breaks:** `AgentProcessScopes(has_process=…)` and `PiRuntime.has_process`
+  are gone, and an implementation of `ProcessScopes` of your own needs a
+  `release` method.
 - **An unconfined runtime says so.** `PiRuntime` built without `scopes=` on a
   kernel with Landlock logs a warning: its processes can read each other's
   conversations, and nothing used to say that.

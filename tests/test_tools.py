@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import aiohttp
 import pytest
 
@@ -882,12 +884,16 @@ async def test_server_resolves_conversation_into_context() -> None:
         parameters: ClassVar[dict] = {}
 
         async def execute(self, ctx, args):
-            return {"channel_id": ctx.channel_id, "user_id": ctx.user_id}
+            return {"channel_id": ctx.channel_id, "user_id": ctx.user_id, "files_dir": str(ctx.files_dir)}
 
     reg = ToolRegistry((_Echo(),))  # type: ignore[arg-type]
 
     async def resolver(rsid: str):
         return ("C-resolved", "U-resolved") if rsid == "assistant--conv" else None
+
+    async def files_dir(agent: str, rsid: str):
+        # Asked with the calling agent, not only the session it names.
+        return Path(f"/files/{agent}/conv") if rsid == "assistant--conv" else None
 
     server = ToolServer(
         reg,
@@ -897,6 +903,7 @@ async def test_server_resolves_conversation_into_context() -> None:
         allowlists={"assistant": frozenset({"echo_ctx"})},
         port=8470,
         session_resolver=resolver,
+        files_dir_resolver=files_dir,
     )
     await server.start()
     try:
@@ -906,7 +913,9 @@ async def test_server_resolves_conversation_into_context() -> None:
                 headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--conv"},
             ) as resp:
                 body = (await resp.json())["result"]
-        assert body == {"channel_id": "C-resolved", "user_id": "U-resolved"}
+        assert body == {
+            "channel_id": "C-resolved", "user_id": "U-resolved", "files_dir": "/files/assistant/conv",
+        }
     finally:
         await server.stop()
 

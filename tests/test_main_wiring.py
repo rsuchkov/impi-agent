@@ -673,18 +673,12 @@ def test_tool_approvers_reach_the_gate(tmp_path: Path) -> None:
         app.sessions.close_sync()
 
 
-def test_the_engine_keeps_the_login_fresh_and_spares_a_live_conversations_scratch(tmp_path: Path) -> None:
+def test_the_engine_keeps_the_login_fresh(tmp_path: Path) -> None:
     from crucible.runtimes.pi.auth_refresh import AuthRefresher
 
     app = build_app(_settings(tmp_path))
     try:
         assert isinstance(app.auth_refresher, AuthRefresher)
-        assert isinstance(app.runtime, PiRuntime)
-        scopes = app.runtime._scopes
-        assert isinstance(scopes, AgentProcessScopes)
-        assert scopes._has_process("assistant--c1") is False
-        app.runtime._sessions["assistant--c1"] = object()  # type: ignore[assignment]
-        assert scopes._has_process("assistant--c1") is True
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
         app.sessions.close_sync()

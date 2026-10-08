@@ -29,6 +29,7 @@ class FakeSession:
         # The real session's: the id its process proves itself under ("" =
         # none issued by this fake).
         self.proof_session_id = ""
+        self.process_scope = None
         self._result = result or PiResult(text="ok")
         self._prompt_error = prompt_error
         # The listener each turn handed over — one entry per prompt, None when
@@ -822,13 +823,47 @@ async def test_the_applications_scope_reaches_the_spawn_whole(monkeypatch) -> No
             captured["asked"] = (agent, session_id)
             return ProcessScope(writable=(Path("/x"),), env={"TMPDIR": "/x/t"})
 
+        def release(self, agent, scope):
+            captured.setdefault("released", []).append((agent, scope))
+
     rt = PiRuntime(scopes=Scopes())
-    await rt._spawn_session(_profile(), "assistant--c1")
+    session = await rt._spawn_session(_profile(), "assistant--c1")
     assert captured["asked"] == ("assistant", "assistant--c1")
     assert captured["request"].process_scope.writable == (Path("/x"),)
     # Its variables name paths on one host's filesystem: the host applies them.
     assert captured["request"].process_scope.env == {"TMPDIR": "/x/t"}
     assert "TMPDIR" not in captured["request"].env
+    # The process carries its scope, and hands it back when it closes.
+    assert session.process_scope is captured["request"].process_scope
+
+    async def close() -> None:
+        return None
+
+    ended = SimpleNamespace(proof_session_id="", process_scope=session.process_scope, close=close)
+    await rt._close_session(cast(PiRpcSession, ended), "assistant")
+    assert captured["released"] == [("assistant", session.process_scope)]
+
+
+async def test_a_process_that_never_started_hands_its_scope_back(monkeypatch) -> None:
+    from crucible.confinement import ProcessScope
+
+    async def failing_open(self, request):
+        raise OSError("the runtime is not installed")
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.LocalHost.open", failing_open)
+    released: list[ProcessScope] = []
+
+    class Scopes:
+        async def scope_for(self, agent, session_id):
+            return ProcessScope(env={"TMPDIR": "/x/t"})
+
+        def release(self, agent, scope):
+            released.append(scope)
+
+    rt = PiRuntime(scopes=Scopes())
+    with pytest.raises(OSError):
+        await rt._spawn_session(_profile(), "assistant--c1")
+    assert released == [ProcessScope(env={"TMPDIR": "/x/t"})]
 
 
 def test_a_runtime_left_unconfined_on_a_kernel_with_landlock_says_so(
@@ -845,6 +880,9 @@ def test_no_unconfined_warning_without_landlock_or_with_scopes(
 ) -> None:
     class _Scopes:
         async def scope_for(self, agent: str, session_id: str | None) -> None:
+            return None
+
+        def release(self, agent: str, scope: object) -> None:
             return None
 
     with caplog.at_level("WARNING", logger="crucible.runtimes.pi.runtime"):

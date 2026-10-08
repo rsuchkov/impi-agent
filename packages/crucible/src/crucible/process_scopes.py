@@ -11,7 +11,8 @@ on the level:
 * ``conversation`` — that conversation's own files directory and its own
   ``TMPDIR`` and ``HOME``. A memoryless run (a scheduled task) gets a scratch
   directory of its own and no files directory: it has no conversation.
-  Scratch space is scratch: a day after its last process it is cleared.
+  Scratch space is scratch: a memoryless run's goes when its process ends, a
+  conversation's a day after its last process ended.
 
 What the runtime itself needs (its program, its memory) the runtime adds;
 what is in neither list the process cannot reach.
@@ -29,10 +30,10 @@ from crucible.ports.agent.confinement import ConfinementLevel, check_confinement
 from crucible.ports.agent.spec import AgentSpec
 from crucible.private_files import private_dir
 
-# This side does not see a process end, so a conversation's or a memoryless
-# run's scratch directory outlives it. One whose conversation has no live
-# process and that was last handed out a day ago is cleared when the next
-# process of that agent starts — a day being longer than any memoryless run.
+# A conversation's scratch outlives its process — the next one finds its HOME
+# (caches, a tool's config) — for a day after the last one ended. One left by a
+# process that never said it ended (the application stopped mid-run) goes by
+# the same age.
 _RUN_PREFIX = "run-"
 _SCRATCH_KEPT_S = 24 * 3600
 # The agent level's own scratch, beside the per-conversation directories.
@@ -55,7 +56,6 @@ class AgentProcessScopes:
         skills_root: Path | None = None,
         scratch_root: Path | None = None,
         unconfined_by_default: frozenset[str] = frozenset(),
-        has_process: Callable[[str], bool] = lambda _session_id: False,
     ) -> None:
         # Read on every spawn, so a reloaded profile's level and paths apply
         # to the next process.
@@ -74,10 +74,10 @@ class AgentProcessScopes:
         # operator's assistant that reads the application's own configuration):
         # off unless their profile says otherwise.
         self._unconfined_by_default = unconfined_by_default
-        # Whether a conversation's process is alive (by runtime session id): a
-        # conversation that keeps talking keeps its process for days, and its
-        # scratch space is in use however long ago it was handed out.
-        self._has_process = has_process
+        # Scratch directories handed to processes that have not ended, with
+        # how many hold each (a conversation's next process may start before
+        # the last one is reported gone).
+        self._in_use: dict[Path, int] = {}
 
     def level_for(self, agent: str) -> ConfinementLevel:
         spec = self._spec_for(agent)
@@ -120,16 +120,37 @@ class AgentProcessScopes:
         found = await self._conversation_files_dir_for(agent, session_id)
         return private_dir(found) if found is not None else None
 
+    def release(self, agent: str, scope: ProcessScope) -> None:
+        """The process is gone: a memoryless run's scratch goes with it, a
+        conversation's is kept a day from now, and whatever of this agent's
+        has been idle longer than that goes."""
+        tmp = scope.env.get("TMPDIR")
+        scratch = Path(tmp).parent if tmp else None
+        held = self._in_use.get(scratch, 0) if scratch is not None else 0
+        if scratch is None or not held:
+            return  # not handed out here, or the agent level's shared space
+        if held > 1:
+            self._in_use[scratch] = held - 1
+            return
+        del self._in_use[scratch]
+        try:
+            if scratch.name.startswith(_RUN_PREFIX):
+                shutil.rmtree(scratch, ignore_errors=True)
+            else:
+                os.utime(scratch)  # the day it is kept starts now
+        except OSError:
+            pass
+        self._clear_stale_scratch(scratch.parent)
+
     def _scratch_for(self, agent: str, session_id: str | None, level: ConfinementLevel) -> Path:
         agent_scratch = private_dir(self._scratch_root / agent)
         if level == "agent":
             return agent_scratch
         if session_id:
             scratch = private_dir(agent_scratch / session_id)
-            os.utime(scratch)  # in use: not stale — before the sweep looks
         else:
             scratch = Path(tempfile.mkdtemp(prefix=_RUN_PREFIX, dir=agent_scratch))
-        self._clear_stale_scratch(agent_scratch)
+        self._in_use[scratch] = self._in_use.get(scratch, 0) + 1
         return scratch
 
     def _clear_stale_scratch(self, agent_scratch: Path) -> None:
@@ -138,7 +159,7 @@ class AgentProcessScopes:
             try:
                 if (
                     path.name not in _AGENT_SCRATCH and path.is_dir() and not path.is_symlink()
-                    and path.stat().st_mtime < cutoff and not self._has_process(path.name)
+                    and path not in self._in_use and path.stat().st_mtime < cutoff
                 ):
                     shutil.rmtree(path, ignore_errors=True)
             except OSError:

@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -47,6 +48,9 @@ logger = logging.getLogger(__name__)
 # turn, or None if unknown. A plain callable so the tool layer never imports the
 # store; the composition root supplies it from the session store.
 SessionResolver = Callable[[str], Awaitable[tuple[str, str] | None]]
+# (agent, runtime session id) -> the conversation's files directory, or None;
+# crucible.conversation_files builds one over the store.
+FilesDirResolver = Callable[[str, str], Awaitable[Path | None]]
 
 _TOKEN_HEADER = "X-Tool-Token"
 # The engine ↔ tool-extension contract (not the runtime's — it only relays
@@ -87,6 +91,7 @@ class ToolServer:
         file_svc: FileService | None = None,
         task_svc: TaskService | None = None,
         session_resolver: SessionResolver | None = None,
+        files_dir_resolver: FilesDirResolver | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
@@ -104,6 +109,7 @@ class ToolServer:
         self._file_svc = file_svc
         self._task_svc = task_svc
         self._session_resolver = session_resolver
+        self._files_dir_resolver = files_dir_resolver
         # Asks a human before a tool that declares it runs — the only gate there
         # is; see interactions/toolgate.py for why it has to live here.
         self._tool_gate = tool_gate
@@ -193,6 +199,9 @@ class ToolServer:
             resolved = await self._session_resolver(runtime_session_id)
             if resolved is not None:
                 channel_id, user_id = resolved
+        files_dir = None
+        if self._files_dir_resolver is not None and runtime_session_id:
+            files_dir = await self._files_dir_resolver(agent, runtime_session_id)
 
         ctx = ToolContext(
             agent_name=agent,
@@ -205,6 +214,7 @@ class ToolServer:
             task_svc=self._task_svc,
             channel_id=channel_id,
             user_id=user_id,
+            files_dir=files_dir,
             turn=self._turns.current(runtime_session_id) if self._turns is not None else None,
         )
 
