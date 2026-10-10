@@ -33,6 +33,18 @@ when a release is cut, and `impi update` shows the target version's section.
   (`crucible.connections.memory`, for tests).
   **Breaks:** `Store` now includes both slices, so a store backend of an
   application's own implements them too.
+  - `OAuth2Provider` (`crucible.connections.oauth2`, over httpx) speaks the
+    standard — authorization code with PKCE, the token endpoint, RFC 7009
+    revocation, a userinfo call — configured by `OAuth2Config`; `gitlab()`
+    is GitLab's configuration. It never follows a redirect.
+  - A tool reaches the person's connections as `ctx.connections`
+    (`ctx.require_connections()`): it can take a token, end a connection after
+    a 401 and read which account it is, and nothing more. A tool that needs
+    them declares `CAP_CONNECTIONS` and is advertised only where the
+    deployment connects accounts: `ToolWiring(connections_on=True)` and
+    `build_server(connections=connection_access(service, owner_for))`, where
+    `owner_for(agent, user_id, turn)` is the application's rule for whose
+    connections a turn uses.
 
 ## v0.21.0 — 2026-10-09
 

@@ -1343,3 +1343,74 @@ async def test_without_a_proof_book_a_call_that_names_no_session_still_runs() ->
                 assert resp.status == 200
     finally:
         await server.stop()
+
+
+async def test_a_tool_is_handed_the_connections_of_the_person_its_turn_acts_for() -> None:
+    """The server asks the application's factory with the calling agent, the
+    person the conversation resolved to and the turn's scope; a call with no
+    person behind it gets none."""
+    from typing import ClassVar
+
+    from crucible.ports.conversation import SessionConversation
+    from crucible.tools.base import Tool
+    from crucible.tools.registry import ToolRegistry
+
+    class _Uses(Tool):
+        name: ClassVar[str] = "uses_connection"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {}
+
+        async def execute(self, ctx, args):
+            return {"has": ctx.connections is not None}
+
+    asked: list[tuple] = []
+
+    def factory(agent, user_id, turn):
+        asked.append((agent, user_id, turn))
+        return object()
+
+    async def resolver(agent: str, rsid: str):
+        user = "u-7" if rsid == "assistant--conv" else ""
+        return SessionConversation("C1", user)
+
+    server = ToolServer(
+        ToolRegistry((_Uses(),)),  # type: ignore[arg-type]
+        directory=FakeDirectory(AGENTS), admins={}, tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"uses_connection"})}, port=8604,
+        conversation_resolver=resolver, connections=factory,  # type: ignore[arg-type]
+    )
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            results = []
+            for session in ("assistant--conv", "assistant--nobody"):
+                async with s.post(
+                    "http://127.0.0.1:8604/tool/uses_connection", json={},
+                    headers={"X-Tool-Token": "tok", "X-Runtime-Session": session},
+                ) as resp:
+                    results.append((await resp.json())["result"]["has"])
+        assert results == [True, False]
+        assert asked == [("assistant", "u-7", None)]
+    finally:
+        await server.stop()
+
+
+def test_connections_are_promised_exactly_when_they_are_handed_over(tmp_path) -> None:
+    from crucible.config import ToolSettings
+    from crucible.tools.base import CAP_CONNECTIONS
+    from crucible.tools.wiring import ToolWiring
+
+    def wiring(**flags) -> ToolWiring:
+        return ToolWiring(
+            ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
+            data_dir=str(tmp_path), interactivity_on=False, **flags,
+        )
+
+    build = dict(directory=FakeDirectory(AGENTS), interaction_svc=None, dotenv_path=str(tmp_path / ".env"))
+    promised = wiring(connections_on=True)
+    assert CAP_CONNECTIONS in promised.base_caps and CAP_CONNECTIONS not in wiring().base_caps
+    with pytest.raises(ValueError, match="disagree"):
+        promised.build_server(**build)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="disagree"):
+        wiring().build_server(**build, connections=lambda a, u, t: None)  # type: ignore[arg-type]
+    assert promised.build_server(**build, connections=lambda a, u, t: None) is not None  # type: ignore[arg-type]

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from crucible.approvals.ports import ToolApproving
 from crucible.config import ToolSettings
+from crucible.connections.access import ConnectionAccessFactory
 from crucible.ports.agent import AgentSpec, TurnClock
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
@@ -27,6 +28,7 @@ from crucible.ports.turn import TurnScopes
 from crucible.tools.base import (
     CAP_CHAT_ADMIN,
     CAP_CONFIRMATION,
+    CAP_CONNECTIONS,
     CAP_FILES,
     CAP_FORMS,
     CAP_SCHEDULER,
@@ -78,7 +80,7 @@ class ToolWiring:
     def __init__(
         self, tools: ToolSettings, *, data_dir: str, interactivity_on: bool,
         files_on: bool = False, scheduler_on: bool = False,
-        confirmations_on: bool = False,
+        confirmations_on: bool = False, connections_on: bool = False,
     ) -> None:
         self._tools = tools
         self.registry = build_registry() if tools.enabled else None
@@ -96,11 +98,15 @@ class ToolWiring:
         # have a tool confirmed or none can — and ``build_server`` checks that
         # the gate promised here is the gate actually handed over.
         self._confirmations_on = confirmations_on
+        # The same for connected accounts: tools that act as the person are
+        # advertised only where build_server is handed the connections.
+        self._connections_on = connections_on
         self.base_caps = (
             (frozenset({CAP_WIDGETS, CAP_FORMS}) if interactivity_on else frozenset())
             | (frozenset({CAP_FILES}) if files_on else frozenset())
             | (frozenset({CAP_SCHEDULER}) if scheduler_on else frozenset())
             | (frozenset({CAP_CONFIRMATION}) if confirmations_on else frozenset())
+            | (frozenset({CAP_CONNECTIONS}) if connections_on else frozenset())
         )
 
     @property
@@ -175,6 +181,7 @@ class ToolWiring:
         task_svc: TaskService | None = None,
         dotenv_path: str,
         conversation_resolver: ConversationResolver | None = None,
+        connections: ConnectionAccessFactory | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
@@ -195,6 +202,12 @@ class ToolWiring:
                 "build_server() was given a tool_gate, but ToolWiring was built "
                 "with confirmations_on=False, so no confirmed tool is advertised"
             )
+        if self._connections_on != (connections is not None):
+            raise ValueError(
+                "ToolWiring(connections_on=…) and build_server(connections=…) disagree: "
+                "tools that act as the person are advertised exactly when the server "
+                "can hand them the person's connections"
+            )
         return ToolServer(
             self.registry,
             directory=directory,
@@ -208,6 +221,7 @@ class ToolWiring:
             file_svc=file_svc,
             task_svc=task_svc,
             conversation_resolver=conversation_resolver,
+            connections=connections,
             tool_gate=tool_gate,
             clock=clock,
             turns=turns,

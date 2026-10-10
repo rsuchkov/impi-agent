@@ -35,6 +35,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
+from crucible.connections.access import ConnectionAccessFactory
 from crucible.connections.audit import (
     EVENT_CONNECT,
     EVENT_CONNECT_START,
@@ -79,6 +80,7 @@ from crucible.connections.types import (
     OAuthTokens,
     ProviderAccount,
 )
+from crucible.ports.turn import TurnScope
 from crucible.store.base import (
     ConnectionLinkRecord,
     ConnectionLinkStore,
@@ -163,6 +165,10 @@ class OAuthConnections:
     def providers(self) -> tuple[str, ...]:
         """The providers a person may connect to, by name."""
         return tuple(sorted(self._providers))
+
+    def for_owner(self, owner: str) -> "OwnerConnections":
+        """``owner``'s connections, as a tool may use them (``access.ConnectionAccess``)."""
+        return OwnerConnections(self, owner)
 
     # -- connecting ---------------------------------------------------------
 
@@ -418,3 +424,42 @@ class OAuthConnections:
         if oauth is None or token is None:
             return False
         return await _revoke(oauth, token)
+
+
+class OwnerConnections:
+    """One person's connections: what a tool acting for them is handed. It can
+    use them and end one after a 401; it cannot start or end a connection,
+    and never learns whose they are."""
+
+    def __init__(self, service: OAuthConnections, owner: str) -> None:
+        self._service = service
+        self._owner = owner
+
+    @property
+    def providers(self) -> tuple[str, ...]:
+        return self._service.providers
+
+    async def grant(self, provider: str) -> Grant:
+        return await self._service.grant(self._owner, provider)
+
+    async def forget(self, grant: Grant) -> None:
+        await self._service.forget(self._owner, grant)
+
+    async def account(self, provider: str) -> ProviderAccount | None:
+        return await self._service.account(self._owner, provider)
+
+
+def connection_access(
+    service: OAuthConnections, owner_for: Callable[[str, str, TurnScope | None], str | None],
+) -> ConnectionAccessFactory:
+    """What the tool server is handed: for each call, the connections of the
+    person its turn acts for. ``owner_for(agent, user_id, turn)`` is the
+    application's rule for who that is — a chat user as ``<gateway>:<id>``, a
+    caller's realm — or None for a turn that acts for nobody it can name."""
+
+    def access(agent: str, user_id: str, turn: TurnScope | None) -> OwnerConnections | None:
+        owner = owner_for(agent, user_id, turn)
+        return service.for_owner(owner) if owner else None
+
+    return access
+

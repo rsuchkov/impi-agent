@@ -422,7 +422,13 @@ credential, is another user's credential.
   account may be bound to whom. The consent URL `begin` returns goes to the
   person privately: whoever holds it can finish the connect. Seal with
   `FernetSealer(keys)` (`crucible[connections]`); the first key seals, every
-  key opens.
+  key opens. `OAuth2Provider(OAuth2Config(...))` covers a provider that
+  speaks the standard (`gitlab(base_url, …)` is GitLab). A tool reaches the
+  person's connections as `ctx.require_connections()` — `grant(provider)` for
+  the token, `forget(grant)` after a 401 — and declares `CAP_CONNECTIONS`;
+  wire `ToolWiring(connections_on=True)` and
+  `build_server(connections=connection_access(service, owner_for))`, with
+  `owner_for(agent, user_id, turn)` saying whose connections a turn uses.
 - **Keeping secrets out of the log.** `crucible.redaction.ScrubbingFilter`
   on each handler of the root logger scrubs every record. It replaces the
   value and keeps the name for: the tool token and session proof by header

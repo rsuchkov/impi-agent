@@ -12,6 +12,7 @@ from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from pydantic_settings import BaseSettings
 
+from crucible.connections.access import ConnectionAccess
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
@@ -29,6 +30,7 @@ CAP_FORMS = "forms"  # modal forms
 CAP_EPHEMERAL = "ephemeral"  # messages visible only to one user (Mattermost + Slack)
 CAP_FILES = "files"  # sending a file into the conversation
 CAP_SCHEDULER = "scheduler"  # scheduling work for later
+CAP_CONNECTIONS = "connections"  # acting as the person at a provider they connected
 # Someone to ask before a tool that declares ``requires_confirmation`` runs: a
 # gate is wired into the tool server. Implied by the flag rather than listed in
 # ``requires`` — a tool that must be confirmed is, by that fact, a tool that
@@ -112,6 +114,16 @@ class ToolContext:
     # request id, a place to leave a note for the flow. None when the
     # application binds none (every chat gateway today).
     turn: TurnScope | None = None
+    # The connected accounts of the person this turn acts for (None = the
+    # deployment connects none, or the turn acts for nobody it can name).
+    connections: ConnectionAccess | None = None
+
+    def require_connections(self) -> ConnectionAccess:
+        """The person's connected accounts, or a ToolError when there are none to
+        use (declare CAP_CONNECTIONS so the tool is not advertised without them)."""
+        if self.connections is None:
+            raise ToolError("there is no person here whose connected accounts a tool could use")
+        return self.connections
 
     def require_chat_admin(self) -> ChatAdmin:
         """The agent's channel-admin client, or a ToolError if its gateway has none

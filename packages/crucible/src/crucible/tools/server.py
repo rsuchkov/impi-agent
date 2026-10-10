@@ -21,6 +21,7 @@ from typing import Any
 from aiohttp import web
 
 from crucible.approvals.ports import ToolApproving
+from crucible.connections.access import ConnectionAccessFactory
 from crucible.constant_time import find_by_secret
 from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.chat.admin import ChatAdmin
@@ -83,6 +84,7 @@ class ToolServer:
         file_svc: FileService | None = None,
         task_svc: TaskService | None = None,
         conversation_resolver: ConversationResolver | None = None,
+        connections: ConnectionAccessFactory | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
@@ -103,6 +105,8 @@ class ToolServer:
         # calling agent and its proven session (ports/conversation.py): a plain
         # callable, so the tool layer never imports the store.
         self._conversation_resolver = conversation_resolver
+        # The connected accounts of the person a call's turn acts for.
+        self._connections = connections
         # Asks a human before a tool that declares it runs — the only gate there
         # is; see interactions/toolgate.py for why it has to live here.
         self._tool_gate = tool_gate
@@ -191,6 +195,7 @@ class ToolServer:
             await self._conversation_resolver(agent, runtime_session_id)
             if self._conversation_resolver is not None and runtime_session_id else None
         )
+        turn = self._turns.current(runtime_session_id) if self._turns is not None else None
 
         ctx = ToolContext(
             agent_name=agent,
@@ -204,7 +209,11 @@ class ToolServer:
             channel_id=conversation.channel_id if conversation else "",
             user_id=conversation.user_id if conversation else "",
             files_dir=conversation.files_dir if conversation else None,
-            turn=self._turns.current(runtime_session_id) if self._turns is not None else None,
+            connections=(
+                self._connections(agent, conversation.user_id, turn)
+                if self._connections is not None and conversation and conversation.user_id else None
+            ),
+            turn=turn,
         )
 
         # The confirmation a tool declares, enforced HERE and not in the
