@@ -57,6 +57,10 @@ the agent should think in.
 `runtime.tools` is the ONE allowlist over pi's built-ins (`read`, `bash`, `edit`,
 `write`, `grep`, `find`, `ls`), the agent's extension tools, and the engine's
 typed tools. Naming a tool is the only way to enable it; an empty list = no tools.
+Names only: an entry with `*`, or one starting with `+`/`-` (which `pi` would
+read as a pattern or as an edit of its own defaults), makes the profile fail to
+load. `pi`'s built-in MCP is turned off for every agent (`--no-mcp`): an
+`mcp.json` in a profile does nothing, and an agent gets no MCP server's tools.
 **Skills need `read` + `bash`** to function (the model reads `SKILL.md` and runs
 its scripts).
 
