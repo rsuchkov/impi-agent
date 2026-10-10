@@ -41,6 +41,7 @@ def main() -> None:
                 }
             )
             emit({"type": "agent_end", "messages": []})
+            emit({"type": "agent_settled", "aborted": False})
         elif ctype == "abort":
             break
 

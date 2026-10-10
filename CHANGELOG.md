@@ -6,6 +6,15 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A turn ends when the runtime says it is done, not when a run ends.** After
+  a run's last message `pi` may still go on by itself — recover a context that
+  overflowed, retry a compaction — and the turn used to end before that, with
+  the failed run's answer, while the recovered one arrived with nobody
+  listening. The driver now waits for `agent_settled` and answers with the
+  last run. A prompt an extension consumed ends the turn at once instead of
+  timing out, and a process that dies after finishing its run still answers.
+  The scripted runtime (`crucible.runtimes.pi.testing`) settles its turns the
+  same way, so an application's tests see what the real process sends.
 - **The runtime is `pi` 1.1.0** (from 0.85.1), in the engine's image and in
   agent containers. What the engine relies on was checked against it: a turn
   with an engine tool behind the confirmation gate, cancelling while the gate

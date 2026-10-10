@@ -62,6 +62,10 @@ class _Turn:
         # When each in-flight tool call began, by its id — the driver measures
         # duration itself because the wire carries none.
         self.tool_started: dict[str, float] = {}
+        # The last run's end, held until the runtime settles: after it the
+        # runtime may still recover an overflowed context or retry a
+        # compaction, and that run's end is the one that answers.
+        self.ended: PiEvent | None = None
 
 
 class PiRpcSession:
@@ -195,9 +199,13 @@ class PiRpcSession:
             if self._reader_task is not None:
                 self._reader_task.cancel()
             if self._turn is not None and not self._turn.future.done():
-                self._turn.future.set_exception(
-                    PiProcessError("Session closed during an in-flight turn")
-                )
+                if self._turn.ended is not None:
+                    # Its run had ended; only the settling was missed.
+                    self._complete_turn(self._turn, self._turn.ended)
+                else:
+                    self._turn.future.set_exception(
+                        PiProcessError("Session closed during an in-flight turn")
+                    )
 
     # -- internals ----------------------------------------------------------
 
@@ -333,6 +341,10 @@ class PiRpcSession:
         if event.is_response and event.id == turn.command_id and event.success is False:
             self._fail_turn(PiProcessError(event.error or "pi rejected the prompt"))
             return
+        if event.is_response and event.id == turn.command_id and event.disposition == protocol.DISPOSITION_HANDLED:
+            # An extension consumed the prompt: no run, and no settle to wait for.
+            self._complete_turn(turn, None)
+            return
 
         if event.type == protocol.EV_MESSAGE_UPDATE:
             done = protocol.completed_text(event)
@@ -351,13 +363,23 @@ class PiRpcSession:
 
         if event.type == protocol.EV_AGENT_END:
             # pi auto-retries transient failures, emitting an agent_end with
-            # willRetry=true per attempt; only the final one (willRetry falsy)
-            # ends the turn.
-            if event.raw.get("willRetry"):
-                return
-            self._complete_turn(turn, event)
+            # willRetry=true per attempt; the final one (willRetry falsy) is
+            # the run's answer — unless the runtime goes on by itself, which
+            # only agent_settled rules out.
+            if not event.raw.get("willRetry"):
+                turn.ended = event
+            return
 
-    def _complete_turn(self, turn: _Turn, event: PiEvent) -> None:
+        if event.type == protocol.EV_AGENT_SETTLED:
+            self._complete_turn(turn, turn.ended)
+
+    def _complete_turn(self, turn: _Turn, event: PiEvent | None) -> None:
+        """End ``turn`` with what its last run ended on; None = no run ended
+        (an extension consumed the prompt), which is an empty answer."""
+        if event is None:
+            if not turn.future.done():
+                turn.future.set_result(PiResult(text="".join(turn.text_parts).strip(), tool_calls=turn.tool_calls))
+            return
         text = "".join(turn.text_parts).strip()
         if not text:
             text = _final_text_from_agent_end(event)

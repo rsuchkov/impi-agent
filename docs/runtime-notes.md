@@ -203,6 +203,14 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
   `apiKey`.
 - **Packages.** `pi install <npm:|git:|https:|local>` installs extensions and/or
   skills; the engine does not depend on this, but agents can.
+- **A turn ends when the runtime settles.** `agent_end` closes one run, and a
+  final one (`willRetry` false) is the turn's answer only if nothing follows:
+  after it `pi` may still recover an overflowed context, retry a compaction or
+  run what was queued, and `agent_settled` is what says it will not. The driver
+  keeps the last run's end and answers on the settle; a prompt an extension
+  consumed (`disposition: "handled"` in the response) starts no run and ends
+  the turn at once; a process gone between the two still answers with the run
+  it finished.
 - **Config is baked at spawn.** `pi` reads `.pi/*` and the CLI flags when the
   subprocess starts, so applying a profile change means dropping idle sessions
   (hot-reload) — the on-disk memory persists per session id.
@@ -210,7 +218,7 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
 ## Interrupting and forgetting a conversation
 
 `PiRuntime.cancel(session_id)` sends pi an `abort` and waits (10 s by default,
-`cancel_grace`) for the turn to end on pi's side: pi then emits its `agent_end`
+`cancel_grace`) for the turn to end on pi's side: pi then emits its `agent_end` and `agent_settled`
 with whatever the turn had produced, the interrupted `run_stateful` returns that
 as its result, and the session stays usable — the next turn resumes the
 conversation. This is deliberately different from what happens after a turn

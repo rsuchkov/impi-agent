@@ -52,6 +52,7 @@ def _normal_turn_reactor(transport: FakeTransport, *, text: str = "Answer", tool
                 }
             )
         transport.emit({"type": "agent_end", "messages": []})
+        transport.emit({"type": "agent_settled", "aborted": False})
 
     return react
 
@@ -81,6 +82,7 @@ async def test_text_falls_back_to_agent_end_messages() -> None:
                 "messages": [{"role": "assistant", "content": "from agent_end"}],
             }
         )
+        transport.emit({"type": "agent_settled", "aborted": False})
 
     transport._reactor = react
     session = PiRpcSession(transport)
@@ -111,6 +113,7 @@ async def test_agent_end_fallback_skips_thinking_blocks() -> None:
                 ],
             }
         )
+        transport.emit({"type": "agent_settled", "aborted": False})
 
     transport._reactor = react
     session = PiRpcSession(transport)
@@ -173,6 +176,7 @@ async def test_retry_agent_end_does_not_finish_turn() -> None:
             }
         )
         transport.emit({"type": "agent_end", "messages": [], "willRetry": False})
+        transport.emit({"type": "agent_settled", "aborted": False})
 
     transport._reactor = react
     session = PiRpcSession(transport)
@@ -201,6 +205,7 @@ async def test_llm_error_raises_process_error() -> None:
                 ],
             }
         )
+        transport.emit({"type": "agent_settled", "aborted": False})
 
     transport._reactor = react
     session = PiRpcSession(transport)
@@ -427,6 +432,7 @@ async def test_cancel_interrupts_the_turn_and_keeps_the_session_usable() -> None
                  "assistantMessageEvent": {"type": "text_end", "content": "So far:"}}
             )
             transport.emit({"type": "agent_end", "messages": []})
+            transport.emit({"type": "agent_settled", "aborted": False})
 
     transport._reactor = react
     session = PiRpcSession(transport)
@@ -526,6 +532,7 @@ async def test_tool_activity_crosses_the_port_in_its_neutral_shape() -> None:
             "isError": True, "result": {"content": [{"type": "text", "text": "boom"}]},
         })
         transport.emit({"type": "agent_end", "messages": []})
+        transport.emit({"type": "agent_settled", "aborted": False})
 
     transport._reactor = react
     seen: list[object] = []
@@ -592,6 +599,7 @@ def _aborted_turn_end(transport) -> None:
             ],
         }
     )
+    transport.emit({"type": "agent_settled", "aborted": False})
 
 
 async def test_an_abort_the_session_asked_for_is_a_cancelled_turn_however_it_is_worded() -> None:
@@ -635,6 +643,7 @@ async def test_the_result_names_the_model_that_answered() -> None:
             {"role": "assistant", "content": "", "stopReason": "error", "provider": "dead", "model": "m1"},
             {"role": "assistant", "content": "ok", "provider": "openai-codex", "model": "gpt-5.5"},
         ]})
+        transport.emit({"type": "agent_settled", "aborted": False})
 
     transport._reactor = react
     session = PiRpcSession(transport)
@@ -647,6 +656,81 @@ async def test_a_result_without_a_named_model_says_none() -> None:
     transport._reactor = lambda command: transport.emit(
         {"type": "agent_end", "messages": [{"role": "assistant", "content": "ok"}]}
     )
+    transport._reactor = lambda command: transport.emit({"type": "agent_settled", "aborted": False})
     session = PiRpcSession(transport)
     session.start()
     assert (await session.prompt("x", timeout=1.0)).model == ""
+
+
+# --- a turn ends when the runtime settles --------------------------------------------
+
+
+async def test_a_run_the_runtime_recovers_by_itself_is_part_of_the_turn() -> None:
+    """After a run's final agent_end the runtime may still go on — recover an
+    overflowed context, retry a compaction — and only agent_settled says it
+    will not. The turn's answer is the last run's."""
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        transport.emit({"type": "agent_start"})
+        transport.emit({"type": "agent_end", "willRetry": False, "messages": [
+            {"role": "assistant", "stopReason": "error", "errorMessage": "context overflow", "content": []},
+        ]})
+        transport.emit({"type": "agent_start"})  # recovered on its own
+        transport.emit({"type": "message_update",
+                        "assistantMessageEvent": {"type": "text_end", "content": "after compaction"}})
+        transport.emit({"type": "agent_end", "messages": [], "willRetry": False})
+        transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+
+    result = await session.prompt("hi", timeout=1.0)
+    assert result.text == "after compaction"
+
+
+async def test_an_ended_run_does_not_end_the_turn_before_the_runtime_settles() -> None:
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": "x"}})
+        transport.emit({"type": "agent_end", "messages": []})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    with pytest.raises(PiTimeout):
+        await session.prompt("hi", timeout=0.3)
+
+
+async def test_a_prompt_an_extension_consumed_ends_the_turn_at_once() -> None:
+    """A "handled" prompt starts no run, so nothing will settle: waiting for
+    it would be waiting for the timeout."""
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        transport.emit({"type": "response", "id": command["id"], "command": "prompt", "success": True,
+                        "data": {"disposition": "handled"}})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    result = await session.prompt("/something", timeout=1.0)
+    assert result.text == "" and result.tool_calls == []
+
+
+async def test_a_process_gone_after_its_run_ended_still_answers() -> None:
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": "kept"}})
+        transport.emit({"type": "agent_end", "messages": []})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    turn = asyncio.ensure_future(session.prompt("hi", timeout=5.0))
+    await asyncio.sleep(0.05)
+    await session.close()
+    assert (await turn).text == "kept"

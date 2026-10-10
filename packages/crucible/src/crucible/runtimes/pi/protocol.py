@@ -29,6 +29,12 @@ CMD_ABORT = "abort"
 EV_RESPONSE = "response"
 EV_AGENT_START = "agent_start"
 EV_AGENT_END = "agent_end"
+# The runtime will not continue on its own: no retry, no recovery after an
+# overflowed context, no compaction retry, nothing queued. What ends a turn.
+EV_AGENT_SETTLED = "agent_settled"
+# What a response to a prompt says happened to it: "handled" = an extension
+# consumed it and no run starts, so nothing will settle either.
+DISPOSITION_HANDLED = "handled"
 EV_TURN_START = "turn_start"
 EV_TURN_END = "turn_end"
 EV_MESSAGE_UPDATE = "message_update"
@@ -136,6 +142,13 @@ class PiEvent:
     @property
     def success(self) -> bool | None:
         return self.raw.get("success")
+
+    @property
+    def disposition(self) -> str:
+        """A prompt's response: what happened to it ("started", "queued",
+        "handled"); "" when the runtime does not say."""
+        data = self.raw.get("data")
+        return str(data.get("disposition") or "") if isinstance(data, dict) else ""
 
     @property
     def error(self) -> str | None:

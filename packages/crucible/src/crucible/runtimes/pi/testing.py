@@ -99,7 +99,8 @@ class ScriptedProcess:
             raise BrokenPipeError("the scripted process has ended")
         command = json.loads(line)
         kind = command.get("type")
-        self._emit({"type": "response", "id": command.get("id"), "command": kind, "success": True})
+        started = {"data": {"disposition": "started"}} if kind in ("prompt", "follow_up") else {}
+        self._emit({"type": "response", "id": command.get("id"), "command": kind, "success": True, **started})
         if kind in ("prompt", "follow_up"):
             # In the background, as the real process does: the turn's clock
             # and a gate's wait for a person run while it works.
@@ -107,6 +108,7 @@ class ScriptedProcess:
         elif kind == "abort" and self._turn is not None and not self._turn.done():
             self._turn.cancel()
             self._emit(_agent_end(stop_reason="aborted"))
+            self._emit({"type": "agent_settled", "aborted": True})
 
     async def lines(self) -> AsyncIterator[str]:
         while True:
@@ -140,6 +142,7 @@ class ScriptedProcess:
                         "toolCallId": call_id, "isError": not 200 <= outcome.status < 300})
         if turn.error:
             self._emit(_agent_end(stop_reason="error", error=turn.error))
+            self._emit({"type": "agent_settled", "aborted": False})
             return
         self._emit({"type": "message_update", "assistantMessageEvent": {"type": "text_start"}})
         self._emit({"type": "message_update",
@@ -147,6 +150,7 @@ class ScriptedProcess:
         self._emit({"type": "message_update",
                     "assistantMessageEvent": {"type": "text_end", "content": turn.text}})
         self._emit(_agent_end(stop_reason="stop", text=turn.text))
+        self._emit({"type": "agent_settled", "aborted": False})
 
     async def _call_tool(self, call: ToolCall) -> ToolOutcome:
         """The tool extension's request (extension/index.ts), from the
