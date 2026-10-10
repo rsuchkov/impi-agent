@@ -462,5 +462,130 @@ sys.exit(0 if any(os.environ["WANT"].lower() in m.lower() for m in answers) else
     fi
 fi
 
+# 7. Connected accounts: a person connects their own account at an OAuth
+#    provider from a direct message, and an agent acts as them.
+#
+#    The provider is a stand-in run inside the engine's container
+#    (e2e_fake_oauth.py), and so is the "person" (e2e_connect.py): engine,
+#    browser and provider then meet on 127.0.0.1 and nothing is published. The
+#    person presses buttons through Mattermost's API, gets the consent link the
+#    way a person does — privately, over the websocket — and opens it.
+FAKE_PORT=9431
+FAKE=http://127.0.0.1:$FAKE_PORT
+ENV_FILE=$E2E_HOME/conf/.env
+ADMIN_EMAIL=$(grep '^IMPI_MM_ADMIN_EMAIL=' "$E2E_HOME/repo/installer/tests/e2e.answers" | cut -d= -f2-)
+check "impi connections key writes a sealing key" compose run --rm -T impi impi connections key
+check "the key is in conf/.env" grep -q '^CONNECTIONS_KEYS=.\{40,\}$' "$ENV_FILE"
+cat >>"$ENV_FILE" <<EOF
+CONNECTION_CLIENT_ID__FAKE=e2e-client
+CONNECTION_CLIENT_SECRET__FAKE=e2e-secret
+CONNECTION_KIND__FAKE=oauth2
+CONNECTION_AUTHORIZE_URL__FAKE=$FAKE/oauth/authorize
+CONNECTION_TOKEN_URL__FAKE=$FAKE/oauth/token
+CONNECTION_USERINFO_URL__FAKE=$FAKE/user
+CONNECTION_REVOKE_URL__FAKE=$FAKE/oauth/revoke
+CONNECTION_API_URL__FAKE=$FAKE/api
+CONNECTION_AGENTS__FAKE=assistant
+CONNECTIONS_PUBLIC_URL=http://127.0.0.1:8429
+EOF
+# The panel's slash command, registered the way docs/commands.md says.
+SECRET=$(grep '^INTEGRATIONS_SECRET=' "$ENV_FILE" | cut -d= -f2-)
+TEAM_ID=$(auth_get /teams/name/impi | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+COMMAND_TOKEN=$(curl -sf -H "Authorization: Bearer $ADMIN_PAT" -X POST "$BASE/commands" -d "{
+    \"team_id\": \"$TEAM_ID\", \"trigger\": \"connections\", \"method\": \"P\",
+    \"url\": \"http://impi:8423/$SECRET/command/assistant\", \"display_name\": \"connections\"
+}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+echo "AGENTS_COMMAND_TOKENS__ASSISTANT=$COMMAND_TOKEN" >>"$ENV_FILE"
+sed -i 's/^    - bash$/    - bash\n    - connected_accounts\n    - connected_api_read\n    - connected_api_write/' \
+    "$E2E_HOME/agents/agents/assistant/agent.yaml"
+
+built_before=$(engine_log_count "app built:")
+ws_before=$(engine_log_count "Websocket authentication OK")
+compose restart impi >/dev/null 2>&1
+engine_back() {
+    [ "$(engine_log_count 'app built:')" -gt "$built_before" ] \
+        && [ "$(engine_log_count 'Websocket authentication OK')" -gt "$ws_before" ]
+}
+for _ in $(seq 1 45); do
+    engine_back && break
+    sleep 2
+done
+check "the engine came back with connections" engine_back
+check "the startup log names the provider and its agent" engine_logged "connections: fake (agents: assistant)"
+check "impi health names it too" \
+    compose run --rm -T impi sh -c 'impi health 2>&1 | grep -c "connections: fake" >/dev/null'
+callback_listens() {
+    compose exec -T impi python -c '
+import urllib.error, urllib.request
+try:
+    urllib.request.urlopen("http://127.0.0.1:8429/oauth/callback", timeout=5)
+except urllib.error.HTTPError as exc:
+    raise SystemExit(0 if exc.code == 400 else 1)
+raise SystemExit(1)'
+}
+check "the callback listener answers on its own port" callback_listens
+
+compose exec -T impi sh -c 'cat > /tmp/e2e_fake_oauth.py' <"$E2E_HOME/repo/installer/tests/e2e_fake_oauth.py"
+compose exec -T impi sh -c 'cat > /tmp/e2e_connect.py' <"$E2E_HOME/repo/installer/tests/e2e_connect.py"
+compose exec -T impi sh -c \
+    "nohup python /tmp/e2e_fake_oauth.py $FAKE_PORT $ADMIN_EMAIL >/tmp/e2e_fake_oauth.log 2>&1 &"
+fake_up() { compose exec -T impi python -c "import urllib.request as u; u.urlopen('$FAKE/log', timeout=2)"; }
+for _ in $(seq 1 15); do fake_up && break; sleep 1; done
+check "the stand-in provider is up" fake_up
+
+ASSISTANT_ID=$(auth_get /users/username/assistant | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+ME_ID=$(auth_get /users/me | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+DM=$(curl -sf -H "Authorization: Bearer $ADMIN_PAT" -X POST "$BASE/channels/direct" \
+    -d "[\"$ME_ID\",\"$ASSISTANT_ID\"]" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+TOWN=$(auth_get /teams/"$TEAM_ID"/channels/name/town-square | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+# person MODE CHANNEL -> its OK/FAIL lines in $E2E_HOME/person.<mode>.
+person() {
+    compose exec -T impi python /tmp/e2e_connect.py "$1" http://mattermost:8065 "$ADMIN_PAT" "$TEAM_ID" "$2" \
+        "$ASSISTANT_ID" fake >"$E2E_HOME/person.$1" 2>&1 || true
+    sed 's/^/    /' "$E2E_HOME/person.$1"
+}
+# Anchored at the end only: podman-compose prints its banner, colour codes and
+# all, onto the line before the script's first one.
+stepped() { grep -q "OK $2\$" "$E2E_HOME/person.$1"; }
+provider_saw() { # python predicate over the provider's log
+    compose exec -T impi python -c "
+import json, urllib.request
+log = json.load(urllib.request.urlopen('$FAKE/log', timeout=5))
+raise SystemExit(0 if ($1) else 1)"
+}
+
+person refused "$TOWN"
+check "/connections in a channel is refused privately" stepped refused "refused outside a direct message"
+check "and nothing is posted there" stepped refused "nothing posted in the channel"
+
+person panel "$DM"
+check "/connections in the DM posts the panel" stepped panel "the panel offers Connect"
+check "Connect hands the link to the person alone" stepped panel "the link came privately"
+check "the link is not in the message" stepped panel "the link is not in the post"
+check "the callback page says connected" stepped panel "the callback page says connected"
+check "the panel says the connect worked" stepped panel "the same message says it worked"
+check "the provider saw PKCE asked and verified" \
+    provider_saw "any(e['event'] == 'authorize' and e['pkce'] for e in log) and any(e['event'] == 'token' and e['verified'] for e in log)"
+check "Disconnect redraws the panel" stepped panel "the panel says disconnected"
+check "and revokes at the provider" provider_saw "any(e['event'] == 'revoke' for e in log)"
+
+# With a live model: the agent reaches for the provider, finds the person not
+# connected, and the engine offers Connect in the conversation itself; once
+# connected, the same question gets an answer read as them.
+if [ "${E2E_LLM:-0}" = 1 ]; then
+    CHAN=$DM
+    export CHAN
+    QUESTION="Use connected_api_read with provider fake and path projects, then tell me the name of the project it returns."
+    ask "$QUESTION"
+    person offer "$DM"
+    check "a tool that found no connection posted the Connect offer" stepped offer "the offer offers Connect"
+    check "the offer's link came privately" stepped offer "the link came privately"
+    check "the offer says the connect worked" stepped offer "the same message says it worked"
+    ask "$QUESTION"
+    read_as_them() { waits_for "e2e-marker-project" 90; }
+    check "asked again, the agent read the provider as the person" read_as_them
+    check "with the person's token" provider_saw "any(e['event'] == 'api' and e['authorized'] for e in log)"
+fi
+
 echo "== e2e: $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
