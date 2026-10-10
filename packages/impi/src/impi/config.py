@@ -11,8 +11,9 @@ from typing import ClassVar
 
 from pydantic import Field, field_validator, model_validator
 
-from crucible.config import Settings, check_provider_has_model
+from crucible.config import Settings
 from crucible.connections.callback import CALLBACK_PATH
+from crucible.ports.agent.model_ref import check_provider_has_model
 from impi.connections_config import (
     CONNECTION_SECRET_PREFIXES,
     ConnectionProvider,

@@ -653,10 +653,11 @@ async def test_the_result_names_the_model_that_answered() -> None:
 
 async def test_a_result_without_a_named_model_says_none() -> None:
     transport = FakeTransport()
-    transport._reactor = lambda command: transport.emit(
-        {"type": "agent_end", "messages": [{"role": "assistant", "content": "ok"}]}
-    )
-    transport._reactor = lambda command: transport.emit({"type": "agent_settled", "aborted": False})
+    def react(command: dict) -> None:
+        transport.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "ok"}]})
+        transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = react
     session = PiRpcSession(transport)
     session.start()
     assert (await session.prompt("x", timeout=1.0)).model == ""
@@ -734,3 +735,37 @@ async def test_a_process_gone_after_its_run_ended_still_answers() -> None:
     await asyncio.sleep(0.05)
     await session.close()
     assert (await turn).text == "kept"
+
+
+async def test_a_process_that_exits_after_its_run_ended_still_answers() -> None:
+    """The process's own end — stdout closing — not only the engine closing
+    the session: the run it finished is the answer."""
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": "kept"}})
+        transport.emit({"type": "agent_end", "messages": []})
+        transport.eof()
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    assert (await session.prompt("hi", timeout=5.0)).text == "kept"
+
+
+async def test_a_process_that_exits_mid_run_is_a_failure() -> None:
+    transport = FakeTransport()
+    transport._reactor = lambda command: transport.eof()
+    session = PiRpcSession(transport)
+    session.start()
+    with pytest.raises(PiProcessError, match="exited unexpectedly"):
+        await session.prompt("hi", timeout=5.0)
+
+
+async def test_a_settle_with_no_run_behind_it_is_not_an_answer() -> None:
+    transport = FakeTransport()
+    transport._reactor = lambda command: transport.emit({"type": "agent_settled", "aborted": False})
+    session = PiRpcSession(transport)
+    session.start()
+    with pytest.raises(PiProcessError, match="settled without ending a run"):
+        await session.prompt("hi", timeout=1.0)

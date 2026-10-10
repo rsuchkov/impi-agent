@@ -80,5 +80,7 @@ setup() {
     run bash -c '. "$0/../lib/tui.sh"; [ -n "$IMPI_DEFAULT_PROVIDER" ] && ask IMPI_DEFAULT_MODEL "Model"' "$BATS_TEST_DIRNAME"
     [ "$status" -ne 0 ]
     [[ "$output" == *"IMPI_DEFAULT_MODEL is required"* ]]
-    grep -q 'ask IMPI_DEFAULT_MODEL' "$BATS_TEST_DIRNAME/../main.sh"
+    # ...and main.sh really asks it that way, under that guard, not always.
+    grep -A1 'if \[ -n "${IMPI_DEFAULT_PROVIDER:-}" \]; then' "$BATS_TEST_DIRNAME/../main.sh" \
+        | grep -q 'ask IMPI_DEFAULT_MODEL'
 }

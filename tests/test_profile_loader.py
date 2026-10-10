@@ -318,7 +318,7 @@ def test_a_bad_fallback_override_is_reported_under_its_own_key(tmp_path: Path, m
 def test_a_provider_needs_a_model(tmp_path: Path, runtime: str, default_model: str, fails: bool) -> None:
     _write_agent(tmp_path, "assistant", f"name: assistant\nrole: r\nruntime:\n  tools: []\n  {runtime}\n")
     if fails:
-        with pytest.raises(ProfileError, match="runtime.provider 'openai-codex' names no model"):
+        with pytest.raises(ProfileError, match="runtime.provider is set \\('openai-codex'\\) but runtime.model is not"):
             FsProfileStore(tmp_path, default_model=default_model, library=None).get("assistant")
     else:
         FsProfileStore(tmp_path, default_model=default_model, library=None).get("assistant")
@@ -326,5 +326,25 @@ def test_a_provider_needs_a_model(tmp_path: Path, runtime: str, default_model: s
 
 def test_a_default_provider_alone_is_caught_where_it_is_used(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", "name: assistant\nrole: r\nruntime:\n  tools: []\n")
-    with pytest.raises(ProfileError, match="names no model"):
+    with pytest.raises(ProfileError, match="but runtime.model is not"):
         FsProfileStore(tmp_path, default_provider="openai-codex", library=None).get("assistant")  # noqa: B018
+
+
+def test_a_blank_default_provider_is_no_provider(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", "name: assistant\nrole: r\nruntime:\n  tools: []\n")
+    spec = FsProfileStore(tmp_path, default_provider=" ", default_model=" ", library=None).get("assistant")
+    assert spec.provider is None and spec.model is None
+
+
+@pytest.mark.parametrize("entry", ["*", "read*", "mcp__*", "+codemode", "-write", " -write"])
+def test_a_tool_entry_names_one_tool(tmp_path: Path, entry: str) -> None:
+    """The list is the whole allowlist: a pattern, or an edit of the runtime's
+    default selection, would give the agent tools nobody named."""
+    _write_agent(tmp_path, "assistant", f"name: assistant\nrole: r\nruntime:\n  tools: [read, {entry!r}]\n")
+    with pytest.raises(ProfileError, match="name each tool"):
+        FsProfileStore(tmp_path, library=None).get("assistant")
+
+
+def test_a_tool_name_with_a_dash_inside_is_a_name(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", "name: assistant\nrole: r\nruntime:\n  tools: [ask-user, read]\n")
+    assert FsProfileStore(tmp_path, library=None).get("assistant").tools == ("ask-user", "read")

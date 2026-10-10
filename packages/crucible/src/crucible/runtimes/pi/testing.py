@@ -99,7 +99,9 @@ class ScriptedProcess:
             raise BrokenPipeError("the scripted process has ended")
         command = json.loads(line)
         kind = command.get("type")
-        started = {"data": {"disposition": "started"}} if kind in ("prompt", "follow_up") else {}
+        # A prompt starts a run; a follow-up is queued behind it.
+        disposition = {"prompt": "started", "follow_up": "queued"}.get(str(kind))
+        started = {"data": {"disposition": disposition}} if disposition else {}
         self._emit({"type": "response", "id": command.get("id"), "command": kind, "success": True, **started})
         if kind in ("prompt", "follow_up"):
             # In the background, as the real process does: the turn's clock

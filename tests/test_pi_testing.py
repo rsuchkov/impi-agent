@@ -113,3 +113,32 @@ async def test_a_turn_can_be_cancelled_and_the_conversation_goes_on() -> None:
         assert (await runtime.run_stateful(_profile(), "assistant--c1", "next")).text == "re: next"
     finally:
         await runtime.close()
+
+
+async def test_the_scripted_process_answers_commands_as_the_real_one_does() -> None:
+    """A prompt starts a run and a follow-up queues behind it, and a run ends
+    with agent_end then agent_settled — what the driver waits for."""
+    import asyncio
+    import json
+
+    from crucible.runtimes.pi.testing import ScriptedProcess
+
+    process = ScriptedProcess(
+        SpawnRequest(agent="a", profile_dir=Path(".")), lambda request, message: ScriptedTurn(text="hi"), [],
+    )
+    await process.send(json.dumps({"id": "p", "type": "prompt", "message": "x"}))
+    await process.send(json.dumps({"id": "f", "type": "follow_up", "message": "y"}))
+    seen: list[dict] = []
+
+    async def read() -> None:
+        async for line in process.lines():
+            seen.append(json.loads(line))
+            if sum(1 for e in seen if e.get("type") == "agent_settled") == 2:
+                return
+
+    await asyncio.wait_for(read(), 5)
+    await process.aclose()
+    dispositions = {e["id"]: e["data"]["disposition"] for e in seen if e.get("type") == "response"}
+    assert dispositions == {"p": "started", "f": "queued"}
+    types = [e["type"] for e in seen if e["type"] in ("agent_end", "agent_settled")]
+    assert types[:2] == ["agent_end", "agent_settled"]

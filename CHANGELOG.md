@@ -12,7 +12,9 @@ when a release is cut, and `impi update` shows the target version's section.
   the failed run's answer, while the recovered one arrived with nobody
   listening. The driver now waits for `agent_settled` and answers with the
   last run. A prompt an extension consumed ends the turn at once instead of
-  timing out, and a process that dies after finishing its run still answers.
+  timing out; a process that exits after finishing its run still answers; a
+  settle with no run behind it fails the turn rather than passing for an
+  empty answer.
   The scripted runtime (`crucible.runtimes.pi.testing`) settles its turns the
   same way, so an application's tests see what the real process sends.
 - **The runtime is `pi` 1.1.0** (from 0.85.1), in the engine's image and in
@@ -24,12 +26,25 @@ when a release is cut, and `impi update` shows the target version's section.
     tools. Every runtime process gets `--no-mcp`, the engine's, an agent
     container's and `impi escape`'s alike, so the allowlist stays the only
     gate.
-  - `PI_OFFLINE` now also stops `pi` refreshing its model catalog from pi.dev:
-    a model newer than the pinned `pi` comes with the next `pi`.
+  - `pi`'s `--tools` now also takes `*` patterns and `+name`/`-name` edits of
+    its default selection; an `agent.yaml` whose `runtime.tools` holds either
+    fails to load, so every entry still names one tool.
+  - With `PI_OFFLINE` (set for every process) `pi` does not refresh its model
+    catalog from pi.dev: a model newer than the pinned `pi` comes with the
+    next `pi`.
   - `pi` keeps a provider's prompt cache warm during long runs when it expects
     to save money (`cacheWarming`, on by default) — extra requests while a
-    tool waits on a person; `"off"` in its `settings.json` stops it.
+    tool waits on a person; `"off"` in the runtime's own `settings.json`
+    (`PI_CODING_AGENT_DIR`) stops it.
   - Its interactive screen (`impi escape`) is fullscreen by default.
+  **Breaks:**
+  - the engine needs `pi` 1.0.4 or later (`--no-mcp`): a `PI_BIN` of your own
+    pointing at an older `pi` fails every turn;
+  - `pi` 1.0.3 renamed the `azure-openai-responses` provider to `azure` —
+    rename it in `DEFAULT_PROVIDER`, `runtime.provider`, fallback models,
+    `models.json` and `auth.json` (or log in again);
+  - a `runtime.tools` entry with `*` or a leading `+`/`-` no longer loads —
+    name the tools.
 - **A provider needs a model.** `pi` 1.0 and later refuse `--provider`
   without `--model` on every turn, so the engine now refuses it before a turn
   starts: `DEFAULT_PROVIDER` without `DEFAULT_MODEL` (and `SUPPORT_PROVIDER`
@@ -40,7 +55,8 @@ when a release is cut, and `impi update` shows the target version's section.
   A model alone is still fine.
   **Breaks:** a deployment that pinned a provider and left the model to its
   default no longer starts — set `DEFAULT_MODEL` (or `runtime.model`), or
-  clear the provider.
+  clear the provider; an installer answers file with `IMPI_DEFAULT_PROVIDER`
+  and no `IMPI_DEFAULT_MODEL` stops with that key named.
 
 ## v0.22.0 — 2026-10-10
 

@@ -169,8 +169,9 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
   Two more come with `pi`'s built-in extensions and are off unless named:
   `codemode` (model-written JavaScript in a sandbox that calls the other
   allowed tools) and `tool_search`. `--tools` also takes `*` patterns and, as
-  a list of only `+name`/`-name`, edits `pi`'s default selection — the engine
-  always passes plain names, so it is always the whole allowlist.
+  a list of only `+name`/`-name`, edits `pi`'s default selection — so the
+  profile loader refuses both in `runtime.tools`: every entry names one tool,
+  and the list is always the whole allowlist.
 - **Skills** are `SKILL.md` capability packages the model reads on demand and drives
   via `bash` — so a skill needs `read` + `bash` in the agent's `tools`. `--skill`
   takes a path; the engine also accepts a bare skill name and resolves it to
@@ -189,7 +190,8 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
   its own; the engine passes `--no-mcp` (see the argv above), and its own tools
   reach the model through the tool-bridge extension.
 - **Prompt-cache warming.** `pi` keeps a provider's prompt cache warm during a
-  long run (`cacheWarming: "streaming"`, the default) when it estimates at
+  long run (`cacheWarming: "streaming"`, the default; a global setting, in
+  `PI_CODING_AGENT_DIR/settings.json` — a profile's cannot change it) when it estimates at
   least $0.05 saved — extra requests while a tool waits on a person, which a
   subscription counts. `"off"` in the runtime's `settings.json` stops it.
 - **What it keeps in its agent directory** (`PI_CODING_AGENT_DIR`): `auth.json`
@@ -209,8 +211,12 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
   run what was queued, and `agent_settled` is what says it will not. The driver
   keeps the last run's end and answers on the settle; a prompt an extension
   consumed (`disposition: "handled"` in the response) starts no run and ends
-  the turn at once; a process gone between the two still answers with the run
-  it finished.
+  the turn at once; a process gone between the two (its stdout closing, or the
+  session closed) still answers with the run it finished; a settle with no run
+  behind it is a failure, not an empty answer.
+- **`pi` 1.0.4 or later.** `--no-mcp` came in 1.0.4; an older `pi` (a
+  `PI_BIN` of your own) refuses it and exits at once, so every turn fails with
+  `Unknown option: --no-mcp` in the error.
 - **Config is baked at spawn.** `pi` reads `.pi/*` and the CLI flags when the
   subprocess starts, so applying a profile change means dropping idle sessions
   (hot-reload) — the on-disk memory persists per session id.
@@ -218,8 +224,8 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
 ## Interrupting and forgetting a conversation
 
 `PiRuntime.cancel(session_id)` sends pi an `abort` and waits (10 s by default,
-`cancel_grace`) for the turn to end on pi's side: pi then emits its `agent_end` and `agent_settled`
-with whatever the turn had produced, the interrupted `run_stateful` returns that
+`cancel_grace`) for the turn to end on pi's side: pi then emits its `agent_end`,
+with whatever the turn had produced, then `agent_settled`; the interrupted `run_stateful` returns that
 as its result, and the session stays usable — the next turn resumes the
 conversation. This is deliberately different from what happens after a turn
 *timeout*, where the session is poisoned and replaced: there the engine does not

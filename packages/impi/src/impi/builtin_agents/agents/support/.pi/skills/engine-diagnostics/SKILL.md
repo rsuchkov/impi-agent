@@ -121,6 +121,15 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   runs, and the runtime locks beside them on every model call, so that
   directory (`IMPI_HOME/pi/agent` on a compose install) must be writable by
   the engine.
+- The engine does not start, or a reload is refused ("profile reload failed;
+  keeping running config"), naming a provider without a model:
+  `DEFAULT_PROVIDER is set (…) but DEFAULT_MODEL is not` (or `SUPPORT_…`), or
+  `<agent.yaml>: runtime.provider is set (…) but runtime.model is not`. The
+  runtime refuses a provider without a model on every turn; set the model, or
+  clear the provider. One such `agent.yaml` stops the whole engine at start,
+  not only that agent. The same for `runtime.tools entry '…': name each tool`
+  — a `*` pattern or a `+name`/`-name` entry, which would hand out tools
+  nobody named.
 - "pi process exited unexpectedly" — the error carries the exit code and the
   last stderr lines; read them. Usual causes: a custom endpoint that is down,
   a provider/model the backend does not have, a missing `models.json`.

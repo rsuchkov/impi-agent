@@ -251,8 +251,8 @@ else
     dim "credentials persist in a volume. The provider you pick there is what your"
     dim "agents use — the answers below are OPTIONAL pins on top of it: left empty,"
     dim "the engine passes no provider/model flag at all and pi follows its own"
-    dim "settings. A pinned provider needs its model too — pi refuses one without"
-    dim "the other (an agent can still override both in its agent.yaml)."
+    dim "settings. A pinned provider needs its model too — pi refuses a provider"
+    dim "without one (an agent can still override both in its agent.yaml)."
     ask_opt IMPI_DEFAULT_PROVIDER "Pin a provider, e.g. openai-codex (Enter = the one you log in with)"
     if [ -n "${IMPI_DEFAULT_PROVIDER:-}" ]; then
         ask IMPI_DEFAULT_MODEL "Model on $IMPI_DEFAULT_PROVIDER, e.g. gpt-5.5 (required with a pinned provider)"

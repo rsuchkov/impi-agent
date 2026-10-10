@@ -16,7 +16,7 @@ import yaml
 from crucible.ports.agent import AgentSpec
 from crucible.ports.agent.confinement import ConfinementLevel, check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
-from crucible.ports.agent.model_ref import check_model_ref
+from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
 from crucible.profiles.errors import ProfileError
 
 logger = logging.getLogger(__name__)
@@ -172,6 +172,15 @@ class FsProfileStore:
         tools = runtime.get("tools") or []
         if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools):
             raise ProfileError(f"{manifest}: runtime.tools must be a list of strings")
+        for tool in tools:
+            # The list is the whole allowlist, so every entry names one tool.
+            # A pattern, or an entry that edits the runtime's defaults, would
+            # hand the agent tools nobody named.
+            if "*" in tool or tool.strip().startswith(("+", "-")):
+                raise ProfileError(
+                    f"{manifest}: runtime.tools entry {tool!r}: name each tool — no patterns, "
+                    "no +/- edits of the runtime's defaults"
+                )
         skills = runtime.get("skills") or []
         if not isinstance(skills, list) or not all(isinstance(s, str) for s in skills):
             raise ProfileError(f"{manifest}: runtime.skills must be a list of strings")
@@ -211,14 +220,15 @@ class FsProfileStore:
         timeout = runtime.get("timeout", self._default_timeout)
         if not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ProfileError(f"{manifest}: runtime.timeout must be a positive number")
-        provider = str(runtime["provider"]).strip() if runtime.get("provider") else (self._default_provider or None)
-        model = str(runtime["model"]).strip() if runtime.get("model") else (self._default_model or None)
-        if provider and not model:
-            # The runtime refuses a provider without a model on every turn.
-            raise ProfileError(
-                f"{manifest}: runtime.provider {provider!r} names no model — set runtime.model "
-                "(or the deployment's default model)"
-            )
+        provider = str(runtime["provider"]).strip() if runtime.get("provider") else None
+        model = str(runtime["model"]).strip() if runtime.get("model") else None
+        # Blank is unset, here as in the settings.
+        provider = provider or self._default_provider.strip() or None
+        model = model or self._default_model.strip() or None
+        try:
+            check_provider_has_model(provider or "", model or "", "runtime.provider", "runtime.model")
+        except ValueError as exc:
+            raise ProfileError(f"{manifest}: {exc} (or the deployment's default model)") from exc
         fallback_models = self._fallback_models(name, runtime, manifest)
 
         return AgentSpec(

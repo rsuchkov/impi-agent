@@ -33,7 +33,13 @@ it's usually authentication — see below.
 
 Confirm the agent's `provider`/`model` resolve to something the backend accepts
 (see [runtime-notes.md](runtime-notes.md)). An agent that omits them inherits
-`DEFAULT_PROVIDER`/`DEFAULT_MODEL`.
+`DEFAULT_PROVIDER`/`DEFAULT_MODEL`. A provider needs a model: `DEFAULT_PROVIDER
+is set (…) but DEFAULT_MODEL is not` stops the engine at start, and
+`runtime.provider is set (…) but runtime.model is not` stops it too — one such
+`agent.yaml` is enough — or refuses a reload ("profile reload failed; keeping
+running config"). Set the model, or clear the provider. The `azure` provider
+was called `azure-openai-responses` before `pi` 1.0.3: rename it in the
+settings, `models.json` and `auth.json` (or log in again).
 
 "The model's service is not answering right now" (notice code
 `model_unavailable`) means the provider or the gateway in front of it answered

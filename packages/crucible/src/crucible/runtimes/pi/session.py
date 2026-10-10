@@ -65,7 +65,7 @@ class _Turn:
         # The last run's end, held until the runtime settles: after it the
         # runtime may still recover an overflowed context or retry a
         # compaction, and that run's end is the one that answers.
-        self.ended: PiEvent | None = None
+        self.last_agent_end: PiEvent | None = None
 
 
 class PiRpcSession:
@@ -74,9 +74,9 @@ class PiRpcSession:
     One session = one conversation. Only one turn runs at a time; the runtime
     serializes concurrent messages on the same conversation.
 
-    After a timeout the session is POISONED: a late agent_end from the aborted
-    turn could otherwise complete the next turn, so every subsequent turn is
-    refused and the owner must discard the session.
+    After a timeout the session is POISONED: a late agent_settled from the
+    aborted turn could otherwise complete the next turn, so every subsequent
+    turn is refused and the owner must discard the session.
     """
 
     def __init__(
@@ -172,11 +172,11 @@ class PiRpcSession:
 
     async def cancel(self, *, timeout: float) -> bool:
         """Interrupt the turn in flight without poisoning the session: the
-        runtime ends the turn on its own (an agent_end with what it had), the
-        caller gets that as the turn's result, and the next turn resumes. True
-        once the turn has ended; False if the runtime did not end it in time —
-        the owner then has to drop the session, since a late agent_end would
-        complete a turn that is not this one."""
+        runtime ends the turn on its own (an agent_end with what it had, then
+        agent_settled), the caller gets that as the turn's result, and the next
+        turn resumes. True once the turn has ended; False if the runtime did
+        not end it in time — the owner then has to drop the session, since a
+        late agent_settled would complete a turn that is not this one."""
         turn = self._turn
         if turn is None:
             return False
@@ -199,13 +199,7 @@ class PiRpcSession:
             if self._reader_task is not None:
                 self._reader_task.cancel()
             if self._turn is not None and not self._turn.future.done():
-                if self._turn.ended is not None:
-                    # Its run had ended; only the settling was missed.
-                    self._complete_turn(self._turn, self._turn.ended)
-                else:
-                    self._turn.future.set_exception(
-                        PiProcessError("Session closed during an in-flight turn")
-                    )
+                self._end_or_fail(PiProcessError("Session closed during an in-flight turn"))
 
     # -- internals ----------------------------------------------------------
 
@@ -304,11 +298,12 @@ class PiRpcSession:
             raise
         except Exception as exc:  # transport blew up
             logger.exception("pi read loop crashed")
-            self._fail_turn(PiProcessError(await self._death_message(f"pi read loop crashed: {exc}")))
+            self._end_or_fail(PiProcessError(await self._death_message(f"pi read loop crashed: {exc}")))
             return
-        # EOF: process exited. Any in-flight turn must fail — with the exit code
-        # and stderr tail, which carry the actual cause the bare message hides.
-        self._fail_turn(PiProcessError(await self._death_message("pi process exited unexpectedly")))
+        # EOF: process exited. An in-flight turn fails — with the exit code and
+        # stderr tail, which carry the actual cause the bare message hides —
+        # unless its run had already ended and only the settling was missed.
+        self._end_or_fail(PiProcessError(await self._death_message("pi process exited unexpectedly")))
 
     async def _death_message(self, base: str) -> str:
         """Fold the process's exit detail (exit code + stderr tail) into a
@@ -321,6 +316,15 @@ class PiRpcSession:
         except Exception:
             return base
         return f"{base} ({detail})" if detail else base
+
+    def _end_or_fail(self, exc: Exception) -> None:
+        """The process is gone: answer with the run that had ended, if one
+        had — only the settling was missed — else fail with ``exc``."""
+        turn = self._turn
+        if turn is not None and turn.last_agent_end is not None:
+            self._complete_turn(turn, turn.last_agent_end)
+        else:
+            self._fail_turn(exc)
 
     def _fail_turn(self, exc: Exception) -> None:
         turn = self._turn
@@ -367,11 +371,16 @@ class PiRpcSession:
             # the run's answer — unless the runtime goes on by itself, which
             # only agent_settled rules out.
             if not event.raw.get("willRetry"):
-                turn.ended = event
+                turn.last_agent_end = event
             return
 
         if event.type == protocol.EV_AGENT_SETTLED:
-            self._complete_turn(turn, turn.ended)
+            if turn.last_agent_end is None:
+                # Settled with no run behind it: not an answer, and not one to
+                # pass off as an empty reply.
+                self._fail_turn(PiProcessError("pi settled without ending a run"))
+                return
+            self._complete_turn(turn, turn.last_agent_end)
 
     def _complete_turn(self, turn: _Turn, event: PiEvent | None) -> None:
         """End ``turn`` with what its last run ended on; None = no run ended

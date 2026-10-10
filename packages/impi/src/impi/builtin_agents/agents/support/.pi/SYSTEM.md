@@ -90,10 +90,12 @@ role: ...
 description: ...
 runtime:
   provider: openai-codex   # OPTIONAL — omit to inherit DEFAULT_PROVIDER
-  model: gpt-5.5           # OPTIONAL — omit to inherit DEFAULT_MODEL
+  model: gpt-5.5           # OPTIONAL — omit to inherit DEFAULT_MODEL; a provider
+                           # needs a model, here or in DEFAULT_MODEL
   fallback_models: [ ... ] # OPTIONAL — provider/model, tried in order when the model is down
   timeout: 180
-  tools: [ ... ]           # the single capability allowlist (see below)
+  tools: [ ... ]           # the single capability allowlist (see below) — tool
+                           # names only: no *, no +name/-name
   skills: [ ... ]          # private names, or registry:<name> from the library
   env: [ ... ]             # OPTIONAL — engine variables its process inherits (names, PREFIX_*)
   confinement: agent       # OPTIONAL — conversation (default) | agent | off
