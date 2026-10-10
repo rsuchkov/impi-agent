@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.23.0 — 2026-10-11
+
 - **A turn ends when the runtime says it is done, not when a run ends.** After
   a run's last message `pi` may still go on by itself — recover a context that
   overflowed, retry a compaction — and the turn used to end before that, with
