@@ -6,7 +6,29 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **People can connect their own accounts at an OAuth provider, for tools to
+  act as them** (`crucible.connections`, the library half). `OAuthConnections`
+  does the whole round:
+  - `begin` stores a single-use link (state, PKCE verifier, ten minutes) and
+    answers with the consent URL; `finish` exchanges the code, asks who the
+    account is, applies the application's `AccountPolicy` and stores the
+    tokens sealed (`FernetSealer`, a list of keys so one can be replaced
+    without logging anyone out; `crucible[connections]`);
+  - `grant` hands a tool the token of the person it acts for, refreshed first
+    when it is about to end — one refresh per connection however many tools
+    ask, across replicas too (a lease in the store), because a provider that
+    issues a new refresh token on every refresh voids the old one;
+  - `forget` ends the connection a 401 came from and no later one;
+    `disconnect` ends it and says whether the provider confirmed the revoke.
+  - Tokens nobody may keep are revoked: those issued to a connect that then
+    failed, the grant a reconnect replaces, a pair a refresh got for a
+    connection that was replaced meanwhile.
+  - Every event is an audit line on `crucible.connections.audit`, never with
+    a token, a code or a state.
+
+  The stores are new `crucible.store` slices (`ConnectionStore`,
+  `ConnectionLinkStore`); in memory for now (`crucible.connections.memory`),
+  SQLite and MongoDB next.
 
 ## v0.21.0 — 2026-10-09
 

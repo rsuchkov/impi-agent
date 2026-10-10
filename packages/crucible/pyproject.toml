@@ -31,6 +31,12 @@ dependencies = [
 mongo = [
     "pymongo>=4.9",
 ]
+# People's own accounts at OAuth providers: their tokens are sealed at rest
+# with Fernet (crucible.connections.sealing). Optional for the same reason as
+# Mongo — an application that connects no accounts carries no cryptography.
+connections = [
+    "cryptography>=43.0",
+]
 
 [build-system]
 requires = ["hatchling"]

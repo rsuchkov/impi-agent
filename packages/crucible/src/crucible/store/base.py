@@ -513,6 +513,95 @@ class ApprovalStore(Protocol):
     ) -> list[ApprovalAudit]: ...
 
 
+@dataclass(frozen=True)
+class ConnectionRecord:
+    """One person's account at one provider, connected over OAuth: what a tool
+    acting as that person uses. One per ``(owner, provider)``.
+
+    The tokens are sealed by whoever writes the record (``crucible.connections``)
+    and opaque here; the rest — whose it is, which account, until when — stays
+    readable, so the store can be looked at without the key.
+    ``(connect_id, version)`` names the credential an operation saw: ``connect_id``
+    is new at every connect, ``version`` counts refreshes, and every write that
+    starts from a record it read is conditional on both.
+    """
+
+    owner: str
+    provider: str
+    access_sealed: str
+    refresh_sealed: str  # "" when the provider issued none
+    expires_at: str  # "" when the access token does not expire
+    account_id: str
+    account_username: str
+    account_name: str
+    account_email: str
+    scope: str
+    connect_id: str
+    version: int = 0
+
+
+@dataclass(frozen=True)
+class ConnectionLinkRecord:
+    """A connect someone started and has not finished: single use, short-lived.
+
+    Keyed by a digest of the ``state`` the person carries through the provider,
+    never by the state itself — a reader of the store cannot finish a link."""
+
+    state_digest: str
+    owner: str
+    provider: str
+    verifier_sealed: str  # the PKCE verifier, sealed like the tokens
+    expires_at: str
+
+
+class ConnectionStore(Protocol):
+    """Connected accounts, and the lease that keeps two replicas from refreshing
+    one at once — a provider that issues a new refresh token on every refresh
+    invalidates the old one, so the loser of a race would be left with a dead
+    pair."""
+
+    async def get_connection(self, owner: str, provider: str) -> ConnectionRecord | None: ...
+
+    async def list_connections(self, owner: str) -> list[ConnectionRecord]: ...
+
+    async def save_connection(self, record: ConnectionRecord) -> None:
+        """Insert or replace whatever is stored for the pair, ending any lease."""
+        ...
+
+    async def claim_refresh(
+        self, owner: str, provider: str, *, connect_id: str, version: int, now: str, until: str
+    ) -> bool:
+        """Take the refresh lease until ``until`` — only while the record is
+        still that credential and no lease runs past ``now``."""
+        ...
+
+    async def release_refresh(self, owner: str, provider: str, *, connect_id: str, version: int) -> None:
+        """End the lease early, if the record is still that credential."""
+        ...
+
+    async def replace_connection(self, record: ConnectionRecord, *, expected_version: int) -> bool:
+        """Write ``record`` only over the same grant at ``expected_version``,
+        ending the lease. False when the record changed or went away meanwhile."""
+        ...
+
+    async def delete_connection(
+        self, owner: str, provider: str, *, connect_id: str | None = None, version: int | None = None
+    ) -> bool:
+        """Delete the pair's record — conditional on each of ``connect_id`` and
+        ``version`` that is given. Whether one was deleted."""
+        ...
+
+
+class ConnectionLinkStore(Protocol):
+    """Connects in progress."""
+
+    async def put_link(self, link: ConnectionLinkRecord) -> None: ...
+
+    async def take_link(self, state_digest: str) -> ConnectionLinkRecord | None:
+        """The link, removed in the same step: a second take finds nothing."""
+        ...
+
+
 class AgentStore(Protocol):
     """Persistence for the agent registry (synced from profiles at boot)."""
 

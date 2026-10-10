@@ -413,6 +413,16 @@ credential, is another user's credential.
   the proof check and the confirmation gate are all exercised.
   `host.opened` holds every spawn request, `host.tool_outcomes` what each
   call came back with.
+- **Acting as the person, at their own provider.** `crucible.connections`
+  connects a person's account at an OAuth provider once and hands a tool
+  their token on every turn, refreshed when it is about to end; the model
+  never sees it. Yours: the `OAuthProvider` (one per provider), who the owner
+  is, where the provider sends the person back (you call
+  `finish(state, code, owner=…)` from there), and an `AccountPolicy` — which
+  account may be bound to whom. The consent URL `begin` returns goes to the
+  person privately: whoever holds it can finish the connect. Seal with
+  `FernetSealer(keys)` (`crucible[connections]`); the first key seals, every
+  key opens.
 - **Keeping secrets out of the log.** `crucible.redaction.ScrubbingFilter`
   on each handler of the root logger scrubs every record. It replaces the
   value and keeps the name for: the tool token and session proof by header

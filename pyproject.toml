@@ -438,6 +438,26 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "Connected accounts are a service over the store — no runtime, chat or engine machinery"
+type = "forbidden"
+source_modules = ["crucible.connections"]
+forbidden_modules = [
+    "crucible.approvals",
+    "crucible.attachments",
+    "crucible.config",
+    "crucible.flows",
+    "crucible.gateways",
+    "crucible.interactions",
+    "crucible.profiles",
+    "crucible.runtimes",
+    "crucible.scheduler",
+    "crucible.skills",
+    "crucible.tools",
+    "mattermostautodriver",
+    "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
 name = "The agent ports are neutral — no runtime, chat or engine machinery"
 type = "forbidden"
 source_modules = ["crucible.ports.agent"]
