@@ -27,8 +27,12 @@ when a release is cut, and `impi update` shows the target version's section.
     a token, a code or a state.
 
   The stores are new `crucible.store` slices (`ConnectionStore`,
-  `ConnectionLinkStore`); in memory for now (`crucible.connections.memory`),
-  SQLite and MongoDB next.
+  `ConnectionLinkStore`), on SQLite (tables `connections`,
+  `connection_links`), on MongoDB (collections of the same names, a unique
+  index per person and provider, a TTL index on the links) and in memory
+  (`crucible.connections.memory`, for tests).
+  **Breaks:** `Store` now includes both slices, so a store backend of an
+  application's own implements them too.
 
 ## v0.21.0 — 2026-10-09
 

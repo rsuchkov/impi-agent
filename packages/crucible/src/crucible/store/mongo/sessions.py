@@ -33,11 +33,12 @@ from crucible.store.mongo.base import (
     from_doc,
     to_doc,
 )
+from crucible.store.mongo.connections import MongoConnectionMixin
 from crucible.store.mongo.tasks import MongoTaskMixin
 from crucible.store.mongo.traces import MongoTraceMixin
 
 
-class MongoSessionStore(MongoTaskMixin, MongoApprovalMixin, MongoTraceMixin):
+class MongoSessionStore(MongoTaskMixin, MongoApprovalMixin, MongoTraceMixin, MongoConnectionMixin):
     """The whole inventory on MongoDB — every facet of the ``Store`` port.
 
     Async all the way down: ``pymongo`` ships its own async client, so there is

@@ -1,13 +1,16 @@
 """What every store of connected accounts must do: the lease, the conditional
-writes, the single-use link. Run against each backend."""
+writes, the single-use link. Run against each backend this environment can
+reach, and the in-memory store beside them."""
 
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from crucible.connections.memory import MemoryConnectionStore, MemoryLinkStore
 from crucible.store.base import ConnectionLinkRecord, ConnectionRecord
+from tests.conftest import BACKENDS, backend_for
 
 T0 = "2026-10-10T12:00:00+00:00"
 T1 = "2026-10-10T12:00:30+00:00"
@@ -23,14 +26,29 @@ def _record(**over) -> ConnectionRecord:
     return replace(base, **over)
 
 
-@pytest.fixture(params=["memory"])
-async def connections(request: pytest.FixtureRequest) -> AsyncIterator[MemoryConnectionStore]:
-    yield MemoryConnectionStore()
+@pytest.fixture(params=["memory", *BACKENDS])
+async def opened(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncIterator[tuple]:
+    """(connections, links) over one storage: the in-memory pair, or a backend's store."""
+    if request.param == "memory":
+        yield MemoryConnectionStore(), MemoryLinkStore()
+        return
+    backend = backend_for(request.param, tmp_path)
+    store = backend.open()
+    try:
+        yield store, store
+    finally:
+        await store.close()
+        backend.cleanup()
 
 
-@pytest.fixture(params=["memory"])
-async def links(request: pytest.FixtureRequest) -> AsyncIterator[MemoryLinkStore]:
-    yield MemoryLinkStore()
+@pytest.fixture
+def connections(opened):
+    return opened[0]
+
+
+@pytest.fixture
+def links(opened):
+    return opened[1]
 
 
 async def test_a_connection_is_kept_per_owner_and_provider(connections) -> None:
@@ -93,3 +111,54 @@ async def test_a_link_can_be_taken_once(links) -> None:
     assert await links.take_link("d1") == link
     assert await links.take_link("d1") is None
     assert await links.take_link("nope") is None
+
+
+async def test_two_replicas_over_one_store_refresh_once(opened) -> None:
+    """The service over the store under test: the lease is what keeps the
+    second replica from spending the refresh token the first one holds."""
+    import asyncio
+
+    from crucible.connections import OAuthConnections
+    from crucible.connections.sealing import FernetSealer, new_sealing_key
+    from tests.test_connections import Clock, FakeProvider
+
+    connections, links = opened
+    provider, clock, sealer = FakeProvider(), Clock(), FernetSealer([new_sealing_key()])
+
+    def replica() -> OAuthConnections:
+        return OAuthConnections(
+            connections=connections, links=links, providers={"gitlab": provider},
+            sealer=sealer, clock=clock, poll_s=0.001,
+        )
+
+    a, b = replica(), replica()
+    state, code = provider.consent(await a.begin("mattermost:u1", "gitlab"))
+    await b.finish(state, code)  # begun on one replica, finished on the other
+    clock.advance(3600)
+    provider.gate = asyncio.Event()
+    first = asyncio.ensure_future(a.grant("mattermost:u1", "gitlab"))
+    await asyncio.sleep(0.05)
+    second = asyncio.ensure_future(b.grant("mattermost:u1", "gitlab"))
+    await asyncio.sleep(0.05)
+    provider.gate.set()
+    assert (await first).token.reveal() == (await second).token.reveal() == "access-2"
+    assert provider.refreshes == 1
+
+
+async def test_sqlite_drops_links_nobody_came_back_for(tmp_path: Path) -> None:
+    """Housekeeping of this backend (Mongo has a TTL index for it): a link past
+    its time goes when the next one is put."""
+    from crucible.store.sqlite import SqliteSessionStore
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        old = ConnectionLinkRecord(
+            state_digest="old", owner="mattermost:u1", provider="gitlab", verifier_sealed="V",
+            expires_at="2000-01-01T00:00:00+00:00",
+        )
+        await store.put_link(old)
+        await store.put_link(replace(old, state_digest="new", expires_at="2999-01-01T00:00:00+00:00"))
+        rows = store._conn.execute("SELECT state_digest FROM connection_links").fetchall()
+        assert rows == [("new",)]
+    finally:
+        await store.close()

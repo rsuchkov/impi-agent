@@ -75,18 +75,24 @@ def _backends() -> list[str]:
     return names
 
 
-@pytest.fixture(params=_backends())
+BACKENDS = _backends()
+
+
+def backend_for(name: str, tmp_path: Path) -> StoreBackend:
+    """A fresh backend of that kind — for a test file whose own fixture runs a
+    pass more than the backends (an in-memory store beside them, say)."""
+    if name == "sqlite":
+        return SqliteBackend(tmp_path / "db.sqlite")
+    # A database per test: these tests create, claim and delete by fixed
+    # ids, and sharing one would make them depend on each other's order.
+    return MongoBackend(os.environ[MONGO_URL_ENV], f"crucible_test_{uuid.uuid4().hex}")
+
+
+@pytest.fixture(params=BACKENDS)
 def stores(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[StoreBackend]:
     """The backend under test. Parameterised, so every behaviour test in the
     conformance files runs once per backend the environment can reach."""
-    if request.param == "sqlite":
-        backend: StoreBackend = SqliteBackend(tmp_path / "db.sqlite")
-    else:
-        # A database per test: these tests create, claim and delete by fixed
-        # ids, and sharing one would make them depend on each other's order.
-        backend = MongoBackend(
-            os.environ[MONGO_URL_ENV], f"crucible_test_{uuid.uuid4().hex}"
-        )
+    backend = backend_for(request.param, tmp_path)
     try:
         yield backend
     finally:

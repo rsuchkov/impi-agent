@@ -31,6 +31,8 @@ HEARTBEAT = "scheduler_heartbeat"
 GRANTS = "approval_grants"
 AUDIT = "approval_audit"
 TRACES = "tool_traces"
+CONNECTIONS = "connections"
+CONNECTION_LINKS = "connection_links"
 
 # The heartbeat is one document by construction: a reader asks for THE beat,
 # so there is nothing to choose between.
@@ -118,6 +120,11 @@ async def create_indexes(db: Collections) -> None:
     await db[GRANTS].create_index([("kind", 1), ("principal", 1), ("scope", 1)])
     await db[AUDIT].create_index([("at", -1)])
     await db[TRACES].create_index([("finished_at", 1)])
+    # One connection per person and provider: a second save is a reconnect.
+    await db[CONNECTIONS].create_index([("owner", 1), ("provider", 1)], unique=True)
+    # A link nobody came back for goes on its own; the service checks the
+    # expiry too, since the TTL monitor runs when it runs.
+    await db[CONNECTION_LINKS].create_index([("expire_at", 1)], expireAfterSeconds=0)
 
 
 class MongoBase:

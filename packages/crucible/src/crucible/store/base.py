@@ -658,6 +658,8 @@ class Store(
     ApprovalStore,
     AgentStore,
     TraceStore,
+    ConnectionStore,
+    ConnectionLinkStore,
     Protocol,
 ):
     """Every question the inventory answers, in one type.

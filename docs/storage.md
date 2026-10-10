@@ -143,10 +143,13 @@ One per subject, named the way the SQLite tables are:
 | `approval_grants` | windows a human left open |
 | `approval_audit` | the ledger of what was asked and how it came out |
 | `tool_traces` | one turn's tool calls, for the widget under its reply — arguments and outcomes, never results |
+| `connections` | people's accounts connected at an OAuth provider: the tokens sealed (unreadable without the sealing key), whose and which account readable; one per person and provider |
+| `connection_links` | connects started and not yet finished — single use, gone after ten minutes (a TTL index) |
 
 The indexes are created on first use and are load-bearing rather than an
-optimisation: they are what makes a claimed occurrence unable to fire twice and
-a replayed message a no-op. A deployment that dropped them would not slow down,
+optimisation: they are what makes a claimed occurrence unable to fire twice,
+a replayed message a no-op, and a second connect of one account to one
+provider a reconnect rather than a duplicate. A deployment that dropped them would not slow down,
 it would double-fire.
 
 One of them changed shape once: `sessions.runtime_session_id` became **unique**
