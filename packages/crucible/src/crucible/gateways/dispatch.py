@@ -9,7 +9,7 @@ while still routing interactive callbacks to the neutral dispatch brain.
 from typing import Protocol
 
 from crucible.approvals import ApprovalOutcome
-from crucible.interactions.screens import ScreenOpened
+from crucible.interactions.screens import Redrawn, ScreenOpened
 from crucible.ports.chat.types import Form
 
 
@@ -38,7 +38,7 @@ class GatewayDispatcher(Protocol):
     ) -> ScreenOpened: ...
     async def redraw_screen(
         self, state_raw: str, value: str, *, post_id: str, user_id: str
-    ) -> bool: ...
+    ) -> Redrawn | None: ...
     async def submit_form(
         self, state: str, submission: dict, cancelled: bool, user_id: str
     ) -> object: ...

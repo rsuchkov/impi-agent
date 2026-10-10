@@ -45,6 +45,21 @@ when a release is cut, and `impi update` shows the target version's section.
     `build_server(connections=connection_access(service, owner_for))`, where
     `owner_for(agent, user_id, turn)` is the application's rule for whose
     connections a turn uses.
+  - `CallbackServer` (`crucible.connections.callback`) is the one page the
+    provider sends the person back to — `GET /oauth/callback` on a listener
+    of its own, so only it faces browsers. It finishes or refuses the connect
+    and says how it went in a short page; its access log is off (aiohttp's
+    would print the state and the code), and the page sends no referrer.
+- **A screen can tell the person who clicked something nobody else sees.**
+  `View.private_note` is delivered beside the redraw: Mattermost's ephemeral
+  reply to the click, a Slack whisper, `privateNote` in the http gateway's
+  answer — a link meant for one person stays theirs even when the screen is
+  in a channel.
+  **Breaks:** `redraw_screen` (`InteractionDispatcher`, the
+  `GatewayDispatcher` port) returns `Redrawn | None` instead of a bool.
+- **A chat profile carries the person's email** (`UserProfile.email`), when the
+  platform shows it: Mattermost under its privacy settings, Slack with the
+  `users:read.email` scope; "" otherwise.
 
 ## v0.21.0 — 2026-10-09
 

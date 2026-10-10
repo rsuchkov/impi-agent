@@ -142,7 +142,9 @@ what other people wrote.
 {"postId": "…", "actionId": "yes", "value": "Allow"}
 ```
 
-`200 {"outcome": "resolved" | "redrawn" | "not_mine" | "not_allowed"}`. A
+`200 {"outcome": "resolved" | "redrawn" | "not_mine" | "not_allowed"}`, and on
+a screen's control that tells the clicker something alone, `"privateNote"` with
+it — show it to this caller only; it is in no event. A
 button answers with its own value (the body's `value` is ignored for it); a menu
 answers with one of its options, anything else is `422`. A click on a
 confirmation card for a tool call is answered by the user whose message

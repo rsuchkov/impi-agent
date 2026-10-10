@@ -5,7 +5,7 @@ was asked, a poster that records the modals it opened."""
 from slack_sdk.errors import SlackApiError
 
 from crucible.approvals import ApprovalOutcome
-from crucible.interactions.screens import ScreenOpened
+from crucible.interactions.screens import Redrawn, ScreenOpened
 
 
 class FakeWeb:
@@ -52,6 +52,7 @@ class FakeDispatcher:
         approval=ApprovalOutcome.RESOLVED,
         opened=ScreenOpened(owned=False),
         command_result=None,
+        redrawn=Redrawn(),
     ) -> None:
         self.calls: list = []
         self.picks: list[str] = []  # the pick kind of each consumed action
@@ -60,6 +61,7 @@ class FakeDispatcher:
         self._approval = approval
         self._opened = opened
         self._command_result = command_result
+        self._redrawn = redrawn
 
     def resolve_approval(self, token, value, user_id):
         self.calls.append(("resolve_approval", token, value, user_id))
@@ -81,9 +83,9 @@ class FakeDispatcher:
         self.calls.append(("open_screen", agent, command, channel_id, conversation_id, kind, user_id))
         return self._opened
 
-    async def redraw_screen(self, state_raw, value, *, post_id, user_id) -> bool:
+    async def redraw_screen(self, state_raw, value, *, post_id, user_id) -> Redrawn | None:
         self.calls.append(("redraw_screen", state_raw, value, post_id, user_id))
-        return True
+        return self._redrawn
 
     async def submit_form(self, state, submission, cancelled, user_id):
         self.calls.append(("submit_form", state, submission, cancelled, user_id))

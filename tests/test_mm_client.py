@@ -45,7 +45,8 @@ class _Recorder:
             async def get_user(self, user_id):
                 recorder.calls.append(("get_user", {"user_id": user_id}))
                 # Non-ASCII name on purpose: display names must survive unicode.
-                return {"username": "roman", "nickname": "", "first_name": "Роман", "last_name": "", "is_bot": False}
+                return {"username": "roman", "nickname": "", "first_name": "Роман", "last_name": "",
+                        "is_bot": False, "email": "roman@example.com"}
 
         class IntegrationActions:
             async def open_interactive_dialog(self, trigger_id, url, dialog):
@@ -129,6 +130,7 @@ async def test_get_user_profile_builds_display_name() -> None:
     assert profile is not None
     assert profile.username == "roman"
     assert profile.display_name == "Роман"
+    assert profile.email == "roman@example.com"
     assert chat.format_mention(profile.username) == "@roman"
 
 

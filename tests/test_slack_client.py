@@ -233,3 +233,14 @@ async def test_post_files_without_a_caption_sends_none() -> None:
 
     kw = web.last("files_upload_v2")
     assert kw["initial_comment"] is None and kw["thread_ts"] is None
+
+
+async def test_a_users_email_is_read_when_the_app_may_see_it() -> None:
+    # Only with the users:read.email scope does Slack put it in the profile.
+    seen = FakeWeb(users_info={"user": {"name": "roman", "profile": {"email": "roman@example.com"}}})
+    hidden = FakeWeb(users_info={"user": {"name": "roman", "profile": {}}})
+    profile = await _sc(seen).get_user_profile("U1")
+    assert profile is not None and profile.email == "roman@example.com"
+    profile = await _sc(hidden).get_user_profile("U1")
+    assert profile is not None and profile.email == ""
+

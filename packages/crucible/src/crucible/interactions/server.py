@@ -206,9 +206,13 @@ class InteractionsServer:
         # A screen redraws itself in place: no turn, and the message it came from
         # is rewritten rather than replaced by a response body.
         if cb.screen:
-            await self._dispatcher.redraw_screen(
+            redrawn = await self._dispatcher.redraw_screen(
                 cb.state, cb.value, post_id=cb.post_id, user_id=cb.user_id
             )
+            # What the clicker alone is told rides on the response: an
+            # ephemeral line beside the message, seen by nobody else.
+            if redrawn is not None and redrawn.private_note:
+                return web.json_response(self._codec.reply_notice(redrawn.private_note))
             return web.json_response(self._codec.reply_none())
 
         # Form-open click: open the modal synchronously — the trigger expires within

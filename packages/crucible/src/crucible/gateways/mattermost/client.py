@@ -161,6 +161,7 @@ class MattermostChatClient:
             username=user.get("username", ""),
             display_name=display,
             is_bot=bool(user.get("is_bot")),
+            email=user.get("email") or "",
         )
 
     async def resolve_channel(self, channel_id: str) -> str:

@@ -63,14 +63,30 @@ class ScreenState:
 @dataclass(frozen=True)
 class View:
     """What a screen renders: a message built from cards, each with its own text
-    and its own controls (a row per item, its buttons beside it)."""
+    and its own controls (a row per item, its buttons beside it).
+
+    ``private_note`` is a line for the person who clicked and nobody else — a
+    link meant for them alone — delivered beside the redraw, never part of the
+    message everyone sees. A gateway with no way to whisper answers it in its
+    response to the click."""
 
     cards: tuple[Card, ...] = ()
+    private_note: str = ""
 
     @staticmethod
-    def of(text: str, actions: tuple[Action, ...] = (), *, accent: str = "") -> "View":
+    def of(
+        text: str, actions: tuple[Action, ...] = (), *, accent: str = "", private_note: str = "",
+    ) -> "View":
         """The single-card case — a block of text with controls under it."""
-        return View(cards=(Card(text=text, actions=actions, accent=accent),))
+        return View(cards=(Card(text=text, actions=actions, accent=accent),), private_note=private_note)
+
+
+@dataclass(frozen=True)
+class Redrawn:
+    """A click a screen answered: the message is rewritten, and ``private_note``
+    ("" for none) is what the clicker alone is told."""
+
+    private_note: str = ""
 
 
 @dataclass(frozen=True)

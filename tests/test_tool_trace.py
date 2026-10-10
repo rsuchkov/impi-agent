@@ -200,7 +200,7 @@ async def test_a_click_redraws_the_same_message_with_no_turn(store) -> None:
 
     assert await dispatcher.redraw_screen(
         button.context["state"], button.value, post_id="p1", user_id="u1"
-    ) is True
+    ) is not None
 
     assert spy.submitted == []
     assert chat.posted_cards == []

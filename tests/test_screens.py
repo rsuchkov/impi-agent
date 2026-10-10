@@ -118,7 +118,7 @@ async def test_a_click_redraws_the_same_message(tmp_path: Path) -> None:
         )
         state = chat.posted_cards[0][1][0].actions[0].context["state"]
 
-        assert await dispatcher.redraw_screen(state, "", post_id="p1", user_id="u1") is True
+        assert await dispatcher.redraw_screen(state, "", post_id="p1", user_id="u1") is not None
 
         assert spy.submitted == []  # still no turn
         assert len(chat.posted_cards) == 1  # and no second message
@@ -136,7 +136,7 @@ async def test_a_click_with_unreadable_state_is_ignored(tmp_path: Path) -> None:
     screens.register(CountingScreen())
     dispatcher = _dispatcher(store, chat, SinkSpy(), screens)
     try:
-        assert await dispatcher.redraw_screen("not json", "", post_id="p1", user_id="u") is False
+        assert await dispatcher.redraw_screen("not json", "", post_id="p1", user_id="u") is None
         assert chat.updated == []
     finally:
         await store.close()
@@ -323,7 +323,7 @@ async def test_an_agent_can_open_a_screen_and_its_clicks_still_skip_the_model(
         # place, with no turn behind it. That is the whole point of the panel.
         state = chat.posted_cards[0][1][0].actions[0].context["state"]
         dispatcher = _dispatcher(store, chat, spy, screens)
-        assert await dispatcher.redraw_screen(state, "", post_id="p1", user_id="u2") is True
+        assert await dispatcher.redraw_screen(state, "", post_id="p1", user_id="u2") is not None
 
         assert spy.submitted == []
         assert len(chat.posted_cards) == 1
@@ -347,3 +347,32 @@ async def test_asking_for_a_panel_that_does_not_exist_names_the_ones_that_do(
         assert "demo" in str(exc.value)
     finally:
         await store.close()
+
+
+async def test_what_a_screen_tells_the_clicker_alone_is_kept_out_of_the_message(tmp_path: Path) -> None:
+    """A link meant for one person travels beside the redraw, never in the
+    message everyone in the conversation sees."""
+    from crucible.interactions.screens import Redrawn, ScreenState, View
+
+    class Whispering:
+        command = "whisper"
+
+        async def render(self, state, *, user_id):
+            return View.of("everyone sees this", private_note=f"only {user_id} sees this")
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat, spy = FakeChat(), SinkSpy()
+    screens = ScreenRegistry()
+    screens.register(Whispering())
+    dispatcher = _dispatcher(store, chat, spy, screens)
+    try:
+        await dispatcher.open_screen(
+            "assistant", "whisper", channel_id="ch1", conversation_id="ch1", kind="dm", user_id="u1",
+        )
+        state = ScreenState("whisper", agent="assistant").encode()
+        redrawn = await dispatcher.redraw_screen(state, "", post_id="p1", user_id="u7")
+        assert redrawn == Redrawn("only u7 sees this")
+        assert all("only" not in card.text for _, cards in chat.updated for card in cards)
+    finally:
+        await store.close()
+

@@ -37,6 +37,9 @@ class UserProfile:
     username: str = ""
     display_name: str = ""
     is_bot: bool = False
+    # "" when the platform does not say — Mattermost hides it unless its
+    # privacy settings show it, Slack without the users:read.email scope.
+    email: str = ""
 
 
 @dataclass(frozen=True)

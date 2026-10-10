@@ -150,9 +150,11 @@ class SlackInteractions:
         screen, state = decode_screen(actions[0])
         if screen:
             # An engine screen: redraw the message it came from, no turn.
-            await self._dispatcher.redraw_screen(
+            redrawn = await self._dispatcher.redraw_screen(
                 state, value, post_id=self._message_id(body), user_id=user_id
             )
+            if redrawn is not None and redrawn.private_note:
+                await self._whisper(body, redrawn.private_note)  # the clicker alone
             return
         if form_token:
             # The button deliberately SURVIVES the open: a modal closed without

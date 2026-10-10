@@ -276,3 +276,28 @@ async def test_the_log_does_not_replay_the_click(
         assert token not in joined
     finally:
         await server.stop()
+
+
+async def test_what_a_screen_tells_the_clicker_alone_comes_back_as_an_ephemeral_reply() -> None:
+    """Mattermost shows a click's ephemeral_text to the person who clicked and
+    nobody else: where a screen's private note goes."""
+    from crucible.interactions.screens import Redrawn
+
+    class _Screens:
+        async def redraw_screen(self, state_raw, value, *, post_id, user_id):
+            return Redrawn(f"for {user_id} only")
+
+    server = InteractionsServer(
+        _Screens(), MattermostCallbackCodec(), MappingPresence({}), host="127.0.0.1", port=8605,  # type: ignore[arg-type]
+    )
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8605/interact",
+                json={"user_id": "u1", "post_id": "p1", "context": {"screen": "connections", "state": "{}", "value": "x"}},
+            ) as resp:
+                body = await resp.json()
+        assert body == {"ephemeral_text": "for u1 only"}
+    finally:
+        await server.stop()

@@ -134,6 +134,7 @@ class SlackChatClient:
             username=user.get("name", ""),
             display_name=profile.get("display_name") or profile.get("real_name") or user.get("name", ""),
             is_bot=bool(user.get("is_bot")),
+            email=profile.get("email") or "",
         )
 
     async def resolve_channel(self, channel_id: str) -> str:

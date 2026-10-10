@@ -177,6 +177,19 @@ async def test_a_stranger_s_click_is_told_off_privately_and_the_card_stays_live(
     assert updates == []
 
 
+async def test_what_a_screen_tells_the_clicker_alone_is_whispered_to_them() -> None:
+    from crucible.interactions.screens import Redrawn
+
+    it = _interactions(FakeDispatcher(redrawn=Redrawn("Connect here: https://p.example/authorize?state=s")))
+    whispers = _recorder(it, "chat_postEphemeral")
+    click = {
+        "user": {"id": "U9"}, "channel": {"id": "D1"}, "container": {"message_ts": "1.1", "channel_id": "D1"},
+        "actions": [_button(screen="connections", state="{}", value="connect:gitlab")],
+    }
+    await it.handle_action(click)
+    assert whispers == [{"channel": "D1", "user": "U9", "text": "Connect here: https://p.example/authorize?state=s"}]
+
+
 async def test_a_click_on_a_request_that_is_gone_retires_the_buttons() -> None:
     it = _interactions(FakeDispatcher(approval=ApprovalOutcome.NOT_MINE))
     updates = _recorder(it, "chat_update")

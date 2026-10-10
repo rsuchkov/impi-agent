@@ -377,7 +377,9 @@ result returns into `pi`'s turn.
 `ScreenRegistry` is consulted **before** the agent is chosen; the screen renders
 a `View` (text + actions), and each click carries its own state back and
 **rewrites the same message** (`ChatClient.update_actions`) — no turn, no second
-message. Listing what exists and editing a profile are facts and edits, so a
+message. A line meant for the clicker alone (`View.private_note`, a link only
+they may hold) travels beside the redraw: an ephemeral reply on Mattermost, a
+whisper on Slack, `privateNote` in the http answer. Listing what exists and editing a profile are facts and edits, so a
 model in the loop would only add latency and a chance to name a skill that isn't
 there. See [skills.md](skills.md).
 

@@ -18,6 +18,7 @@ from crucible.interactions.ports import FormHandlers
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.results import ActionResult
 from crucible.interactions.screens import (
+    Redrawn,
     ScreenOpened,
     ScreenRegistry,
     ScreenState,
@@ -242,29 +243,31 @@ class InteractionDispatcher:
 
     async def redraw_screen(
         self, state_raw: str, value: str, *, post_id: str, user_id: str
-    ) -> bool:
+    ) -> Redrawn | None:
         """A click on a screen: render the state it carried and rewrite the same
-        message. No turn, no new message — this is a UI, not a conversation."""
+        message. No turn, no new message — this is a UI, not a conversation.
+        None when the click was not a screen's to answer, or was refused; what
+        the clicker alone is told travels back in ``Redrawn``."""
         state = ScreenState.decode(state_raw)
         screen = self._screens.get(state.screen) if (self._screens and state) else None
         if state is None or screen is None:
-            return False
+            return None
         poster = self._presence.poster(state.agent)
         if poster is None or not post_id:
-            return False
+            return None
         # Asked again, and with no ref: the message exists, so what is left to
         # decide is whether THIS person may drive it. A click carries whoever
         # pressed it, not whoever opened the card.
         if await refusal(screen, user_id=user_id, ref=None):
             logger.info("screen %s: click refused for %s", screen.command, user_id)
-            return False
+            return None
         if value:
             # What the control returned (a picked option, a button's value) is the
             # screen's input for this render.
             state = state.with_data(value=value)
         view = await screen.render(state, user_id=user_id)
         await poster.update_cards(post_id, list(view.cards), callback_url=self._callback_url)
-        return True
+        return Redrawn(view.private_note)
 
     async def submit_form(
         self, state: str, submission: dict, cancelled: bool, user_id: str

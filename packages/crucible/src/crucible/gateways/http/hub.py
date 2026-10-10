@@ -504,10 +504,12 @@ class HttpHub:
                 self._retire(turn, post_id, "These controls are no longer active.")
             return web.json_response({"outcome": outcome.name.lower()})
         if context.get(SCREEN_KEY):
-            await self._dispatcher.redraw_screen(
+            redrawn = await self._dispatcher.redraw_screen(
                 str(context.get(STATE_KEY, "")), value, post_id=post_id, user_id=caller.user_id
             )
-            return web.json_response({"outcome": "redrawn"})
+            # The caller is the clicker: what they alone are told is theirs to show.
+            note = redrawn.private_note if redrawn is not None else ""
+            return web.json_response({"outcome": "redrawn", **({"privateNote": note} if note else {})})
         if context.get("form"):
             raise Refusal(409, "not_available", "forms cannot be opened on this gateway")
         # What remains is a request the turn is blocked on — a confirmation, a

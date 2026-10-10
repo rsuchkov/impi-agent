@@ -67,6 +67,11 @@ class FakeDispatcher:
     async def consume_action(self, token, value, user_id, *, pick=""):
         self.consumed.append((token, value, user_id, pick))
 
+    async def redraw_screen(self, state_raw, value, *, post_id, user_id):
+        from crucible.interactions.screens import Redrawn
+
+        return Redrawn(f"for {user_id} only" if value == "whisper" else "")
+
 
 class FakeControl:
     def __init__(self) -> None:
@@ -1056,3 +1061,37 @@ async def test_the_applications_own_probes_decide_readiness_too(
             assert await _get(s, 8509, "/readyz", headers={}) == (503, {"ready": False, "reason": "stuck: timed out"})
     finally:
         await slow.stop()
+
+
+async def test_what_a_screen_tells_the_clicker_alone_comes_back_in_the_answer() -> None:
+    """The caller of the actions endpoint is the person who clicked: a screen's
+    private note is theirs to show, in the answer and nowhere in the journal."""
+    from crucible.ports.chat.types import Card
+
+    hold = asyncio.Event()
+
+    async def draws(msg, chat):
+        await chat.post_cards(msg.ref, [Card("connections", actions=(
+            Action(id="c", label="Connect", value="whisper", context={"screen": "connections", "state": "{}"}),
+            Action(id="n", label="Next", value="next", context={"screen": "connections", "state": "{}"}),
+        ))], callback_url="")
+        await hold.wait()
+        return TurnOutcome.ACTED
+
+    dispatcher = FakeDispatcher()
+    hub, _ = _hub(8607, script=draws, dispatcher=dispatcher)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8607, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            _, page = await _events(s, 8607, started["turnId"], after=1, wait=0.2)
+            post_id = page["events"][0]["postId"]
+            actions = f"/v1/turns/{started['turnId']}/actions"
+            status, body = await _post(s, 8607, actions, {"postId": post_id, "actionId": "c"})
+            assert status == 200 and body == {"outcome": "redrawn", "privateNote": "for u-7 only"}
+            _, body = await _post(s, 8607, actions, {"postId": post_id, "actionId": "n"})
+            assert body == {"outcome": "redrawn"}
+            hold.set()
+    finally:
+        await hub.stop()
+
