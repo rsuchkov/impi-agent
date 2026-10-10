@@ -3,8 +3,10 @@
 The token stays here: the model names a provider and a path under that
 provider's API, and gets back what the provider answered — never a token, a
 connect link or whose account it is beyond the account's own name. A person
-connects in a direct message with the agent (``/connections``); the model is
-told to send them there and never to ask for a token.
+connects in a direct message with the agent: a call that finds them not
+connected posts that provider's Connect button into the conversation itself
+(the ``/connections`` screen, focused on it), and the model is told to ask
+them to press it — never for a token.
 
 Direct messages only, for now: in a shared conversation "the person the turn
 acts for" is not settled enough to act as anyone (CHANGELOG, backlog).
@@ -15,6 +17,7 @@ building the registry.
 """
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, ClassVar
@@ -36,6 +39,8 @@ from crucible.tools.base import CAP_CONNECTIONS, Tool, ToolContext, ToolError
 from crucible.tools.registry import tool
 from impi.connections_config import connection_providers
 from impi.connections_screen import DEFAULT_COMMAND
+
+logger = logging.getLogger(__name__)
 
 # What the model reads of an answer; past it the body is cut and says so.
 MAX_RESPONSE_CHARS = 20_000
@@ -66,8 +71,13 @@ class ConnectedApiSettings(BaseSettings):
         return self._api_urls.get(provider, "")
 
     @property
+    def screen(self) -> str:
+        """The connections screen's name — its command word."""
+        return self.connections_command.lstrip("/").strip().lower() or DEFAULT_COMMAND
+
+    @property
     def command(self) -> str:
-        return "/" + (self.connections_command.lstrip("/").strip().lower() or DEFAULT_COMMAND)
+        return f"/{self.screen}"
 
 
 def _settings(ctx: ToolContext) -> ConnectedApiSettings:
@@ -111,7 +121,22 @@ def api_target(api_url: str, path: str) -> str:
     return str(target)
 
 
-async def _grant(ctx: ToolContext, provider: str, command: str) -> Grant:
+async def _offer_connect(ctx: ToolContext, provider: str, settings: ConnectedApiSettings) -> bool:
+    """Post ``provider``'s Connect button into this conversation. False where
+    there is no way to post one; the model then sends the person to the command."""
+    if ctx.interaction_svc is None:
+        return False
+    try:
+        return await ctx.interaction_svc.open_screen(
+            ctx.agent_name, ctx.runtime_session_id, settings.screen,
+            user_id=ctx.user_id, data={"focus": provider},
+        )
+    except Exception:  # noqa: BLE001 - the offer is a convenience; the model still says what to do
+        logger.warning("could not post the %s connect offer", provider, exc_info=True)
+        return False
+
+
+async def _grant(ctx: ToolContext, provider: str, settings: ConnectedApiSettings) -> Grant:
     connections = ctx.require_connections()
     if provider not in connections.providers:
         known = ", ".join(connections.providers) or "none"
@@ -119,9 +144,16 @@ async def _grant(ctx: ToolContext, provider: str, command: str) -> Grant:
     try:
         return await connections.grant(provider)
     except NotConnected as exc:
+        if await _offer_connect(ctx, provider, settings):
+            raise ToolError(
+                f"the user has not connected their {provider} account. A Connect button for it is now "
+                "in this conversation: tell them to press it and that you will carry on once they ask "
+                "again. Do not call this tool again until then, and never ask them for a token or a "
+                "password"
+            ) from exc
         raise ToolError(
-            f"the user has not connected their {provider} account. Ask them to open {command} in a "
-            "direct message with you and connect it there. Never ask them for a token or a password"
+            f"the user has not connected their {provider} account. Ask them to open {settings.command} "
+            "in a direct message with you and connect it there. Never ask them for a token or a password"
         ) from exc
     except ProviderUnavailable as exc:
         raise ToolError(f"{provider} did not answer; try again in a minute") from exc
@@ -154,7 +186,7 @@ async def _call(
     if not api_url:
         raise ToolError(f"{provider} has no API address configured (CONNECTION_API_URL__…)")
     url = api_target(api_url, _require_str(args, "path"))
-    grant = await _grant(ctx, provider, settings.command)
+    grant = await _grant(ctx, provider, settings)
     try:
         # A redirect is answered, not followed: following it would carry the
         # token wherever the provider points.

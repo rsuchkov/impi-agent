@@ -14,7 +14,7 @@ JSON string; only this layer knows the shape).
 """
 
 import json
-from typing import Protocol
+from typing import Any, Protocol
 
 from crucible.ports.chat.types import Form, FormField
 
@@ -51,11 +51,13 @@ class InteractionService(Protocol):
         ...
 
     async def open_screen(
-        self, agent: str, runtime_session_id: str, name: str, *, user_id: str = ""
+        self, agent: str, runtime_session_id: str, name: str, *, user_id: str = "",
+        data: dict[str, Any] | None = None,
     ) -> bool:
-        """Post one of the engine's own screens here. Unlike the two above, the
-        clicks never come back as a turn — the engine answers them and rewrites
-        the message. False if no screen answers to ``name``."""
+        """Post one of the engine's own screens here, opened at ``data`` (none =
+        its first page). Unlike the two above, the clicks never come back as a
+        turn — the engine answers them and rewrites the message. False if no
+        screen answers to ``name``, or it refuses to appear here."""
         ...
 
     def screen_names(self) -> tuple[str, ...]:

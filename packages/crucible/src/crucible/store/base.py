@@ -552,6 +552,9 @@ class ConnectionLinkRecord:
     provider: str
     verifier_sealed: str  # the PKCE verifier, sealed like the tokens
     expires_at: str
+    # Where the application wants to say it went once the connect finishes —
+    # opaque here (a message to redraw, say), handed back in ``Connected``.
+    return_to: str = ""
 
 
 class ConnectionStore(Protocol):

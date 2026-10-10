@@ -376,3 +376,55 @@ async def test_what_a_screen_tells_the_clicker_alone_is_kept_out_of_the_message(
     finally:
         await store.close()
 
+
+
+class PrivatePanel:
+    command = "private"
+    direct_only = True
+
+    def __init__(self) -> None:
+        self.renders: list = []
+
+    async def render(self, state, *, user_id):
+        self.renders.append(state)
+        return View.of(f"opened at {state.data}", (screen_action(state, id="x", label="X"),))
+
+
+async def test_a_direct_only_screen_is_refused_to_an_agent_outside_a_direct_message(tmp_path: Path) -> None:
+    """The guard is in refusal() itself, so the tool path cannot skip it: an
+    agent in a channel posts nothing a person typing the command could not."""
+    from crucible.ports.chat.types import KIND_CHANNEL, KIND_DM
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat, panel = FakeChat(), PrivatePanel()
+    screens = ScreenRegistry()
+    screens.register(panel)
+    service = _service(store, chat, screens)
+    try:
+        channel, _ = await store.get_or_create("assistant", "ch1", "ch1", KIND_CHANNEL, user_id="u1")
+        assert not await service.open_screen("assistant", channel.runtime_session_id, "private", user_id="u1")
+        assert chat.posted_cards == [] and panel.renders == []
+
+        dm, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM, user_id="u1")
+        assert await service.open_screen(
+            "assistant", dm.runtime_session_id, "private", user_id="u1", data={"focus": "x"},
+        )
+        assert chat.posted_cards[0][1][0].text == "opened at {'focus': 'x'}"
+    finally:
+        await store.close()
+
+
+async def test_a_click_tells_the_screen_which_message_it_is_drawn_in(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat, panel = FakeChat(), PrivatePanel()
+    screens = ScreenRegistry()
+    screens.register(panel)
+    try:
+        state = ScreenState("private", agent="assistant", data={"focus": "x"}, post_id="forged")
+        assert "forged" not in state.encode()  # the platform says it, not the state
+        await _dispatcher(store, chat, SinkSpy(), screens).redraw_screen(
+            state.encode(), "", post_id="p9", user_id="u1",
+        )
+        assert panel.renders[-1].post_id == "p9" and panel.renders[-1].data == {"focus": "x"}
+    finally:
+        await store.close()

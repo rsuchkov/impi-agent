@@ -141,6 +141,7 @@ class OAuthConnections:
         poll_s: float = 0.5,
         clock: Callable[[], datetime] = _utcnow,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        on_connected: Callable[[Connected], Awaitable[None]] | None = None,
     ) -> None:
         self._connections = connections
         self._links = links
@@ -158,6 +159,9 @@ class OAuthConnections:
         self._poll_s = poll_s
         self._clock = clock
         self._sleep = sleep
+        # The application's word once a connect is stored — to tell the person
+        # where they started it. Its failure is logged; the connect stands.
+        self._on_connected = on_connected
         # One lock per connection, alive only while someone holds or awaits it.
         self._locks: weakref.WeakValueDictionary[tuple[str, str], asyncio.Lock] = weakref.WeakValueDictionary()
 
@@ -172,16 +176,18 @@ class OAuthConnections:
 
     # -- connecting ---------------------------------------------------------
 
-    async def begin(self, owner: str, provider: str) -> str:
+    async def begin(self, owner: str, provider: str, *, return_to: str = "") -> str:
         """Start a connect for ``owner``: the provider's consent URL to send
         them to. The URL is the person's alone — whoever holds it can finish
-        the connect within its time, so it goes to them privately."""
+        the connect within its time, so it goes to them privately.
+        ``return_to`` is kept with the link and handed back in ``Connected``."""
         oauth = self._provider(provider)
         state, verifier = new_state(), new_code_verifier()
         await self._links.put_link(ConnectionLinkRecord(
             state_digest=state_digest(state), owner=owner, provider=provider,
             verifier_sealed=self._sealer.seal(verifier),
             expires_at=_iso(self._clock() + timedelta(seconds=self._link_ttl_s)),
+            return_to=return_to,
         ))
         self._audit.record(EVENT_CONNECT_START, RESULT_OK, owner=owner, provider=provider)
         return oauth.authorize_url(state=state, code_challenge=code_challenge(verifier))
@@ -234,7 +240,13 @@ class OAuthConnections:
         if previous is not None:
             await self._revoke_stored(previous)  # the grant this connect replaced
         self._audit.record(EVENT_CONNECT, RESULT_OK, account=account.username, **where)
-        return Connected(owner=link.owner, provider=link.provider, account=account)
+        connected = Connected(owner=link.owner, provider=link.provider, account=account, return_to=link.return_to)
+        if self._on_connected is not None:
+            try:
+                await self._on_connected(connected)
+            except Exception:  # noqa: BLE001 - telling them is a courtesy; the connect is stored
+                logger.warning("connections: the on_connected hook failed", exc_info=True)
+        return connected
 
     async def refuse(self, state: str) -> None:
         """The person declined at the provider: spend the link, so the state

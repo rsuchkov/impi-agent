@@ -7,17 +7,20 @@
 - which account may be bound to whom: with ``CONNECTION_MATCH_EMAIL__<NAME>``
   (on by default) the account's email must be the one the chat profile shows,
   and a profile that shows none cannot be matched;
-- which agents may use which provider (``CONNECTION_AGENTS__<NAME>``).
+- which agents may use which provider (``CONNECTION_AGENTS__<NAME>``);
+- where a person hears that a connect worked: the message they started it
+  from is drawn again (``RedrawOnConnect``).
 
 Built only when some provider is configured; then the sealing keys and the
 public callback address are required, and their absence stops the engine with
 the key to set rather than leaving connects that cannot finish.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 
 from crucible.connections import (
+    Connected,
     ConnectionsError,
     Grant,
     OAuthConnections,
@@ -27,16 +30,42 @@ from crucible.connections.access import ConnectionAccess, ConnectionAccessFactor
 from crucible.connections.callback import CallbackServer
 from crucible.connections.oauth2 import OAuth2Provider
 from crucible.gateways import GatewayConfig
+from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.turn import TurnScope
 from crucible.store.base import Store
 from impi.config import ImpiSettings
 from impi.connections_config import ConnectionProvider
+from impi.connections_screen import CONNECTED, ConnectReturn
 
 
 def owner_of(gateway: str, user_id: str) -> str | None:
     """Whose connections: the chat user on the gateway they were seen on."""
     return f"{gateway}:{user_id}" if gateway and user_id else None
+
+
+def user_of(owner: str) -> str:
+    """The chat user an owner is, on its gateway — ``owner_of`` backwards."""
+    return owner.partition(":")[2]
+
+
+class RedrawOnConnect:
+    """Once a connect is stored, draw the message it was started from again —
+    the offer a tool posted, or the panel — so the person sees it worked where
+    they clicked. ``dispatcher`` is set once interactivity is built; until
+    then, and for a connect started from nowhere, nothing is drawn."""
+
+    def __init__(self) -> None:
+        self.dispatcher: GatewayDispatcher | None = None
+
+    async def __call__(self, connected: Connected) -> None:
+        back = ConnectReturn.decode(connected.return_to)
+        if back is None or self.dispatcher is None:
+            return
+        await self.dispatcher.redraw_screen(
+            back.state, f"{CONNECTED}:{connected.provider}",
+            post_id=back.post_id, user_id=user_of(connected.owner),
+        )
 
 
 class ChatEmailPolicy:
@@ -53,9 +82,8 @@ class ChatEmailPolicy:
         settings = self._providers.get(provider)
         if settings is None or not settings.match_email:
             return None
-        gateway, _, user_id = owner.partition(":")
-        client = self._client_for(gateway)
-        profile = await client.get_user_profile(user_id) if client is not None else None
+        client = self._client_for(owner.partition(":")[0])
+        profile = await client.get_user_profile(user_of(owner)) if client is not None else None
         mine = (profile.email if profile is not None else "").strip().lower()
         if not mine:
             return "your chat account shows no email to compare it with"
@@ -124,9 +152,12 @@ def build_connections(
     sessions: Store,
     configs: Mapping[str, GatewayConfig | None],
     client_of: Callable[[str], ChatClient | None],
+    *,
+    on_connected: Callable[[Connected], Awaitable[None]] | None = None,
 ) -> Connections | None:
     """None when no provider is configured. ``client_of(agent)`` is that
-    agent's chat client, read when an email is checked."""
+    agent's chat client, read when an email is checked; ``on_connected`` hears
+    of every connect stored."""
     providers = settings.connection_providers()
     if not providers:
         return None
@@ -165,6 +196,7 @@ def build_connections(
         providers={name: OAuth2Provider(p.oauth2_config(redirect)) for name, p in providers.items()},
         sealer=FernetSealer(keys),
         policy=ChatEmailPolicy(providers, client_for),
+        on_connected=on_connected,
     )
 
     def owner_for(agent: str, user_id: str) -> str | None:

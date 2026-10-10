@@ -106,6 +106,7 @@ async def test_saving_a_connection_ends_any_lease(connections) -> None:
 async def test_a_link_can_be_taken_once(links) -> None:
     link = ConnectionLinkRecord(
         state_digest="d1", owner="mattermost:u1", provider="gitlab", verifier_sealed="V", expires_at=T2,
+        return_to='{"p":"post-1"}',
     )
     await links.put_link(link)
     assert await links.take_link("d1") == link

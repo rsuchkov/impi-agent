@@ -85,7 +85,7 @@ from crucible.tools import MANIFEST_ENV, SessionProofBook, ToolServer, ToolWirin
 from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
-from impi.connections import Connections, build_connections
+from impi.connections import Connections, RedrawOnConnect, build_connections
 from impi.connections_screen import ConnectionsScreen
 from impi.deployment_report import (
     agents_dir_extensions,
@@ -390,10 +390,14 @@ def build_app(settings: ImpiSettings) -> App:
     sinks_by_agent: dict[str, AgentSink] = {}
     presence = MappingPresence(sinks_by_agent)
     # A person's own accounts at OAuth providers. The chat client an email is
-    # checked through is read when a connect finishes, by then the units are up.
+    # checked through is read when a connect finishes, by then the units are up;
+    # the message a connect started from is redrawn through the dispatcher,
+    # handed over below once interactivity is built.
+    redraw_on_connect = RedrawOnConnect()
     connections = build_connections(
         settings, sessions, configs,
         lambda agent: sink.chat if (sink := sinks_by_agent.get(agent)) is not None else None,
+        on_connected=redraw_on_connect,
     )
     if connections is not None:
         report = connections_report(
@@ -461,6 +465,7 @@ def build_app(settings: ImpiSettings) -> App:
         tool_max_grant_s=settings.tools.max_grant_s,
         tool_approvers=settings.tools.approvers,
     )
+    redraw_on_connect.dispatcher = interactions.dispatcher
 
     # TODO(runtime-backend): build_app hardcodes the pi backend. When a second
     # AgentRuntime appears, extract a runtime-builder (selected by a settings key)

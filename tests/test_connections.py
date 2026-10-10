@@ -484,3 +484,42 @@ def test_an_audit_value_cannot_add_a_field_or_a_line(caplog: pytest.LogCaptureFi
     with caplog.at_level(logging.INFO, logger="crucible.connections.audit"):
         LoggingAudit().record("connect", "ok", account="eve result=ok\nevent=forged")
     assert caplog.records[-1].getMessage() == 'event=connect result=ok account="eve result=ok\\nevent=forged"'
+
+
+# --- telling the person where they started -------------------------------------------
+
+
+async def test_a_connect_hands_back_where_it_was_started_and_says_it_finished() -> None:
+    provider, heard = FakeProvider(), []
+
+    async def on_connected(connected) -> None:
+        heard.append(connected)
+
+    service = _service(provider, on_connected=on_connected)
+    state, code = provider.consent(await service.begin(OWNER, "gitlab", return_to="message-7"))
+    connected = await service.finish(state, code)
+
+    assert connected.return_to == "message-7" and heard == [connected]
+    state, code = provider.consent(await service.begin(OWNER, "gitlab"))
+    assert (await service.finish(state, code)).return_to == ""  # started from nowhere
+
+
+async def test_a_connect_refused_or_failing_to_tell_is_not_told_or_undone(caplog: pytest.LogCaptureFixture) -> None:
+    provider, heard = FakeProvider(), []
+
+    async def on_connected(connected) -> None:
+        heard.append(connected)
+        raise RuntimeError("chat is down")
+
+    refused = _service(provider, on_connected=on_connected, policy=Refuse("not yours"))
+    state, code = provider.consent(await refused.begin(OWNER, "gitlab", return_to="m"))
+    with pytest.raises(LinkRefused):
+        await refused.finish(state, code)
+    assert heard == []
+
+    service = _service(provider, on_connected=on_connected)
+    state, code = provider.consent(await service.begin(OWNER, "gitlab", return_to="m"))
+    with caplog.at_level(logging.WARNING):
+        connected = await service.finish(state, code)
+    assert heard == [connected] and "on_connected hook failed" in caplog.text
+    assert await service.account(OWNER, "gitlab") == ALICE  # the connect stands

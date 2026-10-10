@@ -6,8 +6,11 @@ description: Let an agent act as the person at their own GitLab (or any OAuth 2.
 # Connected accounts
 
 A person connects their own account at a provider once, in a **direct message**
-with an agent (`/connections`); that agent's `connected_api_read` /
-`connected_api_write` then act as them, with their rights. The token stays in
+with an agent; that agent's `connected_api_read` / `connected_api_write` then
+act as them, with their rights. Usually they never type anything: the first
+call that finds them not connected posts a Connect button in the DM, and the
+same message turns into "✅ Connected …" once they have. `/connections` is the
+panel to see or end connections. The token stays in
 the engine — never in the model, never in an agent's process. Reference:
 `$IMPI_ROOT/docs/connections.md` (setup), `docs/configuration.md#connected-accounts`
 (every key).
@@ -54,7 +57,9 @@ redirect URI to register) and `!` lines for what is wrong.
 | Page: "its email is not the one your chat account has" | they logged in as another account at the provider | log in as their own |
 | Agent says the tool is missing | not in `runtime.tools`, the tool server off, or no provider configured (the tools are advertised only then) | engine-diagnostics §3 |
 | Tool: "works only in a direct message" | the agent was asked in a channel | by design, for now |
-| Tool: "has not connected their … account" | they never connected, or a 401 ended it | `/connections` in the DM |
+| Tool: "has not connected their … account" | they never connected, or a 401 ended it | the Connect button the engine posted, or `/connections` in the DM |
+| No Connect button appeared | interactivity off (`INTEGRATIONS_ENABLED`) — the model sends them to `/connections` instead, which also needs it | turn interactivity on |
+| Connected, but the button message did not change | the chat refused the edit (`impi logs`: `on_connected hook failed`) | harmless: the connection is stored; `/connections` shows it |
 | Tool: "path leaves the provider's API" | the model passed a full URL or `..` | the path is relative to `CONNECTION_API_URL__<NAME>` |
 | Panel: "did not confirm the revoke" | the provider did not answer the revoke | the person removes the application in their account there |
 

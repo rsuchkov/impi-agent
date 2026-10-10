@@ -15,11 +15,11 @@ fire-and-forget widget whose click feeds the agent).
 
 import json
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.types import Action, Card, Choice, ConversationRef
+from crucible.ports.chat.types import KIND_DM, Action, Card, Choice, ConversationRef
 
 # Marks a click as belonging to a screen, and names which one. The value rides in
 # the action context (Mattermost echoes it; Slack packs it into the button value),
@@ -38,9 +38,13 @@ class ScreenState:
     screen: str
     agent: str = ""
     data: dict[str, Any] = field(default_factory=dict)
+    # The message this state is drawn in, when a click on it says — for a
+    # screen that will want to redraw it later, outside a click. Not part of
+    # the encoded state: the platform tells it with every click.
+    post_id: str = ""
 
     def with_data(self, **updates: Any) -> "ScreenState":
-        return ScreenState(screen=self.screen, agent=self.agent, data={**self.data, **updates})
+        return replace(self, data={**self.data, **updates})
 
     def encode(self) -> str:
         return json.dumps(
@@ -144,14 +148,21 @@ class Admitting(Protocol):
     async def admits(self, *, user_id: str, ref: ConversationRef | None) -> str: ...
 
 
-async def refusal(screen: Screen, *, user_id: str, ref: ConversationRef | None) -> str:
+async def refusal(
+    screen: Screen, *, user_id: str, ref: ConversationRef | None, kind: str | None = None,
+) -> str:
     """Why this screen will not open, or "" — including for the screens that
     never refuse.
 
-    Asked of every screen and answered by the few that implement ``Admitting``.
-    A guard the caller cannot forget to invoke is worth more than one every
+    ``kind`` is the kind of conversation it is being opened in; None for a
+    click on a message that already exists. A ``direct_only`` screen is
+    refused in anything but a direct message here, for every way of opening
+    it. The rest is asked of the few screens that implement ``Admitting``. A
+    guard the caller cannot forget to invoke is worth more than one every
     screen has to remember to write.
     """
+    if kind is not None and kind != KIND_DM and getattr(screen, "direct_only", False):
+        return DIRECT_ONLY_TEXT
     admits = getattr(screen, "admits", None)
     if admits is None:
         return ""
@@ -229,13 +240,15 @@ async def post_first_view(
     agent: str,
     user_id: str,
     callback_url: str,
+    data: dict[str, Any] | None = None,
 ) -> None:
     """Render a screen's opening view and post it as ``agent``.
 
-    Shared by the two ways a screen is opened — a slash command, and an agent
-    reaching for it mid-turn — so both produce the same message, and every click
-    on it afterwards takes the same engine-only path."""
+    Shared by the ways a screen is opened — a slash command, an agent reaching
+    for it mid-turn, the engine posting it from a tool — so all produce the
+    same message, and every click on it afterwards takes the same engine-only
+    path. ``data`` is the state it opens in; none = its first page."""
     view = await screen.render(
-        ScreenState(screen=screen.command, agent=agent), user_id=user_id
+        ScreenState(screen=screen.command, agent=agent, data=dict(data or {})), user_id=user_id
     )
     await poster.post_cards(ref, list(view.cards), callback_url=callback_url)

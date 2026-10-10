@@ -7,7 +7,12 @@ from pathlib import Path
 import aiohttp
 import pytest
 
-from crucible.connections import ConnectionsError, OAuthConnections, ProviderAccount
+from crucible.connections import (
+    Connected,
+    ConnectionsError,
+    OAuthConnections,
+    ProviderAccount,
+)
 from crucible.connections.memory import MemoryConnectionStore, MemoryLinkStore
 from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.gateways import GatewayConfig
@@ -18,11 +23,12 @@ from impi.config import ImpiSettings
 from impi.connections import (
     ChatEmailPolicy,
     NarrowedConnections,
+    RedrawOnConnect,
     build_connections,
     owner_of,
 )
 from impi.connections_config import connection_providers
-from impi.connections_screen import ConnectionsScreen
+from impi.connections_screen import ConnectionsScreen, ConnectReturn
 from impi.deployment_report import connections_report
 from tests.test_connections import ALICE, FakeProvider
 
@@ -336,7 +342,7 @@ async def test_disconnect_says_whether_the_provider_confirmed(revoke_error, says
 async def test_a_provider_that_does_not_answer_is_a_note_not_a_crash() -> None:
     service, screen = _screen(FakeProvider())
 
-    async def down(owner, provider):
+    async def down(owner, provider, **kwargs):
         raise ConnectionsError("down")
 
     service.begin = down  # type: ignore[method-assign]
@@ -403,3 +409,73 @@ def test_a_new_key_goes_first_and_the_old_ones_keep_opening(
     assert kept == old and new != old
     assert FernetSealer([new, kept]).open(sealed) == "v"  # nobody connects again
     assert FernetSealer([new]).open(FernetSealer([new, kept]).seal("w")) == "w"  # the new one seals
+
+
+# --- the offer, and saying it worked ----------------------------------------------------
+
+
+async def test_an_offer_shows_one_provider_and_its_connect_remembers_the_message() -> None:
+    provider = FakeProvider()
+    service, screen = _screen(provider, providers=("gitlab", "jira"))
+    begun: list[str] = []
+    real_begin = service.begin
+
+    async def begin(owner, name, *, return_to=""):
+        begun.append(return_to)
+        return await real_begin(owner, name, return_to=return_to)
+
+    service.begin = begin  # type: ignore[method-assign]
+    offer = ScreenState(screen="accounts", agent="assistant", data={"focus": "gitlab"})
+
+    view = await screen.render(offer, user_id="u1")
+    assert len(view.cards) == 1 and "Connect gitlab" in view.cards[0].text and "jira" not in _text(view)
+
+    clicked = ScreenState(screen="accounts", agent="assistant", data={"focus": "gitlab", "value": "connect:gitlab"},
+                          post_id="p1")
+    await screen.render(clicked, user_id="u1")
+    back = ConnectReturn.decode(begun[-1])
+    assert back is not None and back.post_id == "p1"
+    redrawn_from = ScreenState.decode(back.state)
+    assert redrawn_from is not None and redrawn_from.data == {"focus": "gitlab", "value": ""}
+
+    await screen.render(ScreenState(screen="accounts", agent="assistant", data={"value": "connect:gitlab"}),
+                        user_id="u1")
+    assert begun[-1] == ""  # no message to come back to: nothing remembered
+
+
+async def test_connected_is_said_only_when_the_store_agrees() -> None:
+    provider = FakeProvider()
+    service, screen = _screen(provider)
+    said = ScreenState(screen="accounts", agent="assistant", data={"focus": "gitlab", "value": "connected:gitlab"})
+
+    forged = await screen.render(said, user_id="u1")
+    assert "Connected" not in _text(forged) and forged.cards[0].actions  # still an offer
+
+    state, code = provider.consent(await service.begin("mattermost:u1", "gitlab"))
+    await service.finish(state, code)
+    offer = await screen.render(said, user_id="u1")
+    assert "✅ Connected to gitlab as **alice**" in _text(offer) and offer.cards[0].actions == ()
+    panel = await screen.render(_state("connected:gitlab"), user_id="u1")
+    assert "✅ Connected to gitlab as **alice**" in panel.cards[0].text  # the panel says it in its header
+
+
+async def test_a_connect_is_redrawn_where_it_started_and_nowhere_else() -> None:
+    class Dispatcher:
+        def __init__(self) -> None:
+            self.redraws: list[tuple] = []
+
+        async def redraw_screen(self, state, value, *, post_id, user_id):
+            self.redraws.append((state, value, post_id, user_id))
+
+    redraw = RedrawOnConnect()
+    back = ConnectReturn(post_id="p1", state='{"n":"connections"}').encode()
+    connected = Connected(owner="mattermost:u1", provider="gitlab", account=ALICE, return_to=back)
+    await redraw(connected)  # not wired yet: nothing to draw with
+    redraw.dispatcher = dispatcher = Dispatcher()  # type: ignore[assignment]
+
+    await redraw(connected)
+    await redraw(Connected(owner="mattermost:u1", provider="gitlab", account=ALICE))
+    await redraw(Connected(owner="mattermost:u1", provider="gitlab", account=ALICE, return_to="{not json"))
+
+    assert dispatcher.redraws == [('{"n":"connections"}', "connected:gitlab", "p1", "u1")]
+    assert ConnectReturn.decode('{"p":"","s":"x"}') is None and ConnectReturn.decode("[]") is None

@@ -2,6 +2,7 @@
 local stand-in for the provider's API."""
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -302,3 +303,87 @@ async def test_the_card_says_when_there_is_no_account_to_act_as(
         _ctx(service, _settings(tmp_path, monkeypatch)), {"provider": "gitlab", "method": "PUT", "path": "x"},
     )
     assert preview is not None and preview.rows[0].value == "not connected to gitlab"
+
+
+# --- offered in the conversation, and told where it was offered -----------------------
+
+
+async def test_not_connected_posts_the_connect_offer_and_the_connect_redraws_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole round as the person sees it: the agent's call finds no
+    account, the engine posts that provider's Connect button in the DM, the
+    click hands the link to the clicker alone, and once the connect is stored
+    the same message says it worked."""
+    from crucible.interactions import InteractionDispatcher
+    from crucible.interactions.pending_ui import PendingUiRequests
+    from crucible.interactions.screens import ScreenRegistry
+    from crucible.interactions.service import InteractionService
+    from crucible.store.sqlite import SqliteSessionStore
+    from impi.connections import RedrawOnConnect
+    from impi.connections_screen import ConnectionsScreen
+    from tests.fakes.fake_chat import FakeChat
+    from tests.fakes.presence import presence_of
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    provider, chat, redraw = FakeProvider(), FakeChat(), RedrawOnConnect()
+    service = OAuthConnections(
+        connections=store, links=store, providers={"gitlab": provider},
+        sealer=FernetSealer([new_sealing_key()]), on_connected=redraw,
+    )
+    screens = ScreenRegistry()
+    screens.register(ConnectionsScreen(
+        service, owner_for=lambda agent, user: f"mattermost:{user}", providers_for=lambda agent: ("gitlab",),
+    ))
+    interactions = InteractionService(presence_of(chat), store, store, store, callback_url="cb", screens=screens)
+    redraw.dispatcher = InteractionDispatcher(
+        store, presence_of(chat), PendingUiRequests(), store, screens=screens, callback_url="cb",
+    )
+    try:
+        dm, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM, user_id="u1")
+        ctx = ToolContext(
+            agent_name="assistant", directory=FakeDirectory(AGENTS), settings=_settings(tmp_path, monkeypatch),
+            conversation_kind=KIND_DM, runtime_session_id=dm.runtime_session_id, user_id="u1",
+            interaction_svc=interactions, connections=NarrowedConnections(service.for_owner(OWNER), ("gitlab",)),
+        )
+
+        with pytest.raises(ToolError, match="Connect button for it is now in this conversation"):
+            await ConnectedApiRead().execute(ctx, {"provider": "gitlab", "path": "user"})
+        ref, cards, _ = chat.posted_cards[0]
+        assert ref.channel_id == "dm1" and len(cards) == 1 and "Connect gitlab" in cards[0].text
+        connect = cards[0].actions[0]
+        assert connect.label == "Connect" and connect.value == "connect:gitlab"
+
+        redrawn = await redraw.dispatcher.redraw_screen(
+            connect.context["state"], connect.value, post_id="offer-1", user_id="u1",
+        )
+        assert redrawn is not None and "yours alone" in redrawn.private_note
+        assert all("http" not in card.text for _, cs in chat.updated for card in cs)
+
+        state, code = provider.consent(redrawn.private_note.rsplit(" ", 1)[1])
+        await service.finish(state, code)
+
+        post_id, final = chat.updated[-1]
+        assert post_id == "offer-1" and "✅ Connected to gitlab as **alice**" in final[0].text
+        assert final[0].actions == ()  # nothing left to press
+    finally:
+        await store.close()
+
+
+async def test_without_a_way_to_post_the_model_sends_the_person_to_the_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = await _connected(FakeProvider(), connect=False)
+
+    class Refusing:
+        async def open_screen(self, *args, **kwargs) -> bool:
+            raise RuntimeError("chat is down")
+
+    for interactions, warned in ((None, False), (Refusing(), True)):
+        caplog.clear()
+        ctx = _ctx(service, _settings(tmp_path, monkeypatch))
+        ctx.interaction_svc = interactions  # type: ignore[assignment]
+        with caplog.at_level(logging.WARNING), pytest.raises(ToolError, match="Ask them to open /connections"):
+            await ConnectedApiRead().execute(ctx, {"provider": "gitlab", "path": "user"})
+        # No interactivity is a deployment's choice, not a failure to report.
+        assert ("could not post" in caplog.text) is warned

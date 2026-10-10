@@ -11,6 +11,7 @@ INBOUND half (matching the click/submit) is the InteractionDispatcher.
 import logging
 import secrets
 from datetime import datetime, timezone
+from typing import Any
 
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.screens import ScreenRegistry, post_first_view, refusal
@@ -171,7 +172,8 @@ class InteractionService:
         return True
 
     async def open_screen(
-        self, agent: str, runtime_session_id: str, name: str, *, user_id: str = ""
+        self, agent: str, runtime_session_id: str, name: str, *, user_id: str = "",
+        data: dict[str, Any] | None = None,
     ) -> bool:
         """Post an engine screen into the conversation this turn is running in.
 
@@ -182,20 +184,21 @@ class InteractionService:
         resolved, or the screen refuses to appear here — an agent reaching for a
         panel is subject to the same admission as a person typing its command,
         and for the same reason: the panel would be posted into a conversation
-        the screen has said it will not appear in."""
+        the screen has said it will not appear in. ``data`` is the state the
+        screen opens in (a tool posting one provider's Connect, say)."""
         screen = self._screens.get(name) if self._screens else None
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
         poster = self._presence.poster(agent)
         if screen is None or record is None or poster is None:
             return False
         ref = self._ref(record)
-        denial = await refusal(screen, user_id=user_id, ref=ref)
+        denial = await refusal(screen, user_id=user_id, ref=ref, kind=record.kind)
         if denial:
             logger.info("screen %s refused in an agent turn: %s", screen.command, denial)
             return False
         await post_first_view(
             screen, poster, ref,
-            agent=agent, user_id=user_id, callback_url=self._callback_url,
+            agent=agent, user_id=user_id, callback_url=self._callback_url, data=data,
         )
         logger.info("screen %s opened by %s (agent turn)", screen.command, agent)
         return True

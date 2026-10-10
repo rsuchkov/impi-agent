@@ -429,6 +429,15 @@ credential, is another user's credential.
   wire `ToolWiring(connections_on=True)` and
   `build_server(connections=connection_access(service, owner_for))`, with
   `owner_for(agent, user_id, turn)` saying whose connections a turn uses.
+  To tell the person where they started that it worked, pass
+  `begin(owner, provider, return_to=…)` — opaque to the library, kept with
+  the link — and `OAuthConnections(on_connected=…)`, which is handed a
+  `Connected` carrying it once the connect is stored. A screen that started
+  it knows its own message from `ScreenState.post_id` (set on every click)
+  and redraws it through `redraw_screen`. A screen that shows a person's own
+  things declares `direct_only = True` and is refused outside a direct
+  message however it is opened; `InteractionService.open_screen(…, data=…)`
+  opens one at a state of the engine's choosing.
 - **Keeping secrets out of the log.** `crucible.redaction.ScrubbingFilter`
   on each handler of the root logger scrubs every record. It replaces the
   value and keeps the name for: the tool token and session proof by header

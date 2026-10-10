@@ -12,17 +12,26 @@ This page is the deployment's side. The library behind it is
 
 ## How a connect goes
 
+The person rarely has to know about the panel. When the agent reaches for a
+provider they have not connected, the engine posts that provider's offer into
+the direct message itself — what is missing and a **Connect** button — and the
+model only tells them to press it. Once they have connected, the same message
+says so: **✅ Connected to gitlab as alice. Ask me again and I'll carry on.**
+
+The panel is the other way in, and the place to see or end a connection:
+
 1. The person opens **`/connections`** in a direct message with the agent. The
    panel lists the providers that agent may use, each with **Connect** or
    **Disconnect**. Anywhere else the engine answers privately that it opens
    only in a direct message — whose accounts are connected is nobody else's
-   business.
+   business — and an agent cannot post it outside one either.
 2. **Connect** gives them a link, privately (Mattermost's ephemeral reply, a
    Slack whisper) — never in the message. It is theirs alone, works once and
    expires in ten minutes.
 3. They consent at the provider, which sends their browser back to the
    engine's callback page (`<CONNECTIONS_PUBLIC_URL>/oauth/callback`). The page
-   says how it went; the panel shows **connected as …** on the next open.
+   says how it went, and the message they clicked Connect in is redrawn to
+   say they are connected.
 4. The agent can now use `connected_api_read` and `connected_api_write`.
 
 A connection belongs to the chat user on one gateway (`mattermost:<id>`): the
@@ -104,9 +113,11 @@ ws and http gateways never — `impi health` warns about each.
   token wherever the provider points.
 - What comes back is marked as other people's text (an issue's description is
   whoever wrote it) and cut at 20 000 characters, saying so.
-- Not connected: the model is told to send the person to `/connections` in a
-  direct message and never to ask for a token. A 401 ends the connection and
-  says the same.
+- Not connected: the engine posts the provider's Connect offer in the
+  conversation, and the model is told to ask the person to press it — and
+  never to ask for a token. With interactivity off there is no button to post,
+  and the model sends them to `/connections` instead. A 401 ends the
+  connection and asks them to connect again.
 
 ## Keys, refresh, ending one
 

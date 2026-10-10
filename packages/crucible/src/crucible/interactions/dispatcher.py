@@ -8,7 +8,7 @@ message. It knows nothing about HTTP or any platform's payload shape.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import uuid4
 
 from crucible.approvals import ApprovalOutcome, PendingApprovals
@@ -18,7 +18,6 @@ from crucible.interactions.ports import FormHandlers
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.results import ActionResult
 from crucible.interactions.screens import (
-    DIRECT_ONLY_TEXT,
     Redrawn,
     ScreenOpened,
     ScreenRegistry,
@@ -30,7 +29,6 @@ from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.interactions import form_from_json
 from crucible.ports.chat.types import (
-    KIND_DM,
     KIND_THREAD,
     STATIC_FIELD_TYPES,
     ConversationRef,
@@ -232,10 +230,7 @@ class InteractionDispatcher:
         )
         # A screen that shows the person's own things declares it, and is
         # refused wherever anybody else could read it.
-        denial = (
-            DIRECT_ONLY_TEXT if getattr(screen, "direct_only", False) and kind != KIND_DM
-            else await refusal(screen, user_id=user_id, ref=ref)
-        )
+        denial = await refusal(screen, user_id=user_id, ref=ref, kind=kind)
         if denial:
             # Nothing is posted. Whatever the screen would have drawn, this
             # conversation is not where it may appear.
@@ -268,6 +263,7 @@ class InteractionDispatcher:
         if await refusal(screen, user_id=user_id, ref=None):
             logger.info("screen %s: click refused for %s", screen.command, user_id)
             return None
+        state = replace(state, post_id=post_id)
         if value:
             # What the control returned (a picked option, a button's value) is the
             # screen's input for this render.

@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS connection_links (
   owner           TEXT NOT NULL,
   provider        TEXT NOT NULL,
   verifier_sealed TEXT NOT NULL,
-  expires_at      TEXT NOT NULL
+  expires_at      TEXT NOT NULL,
+  return_to       TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_connection_links_expires ON connection_links (expires_at);
 """

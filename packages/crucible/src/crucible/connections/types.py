@@ -73,11 +73,13 @@ class Grant:
 
 @dataclass(frozen=True)
 class Connected:
-    """A connect that finished: whose, where, as whom."""
+    """A connect that finished: whose, where, as whom — and the ``return_to``
+    the application gave ``begin``."""
 
     owner: str
     provider: str
     account: ProviderAccount
+    return_to: str = ""
 
 
 @dataclass(frozen=True)

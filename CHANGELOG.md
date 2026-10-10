@@ -71,6 +71,10 @@ when a release is cut, and `impi update` shows the target version's section.
     the provider's API address, a redirect is not followed, the answer is
     marked as other people's text and cut at 20 000 characters, and a 401 ends
     the connection.
+  - A call that finds the person not connected posts that provider's offer —
+    what is missing and a Connect button — into the direct message itself,
+    and the model only asks them to press it. Once they have connected, the
+    message they clicked in (the offer or the panel) is redrawn to say so.
   - `impi connections key` puts a new sealing key first; the old ones keep
     opening, so nobody connects again.
   - `impi health` and the startup log name the providers, their agents and the
@@ -78,8 +82,19 @@ when a release is cut, and `impi update` shows the target version's section.
     working.
   - The engine image installs `impi[connections]` (cryptography).
 - **A screen can be declared for direct messages only** (`direct_only = True`):
-  the dispatcher answers anywhere else, privately, with `DIRECT_ONLY_TEXT`, and
-  renders nothing.
+  anywhere else it is refused, privately, with `DIRECT_ONLY_TEXT`, and nothing
+  is rendered — whether a person types its command or an agent opens it
+  (`refusal(…, kind=…)` checks it for every way in).
+- **A screen can be opened at a state, and knows which message it is drawn
+  in.** `InteractionService.open_screen(…, data=…)` (and `post_first_view`)
+  open it at the state given; `ScreenState.post_id` is the message a click
+  came from, set by the dispatcher and never part of the encoded state.
+- **A connect hands back where it was started and says it finished.**
+  `OAuthConnections.begin(…, return_to=…)` keeps an opaque value with the link
+  (`ConnectionLinkRecord.return_to`, a new column and field) and
+  `Connected.return_to` hands it back; `OAuthConnections(on_connected=…)` is
+  called once a connect is stored — its failure is logged and the connect
+  stands.
 - **A Mattermost slash command typed in a direct message runs as one.** It ran
   as a channel conversation (`kind` `channel`), because the command's payload
   says nothing about the channel's type. The engine now reads it from the
