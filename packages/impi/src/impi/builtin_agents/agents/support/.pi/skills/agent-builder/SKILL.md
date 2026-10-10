@@ -70,7 +70,7 @@ and logs why. Common cases:
 | `send_file` | `ATTACHMENTS_ENABLED=true` |
 | `send_ephemeral` | a gateway that has ephemeral messages |
 | `schedule_task`, `list_tasks`, `cancel_task`, `pause_task` | `SCHEDULER_ENABLED=true` |
-| `connected_accounts`, `connected_api_read`, `connected_api_write` | a provider configured (`CONNECTION_CLIENT_ID__<NAME>`, the **connections** skill); they act only in a direct message |
+| `connected_accounts`, `connected_api_read`, `connected_api_write` | a provider configured (`CONNECTION_CLIENT_ID__<NAME>`, the **connections** skill); they act only in a direct message, and never for an agent on the ws/http gateway or in a scheduled run |
 
 `read_channel`, `get_channel_members` and `connected_api_*` return what other people wrote, so the
 engine wraps their result as `{"untrusted": true, "note": …, "data": …}` with
