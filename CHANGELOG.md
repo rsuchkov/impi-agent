@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.22.0 — 2026-10-10
+
 - **People can connect their own accounts at an OAuth provider, for tools to
   act as them** (`crucible.connections`, the library half). `OAuthConnections`
   does the whole round:
