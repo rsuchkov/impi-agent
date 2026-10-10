@@ -8,7 +8,8 @@ where the audit trail goes.
 
 from typing import Protocol
 
-from crucible.connections.types import OAuthTokens, ProviderAccount
+from crucible.connections.types import OAuthTokens
+from crucible.ports.connections import ProviderAccount
 
 
 class OAuthProvider(Protocol):
@@ -50,7 +51,7 @@ class AccountPolicy(Protocol):
     — the same email, a membership. None allows it; a reason refuses it, and
     the tokens just issued are revoked."""
 
-    async def check(self, owner: str, provider: str, account: ProviderAccount) -> str | None: ...
+    async def refusal(self, owner: str, provider: str, account: ProviderAccount) -> str | None: ...
 
 
 class ConnectionsAudit(Protocol):

@@ -15,7 +15,7 @@ from crucible.gateways import GatewayConfig, needs_http_receiver
 from crucible.ports.agent import AgentSpec
 from crucible.profiles import ProfileStore
 from impi.config import ImpiSettings
-from impi.connections_config import ConnectionProvider
+from impi.connections_config import ASSERTED_IDENTITY_GATEWAYS, ConnectionProvider
 
 # What lets a process read a neighbour's /proc/<pid>/environ: a shell, or a
 # built-in that reads files.
@@ -123,8 +123,6 @@ def fallback_report(
     return line, warning
 
 
-# Gateways whose users carry no email the engine can read.
-_NO_EMAIL_GATEWAYS = frozenset({"ws", "http"})
 _LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
@@ -193,12 +191,14 @@ def connections_report(
                 f"CONNECTION_AGENTS__{name.upper().replace('-', '_')} names agents this engine "
                 f"does not run: {', '.join(unknown)}"
             )
-        no_email = [a for a in allowed if (cfg := configs.get(a)) is not None and cfg.kind in _NO_EMAIL_GATEWAYS]
-        if p.match_email and no_email:
+        asserted = [
+            a for a in allowed if (cfg := configs.get(a)) is not None and cfg.kind in ASSERTED_IDENTITY_GATEWAYS
+        ]
+        if asserted:
             report.warnings.append(
-                f"{name} matches the account's email to the chat user's, but {', '.join(no_email)} "
-                "run on a gateway whose users show no email — every connect from there is refused "
-                f"(CONNECTION_MATCH_EMAIL__{name.upper().replace('-', '_')}=false lifts it)"
+                f"{name} is not offered to {', '.join(asserted)}: on the ws and http gateways the "
+                "user id is whatever the calling program says, so one program's user cannot be told "
+                "from another's — nobody there may act as a connected account"
             )
     return report
 

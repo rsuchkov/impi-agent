@@ -1,10 +1,10 @@
 """People's own accounts at OAuth providers, connected once and used by tools
 acting as them — the token never reaching the model.
 
-``OAuthConnections`` is the service; the stores are ``crucible.store`` slices
-(in memory: ``connections.memory``), sealing at rest is ``connections.sealing``
-(``crucible[connections]``). See ``service.py`` for how a connect, a grant and
-a refresh go.
+``OAuthConnections`` is the service; the stores are ``crucible.store`` slices,
+sealing at rest is ``connections.sealing`` (``crucible[connections]``), and
+what a tool sees of it all is ``crucible.ports.connections``. See
+``service.py`` for how a connect, a grant and a refresh go.
 """
 
 from crucible.connections.audit import AUDIT_LOGGER, LoggingAudit
@@ -27,14 +27,8 @@ from crucible.connections.ports import (
     Sealer,
 )
 from crucible.connections.service import OAuthConnections
-from crucible.connections.types import (
-    AccessToken,
-    Connected,
-    Disconnection,
-    Grant,
-    OAuthTokens,
-    ProviderAccount,
-)
+from crucible.connections.types import Connected, Disconnection, OAuthTokens
+from crucible.ports.connections import AccessToken, ProviderAccount, TokenGrant
 
 __all__ = [
     "ACCOUNT_REFUSED",
@@ -49,7 +43,6 @@ __all__ = [
     "ConnectionsAudit",
     "ConnectionsError",
     "Disconnection",
-    "Grant",
     "LinkRefused",
     "LoggingAudit",
     "NotConnected",
@@ -59,5 +52,6 @@ __all__ = [
     "ProviderAccount",
     "ProviderRejected",
     "ProviderUnavailable",
+    "TokenGrant",
     "Sealer",
 ]

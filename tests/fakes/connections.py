@@ -1,6 +1,5 @@
-"""Connected accounts kept in memory: for tests — an application's included —
-and for a process that may lose them on restart. The same semantics as the
-real stores: the lease, the conditional writes, the single-use link."""
+"""Connected accounts kept in memory, for tests: the same semantics as the
+real stores — the lease, the conditional writes, the single-use link."""
 
 from dataclasses import replace
 

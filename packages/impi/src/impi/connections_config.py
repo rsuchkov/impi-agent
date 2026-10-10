@@ -1,7 +1,8 @@
 """The OAuth providers a deployment lets people connect, from its settings.
 
-One family of keys per field, the provider's name last — the same shape as
-every other per-name family here (``AGENTS_MM_TOKEN__<AGENT>``):
+One family of keys per field, the provider's name last — the shape of the
+per-agent families (``AGENTS_MM_TOKEN__<AGENT>``), keyed by a provider the
+operator names instead of an agent:
 
     CONNECTION_CLIENT_ID__GITLAB=…          names the provider (required)
     CONNECTION_CLIENT_SECRET__GITLAB=…      (required)
@@ -25,6 +26,25 @@ from crucible.connections.oauth2 import OAuth2Config, gitlab
 
 _PREFIX = "CONNECTION_"
 _KINDS = ("gitlab", "oauth2")
+
+# Gateways whose user id is whatever the calling program says: one program's
+# "alice" cannot be told from another's, so nobody there may act as anyone's
+# connected account.
+ASSERTED_IDENTITY_GATEWAYS = frozenset({"http", "ws"})
+
+# The word the connections screen answers to, unless CONNECTIONS_COMMAND says
+# another.
+DEFAULT_COMMAND = "connections"
+
+
+def command_word(raw: str) -> str:
+    """CONNECTIONS_COMMAND as the screen binds it: no slash, lower case."""
+    return raw.lstrip("/").strip().lower() or DEFAULT_COMMAND
+
+
+# The settings families an agent's process may never inherit by pattern: they
+# hold every provider's client secret and the sealing keys.
+CONNECTION_SECRET_PREFIXES = (_PREFIX, "CONNECTIONS_")
 
 
 @dataclass(frozen=True)

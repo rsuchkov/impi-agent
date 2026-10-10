@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from crucible.connections.memory import MemoryConnectionStore, MemoryLinkStore
 from crucible.store.base import ConnectionLinkRecord, ConnectionRecord
 from tests.conftest import BACKENDS, backend_for
+from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
 
 T0 = "2026-10-10T12:00:00+00:00"
 T1 = "2026-10-10T12:00:30+00:00"

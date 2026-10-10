@@ -9,8 +9,8 @@ other cannot, today, and no setting here changes that.
 **The inventory** is what the engine knows: which conversations exist and which
 runtime session each maps to, scheduled tasks and their run history, the
 scheduler's heartbeat, approval windows and the ledger of what was asked,
-pending forms and unclicked widgets, and the agent registry. This is the part
-with a backend setting.
+pending forms and unclicked widgets, the agent registry, and people's
+connected accounts. This is the part with a backend setting.
 
 **Conversation memory** is what an agent remembers. That belongs to the runtime,
 which keeps it as session files on disk — under `{DATA_DIR}/pi-sessions/` in the
@@ -120,8 +120,9 @@ reports an empty stand.
 
 There is no migration. Switching backends starts from an empty inventory: the
 conversations are still in the chat platform and the agents still have their
-memory, but scheduled tasks, approval windows and the ledger do not come across.
-Recreate the tasks (`impi task add`) and re-approve what needs it.
+memory, but scheduled tasks, approval windows, the ledger and connected
+accounts do not come across. Recreate the tasks (`impi task add`), re-approve
+what needs it, and expect everyone to connect their accounts again.
 
 Switching back is the same in reverse — the SQLite file is left where it was, so
 setting `IMPI_MONGO=0` returns to whatever it last held.
@@ -148,7 +149,7 @@ One per subject, named the way the SQLite tables are:
 
 The indexes are created on first use and are load-bearing rather than an
 optimisation: they are what makes a claimed occurrence unable to fire twice,
-a replayed message a no-op, and a second connect of one account to one
+a replayed message a no-op, and a second connect of one person to one
 provider a reconnect rather than a duplicate. A deployment that dropped them would not slow down,
 it would double-fire.
 

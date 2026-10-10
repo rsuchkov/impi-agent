@@ -7,7 +7,7 @@ import aiohttp
 import pytest
 
 from crucible.gateways.mattermost import MattermostCallbackCodec
-from crucible.gateways.mattermost.callbacks import _is_direct
+from crucible.gateways.mattermost.callbacks import _direct_with
 from crucible.interactions import (
     InteractionDispatcher,
     InteractionsServer,
@@ -38,6 +38,9 @@ THREAD_PAYLOAD = {
 }
 
 
+BOTS = {"assistant": "bot5y3tcbfyb8xgk8nqkgcyhr", "other": "otherbot9n4ftmzq1krdh5x8c7w"}
+
+
 class SinkSpy:
     def __init__(self) -> None:
         self.submitted: list = []
@@ -49,6 +52,7 @@ class SinkSpy:
 async def _server(
     port: int, store, *, tokens=("good-token",), token_owners=("assistant",),
     agents=None, default_agent="", present="assistant", screens=None, chat=None,
+    agent_user_id=lambda agent: BOTS.get(agent, ""),
 ) -> tuple[InteractionsServer, SinkSpy]:
     spy = SinkSpy()
     dispatcher = InteractionDispatcher(
@@ -62,6 +66,7 @@ async def _server(
         command_tokens=lambda agent: tuple(tokens) if agent in token_owners else (),
         agents=(lambda: tuple(agents)) if agents is not None else None,
         default_agent=default_agent,
+        agent_user_id=agent_user_id,
     )
     await server.start()
     return server, spy
@@ -254,19 +259,49 @@ USER = THREAD_PAYLOAD["user_id"]
 DIRECT = {**THREAD_PAYLOAD, "root_id": "", "channel_name": f"{USER}__bot5y3tcbfyb8xgk8nqkgcyhr"}
 
 
-@pytest.mark.parametrize(("channel_name", "user_id", "direct"), [
-    ("a1__b2", "a1", True),
-    ("a1__b2", "b2", True),  # either side may be the one typing
-    ("a1__a1", "a1", True),  # a note to self
-    ("a1__b2", "c3", False),
-    ("a1__b2__c3", "a1", False),
-    ("town-square", "a1", False),
-    ("", "", False),
+@pytest.mark.parametrize(("channel_name", "user_id", "other"), [
+    ("a1__b2", "a1", "b2"),
+    ("a1__b2", "b2", "a1"),  # either side may be the one typing
+    ("a1__a1", "a1", "a1"),  # a note to self
+    ("a1__b2", "c3", ""),
+    ("a1__b2__c3", "a1", ""),
+    ("town-square", "a1", ""),
+    ("", "", ""),
 ])
 def test_a_direct_message_is_the_channel_named_for_its_two_people(
-    channel_name: str, user_id: str, direct: bool,
+    channel_name: str, user_id: str, other: str,
 ) -> None:
-    assert _is_direct(channel_name, user_id) is direct
+    assert _direct_with(channel_name, user_id) == other
+
+
+@pytest.mark.parametrize(("channel_name", "known", "kind"), [
+    (f"{USER}__bot5y3tcbfyb8xgk8nqkgcyhr", True, KIND_DM),
+    (f"{USER}__someone6else7entirely8here", True, KIND_CHANNEL),  # two people
+    (f"{USER}__otherbot9n4ftmzq1krdh5x8c7w", True, KIND_CHANNEL),  # another agent's
+    (f"{USER}__bot5y3tcbfyb8xgk8nqkgcyhr", False, KIND_CHANNEL),  # not logged in yet
+])
+async def test_only_the_agents_own_direct_message_counts_as_one(
+    tmp_path: Path, channel_name: str, known: bool, kind: str,
+) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, spy = await _server(8624, store, agent_user_id=lambda agent: BOTS[agent] if known else "")
+    try:
+        await _post(8624, "assistant", {**DIRECT, "channel_name": channel_name})
+        assert spy.submitted[0].kind == kind
+    finally:
+        await server.stop()
+        await store.close()
+
+
+async def test_without_a_way_to_know_the_agent_any_direct_message_counts(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, spy = await _server(8625, store, agent_user_id=None)
+    try:
+        await _post(8625, "assistant", {**DIRECT, "channel_name": f"{USER}__someone6else7entirely8here"})
+        assert spy.submitted[0].kind == KIND_DM
+    finally:
+        await server.stop()
+        await store.close()
 
 
 async def test_a_command_in_a_direct_message_runs_as_one(tmp_path: Path) -> None:

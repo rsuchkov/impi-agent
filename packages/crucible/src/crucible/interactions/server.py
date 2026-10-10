@@ -24,7 +24,7 @@ from aiohttp.abc import AbstractAccessLogger
 
 from crucible.approvals import ApprovalOutcome
 from crucible.constant_time import matches_any
-from crucible.interactions.callbacks import CallbackCodec
+from crucible.interactions.callbacks import CallbackCodec, CommandCallback
 from crucible.interactions.dispatcher import InteractionDispatcher
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.results import ActionResult
@@ -51,6 +51,10 @@ CommandTokens = Callable[[str], tuple[str, ...]]
 # The agents this engine runs. Read when a command arrives, not captured, so the
 # app stays the single owner of that list.
 LiveAgents = Callable[[], tuple[str, ...]]
+
+# An agent's own user id on its platform, "" while it is not known yet: what
+# tells a direct message WITH the agent from one between two people.
+AgentUserId = Callable[[str], str]
 
 # The path segment that means "whichever agent is the default one". Reserved by
 # convention only: an agent really called `default` still wins, so no existing
@@ -93,8 +97,10 @@ class InteractionsServer:
         command_tokens: CommandTokens | None = None,
         agents: LiveAgents | None = None,
         default_agent: str = "",
+        agent_user_id: AgentUserId | None = None,
     ) -> None:
         self._dispatcher = dispatcher
+        self._agent_user_id = agent_user_id
         self._codec = codec
         self._presence = presence
         self._host = host
@@ -108,6 +114,16 @@ class InteractionsServer:
         self._agents = agents
         self._default_agent = default_agent
         self._runner: web.AppRunner | None = None
+
+    def _direct_with_agent(self, cb: CommandCallback, agent: str) -> bool:
+        """Typed in the agent's own direct message — not one between two
+        people, nor another agent's. Without a way to know the agent's user id
+        any direct message counts, which is all the payload says."""
+        if not cb.direct_with:
+            return False
+        if self._agent_user_id is None:
+            return True
+        return cb.direct_with == self._agent_user_id(agent) != ""
 
     def _agent_for(self, requested: str) -> str:
         if self._agents is None:
@@ -299,7 +315,7 @@ class InteractionsServer:
         # A command typed in a thread belongs to that thread; outside one it runs
         # as the channel's own conversation.
         conversation_id = cb.root_id or cb.channel_id
-        kind = KIND_THREAD if cb.root_id else KIND_DM if cb.direct else KIND_CHANNEL
+        kind = KIND_THREAD if cb.root_id else KIND_DM if self._direct_with_agent(cb, agent) else KIND_CHANNEL
         text = f"{cb.command} {cb.text}".strip()
 
         # Engine-answered commands (the skill library, …) never reach an agent:

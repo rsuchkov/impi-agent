@@ -225,5 +225,7 @@ Create a bot account, copy its token, and put it in `.env`. See
   validated as they load. Families of keys are the exception, read by a method:
   the per-agent `AGENTS_<KIND>__<AGENT>`, and `RUNTIME_ENV__<AXIS>` — each
   compose overlay names the variables it adds for the agents under a key of its
-  own, because overlays cannot merge one list. A new family needs a reason that
-  strong.
+  own, because overlays cannot merge one list — and impi's
+  `CONNECTION_<FIELD>__<NAME>`, because the providers a deployment connects
+  are named by the operator, open-ended, and each needs several fields. A new
+  family needs a reason that strong.

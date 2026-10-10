@@ -20,6 +20,7 @@ from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.screens import ScreenRegistry
 from crucible.interactions.server import (
+    AgentUserId,
     CommandTokens,
     InteractionsServer,
     LiveAgents,
@@ -47,6 +48,7 @@ class InteractionWiring:
         command_tokens: CommandTokens | None = None,
         agents: LiveAgents | None = None,
         default_agent: str = "",
+        agent_user_id: AgentUserId | None = None,
         screens: ScreenRegistry | None = None,
         approvals: PendingApprovals | None = None,
         tool_max_grant_s: int = 900,
@@ -118,6 +120,8 @@ class InteractionWiring:
                 # the rule: who is running, and which of them is the default.
                 agents=agents,
                 default_agent=default_agent,
+                # Which direct message is the agent's own, for a command.
+                agent_user_id=agent_user_id,
             )
 
     def on_arrival_for(self, name: str) -> Callable[[IncomingMessage], object] | None:

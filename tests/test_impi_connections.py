@@ -13,15 +13,17 @@ from crucible.connections import (
     OAuthConnections,
     ProviderAccount,
 )
-from crucible.connections.memory import MemoryConnectionStore, MemoryLinkStore
 from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.gateways import GatewayConfig
 from crucible.interactions.screens import ScreenState
 from crucible.ports.chat.types import UserProfile
+from crucible.ports.turn import TurnScope
+from crucible.skills import SkillLibrary
 from impi import cli
 from impi.config import ImpiSettings
 from impi.connections import (
     ChatEmailPolicy,
+    Connections,
     NarrowedConnections,
     RedrawOnConnect,
     build_connections,
@@ -30,6 +32,8 @@ from impi.connections import (
 from impi.connections_config import connection_providers
 from impi.connections_screen import ConnectionsScreen, ConnectReturn
 from impi.deployment_report import connections_report
+from impi.scheduling import SCHEDULED_TURN_ATTRIBUTE
+from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
 from tests.test_connections import ALICE, FakeProvider
 
 GITLAB = {
@@ -147,13 +151,13 @@ async def test_the_accounts_email_must_be_the_chat_users(
     policy = ChatEmailPolicy(connection_providers(GITLAB), {"mattermost": chat}.get)  # type: ignore[arg-type]
     account = ProviderAccount(id="7", username="alice", email=account_email)
 
-    assert await policy.check("mattermost:u1", "gitlab", account) == refused
+    assert await policy.refusal("mattermost:u1", "gitlab", account) == refused
     assert chat.asked == ["u1"]
 
 
 async def test_no_client_for_the_gateway_is_no_email() -> None:
     policy = ChatEmailPolicy(connection_providers(GITLAB), lambda gateway: None)
-    assert await policy.check("slack:U1", "gitlab", ALICE) == "your chat account shows no email to compare it with"
+    assert await policy.refusal("slack:U1", "gitlab", ALICE) == "your chat account shows no email to compare it with"
 
 
 async def test_a_provider_that_does_not_match_emails_takes_any_account() -> None:
@@ -161,8 +165,8 @@ async def test_a_provider_that_does_not_match_emails_takes_any_account() -> None
     providers = connection_providers({**GITLAB, "CONNECTION_MATCH_EMAIL__GITLAB": "false"})
     policy = ChatEmailPolicy(providers, {"mattermost": chat}.get)  # type: ignore[arg-type]
 
-    assert await policy.check("mattermost:u1", "gitlab", ALICE) is None
-    assert await policy.check("mattermost:u1", "unknown", ALICE) is None
+    assert await policy.refusal("mattermost:u1", "gitlab", ALICE) is None
+    assert await policy.refusal("mattermost:u1", "unknown", ALICE) is None
     assert chat.asked == []  # nobody's profile read for nothing
 
 
@@ -257,7 +261,7 @@ async def test_a_built_service_acts_for_the_chat_user_of_the_agent_asking(
         await connections.callback.stop()
     # The email is read through the client of any agent on the owner's gateway.
     policy = connections.service._policy  # noqa: SLF001
-    assert policy is not None and await policy.check("mattermost:u9", "gitlab", ALICE) is None
+    assert policy is not None and await policy.refusal("mattermost:u9", "gitlab", ALICE) is None
     assert chat.asked == ["u9"]
 
 
@@ -306,7 +310,7 @@ async def test_connect_hands_the_link_to_the_clicker_alone() -> None:
 
     view = await screen.render(_state("connect:gitlab"), user_id="u1")
     assert "oauth" not in _text(view).lower()  # the link is not in the message
-    assert "yours alone, works once" in view.private_note
+    assert "yours alone, works once, and expires in 10 minutes" in view.private_note
     url = view.private_note.rsplit(" ", 1)[1]
     state, code = provider.consent(url)
     await service.finish(state, code)
@@ -375,7 +379,8 @@ def test_the_report_says_what_keeps_a_connect_from_working(tmp_path: Path) -> No
     assert [e.split(" ")[0] for e in report.errors] == ["CONNECTIONS_KEYS"]
     text = "\n".join(report.warnings)
     assert "travels in clear" in text and "INTEGRATIONS_ENABLED" in text and "TOOL_ENABLED" in text
-    assert "does not run: gone" in text and "show no email" in text and len(report.warnings) == 5
+    assert "does not run: gone" in text and "gitlab is not offered to assistant" in text
+    assert len(report.warnings) == 5
     assert "CONNECTIONS_PUBLIC_URL" in "\n".join(
         connections_report(_settings(tmp_path, connections_keys="k"), providers, {},
                            tools_on=True, widgets_on=True).errors
@@ -479,3 +484,88 @@ async def test_a_connect_is_redrawn_where_it_started_and_nowhere_else() -> None:
 
     assert dispatcher.redraws == [('{"n":"connections"}', "connected:gitlab", "p1", "u1")]
     assert ConnectReturn.decode('{"p":"","s":"x"}') is None and ConnectReturn.decode("[]") is None
+
+
+# --- nobody's connections where nobody can be told apart, or nobody is there -----
+
+
+def _connections(**gateways: str):
+    service = OAuthConnections(
+        connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": FakeProvider()},
+        sealer=FernetSealer([new_sealing_key()]),
+    )
+    return Connections(
+        service=service, callback=None,  # type: ignore[arg-type]  # not started here
+        providers=connection_providers(GITLAB), gateways=gateways,
+    )
+
+
+def test_on_a_gateway_whose_user_ids_the_caller_asserts_nobody_is_an_owner() -> None:
+    connections = _connections(chat="mattermost", web="http", program="ws", team="slack")
+    assert connections.owner_for("chat", "alice") == "mattermost:alice"
+    assert connections.owner_for("team", "U1") == "slack:U1"
+    assert connections.owner_for("web", "alice") is None
+    assert connections.owner_for("program", "alice") is None
+    assert connections.owner_for("unknown", "alice") is None
+    access = connections.tool_access()
+    assert access("web", "alice", None) is None and access("chat", "alice", None) is not None
+
+
+def test_a_scheduled_turn_acts_as_nobody() -> None:
+    connections = _connections(chat="mattermost")
+    scheduled = TurnScope(turn_id="t", attributes={SCHEDULED_TURN_ATTRIBUTE: "1"})
+    assert connections.owner_for("chat", "alice", scheduled) is None
+    assert connections.tool_access()("chat", "alice", scheduled) is None
+    assert connections.owner_for("chat", "alice", TurnScope(turn_id="t")) == "mattermost:alice"
+
+
+async def test_a_scheduler_turn_says_it_is_one() -> None:
+    from crucible.flows.coalescer import MessageCoalescer
+    from crucible.interactions import AgentSink
+    from crucible.scheduler.ports import TurnRequest
+    from impi.scheduling import SinkTurnDispatcher
+
+    class Tracked(MessageCoalescer):
+        def __init__(self) -> None:
+            self.messages: list = []
+
+        async def submit_tracked(self, message, chat):  # type: ignore[override]
+            self.messages.append(message)
+            return "ok"
+
+    sink = Tracked()
+    dispatcher = SinkTurnDispatcher({"chat": AgentSink(sink=sink, chat=object())})  # type: ignore[arg-type]
+    await dispatcher.run_turn(TurnRequest(
+        agent="chat", channel_id="d1", conversation_id="d1", kind="dm", text="do it",
+        message_id="sched-1", user_id="u1", username="u",
+    ))
+    turn = sink.messages[0].turn
+    assert turn is not None and turn.attributes.get(SCHEDULED_TURN_ATTRIBUTE)
+
+
+def test_an_agent_may_not_inherit_the_connection_secrets_by_pattern(tmp_path: Path) -> None:
+    from crucible.ports.agent.inherited_env import check_inherited_env
+
+    for pattern in ("CONNECTION_*", "CONNECTIONS_*", "CONN*"):
+        with pytest.raises(ValueError, match="never by a pattern"):
+            check_inherited_env(pattern, reserved=ImpiSettings.APP_SECRET_PREFIXES)
+    check_inherited_env("CONNECT_ME", reserved=ImpiSettings.APP_SECRET_PREFIXES)  # a name, not a family
+    with pytest.raises(ValueError, match="RUNTIME_ENV"):
+        _settings(tmp_path, runtime_env="CONNECTION*")
+    with pytest.raises(ValueError, match="AGENTS_ENV__ASSISTANT"):
+        (tmp_path / ".env").write_text("AGENTS_ENV__ASSISTANT=CONNECTIONS_*\n")
+        _settings(tmp_path).inherited_env_for("assistant")
+
+
+def test_a_profile_may_not_name_them_either(tmp_path: Path) -> None:
+    from crucible.profiles.errors import ProfileError
+    from impi.profiles import open_profile_stores
+
+    agent = tmp_path / "profiles" / "agents" / "assistant"
+    agent.mkdir(parents=True)
+    (agent / "agent.yaml").write_text("name: assistant\nruntime:\n  tools: [read]\n  env: [CONNECTION*]\n")
+    with pytest.raises(ProfileError, match="never by a pattern"):
+        user_store, _ = open_profile_stores(
+            _settings(tmp_path, agents_path=str(tmp_path / "profiles")), SkillLibrary(tmp_path / "skills"),
+        )
+        user_store.get("assistant")

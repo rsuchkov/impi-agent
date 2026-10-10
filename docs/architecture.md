@@ -60,7 +60,7 @@ a breach fails the lint instead of surfacing at review. The rules:
 4. **The `pi` driver** depends only on the agent ports.
 5. **chat ports are a pure vocabulary** — a leaf layer depending on nothing else.
 6. **flows** work only through ports, never concretes.
-7. The **tool layer** depends only on ports — not a gateway, the runtime, or a platform SDK.
+7. The **tool layer** depends only on ports — not a gateway, the runtime, a platform SDK, or the connections machinery (`crucible.ports.connections` is what a tool sees of it).
 8. The **interactions layer** may use chat ports + the store, but not the runtime, flows, tools, gateways, or a platform SDK.
 9. **profile loading is runtime-agnostic** — it produces a neutral `AgentSpec`, not a `pi` profile.
 
@@ -270,6 +270,20 @@ structure.
 A window is a row keyed `(kind, principal, scope)` — `("tool", "assistant",
 "bash")`, `("secret", "assistant", "github-token")` — so the same two tables
 serve both consumers, and revoking one is the same operation whichever it was.
+
+## Connected accounts (`crucible.connections`)
+
+A person's own account at an OAuth provider, connected once and used by tools
+acting as them. `OAuthConnections` runs the round — a single-use link with a
+PKCE verifier, the code exchanged on a callback page that listens on a port of
+its own (`CallbackServer`), the account checked against the application's
+`AccountPolicy`, tokens sealed at rest (`FernetSealer`) in two store slices,
+refreshed once across replicas under a lease, revoked when nobody may keep
+them. A tool gets only `crucible.ports.connections` — the person's
+connections, as `TokenGrant`s — through the tool server, never the service;
+whose they are is the application's `owner_for(agent, user_id, turn)`, which
+impi answers with the chat user on a gateway that vouches for its users, and
+nobody otherwise. The layer imports no gateway, flow or runtime.
 
 ## Interactions (widgets and forms)
 

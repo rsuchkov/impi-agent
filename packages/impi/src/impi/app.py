@@ -219,6 +219,10 @@ class App:
     # People's own accounts at OAuth providers, and the page a provider sends
     # them back to. None when no provider is configured.
     connections: Connections | None = None
+    # Each agent's own user id on its platform, filled as the gateways log in:
+    # what tells a command typed in the agent's direct message from one typed
+    # in somebody else's.
+    agent_user_ids: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 def _engine_version() -> str:
@@ -389,6 +393,7 @@ def build_app(settings: ImpiSettings) -> App:
     # loop fills it, the interaction collaborators read it lazily via MappingPresence.
     sinks_by_agent: dict[str, AgentSink] = {}
     presence = MappingPresence(sinks_by_agent)
+    agent_user_ids: dict[str, str] = {}
     # A person's own accounts at OAuth providers. The chat client an email is
     # checked through is read when a connect finishes, by then the units are up;
     # the message a connect started from is redrawn through the dispatcher,
@@ -460,6 +465,7 @@ def build_app(settings: ImpiSettings) -> App:
         command_tokens=settings.command_tokens_for,
         agents=lambda: runnable,
         default_agent=settings.agent_name,
+        agent_user_id=lambda agent: agent_user_ids.get(agent, ""),
         screens=screens,
         approvals=approvals,
         tool_max_grant_s=settings.tools.max_grant_s,
@@ -741,6 +747,7 @@ def build_app(settings: ImpiSettings) -> App:
         tracer=tracer,
         auth_refresher=AuthRefresher(program=settings.pi_bin),
         connections=connections,
+        agent_user_ids=agent_user_ids,
     )
 
 
@@ -806,6 +813,7 @@ async def run(settings: ImpiSettings) -> None:
         for unit in app.units:
             identity = await unit.gateway.login()
             identities[unit.spec.name] = identity
+            app.agent_user_ids[unit.spec.name] = identity.user_id
             # The gateway is the only authority on who we are on the platform;
             # the flow needs it to keep our own posts out of replayed history.
             unit.flow.set_identity(identity.user_id)

@@ -30,15 +30,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from crucible.connections import (
     ConnectionsError,
-    Grant,
     NotConnected,
     ProviderUnavailable,
 )
 from crucible.ports.chat.types import KIND_DM, CallPreview, PreviewRow
+from crucible.ports.connections import TokenGrant
 from crucible.tools.base import CAP_CONNECTIONS, Tool, ToolContext, ToolError
 from crucible.tools.registry import tool
-from impi.connections_config import connection_providers
-from impi.connections_screen import DEFAULT_COMMAND
+from impi.connections_config import DEFAULT_COMMAND, command_word, connection_providers
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +72,7 @@ class ConnectedApiSettings(BaseSettings):
     @property
     def screen(self) -> str:
         """The connections screen's name — its command word."""
-        return self.connections_command.lstrip("/").strip().lower() or DEFAULT_COMMAND
+        return command_word(self.connections_command)
 
     @property
     def command(self) -> str:
@@ -136,7 +135,7 @@ async def _offer_connect(ctx: ToolContext, provider: str, settings: ConnectedApi
         return False
 
 
-async def _grant(ctx: ToolContext, provider: str, settings: ConnectedApiSettings) -> Grant:
+async def _grant(ctx: ToolContext, provider: str, settings: ConnectedApiSettings) -> TokenGrant:
     connections = ctx.require_connections()
     if provider not in connections.providers:
         known = ", ".join(connections.providers) or "none"

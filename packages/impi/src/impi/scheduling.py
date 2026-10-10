@@ -14,9 +14,14 @@ from crucible.interactions.presence import AgentPresence
 from crucible.ports.agent import AgentProfile, AgentResult, AgentRuntime
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import KIND_THREAD, ConversationRef, IncomingMessage
+from crucible.ports.turn import TurnScope
 from crucible.scheduler.ports import DispatchError, TurnRequest
 
 logger = logging.getLogger(__name__)
+
+# The turn attribute a scheduled turn carries: no person started it, so
+# nothing in it may act as one.
+SCHEDULED_TURN_ATTRIBUTE = "scheduled"
 
 
 def conversation_ref(
@@ -65,6 +70,9 @@ class SinkTurnDispatcher:
             # the same two flags a command sets.
             mentioned=True,
             synthetic=True,
+            # Said so tools can tell: nobody is behind this turn, so nothing
+            # may act as a person in it (their connected accounts, say).
+            turn=TurnScope(turn_id=request.message_id, attributes={SCHEDULED_TURN_ATTRIBUTE: "1"}),
         )
         return await sink.submit_tracked(message, target.chat)
 

@@ -24,9 +24,9 @@ from crucible.connections import (
     ProviderRejected,
     ProviderUnavailable,
 )
-from crucible.connections.memory import MemoryConnectionStore, MemoryLinkStore
 from crucible.connections.pkce import code_challenge
 from crucible.connections.sealing import FernetSealer, new_sealing_key
+from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
 
 OWNER = "mattermost:u1"
 ALICE = ProviderAccount(id="7", username="alice", name="Alice", email="alice@example.com")
@@ -117,7 +117,7 @@ class Refuse:
     def __init__(self, reason: str | None) -> None:
         self.reason = reason
 
-    async def check(self, owner, provider, account) -> str | None:
+    async def refusal(self, owner, provider, account) -> str | None:
         return self.reason
 
 

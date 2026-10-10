@@ -1,47 +1,15 @@
-"""The vocabulary of connected accounts: who someone is at a provider, what a
-provider answers with, and what a tool is handed.
+"""The vocabulary of connected accounts the machinery speaks: what a provider
+answers with, a connect that finished, a connection ended.
 
-Values a tool must never repeat — an access token — travel as ``AccessToken``,
-which shows nothing of itself in a log line, a traceback or a pickle.
+Who someone is at a provider (``ProviderAccount``) and what a tool is handed
+(``TokenGrant``, ``AccessToken``) are the tool layer's vocabulary too, and live
+in ``crucible.ports.connections``.
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import NoReturn
 
-
-class AccessToken:
-    """A provider's access token, for one call. ``reveal()`` is the only way to
-    the value: ``repr``, ``str`` and pickling give nothing away."""
-
-    __slots__ = ("_value",)
-
-    def __init__(self, value: str) -> None:
-        self._value = value
-
-    def reveal(self) -> str:
-        return self._value
-
-    def __bool__(self) -> bool:
-        return bool(self._value)
-
-    def __repr__(self) -> str:
-        return "AccessToken(***)"
-
-    __str__ = __repr__
-
-    def __reduce__(self) -> NoReturn:
-        raise TypeError("an access token cannot be pickled")
-
-
-@dataclass(frozen=True)
-class ProviderAccount:
-    """Who the person is at the provider."""
-
-    id: str
-    username: str
-    name: str = ""
-    email: str = ""
+from crucible.ports.connections import ProviderAccount
 
 
 @dataclass(frozen=True)
@@ -57,18 +25,6 @@ class OAuthTokens:
 
     def expires_at(self, now: datetime) -> datetime | None:
         return now + timedelta(seconds=self.expires_in) if self.expires_in is not None else None
-
-
-@dataclass(frozen=True)
-class Grant:
-    """What a tool reads with: the token, whose it is, and which credential it
-    was — ``forget`` takes it back to end exactly that one after a 401."""
-
-    provider: str
-    token: AccessToken
-    account: ProviderAccount
-    connect_id: str
-    version: int
 
 
 @dataclass(frozen=True)

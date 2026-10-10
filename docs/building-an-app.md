@@ -418,8 +418,10 @@ credential, is another user's credential.
   their token on every turn, refreshed when it is about to end; the model
   never sees it. Yours: the `OAuthProvider` (one per provider), who the owner
   is, where the provider sends the person back (you call
-  `finish(state, code, owner=…)` from there), and an `AccountPolicy` — which
-  account may be bound to whom. The consent URL `begin` returns goes to the
+  `finish(state, code, owner=…)` from there — `CallbackServer(…,
+  start_again=…)` is a ready page, told what its "try again" should say), and
+  an `AccountPolicy` whose `refusal(owner, provider, account)` says why an
+  account may not be bound to that person, or None. The consent URL `begin` returns goes to the
   person privately: whoever holds it can finish the connect. Seal with
   `FernetSealer(keys)` (`crucible[connections]`); the first key seals, every
   key opens. `OAuth2Provider(OAuth2Config(...))` covers a provider that
@@ -428,7 +430,14 @@ credential, is another user's credential.
   the token, `forget(grant)` after a 401 — and declares `CAP_CONNECTIONS`;
   wire `ToolWiring(connections_on=True)` and
   `build_server(connections=connection_access(service, owner_for))`, with
-  `owner_for(agent, user_id, turn)` saying whose connections a turn uses.
+  `owner_for(agent, user_id, turn)` saying whose connections a turn uses — or
+  None where nobody's: a gateway whose user ids your calling programs assert,
+  a turn no person started (mark yours in its `TurnScope`). What a tool sees
+  (`ConnectionAccess`, `TokenGrant`, `ProviderAccount`) is
+  `crucible.ports.connections`, so the tool layer never loads the store. Name
+  your settings families in `Settings.APP_SECRET_PREFIXES` (and
+  `FsProfileStore(app_secret_prefixes=…)`), so no agent can be handed them
+  by a pattern.
   To tell the person where they started that it worked, pass
   `begin(owner, provider, return_to=…)` — opaque to the library, kept with
   the link — and `OAuthConnections(on_connected=…)`, which is handed a

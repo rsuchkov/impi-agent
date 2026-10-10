@@ -13,9 +13,12 @@ agree. Reference: `$IMPI_ROOT/docs/commands.md`.
 ## 1. Is the word already taken?
 
 Some words are answered by the **engine itself**, with no agent turn: the skill
-browser (`SKILLS_COMMAND`, default `skills`) and the task browser
-(`TASKS_COMMAND`, default `tasks`). Registering `/skills` or `/tasks` gives the
-screen; registering any other word gives the agent. If the operator wants a
+browser (`SKILLS_COMMAND`, default `skills`), the task browser
+(`TASKS_COMMAND`, default `tasks`) and, where a provider is configured, the
+connected-accounts panel (`CONNECTIONS_COMMAND`, default `connections`; a
+direct message with the agent only — see the **connections** skill).
+Registering one of those words gives the screen; registering any other word
+gives the agent. If the operator wants a
 screen under a different word, they change that setting — the trigger word must
 match it exactly.
 
@@ -69,8 +72,8 @@ agent is not authorising a command.
 Two entries, by where the command is typed. **Outside a thread** — a channel
 or a direct message — a slash command works as on Mattermost: the operator
 declares it in the agent's Slack app (*Slash Commands*, any name, no request
-URL — Socket Mode delivers it), and the engine answers `/skills` and `/tasks`
-with their panels and anything else as a turn of the agent. **Inside a
+URL — Socket Mode delivers it), and the engine answers `/skills`, `/tasks`
+and `/connections` with their panels and anything else as a turn of the agent. **Inside a
 thread** Slack does not allow custom slash commands — that is a platform rule
 — so the entry is a **message shortcut** whose callback id starts with
 `SLACK_COMMAND_PREFIX` (default `crux_`); the rest of the id is the command

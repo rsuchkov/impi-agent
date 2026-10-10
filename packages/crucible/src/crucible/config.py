@@ -67,13 +67,13 @@ class ToolSettings(BaseModel):
         return self.public_url or f"http://{self.server_host}:{self.server_port}"
 
 
-def _checked_env_names(key: str, raw: str) -> list[str]:
+def _checked_env_names(key: str, raw: str, reserved: tuple[str, ...]) -> list[str]:
     """The names a CSV setting lists, each one a name or family a runtime
     process may inherit — or ValueError naming ``key``."""
     names = [n.strip() for n in raw.split(",") if n.strip()]
     for name in names:
         try:
-            check_inherited_env(name)
+            check_inherited_env(name, reserved=reserved)
         except ValueError as exc:
             raise ValueError(f"{key}: {exc}") from exc
     return names
@@ -164,6 +164,10 @@ class Settings(BaseSettings):
     # names itself once and gets `{data_dir}/<name>.db` on a file backend and a
     # database of the same name on a server one.
     STORE_NAME: ClassVar[str] = "agent"
+    # The application's own families of secret settings, beside the engine's
+    # (``inherited_env.RESERVED_PREFIXES``): a runtime process may never be
+    # handed them by a pattern, from a profile or from these settings.
+    APP_SECRET_PREFIXES: ClassVar[tuple[str, ...]] = ()
 
     # LLM via a custom OpenAI-compatible endpoint (optional provider extension).
     # Empty when the ChatGPT subscription is used — pi authenticates itself
@@ -372,7 +376,7 @@ class Settings(BaseSettings):
     @field_validator("runtime_env")
     @classmethod
     def _runtime_env_names_are_safe(cls, value: str) -> str:
-        _checked_env_names("RUNTIME_ENV", value)
+        _checked_env_names("RUNTIME_ENV", value, cls.APP_SECRET_PREFIXES)
         return value
 
     @model_validator(mode="after")
@@ -490,7 +494,7 @@ class Settings(BaseSettings):
         key = f"AGENTS_ENV__{agent.upper().replace('-', '_')}"
         names = self._csv_override(key)
         if names is not None:
-            _checked_env_names(key, ",".join(names))
+            _checked_env_names(key, ",".join(names), self.APP_SECRET_PREFIXES)
         return names
 
     def runtime_env_names(self) -> tuple[str, ...]:
@@ -502,10 +506,10 @@ class Settings(BaseSettings):
         browser's address, a broker's — declares it under a key of its own,
         because compose overlays cannot merge one list. The environment
         overrides the .env file key by key, as for every other setting."""
-        names = list(_checked_env_names("RUNTIME_ENV", self.runtime_env))
+        names = list(_checked_env_names("RUNTIME_ENV", self.runtime_env, self.APP_SECRET_PREFIXES))
         axes = {**self._dotenv, **os.environ}
         for key in sorted(k for k in axes if k.startswith("RUNTIME_ENV__")):
-            names += _checked_env_names(key, axes[key])
+            names += _checked_env_names(key, axes[key], self.APP_SECRET_PREFIXES)
         return tuple(dict.fromkeys(names))
 
     def _csv_override(self, key: str) -> tuple[str, ...] | None:

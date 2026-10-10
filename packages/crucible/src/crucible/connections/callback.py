@@ -41,7 +41,9 @@ _PAGE = """<!doctype html>
 h1{{font-size:1.3rem}}</style></head>
 <body><h1>{title}</h1><p>{text}</p></body></html>
 """
-_START_AGAIN = "Start again from the connections screen in the chat."
+# What a page that did not connect says to do next. The application knows
+# where a connect starts; this default names nowhere in particular.
+DEFAULT_START_AGAIN = "Start the connect again from the chat."
 
 
 def _page(status: int, title: str, text: str) -> web.Response:
@@ -52,8 +54,10 @@ def _page(status: int, title: str, text: str) -> web.Response:
 class CallbackServer:
     def __init__(
         self, connections: OAuthConnections, *, host: str = "0.0.0.0", port: int = 8429,
+        start_again: str = DEFAULT_START_AGAIN,
     ) -> None:
         self._connections = connections
+        self._start_again = start_again
         self._host = host
         self._port = port
         self._runner: web.AppRunner | None = None
@@ -77,19 +81,19 @@ class CallbackServer:
             return _page(400, "Not a connect", "This address only finishes a connect started in the chat.")
         if request.query.get("error"):
             await self._connections.refuse(state)
-            return _page(200, "Not connected", "You declined, so nothing was connected. " + _START_AGAIN)
+            return _page(200, "Not connected", "You declined, so nothing was connected. " + self._start_again)
         code = request.query.get("code", "")
         if not code:
-            return _page(400, "Not a connect", "The provider sent no code. " + _START_AGAIN)
+            return _page(400, "Not a connect", "The provider sent no code. " + self._start_again)
         try:
             connected = await self._connections.finish(state, code)
         except LinkRefused as exc:
-            return _refused(exc)
+            return _refused(exc, self._start_again)
         except ProviderUnavailable:
-            return _page(503, "Try again shortly", "The provider did not answer as it should. " + _START_AGAIN)
+            return _page(503, "Try again shortly", "The provider did not answer as it should. " + self._start_again)
         except Exception:
             logger.exception("a connect could not be finished")
-            return _page(500, "Not connected", "Something went wrong on our side. " + _START_AGAIN)
+            return _page(500, "Not connected", "Something went wrong on our side. " + self._start_again)
         who = connected.account.username or connected.account.name or connected.account.id
         return _page(
             200, "Connected",
@@ -97,15 +101,15 @@ class CallbackServer:
         )
 
 
-def _refused(exc: LinkRefused) -> web.Response:
+def _refused(exc: LinkRefused, start_again: str) -> web.Response:
     if exc.reason == ACCOUNT_REFUSED:
         return _page(
             403, "Not connected",
             f"The account {exc.account} cannot be connected to you here: {exc.detail}. "
-            "Sign in to the provider as yourself and " + _START_AGAIN[0].lower() + _START_AGAIN[1:],
+            "Sign in to the provider as yourself. " + start_again,
         )
     if exc.reason == LINK_FOREIGN:
-        return _page(403, "Not connected", "This connect was started by somebody else. " + _START_AGAIN)
+        return _page(403, "Not connected", "This connect was started by somebody else. " + start_again)
     if exc.reason == LINK_REJECTED:
-        return _page(400, "Not connected", "The provider would not confirm the sign-in. " + _START_AGAIN)
-    return _page(400, "Link expired", "This link has expired or was already used. " + _START_AGAIN)
+        return _page(400, "Not connected", "The provider would not confirm the sign-in. " + start_again)
+    return _page(400, "Link expired", "This link has expired or was already used. " + start_again)

@@ -159,6 +159,10 @@ name = "The tool layer depends only on ports, not on platform/engine concretes"
 type = "forbidden"
 source_modules = ["crucible.tools", "crucible.builtin_tools"]
 forbidden_modules = [
+    # A tool reaches connected accounts through crucible.ports.connections; the
+    # machinery behind it needs the store, and importing the package would
+    # load it — the breach import-linter cannot see on its own.
+    "crucible.connections",
     "crucible.gateways",
     "crucible.runtimes.pi",
     "crucible.flows",

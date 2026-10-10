@@ -35,7 +35,6 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
-from crucible.connections.access import ConnectionAccessFactory
 from crucible.connections.audit import (
     EVENT_CONNECT,
     EVENT_CONNECT_START,
@@ -72,13 +71,12 @@ from crucible.connections.ports import (
     OAuthProvider,
     Sealer,
 )
-from crucible.connections.types import (
+from crucible.connections.types import Connected, Disconnection, OAuthTokens
+from crucible.ports.connections import (
     AccessToken,
-    Connected,
-    Disconnection,
-    Grant,
-    OAuthTokens,
+    ConnectionAccessFactory,
     ProviderAccount,
+    TokenGrant,
 )
 from crucible.ports.turn import TurnScope
 from crucible.store.base import (
@@ -166,6 +164,11 @@ class OAuthConnections:
         self._locks: weakref.WeakValueDictionary[tuple[str, str], asyncio.Lock] = weakref.WeakValueDictionary()
 
     @property
+    def link_ttl_s(self) -> float:
+        """How long a started connect waits for the person to come back."""
+        return self._link_ttl_s
+
+    @property
     def providers(self) -> tuple[str, ...]:
         """The providers a person may connect to, by name."""
         return tuple(sorted(self._providers))
@@ -221,7 +224,7 @@ class OAuthConnections:
             raise
         try:
             account = await oauth.identify(tokens.access_token)
-            refusal = await self._policy.check(link.owner, link.provider, account) if self._policy else None
+            refusal = await self._policy.refusal(link.owner, link.provider, account) if self._policy else None
         except BaseException:
             # Issued, and about to be dropped: nobody may keep using them.
             await self._revoke_tokens(oauth, tokens)
@@ -266,19 +269,19 @@ class OAuthConnections:
         """Every provider ``owner`` is connected to, and as whom."""
         return {r.provider: _account(r) for r in await self._connections.list_connections(owner)}
 
-    async def grant(self, owner: str, provider: str) -> Grant:
+    async def grant(self, owner: str, provider: str) -> TokenGrant:
         """The token to act as ``owner`` at ``provider`` with — refreshed first
         when it is about to end. ``NotConnected`` when there is none to give."""
         record, access = await self._load(owner, provider)
         if not self._fresh(record):
             record = await self._refresh(owner, provider)
             access = self._sealer.open(record.access_sealed) or ""
-        return Grant(
+        return TokenGrant(
             provider=provider, token=AccessToken(access), account=_account(record),
             connect_id=record.connect_id, version=record.version,
         )
 
-    async def forget(self, owner: str, grant: Grant) -> None:
+    async def forget(self, owner: str, grant: TokenGrant) -> None:
         """The provider answered a call made with ``grant`` with 401: that
         connection is over. Only that one — a connect made since survives."""
         record = await self._connections.get_connection(owner, grant.provider)
@@ -451,10 +454,10 @@ class OwnerConnections:
     def providers(self) -> tuple[str, ...]:
         return self._service.providers
 
-    async def grant(self, provider: str) -> Grant:
+    async def grant(self, provider: str) -> TokenGrant:
         return await self._service.grant(self._owner, provider)
 
-    async def forget(self, grant: Grant) -> None:
+    async def forget(self, grant: TokenGrant) -> None:
         await self._service.forget(self._owner, grant)
 
     async def account(self, provider: str) -> ProviderAccount | None:

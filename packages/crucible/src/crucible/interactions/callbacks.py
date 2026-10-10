@@ -62,7 +62,10 @@ class CommandCallback:
     user_name: str = ""
     token: str = ""  # per-command verification token
     response_url: str = ""  # for delayed replies (unused today)
-    direct: bool = False  # typed in the person's direct message with the bot
+    # Typed in a direct message: the other person in it (the invoker themself
+    # in a note to self); "" when it was not typed in one. The receiver counts
+    # it as the agent's direct message only when that other person is the agent.
+    direct_with: str = ""
 
 
 class CallbackCodec(Protocol):

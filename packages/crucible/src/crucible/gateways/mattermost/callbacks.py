@@ -57,7 +57,7 @@ class MattermostCallbackCodec:
             user_name=str(body.get("user_name") or ""),
             token=str(body.get("token") or ""),
             response_url=str(body.get("response_url") or ""),
-            direct=_is_direct(str(body.get("channel_name") or ""), str(body.get("user_id") or "")),
+            direct_with=_direct_with(str(body.get("channel_name") or ""), str(body.get("user_id") or "")),
         )
 
     def reply_replace(self, text: str) -> dict:
@@ -92,10 +92,15 @@ def _normalize(submission: dict) -> dict[str, str]:
     return out
 
 
-def _is_direct(channel_name: str, user_id: str) -> bool:
-    """Mattermost names a direct channel ``<user id>__<user id>``, and a slash
+def _direct_with(channel_name: str, user_id: str) -> str:
+    """Who else is in the direct message a command was typed in, or "".
+    Mattermost names a direct channel ``<user id>__<user id>``, and a slash
     command says nothing else about where it was typed: one of the two halves
-    being the person who typed it is what makes it their direct message."""
+    being the person who typed it is what makes it a direct message of theirs,
+    and the other half is whom with."""
     halves = channel_name.split("__")
-    return len(halves) == 2 and bool(user_id) and user_id in halves
+    if len(halves) != 2 or not user_id or user_id not in halves:
+        return ""
+    first, second = halves
+    return second if first == user_id else first
 

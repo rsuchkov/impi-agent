@@ -13,7 +13,15 @@ from pydantic import Field, field_validator
 
 from crucible.config import Settings
 from crucible.connections.callback import CALLBACK_PATH
-from impi.connections_config import ConnectionProvider, connection_providers
+from impi.connections_config import (
+    CONNECTION_SECRET_PREFIXES,
+    ConnectionProvider,
+    command_word,
+    connection_providers,
+)
+from impi.connections_config import (
+    DEFAULT_COMMAND as DEFAULT_CONNECTIONS_COMMAND,
+)
 
 # A directory name under _extensions/, nothing that could walk out of it.
 EXTENSION_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
@@ -22,6 +30,8 @@ EXTENSION_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 class ImpiSettings(Settings):
     """Base Settings + impi-specific fields. Reads the same .env; inherited env
     binding covers the added fields."""
+
+    APP_SECRET_PREFIXES: ClassVar[tuple[str, ...]] = CONNECTION_SECRET_PREFIXES
 
     # What this engine calls its inventory: {data_dir}/impi.db on SQLite, the
     # `impi` database on MongoDB.
@@ -66,7 +76,7 @@ class ImpiSettings(Settings):
     connections_host: str = "0.0.0.0"
     connections_port: int = 8429
     # The command that opens the connections screen (a direct message only).
-    connections_command: str = "connections"
+    connections_command: str = DEFAULT_CONNECTIONS_COMMAND
 
     def connection_providers(self) -> dict[str, ConnectionProvider]:
         """The providers the CONNECTION_*__<NAME> keys configure, checked —
@@ -76,6 +86,10 @@ class ImpiSettings(Settings):
     def sealing_keys(self) -> tuple[str, ...]:
         """CONNECTIONS_KEYS as a list, the sealing key first."""
         return tuple(k.strip() for k in self.connections_keys.split(",") if k.strip())
+
+    @property
+    def connections_command_word(self) -> str:
+        return command_word(self.connections_command)
 
     @property
     def connections_redirect_uri(self) -> str:

@@ -297,7 +297,10 @@ def _cmd_agent_list(args: argparse.Namespace) -> int:
         # The library, like the engine passes it: a profile naming a
         # `registry:` skill is unresolvable without one, and these commands read
         # the same profiles the engine does.
-        store = FsProfileStore(agents_dir, library=_library(args).path_if_present)
+        store = FsProfileStore(
+            agents_dir, library=_library(args).path_if_present,
+            app_secret_prefixes=ImpiSettings.APP_SECRET_PREFIXES,
+        )
     except ProfileError as exc:
         _fail(str(exc))
         return 2
@@ -334,7 +337,10 @@ def _cmd_agent_render(args: argparse.Namespace) -> int:
         # The library, like the engine passes it: a profile naming a
         # `registry:` skill is unresolvable without one, and these commands read
         # the same profiles the engine does.
-        store = FsProfileStore(agents_dir, library=_library(args).path_if_present)
+        store = FsProfileStore(
+            agents_dir, library=_library(args).path_if_present,
+            app_secret_prefixes=ImpiSettings.APP_SECRET_PREFIXES,
+        )
     except ProfileError as exc:
         _fail(str(exc))
         return 2

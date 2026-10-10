@@ -146,6 +146,7 @@ impi — manage your impi deployment
   impi task list|show|runs|add|rm|pause|resume|run-now|status
                            scheduled and recurring work
   impi sessions list|delete|purge-idle   conversation memory
+  impi connections key     a new sealing key for connected accounts (old ones keep opening)
   impi ward init|unlock|status|set|ls|rm|policy|grants|revoke|rotate|audit|cert
                            the secret broker (see docs/secrets.md)
   impi ward unlock --from ~/.impi/ward-recovery.txt   open it without typing keys
@@ -649,6 +650,7 @@ case "${1:-}" in
     skill)     shift; compose run --rm impi impi skill "$@" ;;
     task)      shift; compose run --rm impi impi task "$@" ;;
     sessions)  shift; compose run --rm impi impi sessions "$@" ;;
+    connections) shift; compose run --rm impi impi connections "$@" ;;
     # `init` is the broker's own one-time ceremony and belongs inside its
     # container. Every other verb is `ward-admin`, the secret tool's operator
     # CLI: it runs in the engine's container because that is where the operator

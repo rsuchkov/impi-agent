@@ -248,7 +248,10 @@ human owner auto-added to private channels an agent creates.
 People's own accounts at an OAuth provider, used by tools acting as them — see
 [connections.md](connections.md). Off until a provider is configured; then
 `CONNECTIONS_KEYS` and `CONNECTIONS_PUBLIC_URL` are required, and the engine
-does not start without them.
+does not start without them. Agents on the ws and http gateways are offered no
+connected account whatever these say: their user ids are the calling
+program's word. Neither family may be handed to an agent by a pattern in
+`runtime.env`, `AGENTS_ENV__*` or `RUNTIME_ENV*`.
 
 | Variable | Default | Purpose |
 |---|---|---|

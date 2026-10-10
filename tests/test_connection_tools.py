@@ -9,7 +9,6 @@ import pytest
 from aiohttp import web
 
 from crucible.connections import OAuthConnections
-from crucible.connections.memory import MemoryConnectionStore, MemoryLinkStore
 from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.ports.chat.types import KIND_CHANNEL, KIND_DM
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
@@ -23,6 +22,7 @@ from impi.connection_tools import (
     api_target,
 )
 from impi.connections import NarrowedConnections
+from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
 from tests.test_connections import FakeProvider
 from tests.test_tools import AGENTS, FakeDirectory
 

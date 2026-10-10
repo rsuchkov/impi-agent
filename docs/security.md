@@ -174,13 +174,17 @@ the platform; Mattermost calls back with button clicks and slash commands;
 Slack delivers them down a socket the app holds), model traffic (the runtime
 to the provider), the engine's own doors for your programs (the WebSocket and
 HTTP gateways, token-authenticated), and whatever the runtime's shell reaches
-on the network.
+on the network. With connected accounts configured, two more: people's
+browsers reach the callback listener (`CONNECTIONS_PORT`), and the engine
+calls each provider with people's own tokens.
 
 Enforced by: tokens on every door the engine opens, including a secret segment
 on the paths Mattermost calls back to (a callback carries no signature and
 says who clicked, so the path is what proves it came from the platform); a
 private network per agent container; the browser on a network that cannot
-reach the chat server.
+reach the chat server. The callback listener has no token — what proves a
+request there is the single-use state it carries, issued to one person for ten
+minutes, and the page sets no cookie and sends no referrer.
 
 Does not hold against: outbound traffic from an agent's shell. Nothing in the
 engine restricts egress. A deployment that needs to is a deployment that
@@ -203,6 +207,7 @@ deployment configured; the engine makes no model calls itself.
 | a scheduled task's prompt | the provider, at each run | the inventory | until the task is removed |
 | who said what to whom (conversation ↔ session, last user) | nowhere | the inventory | until the session is deleted |
 | the broker's ledger (which agent asked for which secret, the command, the decision) | nowhere | the broker's own database | until removed by hand; never holds a value |
+| people's connected accounts: tokens (sealed), and the account's id, username, name and email | the provider, on each call a tool makes as them | the inventory | until they disconnect, reconnect, or a 401 ends it |
 | the engine's log | stdout, whatever captures it | the container runtime's log | the runtime's rotation policy |
 
 Two things to know about the session files: they are plain JSONL on the data
@@ -317,8 +322,10 @@ Things the design does not solve, stated so nobody relies on them by accident.
   at rest; both are the deployment's.
 - **Connected accounts are a direct-message feature.** The panel opens and the
   tools act only in a direct message with the agent; who a turn acts for in a
-  channel or a merged thread is not designed yet. A connection outlives its
-  owner's chat account until they disconnect or the provider revokes it.
+  channel or a merged thread is not designed yet. They are not offered at all
+  on the ws and http gateways, whose user ids are whatever the calling program
+  says, nor in a scheduled turn. A connection outlives its owner's chat
+  account until they disconnect or the provider revokes it.
 - **Prompt injection is bounded, not eliminated.** The allowlist, the gate and
   the broker decide what a talked-into agent can do; nothing decides whether
   it was talked into it.

@@ -27,10 +27,12 @@ from dataclasses import dataclass
 from crucible.connections import ConnectionsError, OAuthConnections, ProviderAccount
 from crucible.interactions.screens import ScreenState, View, screen_action
 from crucible.ports.chat.types import Card
+from impi.connections_config import DEFAULT_COMMAND, command_word
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_COMMAND = "connections"
+# What a callback page that did not connect tells the person to do next.
+START_AGAIN = "Start again from the Connect button in the chat, or /{command} in a direct message with the agent."
 
 _CONNECT, _DISCONNECT, CONNECTED = "connect", "disconnect", "connected"
 _ACCENT_HEADER = "#7a5299"
@@ -73,7 +75,7 @@ class ConnectionsScreen:
         providers_for: Callable[[str], tuple[str, ...]],
         command: str = DEFAULT_COMMAND,
     ) -> None:
-        self.command = command.lstrip("/").strip().lower() or DEFAULT_COMMAND
+        self.command = command_word(command)
         self._connections = connections
         # (agent, user id) -> whose connections those are; (agent) -> which
         # providers that agent may use.
@@ -99,7 +101,7 @@ class ConnectionsScreen:
                     )
                     private_note = (
                         f"Open this link to connect your {provider} account — it is yours alone, "
-                        f"works once, and expires in ten minutes: {url}"
+                        f"works once, and expires in {_minutes(self._connections.link_ttl_s)}: {url}"
                     )
                 elif verb == CONNECTED:
                     # Said by the engine once the connect is stored — and only
@@ -169,3 +171,8 @@ class ConnectionsScreen:
 
 def _who(account: ProviderAccount) -> str:
     return account.username or account.name or account.id
+
+
+def _minutes(seconds: float) -> str:
+    minutes = max(1, round(seconds / 60))
+    return "a minute" if minutes == 1 else f"{minutes} minutes"

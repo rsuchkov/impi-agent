@@ -16,6 +16,7 @@ secrets.
 """
 
 import re
+from collections.abc import Collection
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _FAMILY = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}\*")
@@ -29,10 +30,11 @@ RESERVED_PREFIXES = (
 )
 
 
-def check_inherited_env(pattern: str) -> None:
+def check_inherited_env(pattern: str, *, reserved: Collection[str] = ()) -> None:
     """Refuse ``pattern`` as something a runtime process inherits, with the
     reason, unless it is a variable name or a family with a real prefix that is
-    not one of the engine's own. Raises ``ValueError``."""
+    not one of the engine's own — ``RESERVED_PREFIXES``, and the application's
+    own families it names in ``reserved``. Raises ``ValueError``."""
     if _NAME.fullmatch(pattern):
         return
     if not _FAMILY.fullmatch(pattern):
@@ -41,7 +43,7 @@ def check_inherited_env(pattern: str) -> None:
             "followed by *"
         )
     prefix = pattern[:-1]
-    if any(prefix.startswith(r) or r.startswith(prefix) for r in RESERVED_PREFIXES):
+    if any(prefix.startswith(r) or r.startswith(prefix) for r in (*RESERVED_PREFIXES, *reserved)):
         raise ValueError(
             f"{pattern!r}: the engine's own variables are named one by one, never by a pattern"
         )

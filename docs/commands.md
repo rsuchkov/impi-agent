@@ -42,8 +42,11 @@ So the cost of the natural-language route is one turn at the door, not a model
 between the user and the data.
 
 Two consequences worth knowing. The panel appears wherever the agent is,
-including a shared channel, and **anyone who can see it can press its buttons** —
-the engine does not check who clicks. And because a tool works over any gateway,
+including a shared channel — except one that shows a person's own things, such
+as `/connections`, which opens only in a direct message with the agent — and
+**anyone who can see it can press its buttons**: the engine does not check who
+clicks (a panel that acts on the clicker's own things acts on the clicker's,
+whoever opened it). And because a tool works over any gateway,
 this is the only way to reach a panel from Slack, where a custom slash command
 cannot run inside a thread at all.
 
@@ -129,8 +132,9 @@ thread.
 Outside a thread — in a channel, or in a direct message with the bot — a
 **slash command** works as on Mattermost: declare it in the app (*Slash
 Commands* → *Create New Command*, any name, no request URL — Socket Mode
-delivers it), and the engine answers `/skills` and `/tasks` with their panels
-and anything else as a turn of the agent. It never carries thread context,
+delivers it), and the engine answers `/skills`, `/tasks` and — where
+connected accounts are configured — `/connections` with their panels, and
+anything else as a turn of the agent. It never carries thread context,
 which is why the shortcut exists.
 
 ## Teaching the agent the command

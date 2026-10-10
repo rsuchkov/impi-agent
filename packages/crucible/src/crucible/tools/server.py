@@ -21,7 +21,6 @@ from typing import Any
 from aiohttp import web
 
 from crucible.approvals.ports import ToolApproving
-from crucible.connections.access import ConnectionAccessFactory
 from crucible.constant_time import find_by_secret
 from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.chat.admin import ChatAdmin
@@ -29,6 +28,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.chat.types import CallPreview
+from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver
 from crucible.ports.tasks import TaskService
 from crucible.ports.turn import TurnScopes

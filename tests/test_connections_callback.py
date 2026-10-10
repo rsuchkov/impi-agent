@@ -7,20 +7,22 @@ import pytest
 
 from crucible.connections import OAuthConnections, ProviderAccount, ProviderUnavailable
 from crucible.connections.callback import CallbackServer
-from crucible.connections.memory import MemoryConnectionStore, MemoryLinkStore
 from crucible.connections.sealing import FernetSealer, new_sealing_key
+from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
 from tests.test_connections import FakeProvider, Refuse
 
 PORT = 8606
 URL = f"http://127.0.0.1:{PORT}/oauth/callback"
 
 
-async def _serve(provider: FakeProvider, **over) -> tuple[OAuthConnections, CallbackServer]:
+async def _serve(provider: FakeProvider, *, start_again: str | None = None, **over) -> tuple[OAuthConnections, CallbackServer]:
     service = OAuthConnections(
         connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": provider},
         sealer=FernetSealer([new_sealing_key()]), **over,
     )
-    server = CallbackServer(service, host="127.0.0.1", port=PORT)
+    server = CallbackServer(
+        service, host="127.0.0.1", port=PORT, **({"start_again": start_again} if start_again else {}),
+    )
     await server.start()
     return service, server
 
@@ -91,5 +93,14 @@ async def test_a_request_that_is_no_connect_is_turned_away() -> None:
         assert (await _get({}))[0] == 400
         assert (await _get({"state": "s"}))[0] == 400
         assert (await _get({"state": "never-issued", "code": "c"}))[0] == 400
+    finally:
+        await server.stop()
+
+
+async def test_a_page_that_did_not_connect_says_where_to_start_again() -> None:
+    _, server = await _serve(FakeProvider(), start_again="Press Connect in the chat.")
+    try:
+        status, page, _ = await _get({"state": "never-issued", "code": "c"})
+        assert status == 400 and "Press Connect in the chat." in page
     finally:
         await server.stop()

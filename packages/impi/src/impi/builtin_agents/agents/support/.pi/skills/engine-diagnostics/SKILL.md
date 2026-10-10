@@ -244,7 +244,8 @@ And from the session check:
 - `connections: gitlab (agents: all) — register https://…/oauth/callback …`
   — people may connect accounts; `!` lines after it say what keeps a connect
   or a tool from working (no TLS, interactivity or the tool server off, an
-  agent named that does not run, emails the gateway cannot show). The
+  agent named that does not run, a provider allowed to agents on ws/http, where
+  nobody may connect). The
   **connections** skill has the rest.
 - `extensions in …: a, b; enabled (RUNTIME_EXTENSIONS): none` — an extension
   in `_extensions/` loads only when named in `RUNTIME_EXTENSIONS`.

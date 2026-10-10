@@ -15,14 +15,15 @@ receiver and a store, and no runtime at all.
 
 | Area | Package | Responsibility |
 |---|---|---|
-| Ports | `crucible.ports.agent`, `crucible.ports.chat` | The Protocol contracts everything depends on (no implementations). |
+| Ports | `crucible.ports.agent`, `crucible.ports.chat`, `crucible.ports.connections` | The Protocol contracts everything depends on (no implementations). |
 | Runtime | `crucible.runtimes.pi` | Drives `pi --mode rpc` over line-delimited JSON, one subprocess per conversation. |
 | Gateways | `crucible.gateways` | The platform adapters (`mattermost`, `slack`) — the only code that imports a platform SDK — and two for your own programs: `ws` (a duplex socket) and `http` (a request/turn API). |
 | Flows | `crucible.flows` | Conversation orchestration: `AgentFlow` (a batch → one reply), `MessageCoalescer`. |
 | Tools | `crucible.tools` | The typed-tool framework: `@tool` registry, capability gating, an HTTP tool-server. |
 | Interactions | `crucible.interactions` | The widget/form callback machinery (dispatcher, receiver, UI bridge). Stateless: reads an `AgentPresence` the app owns. |
 | Approvals | `crucible.approvals` | Asking a human: who may answer, once / for a window / deny, and the containment that keeps a card's content from forging its structure. A leaf — it imports only the chat vocabulary and `containment`. |
-| Store | `crucible.store` | Persistence for sessions, interactions, forms, scheduled tasks, approval windows and the decision ledger. A port with two backends — SQLite in a file, or MongoDB on a server — chosen with `open_store`. |
+| Store | `crucible.store` | Persistence for sessions, interactions, forms, scheduled tasks, approval windows, the decision ledger and people's connected accounts. A port with two backends — SQLite in a file, or MongoDB on a server — chosen with `open_store`. |
+| Connections | `crucible.connections` | People's own accounts at an OAuth provider: connect once (PKCE, a single-use link), tokens sealed at rest, refreshed once across replicas, handed to a tool acting for that person. The callback page on a listener of its own. `crucible[connections]`. |
 | Scheduler | `crucible.scheduler` | One ticker over the task tables: cron and one-shot runs, through ports. |
 | Skills | `crucible.skills` | The shared skill library as a plain file store. |
 | Attachments | `crucible.attachments` | Incoming and outgoing files as a plain file store. |

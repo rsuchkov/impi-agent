@@ -15,11 +15,11 @@ from crucible.connections import (
     ProviderRejected,
     ProviderUnavailable,
 )
-from crucible.connections.memory import MemoryConnectionStore, MemoryLinkStore
 from crucible.connections.oauth2 import OAuth2Config, OAuth2Provider, gitlab
 from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.connections.service import connection_access
 from crucible.ports.turn import TurnScope
+from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
 
 
 def _gitlab(handler) -> OAuth2Provider:

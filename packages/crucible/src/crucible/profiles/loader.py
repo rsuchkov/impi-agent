@@ -87,8 +87,11 @@ class FsProfileStore:
         # name a `registry:` skill. A caller that genuinely has no library says
         # so with library=None, out loud, where the decision is made.
         library: Callable[[str], Path | None] | None,
+        app_secret_prefixes: tuple[str, ...] = (),
     ) -> None:
         self._root = Path(profiles_path)
+        # The application's own secret families, never inherited by pattern.
+        self._app_secret_prefixes = app_secret_prefixes
         self._default_timeout = default_timeout
         self._default_provider = default_provider
         self._default_model = default_model
@@ -191,7 +194,7 @@ class FsProfileStore:
             inherit = tuple(env_names)
             for pattern in inherit:
                 try:
-                    check_inherited_env(pattern)
+                    check_inherited_env(pattern, reserved=self._app_secret_prefixes)
                 except ValueError as exc:
                     raise ProfileError(f"{manifest}: runtime.env entry {exc}") from exc
         overridden = _read_override(self._confinement_override, name)

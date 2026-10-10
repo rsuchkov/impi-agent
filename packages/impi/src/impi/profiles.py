@@ -57,6 +57,7 @@ def open_profile_stores(
         default_fallback_models=settings.default_fallback_model_refs(),
         fallback_models_override=settings.fallback_models_for,
         library=library.path_if_present,
+        app_secret_prefixes=settings.APP_SECRET_PREFIXES,
     )
     engine_store = FsProfileStore(
         str(BUILTIN_AGENTS_PATH),
@@ -69,5 +70,6 @@ def open_profile_stores(
         default_fallback_models=settings.default_fallback_model_refs(),
         fallback_models_override=settings.fallback_models_for,
         library=library.path_if_present,
+        app_secret_prefixes=settings.APP_SECRET_PREFIXES,
     )
     return user_store, engine_store

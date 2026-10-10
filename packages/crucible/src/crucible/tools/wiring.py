@@ -16,12 +16,12 @@ from pathlib import Path
 
 from crucible.approvals.ports import ToolApproving
 from crucible.config import ToolSettings
-from crucible.connections.access import ConnectionAccessFactory
 from crucible.ports.agent import AgentSpec, TurnClock
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
+from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver
 from crucible.ports.tasks import TaskService
 from crucible.ports.turn import TurnScopes

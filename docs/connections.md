@@ -22,9 +22,10 @@ The panel is the other way in, and the place to see or end a connection:
 
 1. The person opens **`/connections`** in a direct message with the agent. The
    panel lists the providers that agent may use, each with **Connect** or
-   **Disconnect**. Anywhere else the engine answers privately that it opens
-   only in a direct message — whose accounts are connected is nobody else's
-   business — and an agent cannot post it outside one either.
+   **Disconnect**. Anywhere else — a channel, a thread, a direct message with
+   another person or another agent — the engine answers privately that it
+   opens only in a direct message with it: whose accounts are connected is
+   nobody else's business. An agent cannot post it outside one either.
 2. **Connect** gives them a link, privately (Mattermost's ephemeral reply, a
    Slack whisper) — never in the message. It is theirs alone, works once and
    expires in ten minutes.
@@ -40,8 +41,12 @@ same person on Mattermost and Slack connects twice. With
 the one the chat profile shows — so nobody binds someone else's account, or
 their own to someone else. A profile that shows no email cannot be matched:
 Mattermost shows it unless its privacy settings hide it
-(*ShowEmailAddress*), Slack only with the `users:read.email` scope, and the
-ws and http gateways never — `impi health` warns about each.
+(*ShowEmailAddress*), Slack only with the `users:read.email` scope.
+
+**Not on the ws and http gateways.** There the user id is whatever the calling
+program says, and one program's `alice` cannot be told from another's, so an
+agent on them is offered no connected account. `impi doctor` names the agents
+a provider allows that run there.
 
 ## Setting it up
 
@@ -51,7 +56,7 @@ ws and http gateways never — `impi health` warns about each.
    **Confidential** on; scopes `read_api` for reading (the default), `api` to
    change things too — either lets the engine read who the account is. Keep
    the application ID and secret.
-2. **A sealing key.** `impi connections key` writes one into `.env`
+2. **A sealing key.** `impi connections key` writes one into `conf/.env`
    (`CONNECTIONS_KEYS`). Tokens are kept sealed with it; lose it and everyone
    connects again.
 3. **The provider and the callback**, in `.env`:
@@ -73,7 +78,8 @@ ws and http gateways never — `impi health` warns about each.
    (`CONNECTIONS_PORT`, 8429), serving that one page, so only it faces
    browsers. A person's browser must reach it at `CONNECTIONS_PUBLIC_URL`; put
    it behind TLS (a reverse proxy) — the code the provider sends back travels
-   in its address. In compose, publish the port in an overlay of your own:
+   in its address. In compose, publish the port in an overlay of your own, a
+   file in `~/.impi/compose.d/` ([installation.md](installation.md)):
 
    ```yaml
    services:
@@ -92,8 +98,12 @@ ws and http gateways never — `impi health` warns about each.
    projects and issues as them").
 6. **The command.** On Mattermost, register a slash command `connections`
    like any other ([commands.md](commands.md)); on Slack, declare
-   `/connections` in the app. `CONNECTIONS_COMMAND` changes the word.
-7. Restart. `impi health` and the startup log say which providers are on, for
+   `/connections` in the app. `CONNECTIONS_COMMAND` changes the word. A
+   Mattermost command belongs to the agent its URL names and opens only in
+   that agent's direct message, so register it for the agent people connect
+   through; with several agents, the Connect offer a tool posts covers the
+   rest.
+7. Restart. `impi doctor` and the startup log say which providers are on, for
    which agents, the redirect URI to register, and what would keep a connect
    from working.
 
@@ -106,7 +116,8 @@ ws and http gateways never — `impi health` warns about each.
 | `connected_api_write` | `POST`/`PUT`/`PATCH`/`DELETE` with a JSON body, as the person | yes — the card shows the account and the full request; `DELETE` is marked dangerous |
 
 - **Direct messages only**, for now: in a shared conversation, whose turn it is
-  is not settled enough to act as anyone.
+  is not settled enough to act as anyone. A thread inside the direct message
+  counts as shared too, for now.
 - The path stays under the provider's API address: another host, a scheme, a
   step up (`..`), a backslash or a control character is refused before any
   call. A redirect is answered, not followed — following it would carry the
@@ -115,9 +126,10 @@ ws and http gateways never — `impi health` warns about each.
   whoever wrote it) and cut at 20 000 characters, saying so.
 - Not connected: the engine posts the provider's Connect offer in the
   conversation, and the model is told to ask the person to press it — and
-  never to ask for a token. With interactivity off there is no button to post,
-  and the model sends them to `/connections` instead. A 401 ends the
-  connection and asks them to connect again.
+  never to ask for a token. A 401 ends the connection and asks them to connect
+  again.
+- **Connecting needs interactivity.** With `INTEGRATIONS_ENABLED=false` there
+  is no button and no panel, so nobody can connect; `impi doctor` warns.
 
 ## Keys, refresh, ending one
 
@@ -127,6 +139,9 @@ ws and http gateways never — `impi health` warns about each.
   only when a tool uses the connection — so drop an old key only once the
   connections sealed with it have been used since (GitLab's tokens live two
   hours) or ended; one nobody used since stops opening and is connected again.
+  The refresh token is resealed only when the provider issues a new one, as
+  GitLab does; for a provider that does not, keep the old key until those
+  people have connected again.
 - **Refresh** happens when a tool asks for a token that is about to end, once
   per connection however many tools ask, across replicas too.
 - **Disconnect** in the panel ends it here and revokes it at the provider; if
@@ -142,8 +157,9 @@ ws and http gateways never — `impi health` warns about each.
   puts the person's token in an agent's process. A skill that needs a
   credential in a command line uses [ward](secrets.md) — and then it is the
   deployment's credential, not the person's.
-- **Scheduled work acts as nobody.** A task's turn has no person behind it, so
-  a connection is not used there.
+- **Scheduled work acts as nobody.** A task's turn has no person behind it —
+  even one scheduled in somebody's direct message — so no connection is used
+  there, and its tools say so.
 - **Several people in one place.** Channels, merged threads, an allowlist of
   who may connect, and an offboarding command are not designed yet; until they
   are, connected accounts are a direct-message feature.

@@ -11,7 +11,7 @@ when a release is cut, and `impi update` shows the target version's section.
   does the whole round:
   - `begin` stores a single-use link (state, PKCE verifier, ten minutes) and
     answers with the consent URL; `finish` exchanges the code, asks who the
-    account is, applies the application's `AccountPolicy` and stores the
+    account is, asks the application's `AccountPolicy` for a `refusal` and stores the
     tokens sealed (`FernetSealer`, a list of keys so one can be replaced
     without logging anyone out; `crucible[connections]`);
   - `grant` hands a tool the token of the person it acts for, refreshed first
@@ -29,8 +29,7 @@ when a release is cut, and `impi update` shows the target version's section.
   The stores are new `crucible.store` slices (`ConnectionStore`,
   `ConnectionLinkStore`), on SQLite (tables `connections`,
   `connection_links`), on MongoDB (collections of the same names, a unique
-  index per person and provider, a TTL index on the links) and in memory
-  (`crucible.connections.memory`, for tests).
+  index per person and provider, a TTL index on the links).
   **Breaks:** `Store` now includes both slices, so a store backend of an
   application's own implements them too.
   - `OAuth2Provider` (`crucible.connections.oauth2`, over httpx) speaks the
@@ -38,18 +37,21 @@ when a release is cut, and `impi update` shows the target version's section.
     revocation, a userinfo call — configured by `OAuth2Config`; `gitlab()`
     is GitLab's configuration. It never follows a redirect.
   - A tool reaches the person's connections as `ctx.connections`
-    (`ctx.require_connections()`): it can take a token, end a connection after
-    a 401 and read which account it is, and nothing more. A tool that needs
-    them declares `CAP_CONNECTIONS` and is advertised only where the
-    deployment connects accounts: `ToolWiring(connections_on=True)` and
+    (`ctx.require_connections()`): it can take a token (a `TokenGrant`), end a
+    connection after a 401 and read which account it is, and nothing more.
+    What it sees is `crucible.ports.connections`, so the tool layer never
+    loads the machinery or the store. A tool that needs them declares
+    `CAP_CONNECTIONS` and is advertised only where the deployment connects
+    accounts: `ToolWiring(connections_on=True)` and
     `build_server(connections=connection_access(service, owner_for))`, where
     `owner_for(agent, user_id, turn)` is the application's rule for whose
-    connections a turn uses.
+    connections a turn uses — None for nobody's.
   - `CallbackServer` (`crucible.connections.callback`) is the one page the
     provider sends the person back to — `GET /oauth/callback` on a listener
     of its own, so only it faces browsers. It finishes or refuses the connect
-    and says how it went in a short page; its access log is off (aiohttp's
-    would print the state and the code), and the page sends no referrer.
+    and says how it went in a short page (`start_again=` is what it tells a
+    person to do when it did not); its access log is off (aiohttp's would
+    print the state and the code), and the page sends no referrer.
 - **People connect their own GitLab (or any OAuth 2.0) account in a direct
   message, and an agent acts as them** (impi; [docs/connections.md](docs/connections.md)).
   A provider is the `CONNECTION_*__<NAME>` family — `CLIENT_ID`,
@@ -64,7 +66,12 @@ when a release is cut, and `impi update` shows the target version's section.
     `CONNECTIONS_PORT` (8429), at `<CONNECTIONS_PUBLIC_URL>/oauth/callback`.
   - The account's email must be the chat profile's
     (`CONNECTION_MATCH_EMAIL__<NAME>`, on by default); a connection belongs to
-    the chat user on one gateway (`mattermost:<id>`).
+    the chat user on one gateway (`mattermost:<id>`). Agents on the ws and
+    http gateways are offered none — their user ids are the calling program's
+    word — and a scheduled turn acts as nobody, even in a direct message.
+  - Neither `CONNECTION_*` nor `CONNECTIONS_*` may be handed to an agent by a
+    pattern (`runtime.env`, `AGENTS_ENV__*`, `RUNTIME_ENV*`): they hold every
+    client secret and the sealing keys.
   - Tools `connected_accounts`, `connected_api_read` (GET) and
     `connected_api_write` (confirmed; the card shows the account and the full
     request) act as the person, in a direct message only. The path stays under
@@ -75,11 +82,11 @@ when a release is cut, and `impi update` shows the target version's section.
     what is missing and a Connect button — into the direct message itself,
     and the model only asks them to press it. Once they have connected, the
     message they clicked in (the offer or the panel) is redrawn to say so.
-  - `impi connections key` puts a new sealing key first; the old ones keep
-    opening, so nobody connects again.
-  - `impi health` and the startup log name the providers, their agents and the
-    redirect URI to register, and warn about what would keep a connect from
-    working.
+  - `impi connections key` (on the host wrapper too) puts a new sealing key
+    first; the old ones keep opening, so nobody connects again.
+  - `impi doctor` / `impi health` and the startup log name the providers,
+    their agents and the redirect URI to register, and warn about what would
+    keep a connect from working.
   - The engine image installs `impi[connections]` (cryptography).
 - **A screen can be declared for direct messages only** (`direct_only = True`):
   anywhere else it is refused, privately, with `DIRECT_ONLY_TEXT`, and nothing
@@ -91,14 +98,21 @@ when a release is cut, and `impi update` shows the target version's section.
   came from, set by the dispatcher and never part of the encoded state.
 - **A connect hands back where it was started and says it finished.**
   `OAuthConnections.begin(…, return_to=…)` keeps an opaque value with the link
-  (`ConnectionLinkRecord.return_to`, a new column and field) and
-  `Connected.return_to` hands it back; `OAuthConnections(on_connected=…)` is
+  (`ConnectionLinkRecord.return_to`) and `Connected.return_to` hands it back; `OAuthConnections(on_connected=…)` is
   called once a connect is stored — its failure is logged and the connect
   stands.
-- **A Mattermost slash command typed in a direct message runs as one.** It ran
-  as a channel conversation (`kind` `channel`), because the command's payload
-  says nothing about the channel's type. The engine now reads it from the
-  channel's name (`<id>__<id>`, one of them the person) — `CommandCallback.direct`.
+- **A Mattermost slash command typed in the agent's direct message runs as
+  one.** It ran as a channel conversation (`kind` `channel`), because the
+  command's payload says nothing about the channel's type. The engine now
+  reads it from the channel's name (`<id>__<id>`, one of them the person, the
+  other `CommandCallback.direct_with`) and counts it only when the other is
+  the agent itself (`InteractionsServer(agent_user_id=…)`, through
+  `InteractionWiring`) — a direct message between two people, or with another
+  agent, stays a channel.
+- **An application can keep its own settings families from an agent's
+  environment.** `Settings.APP_SECRET_PREFIXES`, `FsProfileStore(
+  app_secret_prefixes=…)` and `check_inherited_env(…, reserved=…)` refuse
+  them as a pattern beside the engine's own.
 - **A tool knows what kind of conversation it was called from**
   (`ToolContext.conversation_kind`, from `SessionConversation.kind`): `dm`,
   `channel`, `thread` — or "" when the call has no conversation.
