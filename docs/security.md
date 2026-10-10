@@ -250,7 +250,7 @@ decisions an operator makes.
 |---|---|
 | the tool allowlist (`runtime.tools`) | a tool not named does not exist for the agent — built-ins included |
 | the process environment is granted, not inherited | a user's agent gets a base set plus the names the deployment (`RUNTIME_ENV__*`) and its profile (`runtime.env`) grant; the engine's tokens never reach it. `support` is the exception, as part of the engine |
-| `PI_OFFLINE=1` on every runtime process | no version check or other startup network call from the runtime |
+| `PI_OFFLINE=1` on every runtime process | no version check, model-catalog refresh or other automatic network call from the runtime |
 | explicit skills (`--no-skills` + the profile's list) | no ambient discovery; a skill's scripts run only for agents given it |
 | explicit extensions (`RUNTIME_EXTENSIONS`) | an `_extensions/<name>` loads into every agent only when the operator names it; a directory any agent with `write` can add to decides nothing |
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
@@ -269,7 +269,7 @@ decisions an operator makes.
 | every door compares its token in constant time | the http and WebSocket gateways, the tool server, the agent host relay, the session proof |
 | the log names, it does not replay | a click's token is logged by its first characters; a command's text only at DEBUG; every line of the engine's and the broker's log goes through `crucible.redaction` first, which replaces what looks like a token, a proof, a password, a receiver's secret path or a private key — a heuristic that narrows a leak, not a licence to log a secret |
 | the callback receivers answer only under a secret path | a Mattermost callback carries no signature and names its own user; `INTEGRATIONS_SECRET` (engine) and `WARD_CALLBACK_SECRET` (broker) are what make that claim one only the platform can make |
-| no MCP, no plugin-bundled servers | the runtime's tool surface is the manifest and nothing else |
+| no MCP (`--no-mcp` on every runtime process), no plugin-bundled servers | the runtime's tool surface is the manifest and nothing else: an `mcp.json` in the runtime's own directory or in a profile's `.pi/` starts no server and adds no tool |
 
 **Your decisions**
 

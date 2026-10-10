@@ -6,6 +6,21 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The runtime is `pi` 1.1.0** (from 0.85.1), in the engine's image and in
+  agent containers. What the engine relies on was checked against it: a turn
+  with an engine tool behind the confirmation gate, cancelling while the gate
+  waits, `ask_user_confirm`, a fallback model taking over, the login refresh.
+  - `pi` now connects MCP servers on its own — from its `mcp.json` and from a
+    trusted profile's `.pi/mcp.json` — and `--tools` does not remove their
+    tools. Every runtime process gets `--no-mcp`, the engine's, an agent
+    container's and `impi escape`'s alike, so the allowlist stays the only
+    gate.
+  - `PI_OFFLINE` now also stops `pi` refreshing its model catalog from pi.dev:
+    a model newer than the pinned `pi` comes with the next `pi`.
+  - `pi` keeps a provider's prompt cache warm during long runs when it expects
+    to save money (`cacheWarming`, on by default) — extra requests while a
+    tool waits on a person; `"off"` in its `settings.json` stops it.
+  - Its interactive screen (`impi escape`) is fullscreen by default.
 - **A provider needs a model.** `pi` 1.0 and later refuse `--provider`
   without `--model` on every turn, so the engine now refuses it before a turn
   starts: `DEFAULT_PROVIDER` without `DEFAULT_MODEL` (and `SUPPORT_PROVIDER`

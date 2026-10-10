@@ -129,6 +129,10 @@ def _profile_args(request: SpawnRequest) -> list[str]:
     # and typed tools alike. An empty list yields no tools at all; a built-in an
     # agent wants (e.g. read/bash for skills) is just named in its profile.
     args = ["--tools", ",".join(request.tools)]
+    # The runtime connects MCP servers on its own (its global mcp.json, and the
+    # trusted profile's .pi/mcp.json), and --tools does not remove their tools:
+    # without this the allowlist would stop being the only gate.
+    args += ["--no-mcp"]
     # No ambient skill discovery — each agent gets EXACTLY its declared skills
     # (this also closes the ancestor-dir walk-up the agents directory would leak).
     args += ["--no-skills"]

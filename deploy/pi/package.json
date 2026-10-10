@@ -3,7 +3,7 @@
   "private": true,
   "description": "The pi CLI and the browser tool, pinned. Both images install from this manifest and its lockfile (npm ci --ignore-scripts); bump a version here, then `make pi-lock`.",
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-coding-agent": "1.1.0",
     "@playwright/cli": "0.1.18"
   }
 }

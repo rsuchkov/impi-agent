@@ -2,7 +2,7 @@
 
 The engine drives the [`pi`](https://github.com/earendil-works/pi) coding agent as
 its runtime backend. This file records the `pi` flags the engine passes and the
-`pi` behaviors it relies on. Verified against `pi` 0.85.1 (the version `deploy/pi/package.json` pins).
+`pi` behaviors it relies on. Verified against `pi` 1.1.0 (the version `deploy/pi/package.json` pins).
 
 ## The argv the engine builds
 
@@ -15,6 +15,7 @@ pi --mode rpc --approve
    --session-dir <DATA_DIR>/pi-sessions/<agent>/<session-id>  # absent for a stateless run
    -e <engine tool-bridge> [-e <extension> ...] [-e <fallback extension>]
    --tools <csv>                            # the single allowlist
+   --no-mcp                                 # no MCP server joins in
    --no-skills [--skill <path> ...]
    [--provider <p>] [--model <m>]
    [--append-system-prompt <text>]
@@ -28,6 +29,7 @@ pi --mode rpc --approve
 | `--session-dir` | the conversation's own session directory under `DATA_DIR` — one per conversation, so a confined process writes its memory and no other. |
 | `-e <path>` | loads a TypeScript extension. The engine always loads its tool-bridge first, then the `AGENTS_PATH/_extensions/<name>/index.ts` named in `RUNTIME_EXTENSIONS` — none by default — and, for an agent with fallback models, the runtime's fallback extension (`runtimes/pi/extension/fallback.ts`). An agent's own container loads both of the runtime's extensions every time; the fallback one does nothing without its variable. |
 | `--tools <csv>` | the ONE allowlist over built-in, extension, and typed tools. Empty = no tools at all. |
+| `--no-mcp` | `pi` has MCP built in (since 0.99) and reads servers from its own `mcp.json` and from a trusted project's `.pi/mcp.json` — `--approve` makes the profile trusted — and `--tools` does not remove an MCP server's tools. Without this a file in the profile would start a command at spawn and add tools past the allowlist. |
 | `--no-skills` + `--skill` | disables ambient skill discovery, then loads exactly the agent's declared skills. |
 | `--provider` / `--model` | select the backend and model (omitted when unset). |
 | `--append-system-prompt` | appends text to the true system prompt — the engine uses it for gateway-specific formatting rules (e.g. Slack mrkdwn). |
@@ -91,9 +93,11 @@ bundles, `PI_*`), then the names the deployment (`RUNTIME_ENV`,
 shared extra env, then the agent's per-agent env, then a per-session value.
 Everything else the engine holds stays in the engine. An engine-owned agent
 (`support`) inherits the whole environment instead. Every process also gets
-`PI_OFFLINE=1`, which stops `pi`'s startup version check, its download of `rg`
-and `fd` for its `grep`/`find` tools (the images ship both), and its install of
-a package `settings.json` names that is not installed yet.
+`PI_OFFLINE=1`, which stops `pi`'s startup version check, its refresh of the
+model catalog from pi.dev (so a model newer than the pinned `pi` arrives with
+the next `pi`), its download of `rg` and `fd` for its `grep`/`find` tools (the
+images ship both), and its install of a package `settings.json` names that is
+not installed yet.
 
 - `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` (and `NODE_TLS_REJECT_UNAUTHORIZED`
   when `LLM_VERIFY_SSL=false`) — only when a custom endpoint is configured; consumed
@@ -162,6 +166,11 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
   `ls`, operating relative to the cwd (see above). `--tools` is a single
   allowlist over these plus extension tools and the engine's typed tools; naming
   a tool is the only way to enable it, and `--tools ""` yields no tools at all.
+  Two more come with `pi`'s built-in extensions and are off unless named:
+  `codemode` (model-written JavaScript in a sandbox that calls the other
+  allowed tools) and `tool_search`. `--tools` also takes `*` patterns and, as
+  a list of only `+name`/`-name`, edits `pi`'s default selection — the engine
+  always passes plain names, so it is always the whole allowlist.
 - **Skills** are `SKILL.md` capability packages the model reads on demand and drives
   via `bash` — so a skill needs `read` + `bash` in the agent's `tools`. `--skill`
   takes a path; the engine also accepts a bare skill name and resolves it to
@@ -176,8 +185,17 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
 - **No web-search built-in.** `pi` provides web search as a *skill* (e.g. a
   Brave-search skill that needs an API key), not a typed tool. impi does not ship
   one yet.
-- **No MCP.** `pi` deliberately has no MCP; the engine's own tools reach it through
-  the tool-bridge extension instead.
+- **MCP is built in, and turned off.** Since 0.99 `pi` connects MCP servers on
+  its own; the engine passes `--no-mcp` (see the argv above), and its own tools
+  reach the model through the tool-bridge extension.
+- **Prompt-cache warming.** `pi` keeps a provider's prompt cache warm during a
+  long run (`cacheWarming: "streaming"`, the default) when it estimates at
+  least $0.05 saved — extra requests while a tool waits on a person, which a
+  subscription counts. `"off"` in the runtime's `settings.json` stops it.
+- **What it keeps in its agent directory** (`PI_CODING_AGENT_DIR`): `auth.json`
+  and `models-store.json` (the application creates both), `models.json` and
+  `settings.json` when the operator writes them, and, on a crash, `crashes.json`
+  — which a confined process cannot write, as it cannot write the rest.
 - **`models.json` env interpolation is limited.** In `~/.pi/agent/models.json`,
   `$VAR` / `${VAR}` interpolation works only in `apiKey` and `headers` — **not**
   in `baseUrl`. A literal `"baseUrl": "$LLM_BASE_URL"` is used verbatim and every
@@ -200,7 +218,7 @@ conversation. This is deliberately different from what happens after a turn
 know what pi will still send; here it asked and waited for the end. If pi does
 not end the turn within the grace period, the session is dropped (the turn
 fails like a crashed process would) and the memory on disk is left alone, so
-the next turn still resumes in a fresh process. (Checked against pi 0.85.1: an
+the next turn still resumes in a fresh process. (Checked against pi 1.1.0: an
 `abort` sent while a tool call waits on the engine ends the turn within seconds,
 the tool's abort signal fires so the extension's call to the engine closes, and
 the same session answers the next prompt. How pi words the ending changed on

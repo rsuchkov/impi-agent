@@ -124,6 +124,9 @@ def command_args(spawn: Spawn, *, config: HostConfig, session_dir: Path | None) 
     for extension in config.extensions:
         args += ["-e", str(extension)]
     args += ["--tools", ",".join(spawn.tools)]
+    # No MCP server joins in: --tools does not remove an MCP server's tools, and
+    # the runtime would connect the ones its mcp.json files name by itself.
+    args += ["--no-mcp"]
     args += ["--no-skills"]
     for skill in spawn.skills:
         args += ["--skill", skill]

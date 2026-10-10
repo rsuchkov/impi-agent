@@ -135,6 +135,8 @@ def test_a_terminal_gets_the_same_profile_without_the_engine(tmp_path: Path) -> 
         del stripped[at:at + 2]
     assert terminal == stripped
     assert "--approve" in terminal and "--tools" in terminal and "--skill" in terminal
+    # The allowlist is the only gate for a person too: no MCP server joins in.
+    assert "--no-mcp" in rpc and "--no-mcp" in terminal
 
 
 def test_a_skill_outside_the_mounted_roots_is_refused(tmp_path: Path) -> None:

@@ -313,6 +313,7 @@ async def test_empty_allowlist_passes_empty_tools_no_skills(monkeypatch) -> None
 
     assert cap["args"][cap["args"].index("--tools") + 1] == ""  # exactly no tools
     assert "--no-builtin-tools" not in cap["args"]  # gate is --tools alone now
+    assert "--no-mcp" in cap["args"]  # and no MCP server's tools slip past it
     assert "--no-skills" in cap["args"]
     assert "--skill" not in cap["args"]
     assert cap["cwd"] == str(Path("agents") / "assistant")
