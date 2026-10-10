@@ -18,6 +18,7 @@ from crucible.interactions.ports import FormHandlers
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.results import ActionResult
 from crucible.interactions.screens import (
+    DIRECT_ONLY_TEXT,
     Redrawn,
     ScreenOpened,
     ScreenRegistry,
@@ -29,6 +30,7 @@ from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.interactions import form_from_json
 from crucible.ports.chat.types import (
+    KIND_DM,
     KIND_THREAD,
     STATIC_FIELD_TYPES,
     ConversationRef,
@@ -228,7 +230,12 @@ class InteractionDispatcher:
             message_id=conversation_id,
             thread_root_id=thread_root,
         )
-        denial = await refusal(screen, user_id=user_id, ref=ref)
+        # A screen that shows the person's own things declares it, and is
+        # refused wherever anybody else could read it.
+        denial = (
+            DIRECT_ONLY_TEXT if getattr(screen, "direct_only", False) and kind != KIND_DM
+            else await refusal(screen, user_id=user_id, ref=ref)
+        )
         if denial:
             # Nothing is posted. Whatever the screen would have drawn, this
             # conversation is not where it may appear.

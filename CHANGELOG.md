@@ -50,6 +50,43 @@ when a release is cut, and `impi update` shows the target version's section.
     of its own, so only it faces browsers. It finishes or refuses the connect
     and says how it went in a short page; its access log is off (aiohttp's
     would print the state and the code), and the page sends no referrer.
+- **People connect their own GitLab (or any OAuth 2.0) account in a direct
+  message, and an agent acts as them** (impi; [docs/connections.md](docs/connections.md)).
+  A provider is the `CONNECTION_*__<NAME>` family — `CLIENT_ID`,
+  `CLIENT_SECRET`, `BASE_URL` for GitLab or `KIND=oauth2` with its endpoints,
+  `SCOPE`, `API_URL`, `AGENTS` — beside `CONNECTIONS_KEYS` and
+  `CONNECTIONS_PUBLIC_URL`, which are then required: the engine does not start
+  without them.
+  - `/connections` (`CONNECTIONS_COMMAND`) opens a panel in a direct message
+    with the agent, and only there: Connect hands the person a single-use link
+    privately, Disconnect ends the connection and revokes it.
+  - The provider sends the browser back to a listener of its own,
+    `CONNECTIONS_PORT` (8429), at `<CONNECTIONS_PUBLIC_URL>/oauth/callback`.
+  - The account's email must be the chat profile's
+    (`CONNECTION_MATCH_EMAIL__<NAME>`, on by default); a connection belongs to
+    the chat user on one gateway (`mattermost:<id>`).
+  - Tools `connected_accounts`, `connected_api_read` (GET) and
+    `connected_api_write` (confirmed; the card shows the account and the full
+    request) act as the person, in a direct message only. The path stays under
+    the provider's API address, a redirect is not followed, the answer is
+    marked as other people's text and cut at 20 000 characters, and a 401 ends
+    the connection.
+  - `impi connections key` puts a new sealing key first; the old ones keep
+    opening, so nobody connects again.
+  - `impi health` and the startup log name the providers, their agents and the
+    redirect URI to register, and warn about what would keep a connect from
+    working.
+  - The engine image installs `impi[connections]` (cryptography).
+- **A screen can be declared for direct messages only** (`direct_only = True`):
+  the dispatcher answers anywhere else, privately, with `DIRECT_ONLY_TEXT`, and
+  renders nothing.
+- **A Mattermost slash command typed in a direct message runs as one.** It ran
+  as a channel conversation (`kind` `channel`), because the command's payload
+  says nothing about the channel's type. The engine now reads it from the
+  channel's name (`<id>__<id>`, one of them the person) — `CommandCallback.direct`.
+- **A tool knows what kind of conversation it was called from**
+  (`ToolContext.conversation_kind`, from `SessionConversation.kind`): `dm`,
+  `channel`, `thread` — or "" when the call has no conversation.
 - **A screen can tell the person who clicked something nobody else sees.**
   `View.private_note` is delivered beside the redraw: Mattermost's ephemeral
   reply to the click, a Slack whisper, `privateNote` in the http gateway's

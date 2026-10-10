@@ -29,7 +29,8 @@ says what to do with it. One mechanism, any number of commands.
 ## Panels, and asking for one in plain language
 
 A few words are answered by the engine itself rather than by an agent — the skill
-browser and the task browser. Those are **panels**: the engine renders the view
+browser, the task browser, and `/connections` where people connect their own
+accounts ([connections.md](connections.md); a direct message only). Those are **panels**: the engine renders the view
 and answers every click on it by rewriting the same message, with no turn behind
 it (see [skills.md](skills.md) and [tasks.md](tasks.md)).
 

@@ -13,6 +13,9 @@ dependencies = [
 # and not a rebuild; it stays an extra so a source install of the engine costs
 # nothing for the deployments that stay on SQLite.
 mongo = ["crucible[mongo]"]
+# People's accounts connected at OAuth providers, sealed at rest. Installed in
+# the image for the same reason as Mongo: turning connections on is a setting.
+connections = ["crucible[connections]"]
 
 [project.scripts]
 impi = "impi.cli:main"

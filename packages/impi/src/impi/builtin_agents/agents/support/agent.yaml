@@ -69,3 +69,6 @@ runtime:
     # the part that concerns this agent directly: creating one then ends with a
     # command the operator runs, not with an agent that starts answering.
     - agent-containers
+    # And how an agent acts as a person at their own provider account. Advice
+    # and diagnosis only: support connects nobody and holds no connected_api_*.
+    - connections

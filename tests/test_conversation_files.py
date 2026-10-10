@@ -47,3 +47,15 @@ async def test_one_lookup_says_where_a_conversation_happens_and_for_whom(tmp_pat
         assert without is not None and without.files_dir is None and without.channel_id == "ch-9"
     finally:
         await store.close()
+
+
+async def test_the_lookup_says_what_kind_of_conversation_it_is(tmp_path: Path) -> None:
+    from crucible.conversation_files import conversation_lookup
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        record, _ = await store.get_or_create("assistant", "ch-9", "c1", KIND_DM, user_id="u-3")
+        found = await conversation_lookup(None, store)("assistant", record.runtime_session_id)
+        assert found is not None and found.kind == KIND_DM
+    finally:
+        await store.close()

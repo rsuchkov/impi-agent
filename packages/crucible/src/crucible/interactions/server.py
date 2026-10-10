@@ -33,6 +33,7 @@ from crucible.ports.chat.types import (
     BUTTONS_RETIRED_TEXT,
     COMMAND_ACK_TEXT,
     KIND_CHANNEL,
+    KIND_DM,
     KIND_THREAD,
     NOT_AN_APPROVER_TEXT,
 )
@@ -298,7 +299,7 @@ class InteractionsServer:
         # A command typed in a thread belongs to that thread; outside one it runs
         # as the channel's own conversation.
         conversation_id = cb.root_id or cb.channel_id
-        kind = KIND_THREAD if cb.root_id else KIND_CHANNEL
+        kind = KIND_THREAD if cb.root_id else KIND_DM if cb.direct else KIND_CHANNEL
         text = f"{cb.command} {cb.text}".strip()
 
         # Engine-answered commands (the skill library, …) never reach an agent:

@@ -7,14 +7,15 @@ import aiohttp
 import pytest
 
 from crucible.gateways.mattermost import MattermostCallbackCodec
+from crucible.gateways.mattermost.callbacks import _is_direct
 from crucible.interactions import (
     InteractionDispatcher,
     InteractionsServer,
     MappingPresence,
 )
 from crucible.interactions.pending_ui import PendingUiRequests
-from crucible.interactions.screens import ScreenRegistry, View
-from crucible.ports.chat.types import KIND_CHANNEL, KIND_THREAD
+from crucible.interactions.screens import DIRECT_ONLY_TEXT, ScreenRegistry, View
+from crucible.ports.chat.types import KIND_CHANNEL, KIND_DM, KIND_THREAD
 from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.presence import presence_of
@@ -241,6 +242,72 @@ async def test_default_still_has_to_prove_the_token(tmp_path: Path) -> None:
 
         assert status == 403
         assert spy.submitted == []
+    finally:
+        await server.stop()
+        await store.close()
+
+
+# --- a direct message --------------------------------------------------------------
+
+
+USER = THREAD_PAYLOAD["user_id"]
+DIRECT = {**THREAD_PAYLOAD, "root_id": "", "channel_name": f"{USER}__bot5y3tcbfyb8xgk8nqkgcyhr"}
+
+
+@pytest.mark.parametrize(("channel_name", "user_id", "direct"), [
+    ("a1__b2", "a1", True),
+    ("a1__b2", "b2", True),  # either side may be the one typing
+    ("a1__a1", "a1", True),  # a note to self
+    ("a1__b2", "c3", False),
+    ("a1__b2__c3", "a1", False),
+    ("town-square", "a1", False),
+    ("", "", False),
+])
+def test_a_direct_message_is_the_channel_named_for_its_two_people(
+    channel_name: str, user_id: str, direct: bool,
+) -> None:
+    assert _is_direct(channel_name, user_id) is direct
+
+
+async def test_a_command_in_a_direct_message_runs_as_one(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, spy = await _server(8622, store)
+    try:
+        await _post(8622, "assistant", DIRECT)
+        assert spy.submitted[0].kind == KIND_DM
+        await _post(8622, "assistant", {**DIRECT, "root_id": "r1"})
+        assert spy.submitted[1].kind == KIND_THREAD  # a thread in it is still a thread
+    finally:
+        await server.stop()
+        await store.close()
+
+
+class PrivateScreen:
+    command = "private"
+    direct_only = True
+
+    def __init__(self) -> None:
+        self.rendered = 0
+
+    async def render(self, state, *, user_id: str) -> View:
+        self.rendered += 1
+        return View.of("only yours")
+
+
+async def test_a_direct_only_screen_opens_in_a_direct_message_and_nowhere_else(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat, screen = FakeChat(), PrivateScreen()
+    screens = ScreenRegistry()
+    screens.register(screen)
+    server, spy = await _server(8623, store, screens=screens, chat=chat)
+    try:
+        for elsewhere in ({**DIRECT, "channel_name": "town-square"}, {**DIRECT, "root_id": "r1"}):
+            status, body = await _post(8623, "assistant", {**elsewhere, "command": "/private"})
+            assert status == 200 and body == {"response_type": "ephemeral", "text": DIRECT_ONLY_TEXT}
+        assert screen.rendered == 0 and chat.posted_cards == [] and spy.submitted == []
+
+        status, body = await _post(8623, "assistant", {**DIRECT, "command": "/private"})
+        assert status == 200 and body == {} and screen.rendered == 1 and len(chat.posted_cards) == 1
     finally:
         await server.stop()
         await store.close()

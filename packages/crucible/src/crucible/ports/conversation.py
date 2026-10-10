@@ -20,6 +20,7 @@ class SessionConversation:
     channel_id: str  # where the conversation happens
     user_id: str  # who spoke last ("" when nobody has)
     files_dir: Path | None = None  # what people sent in it is kept here; may not exist yet
+    kind: str = ""  # KIND_DM, KIND_THREAD, KIND_CHANNEL; "" when not known
 
 
 # (agent, runtime session id) -> its conversation, or None.

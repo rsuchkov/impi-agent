@@ -81,6 +81,11 @@ class View:
         return View(cards=(Card(text=text, actions=actions, accent=accent),), private_note=private_note)
 
 
+# What a screen that opens only in a direct message (``direct_only = True``)
+# answers anywhere else — to the person who typed the command, alone.
+DIRECT_ONLY_TEXT = "This opens only in a direct message with me."
+
+
 @dataclass(frozen=True)
 class Redrawn:
     """A click a screen answered: the message is rewritten, and ``private_note``
@@ -116,6 +121,9 @@ class Screen(Protocol):
 # A screen may also declare ``listed = False``: registered, so its clicks route
 # to it, but not among the names a caller is offered — for a screen that only
 # ever appears because the engine posted it, and would open empty by hand.
+# And ``direct_only = True``: it shows the person's own things, so it opens in
+# their direct message with the agent and is refused (DIRECT_ONLY_TEXT)
+# anywhere else.
 
 
 class Admitting(Protocol):

@@ -225,6 +225,8 @@ engine use it at every start.
 | the operator's broker certificate | `~/.impi/operator`, mounted into nothing an agent runs in | the operator |
 | the store's unseal key and the broker's credential | `~/.impi/ward-recovery.txt` on the host, mode 600, mounted into nothing | the operator |
 | the tool token and session proof | the runtime's environment, minted at spawn | the process; an unconfined neighbour with a shell |
+| people's connected accounts (access and refresh tokens) | the inventory, sealed with `CONNECTIONS_KEYS` (Fernet) | the engine; the database alone reads whose and which account, not the tokens. The key is in `conf/.env`, so an unconfined agent with `read` has both — the tokens never enter an agent's process otherwise ([connections.md](connections.md)) |
+| the OAuth applications' secrets (`CONNECTION_CLIENT_SECRET__*`) | `conf/.env`, in the clear | the engine; an unconfined agent with `read` |
 
 The engine's own configuration is the soft spot of an unconfined agent: one
 file, every token, readable by any such agent with a shell. The broker exists
@@ -313,6 +315,10 @@ Things the design does not solve, stated so nobody relies on them by accident.
   the file, but processes already running would read it.
 - **The engine does not restrict egress** and does not encrypt session files
   at rest; both are the deployment's.
+- **Connected accounts are a direct-message feature.** The panel opens and the
+  tools act only in a direct message with the agent; who a turn acts for in a
+  channel or a merged thread is not designed yet. A connection outlives its
+  owner's chat account until they disconnect or the provider revokes it.
 - **Prompt injection is bounded, not eliminated.** The allowlist, the gate and
   the broker decide what a talked-into agent can do; nothing decides whether
   it was talked into it.

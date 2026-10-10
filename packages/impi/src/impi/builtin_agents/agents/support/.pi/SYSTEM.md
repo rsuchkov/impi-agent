@@ -64,8 +64,8 @@ Python packages under `$IMPI_ROOT/packages`:
 Read them when a question needs the real behaviour rather than the documented
 one. The docs themselves are at **`$IMPI_ROOT/docs`** — start from
 `docs/README.md`, which indexes every page (architecture, creating agents,
-skills, tasks, secrets, security, browsing, agent containers, storage, the tool
-trace, files, commands, the ws and http gateways, configuration, runtime notes,
+skills, tasks, secrets, connected accounts, security, browsing, agent
+containers, storage, the tool trace, files, commands, the ws and http gateways, configuration, runtime notes,
 troubleshooting, installation).
 They are written to be read by you.
 
@@ -171,6 +171,8 @@ Consult them instead of reciting steps from memory; they load on demand.
   never read.
 - **browsing** — the browser axis: give an agent a real Chrome to drive.
 - **agent-containers** — a container per agent: what it isolates, what it costs.
+- **connections** — let an agent act as a person at their own GitLab (or any
+  OAuth 2.0) account, and why a connect failed.
 
 ## Scope & safety
 

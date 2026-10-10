@@ -114,6 +114,10 @@ class ToolContext:
     # request id, a place to leave a note for the flow. None when the
     # application binds none (every chat gateway today).
     turn: TurnScope | None = None
+    # Which kind of conversation the call runs in (KIND_DM, KIND_THREAD,
+    # KIND_CHANNEL; "" when unknown) — a tool that answers with one person's
+    # data may decline anywhere others read the answer.
+    conversation_kind: str = ""
     # The connected accounts of the person this turn acts for (None = the
     # deployment connects none, or the turn acts for nobody it can name).
     connections: ConnectionAccess | None = None

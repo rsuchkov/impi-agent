@@ -29,6 +29,7 @@ from pathlib import Path
 import crucible.builtin_tools  # noqa: E402,F401
 import impi.agent_tools  # noqa: E402,F401
 import impi.chat_tools  # noqa: E402,F401
+import impi.connection_tools  # noqa: E402,F401
 import impi.skill_tools  # noqa: E402,F401
 import impi.task_tools  # noqa: E402,F401
 from crucible.approvals import PendingApprovals
@@ -84,9 +85,12 @@ from crucible.tools import MANIFEST_ENV, SessionProofBook, ToolServer, ToolWirin
 from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
+from impi.connections import Connections, build_connections
+from impi.connections_screen import ConnectionsScreen
 from impi.deployment_report import (
     agents_dir_extensions,
     confinement_report,
+    connections_report,
     fallback_report,
     needs_receiver,
     select_specs,
@@ -212,6 +216,9 @@ class App:
     # Keeps the runtime's OAuth login fresh, so a confined process — which may
     # only read the credential — never has to refresh it itself.
     auth_refresher: AuthRefresher | None = None
+    # People's own accounts at OAuth providers, and the page a provider sends
+    # them back to. None when no provider is configured.
+    connections: Connections | None = None
 
 
 def _engine_version() -> str:
@@ -382,6 +389,20 @@ def build_app(settings: ImpiSettings) -> App:
     # loop fills it, the interaction collaborators read it lazily via MappingPresence.
     sinks_by_agent: dict[str, AgentSink] = {}
     presence = MappingPresence(sinks_by_agent)
+    # A person's own accounts at OAuth providers. The chat client an email is
+    # checked through is read when a connect finishes, by then the units are up.
+    connections = build_connections(
+        settings, sessions, configs,
+        lambda agent: sink.chat if (sink := sinks_by_agent.get(agent)) is not None else None,
+    )
+    if connections is not None:
+        report = connections_report(
+            settings, connections.providers, configs,
+            tools_on=settings.tools.enabled, widgets_on=settings.integrations.enabled,
+        )
+        logger.info(report.line)
+        for warning in report.warnings:
+            logger.warning(warning)
     # Interaction plumbing: its ui_bridge feeds the runtime and its dispatcher feeds
     # the gateway factory. Holds no per-agent state.
     # Commands the engine answers itself. Each screen declares the trigger word
@@ -416,6 +437,11 @@ def build_app(settings: ImpiSettings) -> App:
     # whenever interactivity is on, whether or not new ones are being drawn:
     # a button posted before the widget was turned off must still open.
     screens.register(TraceScreen(sessions))
+    if connections is not None:
+        screens.register(ConnectionsScreen(
+            connections.service, owner_for=connections.owner_for,
+            providers_for=connections.providers_for, command=settings.connections_command,
+        ))
     # Which agents this engine actually runs — a profile with no token is not one
     # of them. It answers /command/default, so a deployment can register a slash
     # command without naming an agent in its URL.
@@ -521,6 +547,7 @@ def build_app(settings: ImpiSettings) -> App:
         # asks exists; with interactivity off it is left out of the agent's
         # tool list rather than offered and refused on every call.
         confirmations_on=interactions.tool_gate is not None,
+        connections_on=connections is not None,
     )
     profile_builder = ProfileBuilder(tools, engine_owned=frozenset(engine_names))
     if attachments is not None:
@@ -641,6 +668,7 @@ def build_app(settings: ImpiSettings) -> App:
         # Tools get the turn's channel and last speaker (an ephemeral reply,
         # say) and its files directory, in one read of the session record.
         conversation_resolver=conversation_lookup(attachments, sessions),
+        connections=connections.tool_access() if connections is not None else None,
         tool_gate=interactions.tool_gate,
         # While the gate waits for a person, the turn's timeout waits too.
         clock=runtime,
@@ -707,6 +735,7 @@ def build_app(settings: ImpiSettings) -> App:
         scheduler=scheduler,
         tracer=tracer,
         auth_refresher=AuthRefresher(program=settings.pi_bin),
+        connections=connections,
     )
 
 
@@ -765,6 +794,8 @@ async def run(settings: ImpiSettings) -> None:
         await app.ws_hub.start()
     if app.http_hub is not None:
         await app.http_hub.start()
+    if app.connections is not None:
+        await app.connections.callback.start()
     try:
         identities = {}
         for unit in app.units:
@@ -813,6 +844,8 @@ async def run(settings: ImpiSettings) -> None:
                 logger.warning("http hub: turns still running after %.0fs; closing anyway",
                                settings.http_drain_s)
             await app.http_hub.stop()
+        if app.connections is not None:
+            await app.connections.callback.stop()
         if app.integrations is not None:
             await app.integrations.stop()
         if app.tool_server is not None:

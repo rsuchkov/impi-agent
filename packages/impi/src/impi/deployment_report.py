@@ -2,16 +2,20 @@
 request in `impi health`. One place, so the two cannot disagree — which agents
 run, whether a receiver is needed, how each agent's process is confined and
 which of them can read their neighbours' environments, and which models each
-agent falls back to and which of those it has no login for.
+agent falls back to and which of those it has no login for, and which
+providers people may connect their accounts at.
 """
 
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from crucible.gateways import GatewayConfig, needs_http_receiver
 from crucible.ports.agent import AgentSpec
 from crucible.profiles import ProfileStore
 from impi.config import ImpiSettings
+from impi.connections_config import ConnectionProvider
 
 # What lets a process read a neighbour's /proc/<pid>/environ: a shell, or a
 # built-in that reads files.
@@ -117,6 +121,86 @@ def fallback_report(
         "from the environment is not seen here)"
     ) if missing else None
     return line, warning
+
+
+# Gateways whose users carry no email the engine can read.
+_NO_EMAIL_GATEWAYS = frozenset({"ws", "http"})
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+@dataclass
+class ConnectionsReport:
+    line: str | None = None
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+def connections_report(
+    settings: ImpiSettings,
+    providers: Mapping[str, ConnectionProvider],
+    configs: Mapping[str, GatewayConfig | None],
+    *,
+    tools_on: bool,
+    widgets_on: bool,
+) -> ConnectionsReport:
+    """Which providers people may connect to and from which agents, the address
+    to register with each, and what keeps a connect from finishing or a tool
+    from acting. An empty report when no provider is configured."""
+    report = ConnectionsReport()
+    if not providers:
+        return report
+    running = sorted(name for name, cfg in configs.items() if cfg is not None)
+    report.line = (
+        "connections: " + "; ".join(
+            f"{name} (agents: {', '.join(p.agents) if p.agents is not None else 'all'})"
+            for name, p in sorted(providers.items())
+        )
+        + f" — register {settings.connections_redirect_uri} as the redirect URI with each; "
+        f"people connect with /{settings.connections_command} in a direct message"
+    )
+    if not settings.sealing_keys():
+        report.errors.append(
+            "CONNECTIONS_KEYS is empty: the engine will not start with connections configured "
+            "— generate a key with `impi connections key`"
+        )
+    if not settings.connections_public_url:
+        report.errors.append(
+            "CONNECTIONS_PUBLIC_URL is empty: the engine will not start with connections "
+            "configured — set the address a person's browser reaches the callback on"
+        )
+    else:
+        url = urlsplit(settings.connections_public_url)
+        if url.scheme != "https" and (url.hostname or "") not in _LOOPBACK:
+            report.warnings.append(
+                f"CONNECTIONS_PUBLIC_URL is {url.scheme}:// — the code a provider sends back "
+                "travels in clear; put the callback behind TLS"
+            )
+    if not widgets_on:
+        report.warnings.append(
+            "interactivity is off (INTEGRATIONS_ENABLED): the connections screen has no way to "
+            "open, so nobody can connect an account"
+        )
+    if not tools_on:
+        report.warnings.append(
+            "the tool server is off (TOOL_ENABLED): people can connect, but no agent can act "
+            "as them"
+        )
+    for name, p in sorted(providers.items()):
+        allowed = running if p.agents is None else [a for a in p.agents if a in running]
+        unknown = [] if p.agents is None else [a for a in p.agents if a not in running]
+        if unknown:
+            report.warnings.append(
+                f"CONNECTION_AGENTS__{name.upper().replace('-', '_')} names agents this engine "
+                f"does not run: {', '.join(unknown)}"
+            )
+        no_email = [a for a in allowed if (cfg := configs.get(a)) is not None and cfg.kind in _NO_EMAIL_GATEWAYS]
+        if p.match_email and no_email:
+            report.warnings.append(
+                f"{name} matches the account's email to the chat user's, but {', '.join(no_email)} "
+                "run on a gateway whose users show no email — every connect from there is refused "
+                f"(CONNECTION_MATCH_EMAIL__{name.upper().replace('-', '_')}=false lifts it)"
+            )
+    return report
 
 
 def agents_dir_extensions(ext_root: Path, names: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:

@@ -28,7 +28,7 @@ def conversation_lookup(attachments: AttachmentStore | None, sessions: SessionSt
         if record is None or record.agent != agent:
             return None
         files_dir = attachments.conversation_dir(agent, record.conversation_id) if attachments else None
-        return SessionConversation(record.channel_id, record.last_user_id, files_dir)
+        return SessionConversation(record.channel_id, record.last_user_id, files_dir, record.kind)
 
     return conversation
 

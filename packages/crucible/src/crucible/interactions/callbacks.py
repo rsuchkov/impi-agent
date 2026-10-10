@@ -62,6 +62,7 @@ class CommandCallback:
     user_name: str = ""
     token: str = ""  # per-command verification token
     response_url: str = ""  # for delayed replies (unused today)
+    direct: bool = False  # typed in the person's direct message with the bot
 
 
 class CallbackCodec(Protocol):

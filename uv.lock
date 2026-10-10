@@ -546,6 +546,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+connections = [
+    { name = "crucible", extra = ["connections"] },
+]
 mongo = [
     { name = "crucible", extra = ["mongo"] },
 ]
@@ -553,9 +556,10 @@ mongo = [
 [package.metadata]
 requires-dist = [
     { name = "crucible", editable = "packages/crucible" },
+    { name = "crucible", extras = ["connections"], marker = "extra == 'connections'", editable = "packages/crucible" },
     { name = "crucible", extras = ["mongo"], marker = "extra == 'mongo'", editable = "packages/crucible" },
 ]
-provides-extras = ["mongo"]
+provides-extras = ["mongo", "connections"]
 
 [[package]]
 name = "import-linter"

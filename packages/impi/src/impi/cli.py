@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import getpass
 import os
 import secrets
@@ -50,6 +51,7 @@ from impi.config import ImpiSettings, load_settings
 from impi.deployment_report import (
     agents_dir_extensions,
     confinement_report,
+    connections_report,
     fallback_report,
     needs_receiver,
     select_specs,
@@ -703,6 +705,26 @@ def _register_caller(
     return 0
 
 
+# --- impi connections key --------------------------------------------------------
+
+
+def _cmd_connections_key(args: argparse.Namespace) -> int:
+    """A new sealing key, put first in CONNECTIONS_KEYS: it seals from the next
+    start on, and the keys after it still open what they sealed — nobody has to
+    connect again. An old key is dropped by hand once nothing sealed with it is
+    left (a refresh reseals under the first key)."""
+    settings = _settings()
+    env_file = args.env_file or settings.dotenv_path
+    # The Fernet key format (crucible.connections.sealing): 32 random bytes,
+    # url-safe base64. Made here so the CLI needs no cryptography to make one.
+    key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
+    keys = (key, *settings.sealing_keys())
+    prov.set_env_key(env_file, "CONNECTIONS_KEYS", ",".join(keys))
+    _ok(f"CONNECTIONS_KEYS -> {env_file} (a new key first, {len(keys) - 1} older kept after it)")
+    print(_dim("restart the engine so it seals with the new key"))
+    return 0
+
+
 # --- impi health ----------------------------------------------------------------
 
 
@@ -785,6 +807,22 @@ def _cmd_health(args: argparse.Namespace) -> int:
         if present:
             _ok(f"extensions in {ext_root}: {', '.join(present)}; enabled (RUNTIME_EXTENSIONS): "
                 f"{', '.join(enabled) or 'none'}")
+        try:
+            report = connections_report(
+                settings, settings.connection_providers(), configs,
+                tools_on=settings.tools.enabled, widgets_on=settings.integrations.enabled,
+            )
+        except ValueError as exc:
+            _fail(f"connections: {exc}")
+            failures += 1
+        else:
+            if report.line:
+                _ok(report.line)
+            for error in report.errors:
+                _fail(error)
+            failures += len(report.errors)
+            for warning in report.warnings:
+                _warn(warning)
     else:
         _fail(f"agents dir missing: {agents_dir or '(AGENTS_PATH unset)'}")
         failures += 1
@@ -1250,6 +1288,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     add_caller.add_argument("--env-file")
     add_caller.set_defaults(func=_cmd_http_add_caller)
+
+    connections = sub.add_parser("connections", help="people's connected accounts")
+    connections_sub = connections.add_subparsers(dest="connections_command", required=True)
+    key = connections_sub.add_parser(
+        "key", help="add a new sealing key first in CONNECTIONS_KEYS (the old ones keep opening)",
+    )
+    key.add_argument("--env-file")
+    key.set_defaults(func=_cmd_connections_key)
 
     health = sub.add_parser("health", help="check Mattermost + agents dir")
     health.set_defaults(func=_cmd_health)

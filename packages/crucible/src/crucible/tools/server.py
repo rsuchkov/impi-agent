@@ -209,6 +209,7 @@ class ToolServer:
             channel_id=conversation.channel_id if conversation else "",
             user_id=conversation.user_id if conversation else "",
             files_dir=conversation.files_dir if conversation else None,
+            conversation_kind=conversation.kind if conversation else "",
             connections=(
                 self._connections(agent, conversation.user_id, turn)
                 if self._connections is not None and conversation and conversation.user_id else None

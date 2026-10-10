@@ -243,6 +243,40 @@ human owner auto-added to private channels an agent creates.
 | `TOOL_CREATE_AGENT_AGENTS_PATH` | `""` | override; falls back to `AGENTS_PATH` |
 | `TOOL_CREATE_AGENT_DOTENV_PATH` | `""` | override; falls back to `DOTENV_PATH` |
 
+## Connected accounts
+
+People's own accounts at an OAuth provider, used by tools acting as them — see
+[connections.md](connections.md). Off until a provider is configured; then
+`CONNECTIONS_KEYS` and `CONNECTIONS_PUBLIC_URL` are required, and the engine
+does not start without them.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CONNECTIONS_KEYS` | `""` | Fernet keys, CSV: the first seals, every one opens. `impi connections key` puts a new one first |
+| `CONNECTIONS_PUBLIC_URL` | `""` | where a person's browser reaches the callback listener; each provider is given `<this>/oauth/callback` as its redirect URI. Use `https://` |
+| `CONNECTIONS_HOST` | `0.0.0.0` | callback listener bind host |
+| `CONNECTIONS_PORT` | `8429` | callback listener port — its own, serving `GET /oauth/callback` and nothing else |
+| `CONNECTIONS_COMMAND` | `connections` | the command that opens the panel (a direct message only) |
+
+### Per-provider keys (dynamic)
+
+One family per field, the provider's name last; the name is the suffix
+lower-cased, `_` read as `-` (`__SELF_HOSTED` is `self-hosted`). Environment
+over `.env`, like every other key.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `CONNECTION_CLIENT_ID__<NAME>` | — | the OAuth application's ID; its presence configures the provider |
+| `CONNECTION_CLIENT_SECRET__<NAME>` | — | required |
+| `CONNECTION_KIND__<NAME>` | `gitlab` | `gitlab` or `oauth2` |
+| `CONNECTION_BASE_URL__<NAME>` | — | GitLab's address; required for `gitlab` |
+| `CONNECTION_AUTHORIZE_URL__<NAME>`, `CONNECTION_TOKEN_URL__<NAME>`, `CONNECTION_USERINFO_URL__<NAME>` | — | required for `oauth2` |
+| `CONNECTION_REVOKE_URL__<NAME>` | `""` | `oauth2`: RFC 7009 revocation, when the provider has it |
+| `CONNECTION_SCOPE__<NAME>` | gitlab: `read_api` | scopes asked for at consent |
+| `CONNECTION_API_URL__<NAME>` | gitlab: `<base>/api/v4` | where the tools call; a path never leaves it |
+| `CONNECTION_MATCH_EMAIL__<NAME>` | `true` | the account's email must be the chat profile's |
+| `CONNECTION_AGENTS__<NAME>` | unset = every agent | CSV of agents that may use it; empty = none |
+
 ## Interactivity (widget/form callbacks)
 
 | Variable | Default | Purpose |

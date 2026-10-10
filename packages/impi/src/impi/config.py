@@ -9,9 +9,11 @@ import os
 import re
 from typing import ClassVar
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from crucible.config import Settings
+from crucible.connections.callback import CALLBACK_PATH
+from impi.connections_config import ConnectionProvider, connection_providers
 
 # A directory name under _extensions/, nothing that could walk out of it.
 EXTENSION_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
@@ -53,6 +55,33 @@ class ImpiSettings(Settings):
         """The extensions the deployment named, in its order, each once —
         checked as the settings loaded."""
         return _csv_names(self.runtime_extensions)
+    # People's own accounts at OAuth providers (docs/connections.md). The
+    # providers are the CONNECTION_*__<NAME> family (connections_config.py);
+    # these say how the deployment keeps and finishes connects.
+    # Fernet keys, CSV: the first seals, every one opens — put a new key first.
+    connections_keys: str = Field(default="", repr=False)
+    # Where a person's browser reaches the callback listener — the address
+    # registered with each provider as <this>/oauth/callback.
+    connections_public_url: str = ""
+    connections_host: str = "0.0.0.0"
+    connections_port: int = 8429
+    # The command that opens the connections screen (a direct message only).
+    connections_command: str = "connections"
+
+    def connection_providers(self) -> dict[str, ConnectionProvider]:
+        """The providers the CONNECTION_*__<NAME> keys configure, checked —
+        ValueError naming the key for one that is not usable."""
+        return connection_providers({**self._dotenv, **os.environ})
+
+    def sealing_keys(self) -> tuple[str, ...]:
+        """CONNECTIONS_KEYS as a list, the sealing key first."""
+        return tuple(k.strip() for k in self.connections_keys.split(",") if k.strip())
+
+    @property
+    def connections_redirect_uri(self) -> str:
+        """What each provider sends the person back to."""
+        return f"{self.connections_public_url.rstrip('/')}{CALLBACK_PATH}"
+
     agent_max_hops: int = 4  # refuse an agent turn past this depth from a human
     agent_rate_limit_turns: int = 6  # max agent-triggered turns...
     agent_rate_window_s: float = 60.0  # ...per conversation per this window

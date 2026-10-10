@@ -4,6 +4,7 @@ import aiohttp
 import pytest
 
 import crucible.builtin_tools  # noqa: F401  # registers the generic ask/form tools
+import impi.connection_tools  # noqa: F401  # registers the connected-account tools the registry test lists
 import impi.skill_tools  # noqa: F401  # registers the skill tools the registry test lists
 import impi.task_tools  # noqa: F401  # registers the task tools the registry test lists
 from crucible.ports.chat.admin import ChannelMember
@@ -374,6 +375,7 @@ def test_registry_knows_all_default_tools() -> None:
         "send_file", "open_screen",
         "list_skills", "install_skill", "assign_skill", "remove_skill",
         "schedule_task", "list_tasks", "cancel_task", "pause_task",
+        "connected_accounts", "connected_api_read", "connected_api_write",
     }
 
 
@@ -1110,13 +1112,14 @@ async def test_the_server_returns_the_speech_note_beside_a_speaking_tools_result
 
 
 def test_exactly_the_tools_that_quote_people_return_untrusted_text() -> None:
-    # What a channel holds was written by whoever is in it. Listings of the
-    # operator's own agents, tasks and skills are not flagged: the operator put
-    # them there.
+    # What a channel holds was written by whoever is in it, and what a
+    # provider's API answers by whoever wrote the issue or the page. Listings of
+    # the operator's own agents, tasks and skills are not flagged: the operator
+    # put them there.
     reg = build_registry()
     tools = {name: reg.get(name) for name in reg.names()}
     untrusted = {n for n, t in tools.items() if t is not None and t.returns_untrusted}
-    assert untrusted == {"read_channel", "get_channel_members"}
+    assert untrusted == {"read_channel", "get_channel_members", "connected_api_read", "connected_api_write"}
 
 
 def test_the_manifest_tells_the_model_which_results_are_other_peoples_text() -> None:
@@ -1361,7 +1364,7 @@ async def test_a_tool_is_handed_the_connections_of_the_person_its_turn_acts_for(
         parameters: ClassVar[dict] = {}
 
         async def execute(self, ctx, args):
-            return {"has": ctx.connections is not None}
+            return {"has": ctx.connections is not None, "kind": ctx.conversation_kind}
 
     asked: list[tuple] = []
 
@@ -1371,7 +1374,7 @@ async def test_a_tool_is_handed_the_connections_of_the_person_its_turn_acts_for(
 
     async def resolver(agent: str, rsid: str):
         user = "u-7" if rsid == "assistant--conv" else ""
-        return SessionConversation("C1", user)
+        return SessionConversation("C1", user, kind="dm")
 
     server = ToolServer(
         ToolRegistry((_Uses(),)),  # type: ignore[arg-type]
@@ -1388,8 +1391,9 @@ async def test_a_tool_is_handed_the_connections_of_the_person_its_turn_acts_for(
                     "http://127.0.0.1:8604/tool/uses_connection", json={},
                     headers={"X-Tool-Token": "tok", "X-Runtime-Session": session},
                 ) as resp:
-                    results.append((await resp.json())["result"]["has"])
-        assert results == [True, False]
+                    result = (await resp.json())["result"]
+                    results.append((result["has"], result["kind"]))
+        assert results == [(True, "dm"), (False, "dm")]
         assert asked == [("assistant", "u-7", None)]
     finally:
         await server.stop()

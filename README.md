@@ -25,6 +25,9 @@ conversations between people and agents — and between agents.
 
 - **Many agents, one deployment.** Each with its own personality, its own tool
   allowlist, and its own model if it needs one. → [creating-agents.md](docs/creating-agents.md)
+- **Acting as the person.** Someone connects their own GitLab (or any OAuth
+  2.0) account once, in a direct message, and the agent's tools act with their
+  rights — the token never reaches the model. → [connections.md](docs/connections.md)
 - **Answers you can click.** Buttons, forms and approval cards in the chat
   itself, so a turn can ask before it acts. → [creating-agents.md](docs/creating-agents.md)
 - **Skills you hand out.** A shared library installed from a directory or a
@@ -188,6 +191,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/skills.md](docs/skills.md) — the shared skill library and `/skills`.
 - [docs/tasks.md](docs/tasks.md) — scheduled and recurring work, and why a run didn't happen.
 - [docs/secrets.md](docs/secrets.md) — credentials an agent can use but never read.
+- [docs/connections.md](docs/connections.md) — people's own accounts at an OAuth provider, for tools acting as them.
 - [docs/security.md](docs/security.md) — the boundaries, where data and credentials go, the hardening checklist ([SECURITY.md](SECURITY.md): reporting a vulnerability).
 - [docs/browsing.md](docs/browsing.md) — a real browser the agents drive, and what isolates it.
 - [docs/agent-containers.md](docs/agent-containers.md) — a container per agent, and what that isolates.

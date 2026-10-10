@@ -38,6 +38,10 @@ people. Keep them accurate to the code.
   (SQLite by default, MongoDB optionally) versus conversation memory, which is
   the runtime's own files and does not move; how to switch, and what a switch
   does not carry across.
+- **[connections.md](connections.md)** — people's own accounts at an OAuth
+  provider (GitLab, or any standard one), connected once in a direct message
+  and used by tools acting as them: setting a provider up, the panel, the
+  tools, keys and their rotation, and what it does not do yet.
 - **[tool-trace.md](tool-trace.md)** — the message that lists the tools a
   turn ran: what it shows (arguments and outcomes), what it never
   shows (results), and why.

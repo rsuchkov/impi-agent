@@ -190,7 +190,8 @@ In order:
 2. Was it dropped for a missing capability? The startup log says
    `tool … not advertised — gateway lacks …` (chat-admin without an admin
    client, widgets with `INTEGRATIONS_ENABLED=false`, `send_file` with
-   attachments off, scheduling with the scheduler off).
+   attachments off, scheduling with the scheduler off, `connected_api_*` with
+   no provider configured).
 3. Is the whole typed-tool server off (`TOOL_ENABLED=false`)?
 4. Skills need `read` + `bash` in the same list.
 
@@ -240,6 +241,11 @@ And from the session check:
   LSM list) decides, not the engine.
 - `receiver secret missing (INTEGRATIONS_SECRET)` — the engine mints one on its
   next start; slash commands are then re-registered under the URL health prints.
+- `connections: gitlab (agents: all) — register https://…/oauth/callback …`
+  — people may connect accounts; `!` lines after it say what keeps a connect
+  or a tool from working (no TLS, interactivity or the tool server off, an
+  agent named that does not run, emails the gateway cannot show). The
+  **connections** skill has the rest.
 - `extensions in …: a, b; enabled (RUNTIME_EXTENSIONS): none` — an extension
   in `_extensions/` loads only when named in `RUNTIME_EXTENSIONS`.
 - `fallback models: a: p/m → q/n; …` — the models each running agent moves on
