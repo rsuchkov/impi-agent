@@ -307,3 +307,24 @@ def test_a_bad_fallback_override_is_reported_under_its_own_key(tmp_path: Path, m
     settings = Settings(dotenv_path="no-such.env")
     with pytest.raises(ProfileError, match="^AGENTS_FALLBACK_MODELS__ASSISTANT"):
         FsProfileStore(tmp_path, fallback_models_override=settings.fallback_models_for, library=None)
+
+
+@pytest.mark.parametrize(("runtime", "default_model", "fails"), [
+    ("provider: openai-codex", "", True),
+    ("provider: openai-codex", "gpt-5.5", False),  # the deployment's default model completes it
+    ("model: gpt-5.5", "", False),  # a model alone: the runtime finds its provider
+    ("", "", False),  # neither: the runtime's own default
+])
+def test_a_provider_needs_a_model(tmp_path: Path, runtime: str, default_model: str, fails: bool) -> None:
+    _write_agent(tmp_path, "assistant", f"name: assistant\nrole: r\nruntime:\n  tools: []\n  {runtime}\n")
+    if fails:
+        with pytest.raises(ProfileError, match="runtime.provider 'openai-codex' names no model"):
+            FsProfileStore(tmp_path, default_model=default_model, library=None).get("assistant")
+    else:
+        FsProfileStore(tmp_path, default_model=default_model, library=None).get("assistant")
+
+
+def test_a_default_provider_alone_is_caught_where_it_is_used(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", "name: assistant\nrole: r\nruntime:\n  tools: []\n")
+    with pytest.raises(ProfileError, match="names no model"):
+        FsProfileStore(tmp_path, default_provider="openai-codex", library=None).get("assistant")  # noqa: B018

@@ -79,6 +79,17 @@ def _checked_env_names(key: str, raw: str, reserved: tuple[str, ...]) -> list[st
     return names
 
 
+def check_provider_has_model(provider: str, model: str, provider_key: str, model_key: str) -> None:
+    """A provider with no model is refused by the runtime on every turn, so it
+    is refused here, as the settings load, naming the key to set."""
+    if provider.strip() and not model.strip():
+        raise ValueError(
+            f"{provider_key} is set ({provider.strip()!r}) but {model_key} is not: the runtime "
+            f"refuses a provider without a model — set {model_key}, or clear {provider_key} to "
+            "let the runtime choose both"
+        )
+
+
 def _checked_model_refs(key: str, raw: str) -> tuple[str, ...]:
     """The provider/model references a CSV setting lists — or ValueError
     naming ``key``."""
@@ -313,7 +324,8 @@ class Settings(BaseSettings):
     # Default LLM provider/model when an agent's agent.yaml omits them (empty =
     # pass no flag, letting pi use its own ~/.pi/agent/settings.json default).
     # `provider` selects pi's backend (--provider, e.g. openai-codex); `model`
-    # picks the model within it (--model).
+    # picks the model within it (--model). A provider needs a model: the runtime
+    # refuses one without the other.
     default_provider: str = ""
     default_model: str = ""
     # Models every agent turns to, in order, when its own fails in a way the
@@ -378,6 +390,11 @@ class Settings(BaseSettings):
     def _runtime_env_names_are_safe(cls, value: str) -> str:
         _checked_env_names("RUNTIME_ENV", value, cls.APP_SECRET_PREFIXES)
         return value
+
+    @model_validator(mode="after")
+    def _a_provider_names_a_model(self) -> Settings:
+        check_provider_has_model(self.default_provider, self.default_model, "DEFAULT_PROVIDER", "DEFAULT_MODEL")
+        return self
 
     @model_validator(mode="after")
     def _runtime_env_axes_are_safe(self) -> Settings:

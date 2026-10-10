@@ -38,7 +38,8 @@ role: <short-role>
 description: <one line>
 runtime:
   provider: openai-codex     # optional; omit to inherit the engine default
-  model: gpt-5.5             # optional; omit to inherit the engine default
+  model: gpt-5.5             # optional; omit to inherit the engine default — but a
+                             # provider needs a model, here or in DEFAULT_MODEL
   # fallback_models: [other-provider/other-model]   # optional; when the model is down
   timeout: 180               # seconds per turn
   tools: [read, bash]        # the ONE allowlist (see "Tool gating")

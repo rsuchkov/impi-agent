@@ -6,7 +6,17 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A provider needs a model.** `pi` 1.0 and later refuse `--provider`
+  without `--model` on every turn, so the engine now refuses it before a turn
+  starts: `DEFAULT_PROVIDER` without `DEFAULT_MODEL` (and `SUPPORT_PROVIDER`
+  with neither `SUPPORT_MODEL` nor `DEFAULT_MODEL`) stops the settings from
+  loading, naming the key; an `agent.yaml` whose `runtime.provider` has no
+  model, there or by default, fails to load. The installer asks for the model
+  once a provider is pinned, and an answers file that pins one must name it.
+  A model alone is still fine.
+  **Breaks:** a deployment that pinned a provider and left the model to its
+  default no longer starts — set `DEFAULT_MODEL` (or `runtime.model`), or
+  clear the provider.
 
 ## v0.22.0 — 2026-10-10
 

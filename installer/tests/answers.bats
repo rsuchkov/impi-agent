@@ -71,3 +71,14 @@ setup() {
     ask_opt PRESET_D "Label"
     [ -z "$PRESET_D" ]
 }
+
+@test "answers mode refuses a pinned provider without its model" {
+    # main.sh asks the model with `ask` once a provider is pinned: in answers
+    # mode an unset IMPI_DEFAULT_MODEL is then a hard error naming it.
+    export IMPI_ASSUME_YES=1 IMPI_DEFAULT_PROVIDER=openai-codex
+    TUI_FANCY=0
+    run bash -c '. "$0/../lib/tui.sh"; [ -n "$IMPI_DEFAULT_PROVIDER" ] && ask IMPI_DEFAULT_MODEL "Model"' "$BATS_TEST_DIRNAME"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"IMPI_DEFAULT_MODEL is required"* ]]
+    grep -q 'ask IMPI_DEFAULT_MODEL' "$BATS_TEST_DIRNAME/../main.sh"
+}

@@ -22,17 +22,21 @@ Only needed when `pi` talks to a custom OpenAI-compatible endpoint. Empty when
 ## Provider / model defaults
 
 Used when an agent's `agent.yaml` omits `provider`/`model`. Empty = pass no flag,
-letting `pi` use its own default. See [runtime-notes.md](runtime-notes.md) for the
-full resolution order.
+letting `pi` use its own default. A provider needs a model: `pi` refuses a
+provider without one, so the engine does not start with `DEFAULT_PROVIDER`
+set and `DEFAULT_MODEL` empty (nor with `SUPPORT_PROVIDER` and neither model,
+nor with an `agent.yaml` naming a provider and no model anywhere). A model
+alone is fine — `pi` finds its provider. See [runtime-notes.md](runtime-notes.md)
+for the full resolution order.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `DEFAULT_PROVIDER` | `""` | `pi` backend for agents that don't set one (e.g. `openai-codex`) |
-| `DEFAULT_MODEL` | `""` | model within that backend |
+| `DEFAULT_MODEL` | `""` | model within that backend; required when `DEFAULT_PROVIDER` is set |
 | `DEFAULT_FALLBACK_MODELS` | `""` | CSV of `provider/model` every agent moves on to, in order, when its own model fails the way a service fails (overloaded, rate-limited/429, 5xx, unreachable) — not on a spent quota or a refused key. An agent's `runtime.fallback_models` replaces it; the agent's own model in the list is skipped |
 | `AGENTS_FALLBACK_MODELS__<AGENT>` | — | that agent's fallback models, overriding its profile and the default; set and empty = none |
 | `SUPPORT_PROVIDER` | `""` | override for the bundled `support` agent (falls back to `DEFAULT_PROVIDER`) |
-| `SUPPORT_MODEL` | `""` | same, for the model |
+| `SUPPORT_MODEL` | `""` | same, for the model (falls back to `DEFAULT_MODEL`); one of the two is required when `SUPPORT_PROVIDER` is set |
 
 ## Mattermost gateway
 

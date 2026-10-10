@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from crucible.config import Settings, _detect_lan_ip
+from impi.config import ImpiSettings
 
 
 def _settings(**over) -> Settings:
@@ -210,3 +211,22 @@ def test_fallback_models_for_reads_the_per_agent_key(monkeypatch) -> None:
     monkeypatch.setenv("AGENTS_FALLBACK_MODELS__MY_AGENT", "nope")
     with pytest.raises(ValueError, match="^AGENTS_FALLBACK_MODELS__MY_AGENT"):
         _no_dotenv().fallback_models_for("my-agent")
+
+
+def test_a_default_provider_needs_a_default_model() -> None:
+    with pytest.raises(ValidationError, match="DEFAULT_PROVIDER is set .* but DEFAULT_MODEL is not"):
+        _settings(default_provider="openai-codex", default_model="")
+    assert _settings(default_provider="openai-codex", default_model="gpt-5.5").default_model == "gpt-5.5"
+    assert _settings(default_provider="", default_model="gpt-5.5").default_provider == ""  # a model alone is fine
+    assert _settings(default_provider=" ", default_model="").default_provider == " "  # blank is unset
+
+
+def test_a_support_provider_needs_a_model_from_somewhere() -> None:
+    def impi(**over) -> ImpiSettings:
+        return ImpiSettings(_env_file=None, integrations_port=8423, **over)  # pyright: ignore[reportCallIssue]
+
+    with pytest.raises(ValidationError, match="SUPPORT_PROVIDER is set .* but SUPPORT_MODEL is not"):
+        impi(support_provider="openai-codex", default_model="")
+    assert impi(support_provider="openai-codex", support_model="gpt-5.5").support_model == "gpt-5.5"
+    # Each falls back on its own: the default model completes it.
+    assert impi(support_provider="openai-codex", default_model="gpt-5.5").support_provider == "openai-codex"

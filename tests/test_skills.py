@@ -177,6 +177,7 @@ description: Greek tutor
 
 runtime:
   provider: openai-codex         # the comment that must survive an edit
+  model: gpt-5.5
   timeout: 180
   tools:
     - read

@@ -213,6 +213,12 @@ class FsProfileStore:
             raise ProfileError(f"{manifest}: runtime.timeout must be a positive number")
         provider = str(runtime["provider"]).strip() if runtime.get("provider") else (self._default_provider or None)
         model = str(runtime["model"]).strip() if runtime.get("model") else (self._default_model or None)
+        if provider and not model:
+            # The runtime refuses a provider without a model on every turn.
+            raise ProfileError(
+                f"{manifest}: runtime.provider {provider!r} names no model — set runtime.model "
+                "(or the deployment's default model)"
+            )
         fallback_models = self._fallback_models(name, runtime, manifest)
 
         return AgentSpec(

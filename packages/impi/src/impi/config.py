@@ -9,9 +9,9 @@ import os
 import re
 from typing import ClassVar
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
-from crucible.config import Settings
+from crucible.config import Settings, check_provider_has_model
 from crucible.connections.callback import CALLBACK_PATH
 from impi.connections_config import (
     CONNECTION_SECRET_PREFIXES,
@@ -41,6 +41,17 @@ class ImpiSettings(Settings):
     # provider/model separately; each falls back to default_provider/default_model.
     support_provider: str = ""
     support_model: str = ""
+
+    @model_validator(mode="after")
+    def _support_names_a_model(self) -> "ImpiSettings":
+        # Each falls back on its own, so what the support agent ends up with is
+        # what has to be whole.
+        if self.support_provider.strip():
+            check_provider_has_model(
+                self.support_provider, self.support_model or self.default_model,
+                "SUPPORT_PROVIDER", "SUPPORT_MODEL",
+            )
+        return self
 
     # Inter-agent messaging + loop protection.
     agents_reply_to_agents: bool = True  # answer other agents' mentions

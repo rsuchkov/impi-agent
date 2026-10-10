@@ -77,6 +77,11 @@ For each agent, provider and model are resolved in order:
    agent, `SUPPORT_PROVIDER` / `SUPPORT_MODEL` first), else
 3. nothing — the flag is omitted and `pi` uses its own configured default.
 
+Each is resolved on its own, but a provider without a model is refused before
+any process starts — at settings load for `DEFAULT_*`/`SUPPORT_*`, at profile
+load for an `agent.yaml` — because `pi` 1.0 and later fail every turn given
+`--provider` without `--model`. A model alone is fine: `pi` finds its provider.
+
 ## Environment forwarded into `pi`
 
 The subprocess env is built, not inherited: a base set taken from the engine's
