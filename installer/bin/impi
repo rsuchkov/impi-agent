@@ -305,11 +305,12 @@ cmd_agent_sync() {
 
 # Ask the engine what each agent's container needs — it runs inside the
 # engine's image, which is what reads the profiles — and build the shared image
-# every agent's own image is built on. The engine's image must already be the
-# release being deployed: the render is that release's code, and an update that
+# every agent's own image is built on. The engine's image is built first, here,
+# so the render is the code of the release being deployed: an update that
 # rendered with the image of the release before would write the old layout.
 render_agents() {
     local _args="" _runtime
+    compose build impi || die "the engine's image did not build"
     [ "${IMPI_VAULT:-0}" = 1 ] && _args="$_args --with-vault"
     [ "${IMPI_BROWSER:-0}" = 1 ] && _args="$_args --with-browser"
     # Without this the agents' containers get a different user mapping from the
@@ -442,11 +443,9 @@ cmd_update() {
     # Agent containers are generated from the release: an update that did not
     # re-render them would leave the agents on the old layout, the old base
     # image and the old runtime until somebody remembered `impi agent sync`.
-    # The engine's image goes first, because the render runs inside it.
     if agent_containers_on; then
         printf 're-rendering the agents'"'"' containers for this release\n'
-        ( compose build impi && render_agents ) \
-            || bad "the agents' containers did not re-render — run: impi agent sync"
+        ( render_agents ) || bad "the agents' containers did not re-render — run: impi agent sync"
     fi
     if ! build_images || ! up_rebuilt; then
         bad "update failed"

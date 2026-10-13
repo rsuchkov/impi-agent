@@ -36,7 +36,7 @@ and answers every click on it by rewriting the same message, with no turn behind
 it (see [skills.md](skills.md) and [tasks.md](tasks.md)).
 
 A slash command is one way to open one. The other is the **`open_screen` tool**:
-give it to an agent and "покажи какие скиллы есть" opens the same panel that
+give it to an agent and "show me which skills there are" opens the same panel that
 `/skills` would. The model's only part is deciding to open it — what the panel
 says, and everything that happens when a button is pressed, stays engine-only.
 So the cost of the natural-language route is one turn at the door, not a model
@@ -58,10 +58,10 @@ Grant it like any other tool (`open_screen` in `runtime.tools`); it needs
 
 |  | Mattermost | Slack |
 |---|---|---|
-| Entry point | slash command (works inside threads); a **reaction** (`REACTION_COMMANDS`) | slash command outside threads; **message shortcut** (`crux_*`) inside them; a **reaction** |
+| Entry point | slash command (works inside threads); a **reaction** | slash command outside threads; **message shortcut** (`crux_*`) inside them; a **reaction** |
 | Slash command in a thread | ✅ | ❌ [not allowed for custom commands](https://docs.slack.dev/interactivity/implementing-slash-commands/) — only built-ins and Giphy |
-| Thread root comes from | `root_id` in the payload | `message.thread_ts` (else `message.ts`) |
-| Transport | HTTP `POST /command/{agent}` (or `/command/default`) on the interactions receiver | Socket Mode (no HTTP, no public URL) |
+| Thread root comes from | `root_id` in the payload; for a reaction, the `root_id` of the post read back | `message.thread_ts` (else `message.ts`); for a reaction, the `thread_ts` of the message read back |
+| Transport | HTTP `POST /command/{agent}` (or `/command/default`) on the interactions receiver; a reaction arrives on the bot's WebSocket | Socket Mode (no HTTP, no public URL) |
 | Verification | per-command token, checked against config | the socket is already authenticated; a command exists only if the app declares it |
 
 ## Setting up Mattermost
@@ -162,14 +162,18 @@ name — `tada` runs `/tada`). Emoji names are the platform's short names, as in
 `:white_check_mark:`, without colons or a skin tone. Empty = reactions are not
 commands.
 
-What the agent reads is the command word and, under it, the message the
-reaction was put on, quoted (cut at `REACTION_QUOTE_LIMIT` characters): a
-reaction inside a thread points at one message, while the turn runs in the
-whole thread, and the quote says which one. Removing a reaction does nothing;
-putting it back runs the command again. A reaction the agent itself or another
-agent of the deployment adds is never a command — the agent marks a message it
-is working on with `:eyes:`, so mapping `eyes` means a person's 👀 runs the
-command and the agent's own never does.
+What the agent reads is the command word as the reactor's message, and the
+message the reaction was put on quoted **as its author's words** (cut at
+`REACTION_QUOTE_LIMIT` characters), in the envelope's quoted-context block
+with the author's name — never as something the reactor said: a reaction
+inside a thread points at one message, while the turn runs in the whole
+thread, and the quote says which one without lending it the reactor's voice.
+An entry in the map that is not `emoji=command` stops the engine at start,
+naming the key. Removing a reaction does nothing; putting it back runs the
+command again. A reaction the agent itself, another agent of the deployment or
+any other bot adds is never a command — the agent marks a message it is
+working on with `:eyes:`, so mapping `eyes` means a person's 👀 runs the
+command and a bot's never does.
 
 Platform setup:
 
@@ -277,4 +281,4 @@ the agent's tools — "`/deploy` staging", "`/whois` @user".
 | Answer says the agent is unavailable | The named agent isn't running (check `app built: agents=[…]`) or the URL names a different agent |
 | Ephemeral message never appears (Mattermost) | The bot lacks `create_post_ephemeral` — `post_ephemeral` fails with a permission error (the `send_ephemeral` tool reports it as one) |
 | Slack shortcut does nothing | Callback ID must start with `SLACK_COMMAND_PREFIX` (default `crux_`); Interactivity must be on; the engine must be running (Socket Mode delivers to one connection) |
-| A reaction does nothing | The emoji is not in **that agent's** map (`AGENTS_REACTION_COMMANDS__<AGENT>`; the global `REACTION_COMMANDS` is the default agent's only); on Slack the app lacks `reactions:read` or the `reaction_added` subscription; interactivity is off; the reaction was an agent's own. The engine log says `reaction :<emoji>: by <user> in <conversation> runs /<command> for <agent>` when it worked |
+| A reaction does nothing | The emoji is not in **that agent's** map (`AGENTS_REACTION_COMMANDS__<AGENT>`; the global `REACTION_COMMANDS` is the default agent's only); on Slack the app lacks `reactions:read` or the `reaction_added` subscription; interactivity is off; the reaction was an agent's or a bot's. The engine log says `reaction :<emoji>: by <user> in <conversation> runs /<command> for <agent>` when it worked |

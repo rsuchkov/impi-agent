@@ -16,7 +16,7 @@ import json
 import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 from crucible.gateways.reactions import Reaction, emoji_name
 from crucible.ports.chat.types import (
@@ -31,6 +31,28 @@ logger = logging.getLogger(__name__)
 
 EVENT_POSTED = "posted"
 EVENT_REACTION_ADDED = "reaction_added"
+# A direct message's channel type, as Mattermost spells it.
+DIRECT_CHANNEL_TYPE = "D"
+
+
+class ConversationKey(NamedTuple):
+    """Where a post's turn runs: the session key, its kind, and the thread a
+    reply goes into ("" = top-level)."""
+
+    conversation_id: str
+    kind: str
+    thread_root: str
+
+
+def conversation_of(post_id: str, root_id: str, channel_id: str, *, is_dm: bool) -> ConversationKey:
+    """The one conversation rule, for a post and a reaction alike: a reply
+    belongs to its thread (in a DM too); a top-level DM post to the DM
+    channel's session; a top-level channel post starts a thread under itself."""
+    if root_id:
+        return ConversationKey(root_id, KIND_THREAD, root_id)
+    if is_dm:
+        return ConversationKey(channel_id, KIND_DM, "")
+    return ConversationKey(post_id, KIND_THREAD, post_id)
 
 
 @dataclass(frozen=True)
@@ -103,14 +125,8 @@ def parse_posted(frame: dict[str, Any], own_user_id: str) -> IncomingMessage | N
     channel_id = post.get("channel_id") or ""
     post_id = post["id"]
     root_id = post.get("root_id") or ""
-    is_dm = data.get("channel_type") == "D"
-
-    if root_id:  # thread always wins, in DMs too
-        conversation_id, kind, thread_root = root_id, KIND_THREAD, root_id
-    elif is_dm:
-        conversation_id, kind, thread_root = channel_id, KIND_DM, ""
-    else:  # top-level channel post -> reply starts a thread under it
-        conversation_id, kind, thread_root = post_id, KIND_THREAD, post_id
+    is_dm = data.get("channel_type") == DIRECT_CHANNEL_TYPE
+    conversation_id, kind, thread_root = conversation_of(post_id, root_id, channel_id, is_dm=is_dm)
 
     mentions = _embedded_json(data.get("mentions")) or []
     mentioned = isinstance(mentions, list) and own_user_id in mentions

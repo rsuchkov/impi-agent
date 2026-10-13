@@ -75,9 +75,9 @@ class SlackGateway:
         # Reactions that are commands: the third door beside the slash command
         # and the shortcut, and like them nothing without a dispatcher.
         self.reactions: SlackReactions | None = None
-        if dispatcher is not None and reaction_commands:
+        if dispatcher is not None and reaction_commands is not None and reaction_commands.by_emoji:
             self.reactions = SlackReactions(
-                app, dispatcher, chat, agent=agent, commands=reaction_commands,
+                app, dispatcher, chat, agent=agent, reaction_commands=reaction_commands,
                 own_user_id=lambda: self._own_user_id, directory=directory,
             )
         self._register()

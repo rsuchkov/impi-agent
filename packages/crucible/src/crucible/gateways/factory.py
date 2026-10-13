@@ -7,7 +7,7 @@ hands it in.
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from mattermostautodriver import AsyncTypedDriver
 from slack_bolt.async_app import AsyncApp
@@ -66,9 +66,9 @@ class GatewayConfig:
     slack_bot_token: str = ""
     slack_app_token: str = ""
     slack_command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX  # command shortcuts
-    # Reactions that run a command, on either chat platform; None or an empty
-    # map = none. Needs a dispatcher, like a shortcut does.
-    reaction_commands: ReactionCommands | None = None
+    # Reactions that run a command, on either chat platform; an empty map =
+    # none. Needs a dispatcher, like a shortcut does.
+    reaction_commands: ReactionCommands = field(default_factory=ReactionCommands)
     # ws carries no per-agent secrets: access is authorized by the client
     # services' tokens on the hub, not by the agent.
 

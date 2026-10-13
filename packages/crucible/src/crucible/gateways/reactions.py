@@ -6,15 +6,17 @@ shortcut and now a reaction all become one synthetic message through
 ``InteractionDispatcher.invoke_command``, in the conversation of the message
 they point at, and the agent's own instructions say what the word means. The
 adapters differ only in how the platform tells them about the reaction and how
-they find the message under it; this module holds the rest: the normalized
-reaction, the emoji name as the map spells it, the text the command arrives as,
-and the one rule about who may trigger one.
+they find the message under it; this module holds the rest: the map an agent is
+handed, the normalized reaction, the emoji name as the map spells it, the
+reacted message as the flow quotes it, and the one rule about who may trigger
+a command this way.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.types import QuotedMessage, UserProfile
 
 DEFAULT_QUOTE_LIMIT = 1500
 
@@ -25,15 +27,12 @@ _SKIN_TONE = "::skin-tone-"
 
 @dataclass(frozen=True)
 class ReactionCommands:
-    """What an agent's gateway is handed to treat reactions as commands: the
-    emoji -> command word map, and how much of the reacted message is quoted
-    under the word. An empty map means no reaction is a command."""
+    """What an agent's gateway is handed to treat reactions as commands: which
+    emoji runs which command word, and how much of the reacted message the
+    agent is shown. An empty map means no reaction is a command."""
 
-    commands: Mapping[str, str] = field(default_factory=dict)
+    by_emoji: Mapping[str, str] = field(default_factory=dict)
     quote_limit: int = DEFAULT_QUOTE_LIMIT
-
-    def __bool__(self) -> bool:
-        return bool(self.commands)
 
 
 @dataclass(frozen=True)
@@ -56,28 +55,30 @@ def emoji_name(raw: str) -> str:
     return name[:tone] if tone >= 0 else name
 
 
-def command_text(command: str, quoted: str, limit: int) -> str:
-    """What the agent reads: the command word, then the message the reaction
-    was put on, quoted — a reaction inside a thread points at one message,
-    while the conversation the turn runs in is the whole thread. The quote is
-    cut at ``limit`` characters: the message is in the thread the agent sees
-    anyway, and the quote only says which one."""
-    text = f"/{command}"
-    quoted = quoted.strip()
-    if not quoted:
-        return text
-    if len(quoted) > limit:
-        quoted = quoted[: max(limit - 1, 0)] + "…"
-    lines = "\n".join(f"> {line}" for line in quoted.splitlines())
-    return f"{text}\n{lines}"
+def quoted_message(author: str, text: str, limit: int) -> QuotedMessage | None:
+    """The message a reaction was put on, as the flow quotes it under its
+    author's name — a reaction inside a thread points at one message, while
+    the turn runs in the whole thread, and the quote says which one. Cut at
+    ``limit`` characters: the message is in the thread the agent sees anyway.
+    None for a message with no text (a file alone, say)."""
+    text = text.strip()
+    if not text:
+        return None
+    if len(text) > limit:
+        text = text[: max(limit - 1, 0)] + "…"
+    return QuotedMessage(author=author, text=text)
 
 
 def reacted_by_an_agent(
-    user_id: str, own_user_id: str, directory: AgentDirectory | None
+    user_id: str, own_user_id: str, directory: AgentDirectory | None, profile: UserProfile | None
 ) -> bool:
-    """Whether the reaction is one of ours: the agent's own (it marks a message
-    it is working on with one), or another agent's in the same deployment.
-    Neither is a person asking for something."""
+    """Whether the reaction is nobody's request: the agent's own (it marks a
+    message it is working on with one), another agent's in the same
+    deployment, or any other bot's — a bot that reacts to the agent's replies
+    would otherwise run it on its own answers, and the loop guard sees only
+    agents' posts."""
     if user_id == own_user_id:
         return True
-    return directory is not None and user_id in directory.agent_user_ids()
+    if directory is not None and user_id in directory.agent_user_ids():
+        return True
+    return profile is not None and profile.is_bot

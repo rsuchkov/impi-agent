@@ -82,8 +82,10 @@ started, and the fix is a deployment one rather than a model one:
   then `impi start`.
 - **refused the connection** — the token the engine holds and the one the
   container holds are different. `impi agent sync` rewrites both from one value.
-- **protocol N, the engine speaks M** — a half-finished update: the engine image
-  moved and the agent images did not. `impi agent sync`.
+- **protocol N, the engine speaks M** — a half-finished update: the engine is
+  on the new release and an agent's container on the old one. `impi update`
+  rebuilds and recreates both; if an update was interrupted, `impi agent sync`
+  finishes the agents' half.
 - **an agent runs in the engine although the axis is on** — no
   `AGENTS_HOST_TOKEN__<AGENT>`, which means it was never synced. The engine
   names such agents at boot.
@@ -106,6 +108,17 @@ to a denial. Check, in order:
 3. **pi version drift**: behavior differs across pi versions — align the local
    `pi --version` with the version the engine was verified against
    (see [runtime-notes.md](runtime-notes.md)).
+
+## A reaction does nothing
+
+An emoji on a message runs a command only when that agent's own map names it
+(`AGENTS_REACTION_COMMANDS__<AGENT>`; the global `REACTION_COMMANDS` is the
+default agent's), interactivity is on, and the reaction is a person's — an
+agent's or a bot's never counts. On Slack the app also needs the
+`reactions:read` scope and the `reaction_added` event subscription. The engine
+log says `reaction :<emoji>: by <user> in <conversation> runs /<command> for
+<agent>` when it worked; see
+[commands.md](commands.md#reactions-as-commands).
 
 ## Widget/form clicks do nothing
 

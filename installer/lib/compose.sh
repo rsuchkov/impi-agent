@@ -120,14 +120,14 @@ build_services() {
 # tag changes nothing in the definition — so after an update the engine, the
 # broker and every agent kept running the release before, while the wrapper
 # reported the update done (the readiness check read "app built:" from the old
-# container's log). docker compose compares the image as well, and recreating
-# explicitly costs it nothing it would not have done. The plain `up` first, so
-# a service a release adds is created before the rebuilt ones are replaced;
-# `--no-deps`, so the services the rebuilt ones depend on (the chat platform,
-# its database) are not restarted for a change that is not theirs.
+# container's log). docker compose compares the image as well, so there the
+# explicit recreate is the one restart the rebuilt services get: the first `up`
+# creates what a release added and touches nothing that exists (`--no-recreate`,
+# which both tools take), and `--no-deps` keeps the services the rebuilt ones
+# depend on (the chat platform, its database) out of a change that is not theirs.
 up_rebuilt() {
     # shellcheck disable=SC2046  # a list of services is meant to split
-    compose up -d && compose up -d --force-recreate --no-deps $(build_services)
+    compose up -d --no-recreate && compose up -d --force-recreate --no-deps $(build_services)
 }
 
 # infer_mode_from_files FILES -> codeploy | external | slack. Reads the mode back

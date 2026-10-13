@@ -25,7 +25,8 @@ from crucible.ports.chat.types import (
     Form,
     FormField,
 )
-from tests.fakes.slack import FakeDispatcher, FakePoster, Respond
+from tests.fakes.dispatch import FakeDispatcher
+from tests.fakes.slack import FakePoster, Respond
 
 _APPS: list[AsyncApp] = []
 

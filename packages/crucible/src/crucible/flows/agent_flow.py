@@ -58,6 +58,10 @@ _LABEL_FIRST_TURN = "earlier conversation"
 # Who is asking, from the application: ahead of everything else, since it frames
 # both the history and the message.
 _LABEL_PREAMBLE = "who is asking"
+# The message a command points at (an emoji was put on it): somebody else's
+# words, quoted under their name — never after the speaker's own `]: `, where
+# the model would take them for the speaker's request.
+_LABEL_POINTED_AT = "the message this points at, by {author}"
 # Later turns: what people said in this conversation while the agent wasn't
 # addressed (in a channel it only runs when mentioned, so those messages never
 # reached it as a turn).
@@ -383,7 +387,11 @@ class AgentFlow:
         for m in msgs:
             author = f"@{speaker(m.username)}" if m.username else speaker(m.user_id)
             when = f" · {_format_time(m.timestamp)}" if m.timestamp else ""
-            lines = [f"[{author}{when}]: {quoted(m.text, inline=True)}"]
+            lines = []
+            if m.quoted is not None:
+                label = _LABEL_POINTED_AT.format(author=f"@{speaker(m.quoted.author)}")
+                lines.append(f"{_context_open(tag, label)}\n{quoted(m.quoted.text)}\n{_context_close(tag)}")
+            lines.append(f"[{author}{when}]: {quoted(m.text, inline=True)}")
             lines += [_attachment_line(a) for a in m.attachments]
             parts.append("\n".join(lines))
         return "\n\n".join(parts)

@@ -17,6 +17,7 @@ from slack_bolt.async_app import AsyncApp
 from crucible.approvals import ApprovalOutcome
 from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.slack.client import MESSAGE_ID_SEP
+from crucible.gateways.slack.events import conversation_of, is_direct_channel
 from crucible.gateways.slack.rendering import (
     FORM_CALLBACK,
     WIDGET_ACTION_PREFIX,
@@ -34,7 +35,6 @@ from crucible.ports.chat.types import (
     COMMAND_ACK_TEXT,
     KIND_CHANNEL,
     KIND_DM,
-    KIND_THREAD,
     NOT_AN_APPROVER_TEXT,
 )
 
@@ -190,14 +190,11 @@ class SlackInteractions:
         user = body.get("user") or {}
         ts = str(message.get("ts") or "")
         thread_ts = str(message.get("thread_ts") or "")
-        # Same conversation rule as an inbound message (slack/events.py): the
-        # thread wins; a DM without a thread is the DM-channel session.
-        if thread_ts and thread_ts != ts:
-            conversation_id, kind = thread_ts, KIND_THREAD
-        elif channel_id.startswith("D"):  # the shortcut payload carries no channel type
-            conversation_id, kind = channel_id, KIND_DM
-        else:
-            conversation_id, kind = ts, KIND_THREAD
+        # Same conversation rule as an inbound message (slack/events.py); the
+        # shortcut payload carries no channel type, so the id says what it is.
+        conversation_id, kind, _ = conversation_of(
+            ts, thread_ts, channel_id, is_dm=is_direct_channel(channel_id)
+        )
         if not conversation_id:
             logger.warning("shortcut %s: no conversation in the payload", command)
             return

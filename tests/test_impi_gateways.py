@@ -16,8 +16,7 @@ def test_the_reaction_map_reaches_the_mattermost_gateway(monkeypatch) -> None:
         "assistant",
     )
     assert config is not None and config.kind == "mattermost"
-    assert config.reaction_commands is not None
-    assert config.reaction_commands.commands == {"eyes": "summarize"}
+    assert config.reaction_commands.by_emoji == {"eyes": "summarize"}
     assert config.reaction_commands.quote_limit == 99
 
 
@@ -28,5 +27,4 @@ def test_the_reaction_map_reaches_the_slack_gateway(monkeypatch) -> None:
         "assistant",
     )
     assert config is not None and config.kind == "slack"
-    assert config.reaction_commands is not None
-    assert config.reaction_commands.commands == {"white_check_mark": "done"}
+    assert config.reaction_commands.by_emoji == {"white_check_mark": "done"}

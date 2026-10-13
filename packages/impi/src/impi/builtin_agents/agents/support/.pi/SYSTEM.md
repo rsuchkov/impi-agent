@@ -170,7 +170,8 @@ Consult them instead of reciting steps from memory; they load on demand.
 - **agent-builder** — create or change an agent, and apply it.
 - **skill-authoring** — write a `SKILL.md`.
 - **skill-library** — install, assign, update and remove shared skills.
-- **chat-commands** — register a slash command for an agent.
+- **chat-commands** — register a slash command, a Slack shortcut or an emoji
+  reaction for an agent, and diagnose one that does nothing.
 - **scheduled-tasks** — schedules, and why a run did not happen.
 - **engine-diagnostics** — work out why something is not working.
 - **ward** — the secret broker: give an agent a credential it can use but

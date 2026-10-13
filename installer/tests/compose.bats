@@ -301,7 +301,7 @@ setup_home() {
     compose() { printf 'compose %s\n' "$*"; }
     run up_rebuilt
     [ "$status" -eq 0 ]
-    [ "${lines[0]}" = "compose up -d" ]
+    [ "${lines[0]}" = "compose up -d --no-recreate" ]
     [ "${lines[1]}" = "compose up -d --force-recreate --no-deps impi ward agent-assistant" ]
     [ "${#lines[@]}" -eq 2 ]
 }

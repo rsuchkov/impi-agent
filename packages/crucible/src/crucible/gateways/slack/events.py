@@ -16,8 +16,9 @@ Conversation-key rule — the thread always wins (mirrors the Mattermost adapter
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, NamedTuple
 
+from crucible.gateways.reactions import Reaction, emoji_name
 from crucible.ports.chat.types import (
     KIND_DM,
     KIND_THREAD,
@@ -26,6 +27,35 @@ from crucible.ports.chat.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+EVENT_REACTION_ADDED = "reaction_added"
+
+
+class ConversationKey(NamedTuple):
+    """Where a message's turn runs: the session key, its kind, and the thread a
+    reply goes into ("" = top-level)."""
+
+    conversation_id: str
+    kind: str
+    thread_root: str
+
+
+def conversation_of(ts: str, thread_ts: str, channel: str, *, is_dm: bool) -> ConversationKey:
+    """The one conversation rule, for a message, a shortcut and a reaction
+    alike: a reply inside a thread belongs to that thread; a top-level DM
+    message to the DM channel's session; a top-level channel message starts a
+    thread under itself."""
+    if thread_ts and thread_ts != ts:
+        return ConversationKey(thread_ts, KIND_THREAD, thread_ts)
+    if is_dm:
+        return ConversationKey(channel, KIND_DM, "")
+    return ConversationKey(ts, KIND_THREAD, ts)
+
+
+def is_direct_channel(channel: str) -> bool:
+    """Whether a channel id names a direct message, for payloads that carry no
+    channel type (a shortcut, a reaction)."""
+    return channel.startswith("D")
 
 # Message subtypes we treat as conversational. None = a plain user message;
 # file_share = a message with attachments; bot_message = another bot/agent. Edits,
@@ -56,12 +86,7 @@ def event_to_incoming(
     thread_ts = event.get("thread_ts") or ""
     is_dm = event.get("channel_type") == "im"
 
-    if thread_ts and thread_ts != ts:  # a reply inside a thread — the thread wins
-        conversation_id, kind, thread_root = thread_ts, KIND_THREAD, thread_ts
-    elif is_dm:  # top-level DM post -> the DM-channel session, reply top-level
-        conversation_id, kind, thread_root = channel, KIND_DM, ""
-    else:  # top-level channel post -> a reply starts a thread under it
-        conversation_id, kind, thread_root = ts, KIND_THREAD, ts
+    conversation_id, kind, thread_root = conversation_of(ts, thread_ts, channel, is_dm=is_dm)
 
     text = event.get("text") or ""
     mentioned = bool(own_user_id) and f"<@{own_user_id}>" in text
@@ -118,6 +143,21 @@ def parse_files(event: dict[str, Any]) -> tuple[FileHandle, ...]:
             )
         )
     return tuple(handles)
+
+
+def parse_reaction(event: dict[str, Any]) -> Reaction | None:
+    """Normalize one ``reaction_added`` event; None = not a reaction on a
+    message (a file, a comment), or one the event does not name fully."""
+    item = event.get("item") or {}
+    if item.get("type") != "message":
+        return None
+    emoji = emoji_name(str(event.get("reaction") or ""))
+    user_id = str(event.get("user") or "")
+    channel = str(item.get("channel") or "")
+    ts = str(item.get("ts") or "")
+    if not (emoji and user_id and channel and ts):
+        return None
+    return Reaction(emoji=emoji, user_id=user_id, channel_id=channel, message_id=ts)
 
 
 def should_respond(msg: IncomingMessage) -> bool:

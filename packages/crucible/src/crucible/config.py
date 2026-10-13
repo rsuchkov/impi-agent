@@ -415,6 +415,12 @@ class Settings(BaseSettings):
         _checked_env_names("RUNTIME_ENV", value, cls.APP_SECRET_PREFIXES)
         return value
 
+    @field_validator("reaction_commands")
+    @classmethod
+    def _reaction_commands_are_a_map(cls, value: str) -> str:
+        _checked_reaction_commands("REACTION_COMMANDS", value)
+        return value
+
     @model_validator(mode="after")
     def _a_provider_names_a_model(self) -> Settings:
         check_provider_has_model(self.default_provider, self.default_model, "DEFAULT_PROVIDER", "DEFAULT_MODEL")
@@ -512,9 +518,7 @@ class Settings(BaseSettings):
         fallback only. ValueError, naming the key, for an entry that is not
         emoji=command."""
         key = f"AGENTS_REACTION_COMMANDS__{agent.upper().replace('-', '_')}"
-        raw = os.environ.get(key)
-        if raw is None:
-            raw = self._dotenv.get(key)
+        raw = self._override(key)
         if raw is not None:
             return _checked_reaction_commands(key, raw)
         if agent == self.agent_name:
@@ -569,12 +573,19 @@ class Settings(BaseSettings):
         return tuple(dict.fromkeys(names))
 
     def _csv_override(self, key: str) -> tuple[str, ...] | None:
-        raw = os.environ.get(key)
-        if raw is None:
-            raw = self._dotenv.get(key)
+        raw = self._override(key)
         if raw is None:
             return None
         return tuple(s.strip() for s in raw.split(",") if s.strip())
+
+    def _override(self, key: str) -> str | None:
+        """A dynamic key's raw value — the environment first, then the .env
+        file — or None when neither sets it. Unlike ``_token``, tells "set and
+        empty" from "unset": for an override, empty is an answer."""
+        raw = os.environ.get(key)
+        if raw is None:
+            raw = self._dotenv.get(key)
+        return raw
 
     def confinement_for(self, agent: str) -> str | None:
         """Per-agent confinement level from config: AGENTS_CONFINEMENT__<AGENT>
@@ -648,9 +659,7 @@ class Settings(BaseSettings):
                 continue
             suffix = key[len(token_prefix):]
             name = suffix.lower().replace("_", "-")
-            raw_allow = os.environ.get(f"{agents_prefix}{suffix}")
-            if raw_allow is None:
-                raw_allow = self._dotenv.get(f"{agents_prefix}{suffix}")
+            raw_allow = self._override(f"{agents_prefix}{suffix}")
             allow = (
                 None
                 if raw_allow is None

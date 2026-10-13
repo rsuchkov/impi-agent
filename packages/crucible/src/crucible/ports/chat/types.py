@@ -281,6 +281,16 @@ class ConversationRef:
     thread_root_id: str = ""  # thread replies go into; "" = post top-level
 
 
+@dataclass(frozen=True)
+class QuotedMessage:
+    """A message this one points at — the one a reaction was put on — with who
+    wrote it. Somebody else's words: the flow quotes them as that person's, in
+    a context block, never as the speaker's own."""
+
+    author: str  # a username, or an id when the platform gave none
+    text: str
+
+
 @dataclass
 class IncomingMessage:
     ref: ConversationRef
@@ -303,6 +313,10 @@ class IncomingMessage:
     # ``raw`` and kept out of repr: it is the one field that must not be written
     # down. None on platforms where nothing is per turn (every chat gateway).
     turn: TurnScope | None = field(default=None, repr=False)
+    # The message this one points at, when it does — a command run by a
+    # reaction names the message the emoji was put on. Rendered as another
+    # person's quoted words, under their name, not as this speaker's text.
+    quoted: QuotedMessage | None = None
     # Escape hatch: the platform-native payload. Only adapters/dispatchers may
     # read it — flows never do (they'd silently couple to the platform).
     raw: dict[str, Any] = field(default_factory=dict)

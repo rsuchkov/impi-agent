@@ -69,10 +69,10 @@ class MattermostGateway:
         # a command (the clicks' dispatcher; Mattermost's own callbacks come
         # over HTTP, so this is the one thing the WS loop hands it).
         self.reactions: MattermostReactions | None = None
-        if dispatcher is not None and reaction_commands:
+        if dispatcher is not None and reaction_commands is not None and reaction_commands.by_emoji:
             self.reactions = MattermostReactions(
-                driver, dispatcher, chat, agent=agent, commands=reaction_commands,
-                directory=directory,
+                driver, dispatcher, chat, agent=agent, reaction_commands=reaction_commands,
+                own_user_id=lambda: self._own_user_id, directory=directory,
             )
         # channel_id -> (expires_monotonic, member user ids)
         self._members_cache: dict[str, tuple[float, frozenset[str]]] = {}
@@ -109,7 +109,7 @@ class MattermostGateway:
             if self.reactions is not None:
                 reaction = parse_reaction(frame)
                 if reaction is not None:
-                    await self.reactions.handle_reaction(reaction, self._own_user_id)
+                    await self.reactions.handle_reaction(reaction)
                     return
             msg = parse_posted(frame, self._own_user_id)
             if msg is None:

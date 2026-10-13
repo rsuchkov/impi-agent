@@ -15,7 +15,7 @@ from slack_bolt.async_app import AsyncApp
 from crucible.attachments import AttachmentStore
 from crucible.gateways.slack.gateway import SlackGateway
 from crucible.gateways.slack.interactions import SlackInteractions
-from tests.fakes.slack import FakeDispatcher, FakeSink
+from tests.fakes.dispatch import FakeDispatcher, FakeSink
 
 OWN = "UBOT"
 

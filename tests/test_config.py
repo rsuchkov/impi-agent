@@ -271,6 +271,6 @@ def test_a_reaction_command_entry_that_is_not_emoji_equals_word_is_refused(monke
     monkeypatch.setenv("AGENTS_REACTION_COMMANDS__ASSISTANT", "+1")
     with pytest.raises(ValueError, match="command word"):
         _no_dotenv().reaction_commands_for("assistant")
-    monkeypatch.delenv("AGENTS_REACTION_COMMANDS__ASSISTANT")
-    with pytest.raises(ValueError, match="^REACTION_COMMANDS"):
-        _settings(agent_name="assistant", dotenv_path="/dev/null", reaction_commands="=x").reaction_commands_for("assistant")
+    # The global map is checked as the settings load, like its siblings.
+    with pytest.raises(ValidationError, match="REACTION_COMMANDS"):
+        _settings(agent_name="assistant", dotenv_path="/dev/null", reaction_commands="=x")

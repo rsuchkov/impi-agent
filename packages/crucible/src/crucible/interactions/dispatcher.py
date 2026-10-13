@@ -34,6 +34,7 @@ from crucible.ports.chat.types import (
     ConversationRef,
     Form,
     IncomingMessage,
+    QuotedMessage,
 )
 from crucible.store.base import FormRecord, FormStore, InteractionStore
 
@@ -161,10 +162,12 @@ class InteractionDispatcher:
         text: str,
         user_id: str,
         username: str = "",
+        quoted: QuotedMessage | None = None,
     ) -> ActionResult:
-        """A slash command / message shortcut: run it as an ordinary turn of the
-        agent, in the conversation it was invoked from — the reply is posted
-        there like any other answer.
+        """A slash command, a message shortcut, a reaction: run it as an
+        ordinary turn of the agent, in the conversation it was invoked from —
+        the reply is posted there like any other answer. ``quoted`` is the
+        message the command points at, carried as somebody else's words.
 
         Unlike a click there is no stored record — the transport supplies the
         agent and the conversation it resolved from its own payload.
@@ -189,6 +192,7 @@ class InteractionDispatcher:
             kind=kind,
             mentioned=True,  # the command WAS addressed to this agent
             synthetic=True,  # engine-generated from a command, not typed
+            quoted=quoted,
         )
         target.sink.submit(msg, target.chat)
         # What was typed is the person's, and a log is kept: the fact of the

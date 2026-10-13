@@ -13,9 +13,11 @@ when a release is cut, and `impi update` shows the target version's section.
   emoji on a message runs the command in the message's conversation — the
   thread it is in, a thread under it, or the direct message — through the
   same path a slash command and a Slack shortcut take, so the agent is taught
-  the word once. The agent reads the word and, quoted under it, the message
-  the reaction was put on (`REACTION_QUOTE_LIMIT`). An agent's own reactions
-  and other agents' are never commands. The map is per agent because every
+  the word once. The agent reads the word as the reactor's message and the
+  message the reaction was put on quoted as its author's words, in the
+  envelope's context block (`REACTION_QUOTE_LIMIT`) — never as the reactor's
+  own. An agent's own reactions, other agents' and other bots' are never
+  commands. The map is per agent because every
   agent in a channel sees every reaction there. Slack apps need the
   `reactions:read` scope and the `reaction_added` event; Mattermost needs
   nothing registered. See [commands.md](docs/commands.md#reactions-as-commands).
@@ -26,9 +28,9 @@ when a release is cut, and `impi update` shows the target version's section.
   from before (and so did the engine and the broker whenever their definition
   had not changed between the two releases), while the wrapper reported the
   update done. `impi update` and `impi agent sync` now recreate every service
-  they rebuilt, and nothing else. The update also builds the engine's image
-  before re-rendering the agents' containers, so the render is the new
-  release's rather than the old engine's.
+  they rebuilt, and nothing else. Both also build the engine's image before
+  re-rendering the agents' containers, so the render is the new release's
+  rather than the old engine's.
 - **The model is told when a confirmation went unanswered, not that it was
   refused.** A gated call whose card nobody answered in time used to come
   back as `declined by the user`, the same words as a Deny, so an agent

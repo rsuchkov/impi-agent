@@ -91,10 +91,12 @@ An emoji on a message runs a command in that message's conversation when the
 `emoji=command`, platform short names without colons: `white_check_mark=done`);
 `REACTION_COMMANDS` is the default agent's map only. Per agent on purpose —
 every agent in a channel sees every reaction there, and one emoji must not
-start all of them. The agent reads the command word and, quoted under it, the
-message the reaction was put on. `eyes` is what an agent puts on a message it
-is working on; its own reactions and other agents' are never commands, a
-person's are.
+start all of them. The agent reads the command word as the reactor's message,
+and the message the reaction was put on as a quoted block under its author's
+name — not as the reactor's words. `eyes` is what an agent puts on a message
+it is working on; its own reactions, other agents' and other bots' are never
+commands, a person's are. A map entry that is not `emoji=command` stops the
+engine at start, naming the key.
 
 Platform side: Mattermost needs nothing registered. A Slack app needs the bot
 scope `reactions:read` and the `reaction_added` event subscription; the
@@ -125,7 +127,7 @@ Read the engine log and match the line:
 | `callback to /<?>/… refused: not on the receiver's secret path` | registered without, or with an old, `INTEGRATIONS_SECRET` — re-register under the URL `impi health` prints |
 | nothing at all | the request never arrived: URL, port, or the Mattermost outbound block |
 | `reaction :<emoji>: by <user> in <conv> runs /<cmd> for <agent>` | a reaction worked; what follows is a normal turn |
-| a reaction, and no line at all | the emoji is not in that agent's map (check `AGENTS_REACTION_COMMANDS__<AGENT>`, not only the global key); interactivity is off; on Slack the app lacks `reactions:read` or the `reaction_added` subscription; or the reaction was an agent's own |
+| a reaction, and no line at all | the emoji is not in that agent's map (check `AGENTS_REACTION_COMMANDS__<AGENT>`, not only the global key); interactivity is off; on Slack the app lacks `reactions:read` or the `reaction_added` subscription; or the reaction was an agent's or a bot's |
 | `could not read the message under a reaction … missing a *:history scope` | Slack only: the command ran without the quote; add the history scopes |
 
 A command posts its answer into the conversation it was invoked from; the

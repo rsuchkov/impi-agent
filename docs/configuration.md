@@ -67,8 +67,8 @@ command in that message's conversation, as a slash command or a shortcut would
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `REACTION_COMMANDS` | `""` | the **default agent's** emoji → command map: CSV of `emoji=command` or a bare `emoji` (the command is then the emoji's name); platform short names without colons. Every other agent's map is `AGENTS_REACTION_COMMANDS__<AGENT>` — per agent, because every agent in a channel sees every reaction there. Empty = reactions are not commands |
-| `REACTION_QUOTE_LIMIT` | `1500` | how much of the reacted message is quoted under the command word |
+| `REACTION_COMMANDS` | `""` | the **default agent's** emoji → command map: CSV of `emoji=command` or a bare `emoji` (the command is then the emoji's name); platform short names without colons. Every other agent's map is `AGENTS_REACTION_COMMANDS__<AGENT>` — per agent, because every agent in a channel sees every reaction there. An entry that is not `emoji=command` stops the engine at start, naming the key. Empty = reactions are not commands |
+| `REACTION_QUOTE_LIMIT` | `1500` | how much of the reacted message the agent is shown, quoted as its author's words |
 
 ## Gateway selection
 

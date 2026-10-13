@@ -10,7 +10,7 @@ from typing import Protocol
 
 from crucible.approvals import ApprovalOutcome
 from crucible.interactions.screens import Redrawn, ScreenOpened
-from crucible.ports.chat.types import Form
+from crucible.ports.chat.types import Form, QuotedMessage
 
 
 class FormOpen(Protocol):
@@ -52,7 +52,9 @@ class GatewayDispatcher(Protocol):
         text: str,
         user_id: str,
         username: str = "",
+        quoted: QuotedMessage | None = None,
     ) -> object:
-        """Run a command (slash command / message shortcut) as a private turn of
-        ``agent`` in the conversation it was invoked from."""
+        """Run a command (slash command, message shortcut, reaction) as a turn
+        of ``agent`` in the conversation it was invoked from; ``quoted`` is the
+        message it points at, for the flow to quote under its author's name."""
         ...
