@@ -4,6 +4,7 @@ events.py    — pure event normalization into neutral chat types
 rendering.py — Block Kit rendering + the widget token round-trip
 formatter.py — Markdown -> mrkdwn conversion for outgoing agent prose
 client.py    — ChatClient + ChatAdmin over the AsyncWebClient
+reactions.py — an emoji on a message as a command, over the same socket
 interactions.py — clicks, modals, shortcuts and slash commands over the socket,
                routed to the neutral InteractionDispatcher (no HTTP receiver);
                usable without a gateway by an app that runs no agents

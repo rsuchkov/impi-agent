@@ -7,6 +7,7 @@ injects it by constructor — tests construct their own without env games.
 from __future__ import annotations
 
 import os
+import re
 import socket
 from functools import cached_property
 from pathlib import Path
@@ -77,6 +78,29 @@ def _checked_env_names(key: str, raw: str, reserved: tuple[str, ...]) -> list[st
         except ValueError as exc:
             raise ValueError(f"{key}: {exc}") from exc
     return names
+
+
+# An emoji name as Slack and Mattermost spell one ("white_check_mark", "+1",
+# "-1"), and a command word as a slash command takes it.
+_EMOJI_NAME = re.compile(r"^[a-z0-9_+-]+$")
+_COMMAND_WORD = re.compile(r"^[a-z0-9_-]+$")
+
+
+def _checked_reaction_commands(key: str, raw: str) -> dict[str, str]:
+    """The emoji -> command map a CSV setting spells, ``emoji=command`` or a
+    bare ``emoji`` (then the command is the emoji's name) — or ValueError
+    naming ``key``."""
+    commands: dict[str, str] = {}
+    for part in (p.strip() for p in raw.split(",") if p.strip()):
+        emoji, _, command = part.partition("=")
+        emoji, command = emoji.strip().strip(":").lower(), command.strip().lstrip("/")
+        if not _EMOJI_NAME.match(emoji):
+            raise ValueError(f"{key}: {emoji!r} is not an emoji name (letters, digits, _ + -)")
+        command = command or emoji
+        if not _COMMAND_WORD.match(command):
+            raise ValueError(f"{key}: {command!r} is not a command word (letters, digits, _ -)")
+        commands[emoji] = command
+    return commands
 
 
 def _checked_model_refs(key: str, raw: str) -> tuple[str, ...]:
@@ -190,6 +214,17 @@ class Settings(BaseSettings):
     # rest of the id is the command name (crux_summarize -> "summarize"). Change
     # it to match a workspace's own naming; empty = every shortcut is a command.
     slack_command_prefix: str = "crux_"
+
+    # Reactions that are commands, on Mattermost and Slack alike: CSV of
+    # `emoji=command` (or a bare `emoji`, meaning /emoji). A person putting that
+    # emoji on a message runs the command in that message's conversation, as a
+    # slash command or a shortcut would. This is the DEFAULT agent's map;
+    # AGENTS_REACTION_COMMANDS__<AGENT> is each other agent's — per agent on
+    # purpose, because every agent in a channel sees every reaction there, and
+    # one emoji must not start all of them. Empty = reactions are not commands.
+    reaction_commands: str = ""
+    # How much of the reacted message is quoted under the command word.
+    reaction_quote_limit: int = 1500
 
     # ws gateway (duplex WebSocket hub for custom client services). The hub is
     # started only when some agent runs on the "ws" gateway; access is per
@@ -470,6 +505,21 @@ class Settings(BaseSettings):
         if agent == self.agent_name and self.slack_bot_token and self.slack_app_token:
             return self.slack_bot_token, self.slack_app_token
         return "", ""
+
+    def reaction_commands_for(self, agent: str) -> dict[str, str]:
+        """The emoji -> command map of one agent: AGENTS_REACTION_COMMANDS__<AGENT>
+        (env or .env), with the global REACTION_COMMANDS as the default agent's
+        fallback only. ValueError, naming the key, for an entry that is not
+        emoji=command."""
+        key = f"AGENTS_REACTION_COMMANDS__{agent.upper().replace('-', '_')}"
+        raw = os.environ.get(key)
+        if raw is None:
+            raw = self._dotenv.get(key)
+        if raw is not None:
+            return _checked_reaction_commands(key, raw)
+        if agent == self.agent_name:
+            return _checked_reaction_commands("REACTION_COMMANDS", self.reaction_commands)
+        return {}
 
     def agent_host_for(self, agent: str) -> tuple[str, str]:
         """(url, token) of the host that runs this agent, or ("", "") when it

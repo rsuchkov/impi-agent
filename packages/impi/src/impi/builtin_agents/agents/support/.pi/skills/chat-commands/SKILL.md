@@ -1,14 +1,15 @@
 ---
 name: chat-commands
-description: Register a slash command (Mattermost, or Slack outside threads) or a Slack message shortcut so it reaches an agent, and diagnose one that does nothing. Use when the operator asks to add a /command, wire a command to an agent, or reports that a slash command fails or answers as the wrong bot.
+description: Register a slash command (Mattermost, or Slack outside threads), a Slack message shortcut, or an emoji reaction so it reaches an agent as a command, and diagnose one that does nothing. Use when the operator asks to add a /command, wire a command or a reaction to an agent, or reports that a slash command or a reaction fails or answers as the wrong bot.
 ---
 
-# Slash commands and shortcuts
+# Slash commands, shortcuts and reactions
 
 A command is an ordinary turn started by a word instead of a mention: the user
-types `/summarize` and that agent answers in the same conversation. Setup has
-two halves — one in the platform, one in the engine `.env` — and both must
-agree. Reference: `$IMPI_ROOT/docs/commands.md`.
+types `/summarize` — or picks a shortcut, or puts a mapped emoji on a message
+— and that agent answers in the same conversation. Setup has two halves — one
+in the platform, one in the engine `.env` — and both must agree. Reference:
+`$IMPI_ROOT/docs/commands.md`.
 
 ## 1. Is the word already taken?
 
@@ -83,7 +84,24 @@ Note the asymmetry: a shortcut never opens a screen. A `crux_tasks` shortcut
 on a Slack agent becomes an ordinary turn, and the model will answer about a
 task list it cannot read — in a thread, point them at `open_screen` instead.
 
-## 4. Networking (Mattermost only)
+## 4. Reactions (both platforms)
+
+An emoji on a message runs a command in that message's conversation when the
+**agent's own map** names it: `AGENTS_REACTION_COMMANDS__<AGENT>` (CSV of
+`emoji=command`, platform short names without colons: `white_check_mark=done`);
+`REACTION_COMMANDS` is the default agent's map only. Per agent on purpose —
+every agent in a channel sees every reaction there, and one emoji must not
+start all of them. The agent reads the command word and, quoted under it, the
+message the reaction was put on. `eyes` is what an agent puts on a message it
+is working on; its own reactions and other agents' are never commands, a
+person's are.
+
+Platform side: Mattermost needs nothing registered. A Slack app needs the bot
+scope `reactions:read` and the `reaction_added` event subscription; the
+`*:history` scopes it already has for messages let the engine quote the
+message. Both need `INTEGRATIONS_ENABLED=true`, as a shortcut does.
+
+## 5. Networking (Mattermost only)
 
 The command reaches the same receiver as widget callbacks:
 
@@ -93,7 +111,7 @@ The command reaches the same receiver as widget callbacks:
 - Mattermost blocks outbound calls to internal addresses: the receiver's subnet
   must be in `AllowedUntrustedInternalConnections`.
 
-## 5. When a command does nothing
+## 6. When a command does nothing
 
 Read the engine log and match the line:
 
@@ -106,6 +124,9 @@ Read the engine log and match the line:
 | `agent <x> has no live presence` | the agent isn't running — no token, or not enumerated |
 | `callback to /<?>/… refused: not on the receiver's secret path` | registered without, or with an old, `INTEGRATIONS_SECRET` — re-register under the URL `impi health` prints |
 | nothing at all | the request never arrived: URL, port, or the Mattermost outbound block |
+| `reaction :<emoji>: by <user> in <conv> runs /<cmd> for <agent>` | a reaction worked; what follows is a normal turn |
+| a reaction, and no line at all | the emoji is not in that agent's map (check `AGENTS_REACTION_COMMANDS__<AGENT>`, not only the global key); interactivity is off; on Slack the app lacks `reactions:read` or the `reaction_added` subscription; or the reaction was an agent's own |
+| `could not read the message under a reaction … missing a *:history scope` | Slack only: the command ran without the quote; add the history scopes |
 
 A command posts its answer into the conversation it was invoked from; the
 immediate reply the user sees is only an ephemeral receipt.

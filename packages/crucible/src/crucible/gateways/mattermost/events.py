@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
+from crucible.gateways.reactions import Reaction, emoji_name
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_DM,
@@ -29,6 +30,7 @@ from crucible.ports.chat.types import (
 logger = logging.getLogger(__name__)
 
 EVENT_POSTED = "posted"
+EVENT_REACTION_ADDED = "reaction_added"
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,25 @@ def parse_posted(frame: dict[str, Any], own_user_id: str) -> IncomingMessage | N
         hop_depth=hop_depth,
         raw=frame,
     )
+
+
+def parse_reaction(frame: dict[str, Any]) -> Reaction | None:
+    """Normalize one ``reaction_added`` WS frame; None = not one, or one that
+    does not name the post, the person and the emoji. The channel comes from
+    the broadcast envelope — the reaction itself names only the post."""
+    if frame.get("event") != EVENT_REACTION_ADDED:
+        return None
+    data = frame.get("data") or {}
+    reaction = _embedded_json(data.get("reaction"))
+    if not isinstance(reaction, dict):
+        return None
+    emoji = emoji_name(str(reaction.get("emoji_name") or ""))
+    user_id = str(reaction.get("user_id") or "")
+    post_id = str(reaction.get("post_id") or "")
+    channel_id = str((frame.get("broadcast") or {}).get("channel_id") or "")
+    if not (emoji and user_id and post_id):
+        return None
+    return Reaction(emoji=emoji, user_id=user_id, channel_id=channel_id, message_id=post_id)
 
 
 def should_respond(msg: IncomingMessage) -> bool:

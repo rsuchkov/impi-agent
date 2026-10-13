@@ -17,14 +17,18 @@ from dataclasses import replace
 from mattermostautodriver import AsyncTypedDriver
 
 from crucible.attachments import AttachmentStore, IncomingFile
+from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.mattermost.events import (
     FileHandle,
     is_top_level,
     parse_files,
     parse_posted,
+    parse_reaction,
     should_respond,
     to_channel_session,
 )
+from crucible.gateways.mattermost.reactions import MattermostReactions
+from crucible.gateways.reactions import ReactionCommands
 from crucible.loopguard import LoopGuard
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
@@ -45,10 +49,12 @@ class MattermostGateway:
         chat: ChatClient,
         *,
         agent: str = "",
+        dispatcher: GatewayDispatcher | None = None,
         directory: AgentDirectory | None = None,
         loop_guard: LoopGuard | None = None,
         reply_to_agents: bool = True,
         attachments: AttachmentStore | None = None,
+        reaction_commands: ReactionCommands | None = None,
     ) -> None:
         self._driver = driver
         self._sink = sink  # coalescer, wired in the composition root
@@ -59,6 +65,15 @@ class MattermostGateway:
         self._reply_to_agents = reply_to_agents
         self._attachments = attachments
         self._own_user_id = ""
+        # Reactions that are commands — only with a map and somebody to run
+        # a command (the clicks' dispatcher; Mattermost's own callbacks come
+        # over HTTP, so this is the one thing the WS loop hands it).
+        self.reactions: MattermostReactions | None = None
+        if dispatcher is not None and reaction_commands:
+            self.reactions = MattermostReactions(
+                driver, dispatcher, chat, agent=agent, commands=reaction_commands,
+                directory=directory,
+            )
         # channel_id -> (expires_monotonic, member user ids)
         self._members_cache: dict[str, tuple[float, frozenset[str]]] = {}
 
@@ -91,6 +106,11 @@ class MattermostGateway:
             frame = json.loads(message) if isinstance(message, str) else message
             if not isinstance(frame, dict):
                 return
+            if self.reactions is not None:
+                reaction = parse_reaction(frame)
+                if reaction is not None:
+                    await self.reactions.handle_reaction(reaction, self._own_user_id)
+                    return
             msg = parse_posted(frame, self._own_user_id)
             if msg is None:
                 return

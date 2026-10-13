@@ -197,7 +197,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/agent-containers.md](docs/agent-containers.md) — a container per agent, and what that isolates.
 - [docs/tool-trace.md](docs/tool-trace.md) — the message that lists the tools a turn ran.
 - [docs/files.md](docs/files.md) — files and photos, in both directions.
-- [docs/commands.md](docs/commands.md) — slash commands and shortcuts, and how to answer one privately.
+- [docs/commands.md](docs/commands.md) — slash commands, shortcuts and reactions as commands, and how to answer one privately.
 - [docs/ws-gateway.md](docs/ws-gateway.md) — plug your own service in over WebSocket.
 - [docs/http-gateway.md](docs/http-gateway.md) — the request/turn HTTP API for programs that cannot hold a socket.
 - [docs/storage.md](docs/storage.md) — where the engine's state lives, and what a backend does not move.

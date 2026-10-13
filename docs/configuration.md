@@ -57,6 +57,19 @@ HTTP receiver is needed.
 | `SLACK_APP_TOKEN` | `""` | `xapp-…` app-level token (scope `connections:write`) |
 | `SLACK_COMMAND_PREFIX` | `crux_` | message shortcuts whose callback id starts with this are commands; the rest of the id is the command name (empty = every shortcut is one). See [commands.md](commands.md) |
 
+## Reactions as commands
+
+On Mattermost and Slack alike, an emoji a person puts on a message can run a
+command in that message's conversation, as a slash command or a shortcut would
+([commands.md](commands.md#reactions-as-commands)). Needs
+`INTEGRATIONS_ENABLED=true`; on Slack also the `reactions:read` scope and the
+`reaction_added` event subscription.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `REACTION_COMMANDS` | `""` | the **default agent's** emoji → command map: CSV of `emoji=command` or a bare `emoji` (the command is then the emoji's name); platform short names without colons. Every other agent's map is `AGENTS_REACTION_COMMANDS__<AGENT>` — per agent, because every agent in a channel sees every reaction there. Empty = reactions are not commands |
+| `REACTION_QUOTE_LIMIT` | `1500` | how much of the reacted message is quoted under the command word |
+
 ## Gateway selection
 
 | Variable | Default | Purpose |
@@ -139,6 +152,7 @@ as defaults — set only the ones you need.
 | `AGENTS_SKILLS__<AGENT>` | override that agent's skills (CSV of names; empty = none; unset = its `agent.yaml`) |
 | `AGENTS_ENV__<AGENT>` | override the engine environment variables that agent's process inherits (CSV of names, `*` allowed; empty = none beyond the base set; unset = its `agent.yaml` `runtime.env`) |
 | `AGENTS_FALLBACK_MODELS__<AGENT>` | override that agent's fallback models (CSV of `provider/model`; empty = none; unset = its `agent.yaml`, else `DEFAULT_FALLBACK_MODELS`) |
+| `AGENTS_REACTION_COMMANDS__<AGENT>` | that agent's emoji → command map (CSV of `emoji=command`); the default agent falls back to `REACTION_COMMANDS`, every other agent to none |
 
 An agent is present only if its token is set; a tokenless profile is skipped.
 

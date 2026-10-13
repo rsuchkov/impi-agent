@@ -21,6 +21,7 @@ from crucible.gateways.mattermost import (
     MattermostGateway,
     driver_options,
 )
+from crucible.gateways.reactions import ReactionCommands
 from crucible.gateways.slack import (
     DEFAULT_COMMAND_SHORTCUT_PREFIX,
     SlackChatClient,
@@ -65,6 +66,9 @@ class GatewayConfig:
     slack_bot_token: str = ""
     slack_app_token: str = ""
     slack_command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX  # command shortcuts
+    # Reactions that run a command, on either chat platform; None or an empty
+    # map = none. Needs a dispatcher, like a shortcut does.
+    reaction_commands: ReactionCommands | None = None
     # ws carries no per-agent secrets: access is authorized by the client
     # services' tokens on the hub, not by the agent.
 
@@ -138,9 +142,11 @@ class GatewayFactory:
             return MattermostGateway(
                 driver, sink, chat,
                 agent=agent,
+                dispatcher=self._dispatcher,
                 directory=self._directory, loop_guard=self._loop_guard,
                 reply_to_agents=config.reply_to_agents,
                 attachments=self._attachments,
+                reaction_commands=config.reaction_commands,
             )
 
         return GatewayHandle(
@@ -161,6 +167,7 @@ class GatewayFactory:
                 reply_to_agents=config.reply_to_agents,
                 command_prefix=config.slack_command_prefix,
                 attachments=self._attachments,
+                reaction_commands=config.reaction_commands,
             )
 
         return GatewayHandle(

@@ -16,11 +16,13 @@ from slack_bolt.async_app import AsyncApp
 
 from crucible.attachments import AttachmentStore, IncomingFile
 from crucible.gateways.dispatch import GatewayDispatcher
+from crucible.gateways.reactions import ReactionCommands
 from crucible.gateways.slack.events import FileHandle, event_to_incoming, parse_files
 from crucible.gateways.slack.interactions import (
     DEFAULT_COMMAND_SHORTCUT_PREFIX,
     SlackInteractions,
 )
+from crucible.gateways.slack.reactions import SlackReactions
 from crucible.loopguard import LoopGuard
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
@@ -49,6 +51,7 @@ class SlackGateway:
         reply_to_agents: bool = True,
         command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX,
         attachments: AttachmentStore | None = None,
+        reaction_commands: ReactionCommands | None = None,
     ) -> None:
         self._app = app
         self._handler = AsyncSocketModeHandler(app, app_token)
@@ -68,6 +71,14 @@ class SlackGateway:
         if dispatcher is not None:
             self.interactions = SlackInteractions(
                 app, dispatcher, poster or chat, agent=agent, command_prefix=command_prefix
+            )
+        # Reactions that are commands: the third door beside the slash command
+        # and the shortcut, and like them nothing without a dispatcher.
+        self.reactions: SlackReactions | None = None
+        if dispatcher is not None and reaction_commands:
+            self.reactions = SlackReactions(
+                app, dispatcher, chat, agent=agent, commands=reaction_commands,
+                own_user_id=lambda: self._own_user_id, directory=directory,
             )
         self._register()
 
@@ -91,6 +102,8 @@ class SlackGateway:
         self._app.event("message")(self._on_message)
         if self.interactions is not None:
             self.interactions.register()
+        if self.reactions is not None:
+            self.reactions.register()
 
     async def _on_message(self, event: dict) -> None:
         try:

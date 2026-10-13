@@ -230,3 +230,47 @@ def test_a_support_provider_needs_a_model_from_somewhere() -> None:
     assert impi(support_provider="openai-codex", support_model="gpt-5.5").support_model == "gpt-5.5"
     # Each falls back on its own: the default model completes it.
     assert impi(support_provider="openai-codex", default_model="gpt-5.5").support_provider == "openai-codex"
+
+
+# --- reactions as commands --------------------------------------------------------
+
+
+def test_reaction_commands_are_an_emoji_to_command_map(monkeypatch) -> None:
+    monkeypatch.delenv("AGENTS_REACTION_COMMANDS__ASSISTANT", raising=False)
+    settings = _settings(
+        agent_name="assistant", dotenv_path="/dev/null",
+        reaction_commands=":eyes:=summarize, white_check_mark = /done ,tada",
+    )
+    assert settings.reaction_commands_for("assistant") == {
+        "eyes": "summarize", "white_check_mark": "done", "tada": "tada",
+    }
+
+
+def test_reaction_commands_are_per_agent_and_the_global_map_is_the_default_agents_only(monkeypatch) -> None:
+    # Every agent in a channel sees every reaction there: a map that applied
+    # to all of them would start all of them on one emoji.
+    monkeypatch.setenv("AGENTS_REACTION_COMMANDS__RESEARCHER", "mag=search")
+    monkeypatch.delenv("AGENTS_REACTION_COMMANDS__ASSISTANT", raising=False)
+    monkeypatch.delenv("AGENTS_REACTION_COMMANDS__OTHER", raising=False)
+    settings = _settings(agent_name="assistant", dotenv_path="/dev/null", reaction_commands="eyes=summarize")
+    assert settings.reaction_commands_for("researcher") == {"mag": "search"}
+    assert settings.reaction_commands_for("assistant") == {"eyes": "summarize"}
+    assert settings.reaction_commands_for("other") == {}
+    monkeypatch.setenv("AGENTS_REACTION_COMMANDS__ASSISTANT", "")
+    assert settings.reaction_commands_for("assistant") == {}  # set and empty: none, not the global
+
+
+def test_a_reaction_command_entry_that_is_not_emoji_equals_word_is_refused(monkeypatch) -> None:
+    monkeypatch.setenv("AGENTS_REACTION_COMMANDS__ASSISTANT", "eyes=sum marize")
+    with pytest.raises(ValueError, match="^AGENTS_REACTION_COMMANDS__ASSISTANT"):
+        _no_dotenv().reaction_commands_for("assistant")
+    monkeypatch.setenv("AGENTS_REACTION_COMMANDS__ASSISTANT", "not an emoji=x")
+    with pytest.raises(ValueError, match="emoji name"):
+        _no_dotenv().reaction_commands_for("assistant")
+    # A bare emoji whose name is not a command word has to be given one.
+    monkeypatch.setenv("AGENTS_REACTION_COMMANDS__ASSISTANT", "+1")
+    with pytest.raises(ValueError, match="command word"):
+        _no_dotenv().reaction_commands_for("assistant")
+    monkeypatch.delenv("AGENTS_REACTION_COMMANDS__ASSISTANT")
+    with pytest.raises(ValueError, match="^REACTION_COMMANDS"):
+        _settings(agent_name="assistant", dotenv_path="/dev/null", reaction_commands="=x").reaction_commands_for("assistant")

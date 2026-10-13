@@ -1,8 +1,9 @@
-# Commands (slash commands & shortcuts)
+# Commands (slash commands, shortcuts & reactions)
 
 A **command** is a way to ask an agent for something without writing a message
-to it: the user types `/summarize` in a Mattermost thread, or picks a shortcut
-on a Slack message, and the agent runs a turn and answers in that conversation.
+to it: the user types `/summarize` in a Mattermost thread, picks a shortcut on
+a Slack message, or puts an emoji the operator mapped to the command on a
+message, and the agent runs a turn and answers in that conversation.
 
 > **The answer is public.** A command's reply is posted into the thread like any
 > other, visible to everyone in it. If the result must reach only the person who
@@ -57,7 +58,7 @@ Grant it like any other tool (`open_screen` in `runtime.tools`); it needs
 
 |  | Mattermost | Slack |
 |---|---|---|
-| Entry point | slash command (works inside threads) | slash command outside threads; **message shortcut** (`crux_*`) inside them |
+| Entry point | slash command (works inside threads); a **reaction** (`REACTION_COMMANDS`) | slash command outside threads; **message shortcut** (`crux_*`) inside them; a **reaction** |
 | Slash command in a thread | ✅ | ❌ [not allowed for custom commands](https://docs.slack.dev/interactivity/implementing-slash-commands/) — only built-ins and Giphy |
 | Thread root comes from | `root_id` in the payload | `message.thread_ts` (else `message.ts`) |
 | Transport | HTTP `POST /command/{agent}` (or `/command/default`) on the interactions receiver | Socket Mode (no HTTP, no public URL) |
@@ -136,6 +137,53 @@ delivers it), and the engine answers `/skills`, `/tasks` and — where
 connected accounts are configured — `/connections` with their panels, and
 anything else as a turn of the agent. It never carries thread context,
 which is why the shortcut exists.
+
+## Reactions as commands
+
+The shortest gesture either platform has is an emoji on a message, and people
+already use it as a signal. The engine can read one as a command: an operator
+maps emoji names to command words, and a person putting that emoji on a
+message runs the command **in that message's conversation** — the thread it is
+in; a thread started under it when it is a top-level channel message; the
+direct message itself when it is one. The agent is taught the word once, in
+`.pi/SYSTEM.md`, and it arrives the same whether typed, picked or reacted.
+
+The map is **per agent**, on purpose: a mention names one bot and a shortcut
+belongs to one app, but every agent in a channel sees every reaction there, so
+a map shared by all of them would start all of them on one emoji.
+
+```dotenv
+AGENTS_REACTION_COMMANDS__ASSISTANT=white_check_mark=done,eyes=summarize
+REACTION_COMMANDS=white_check_mark=done      # the default agent's map
+```
+
+An entry is `emoji=command` or a bare `emoji` (then the command is the emoji's
+name — `tada` runs `/tada`). Emoji names are the platform's short names, as in
+`:white_check_mark:`, without colons or a skin tone. Empty = reactions are not
+commands.
+
+What the agent reads is the command word and, under it, the message the
+reaction was put on, quoted (cut at `REACTION_QUOTE_LIMIT` characters): a
+reaction inside a thread points at one message, while the turn runs in the
+whole thread, and the quote says which one. Removing a reaction does nothing;
+putting it back runs the command again. A reaction the agent itself or another
+agent of the deployment adds is never a command — the agent marks a message it
+is working on with `:eyes:`, so mapping `eyes` means a person's 👀 runs the
+command and the agent's own never does.
+
+Platform setup:
+
+- **Slack:** the app needs the bot scope `reactions:read` and the event
+  subscription `reaction_added` (api.slack.com → your app → *Event
+  Subscriptions* → *Subscribe to bot events*), beside what it already has for
+  messages. The message under the reaction is read back with the `*:history`
+  scopes messages already need; without them the command still runs, pointed
+  at the thread alone and without the quote, and the log says so.
+- **Mattermost:** nothing to register — the bot's WebSocket already carries
+  `reaction_added` for the channels it is in.
+
+Like a shortcut, a reaction needs interactivity (`INTEGRATIONS_ENABLED=true`):
+a command is run by the same dispatcher that answers clicks.
 
 ## Teaching the agent the command
 
@@ -229,3 +277,4 @@ the agent's tools — "`/deploy` staging", "`/whois` @user".
 | Answer says the agent is unavailable | The named agent isn't running (check `app built: agents=[…]`) or the URL names a different agent |
 | Ephemeral message never appears (Mattermost) | The bot lacks `create_post_ephemeral` — `post_ephemeral` fails with a permission error (the `send_ephemeral` tool reports it as one) |
 | Slack shortcut does nothing | Callback ID must start with `SLACK_COMMAND_PREFIX` (default `crux_`); Interactivity must be on; the engine must be running (Socket Mode delivers to one connection) |
+| A reaction does nothing | The emoji is not in **that agent's** map (`AGENTS_REACTION_COMMANDS__<AGENT>`; the global `REACTION_COMMANDS` is the default agent's only); on Slack the app lacks `reactions:read` or the `reaction_added` subscription; interactivity is off; the reaction was an agent's own. The engine log says `reaction :<emoji>: by <user> in <conversation> runs /<command> for <agent>` when it worked |

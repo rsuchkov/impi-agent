@@ -6,6 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **An emoji on a message can be a command**, on Mattermost and Slack. An
+  operator maps emoji names to command words per agent
+  (`AGENTS_REACTION_COMMANDS__<AGENT>=white_check_mark=done,eyes=summarize`;
+  `REACTION_COMMANDS` is the default agent's map), and a person putting that
+  emoji on a message runs the command in the message's conversation — the
+  thread it is in, a thread under it, or the direct message — through the
+  same path a slash command and a Slack shortcut take, so the agent is taught
+  the word once. The agent reads the word and, quoted under it, the message
+  the reaction was put on (`REACTION_QUOTE_LIMIT`). An agent's own reactions
+  and other agents' are never commands. The map is per agent because every
+  agent in a channel sees every reaction there. Slack apps need the
+  `reactions:read` scope and the `reaction_added` event; Mattermost needs
+  nothing registered. See [commands.md](docs/commands.md#reactions-as-commands).
 - **Fixed: `impi update` left the agents' containers on the old release.**
   On podman-compose `up -d` recreates a container only when its service's
   definition changed, and a rebuilt image under the same tag changes nothing

@@ -48,9 +48,10 @@ people. Keep them accurate to the code.
 - **[files.md](files.md)** — files and photos: what happens to an attachment on
   its way to the agent, where files are kept, the per-platform requirements, and
   the size/retention limits.
-- **[commands.md](commands.md)** — slash commands and message shortcuts: how a
-  command becomes an ordinary turn, per-platform setup (Mattermost / Slack), and
-  the pattern for private, deterministic results (a handler beside the agent).
+- **[commands.md](commands.md)** — slash commands, message shortcuts and emoji
+  reactions as commands: how a command becomes an ordinary turn, per-platform
+  setup (Mattermost / Slack), and the pattern for private, deterministic
+  results (a handler beside the agent).
 - **[ws-gateway.md](ws-gateway.md)** — the WebSocket gateway for your own client
   services: the frame protocol, conversation isolation, a minimal client.
 - **[http-gateway.md](http-gateway.md)** — the request/turn HTTP API for programs

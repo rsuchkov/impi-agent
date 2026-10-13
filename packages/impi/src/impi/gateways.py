@@ -9,6 +9,7 @@ and which token(s) each transport needs.
 import logging
 
 from crucible.gateways import GatewayConfig
+from crucible.gateways.reactions import ReactionCommands
 from impi.config import ImpiSettings
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ def resolve_gateway(settings: ImpiSettings, agent: str) -> GatewayConfig | None:
             mm_token=token,
             max_post_chars=settings.mm_max_post_chars,
             reply_to_agents=settings.agents_reply_to_agents,
+            reaction_commands=_reaction_commands(settings, agent),
         )
     if kind == "slack":
         bot, app_token = settings.slack_tokens_for(agent)
@@ -50,12 +52,17 @@ def resolve_gateway(settings: ImpiSettings, agent: str) -> GatewayConfig | None:
             slack_command_prefix=settings.slack_command_prefix,
             max_post_chars=settings.mm_max_post_chars,
             reply_to_agents=settings.agents_reply_to_agents,
+            reaction_commands=_reaction_commands(settings, agent),
         )
     if kind in ("ws", "http"):
         # No per-agent token gate: access is authorized by the callers' own
         # tokens on the hub (WS_SERVICE_TOKEN__* / HTTP_CALLER_TOKEN__*).
         return GatewayConfig(kind=kind, reply_to_agents=settings.agents_reply_to_agents)
     return GatewayConfig(kind=kind)
+
+
+def _reaction_commands(settings: ImpiSettings, agent: str) -> ReactionCommands:
+    return ReactionCommands(settings.reaction_commands_for(agent), settings.reaction_quote_limit)
 
 
 def _key(agent: str) -> str:

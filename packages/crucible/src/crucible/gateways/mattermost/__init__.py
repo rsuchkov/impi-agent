@@ -5,6 +5,7 @@ options.py   — MATTERMOST_URL -> driver options dict
 client.py    — ChatClient implementation (posts, reactions, chunking)
 gateway.py   — WS loop + respond decision, dispatches into a Flow
 callbacks.py — MM interactive-callback wire-shape <-> neutral callbacks
+reactions.py — an emoji on a post as a command, over the same WS loop
 """
 
 from crucible.gateways.mattermost.callbacks import MattermostCallbackCodec
