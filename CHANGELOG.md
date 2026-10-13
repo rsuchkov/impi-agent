@@ -6,6 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: `impi update` left the agents' containers on the old release.**
+  On podman-compose `up -d` recreates a container only when its service's
+  definition changed, and a rebuilt image under the same tag changes nothing
+  in the definition — so after an update the agents kept running the image
+  from before (and so did the engine and the broker whenever their definition
+  had not changed between the two releases), while the wrapper reported the
+  update done. `impi update` and `impi agent sync` now recreate every service
+  they rebuilt, and nothing else. The update also builds the engine's image
+  before re-rendering the agents' containers, so the render is the new
+  release's rather than the old engine's.
 - **The model is told when a confirmation went unanswered, not that it was
   refused.** A gated call whose card nobody answered in time used to come
   back as `declined by the user`, the same words as a Deny, so an agent

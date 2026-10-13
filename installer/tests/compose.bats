@@ -285,6 +285,37 @@ setup_home() {
     [ "$output" = "impi agent-assistant agent-researcher" ]
 }
 
+# --- up_rebuilt: a rebuilt image has to end up running ---------------------------
+#
+# podman-compose recreates a container only when its service's definition
+# changed, which a rebuilt image under the same tag never does; without the
+# explicit recreate an update left every built service on the old image.
+
+@test "after a rebuild every built service is recreated, and nothing else is restarted" {
+    IMPI_HOME="$BATS_TEST_TMPDIR/home"
+    mkdir -p "$IMPI_HOME/conf/agents/assistant"
+    : >"$IMPI_HOME/conf/agents/assistant/Dockerfile"
+    COMPOSE_VAULT=0
+    IMPI_VAULT=1
+    IMPI_AGENT_CONTAINERS=1
+    compose() { printf 'compose %s\n' "$*"; }
+    run up_rebuilt
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "compose up -d" ]
+    [ "${lines[1]}" = "compose up -d --force-recreate --no-deps impi ward agent-assistant" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "a failed up is not followed by a recreate that would hide it" {
+    IMPI_HOME="$BATS_TEST_TMPDIR/home"
+    COMPOSE_VAULT=0
+    unset IMPI_VAULT IMPI_AGENT_CONTAINERS
+    compose() { printf 'compose %s\n' "$*"; return 1; }
+    run up_rebuilt
+    [ "$status" -ne 0 ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
 # --- migrate_volume: the copy has to answer honestly ---------------------------
 #
 # The version this replaces swallowed stderr, forced the exit code to zero and

@@ -247,8 +247,10 @@ not configured.
 - **Every tool call fails** — the tool server is still on loopback. The
   generated overlay sets `TOOL_SERVER_HOST` and `TOOL_PUBLIC_URL`; if a drop-in
   overrides them, it wins. The engine says so at boot.
-- **"protocol N, the engine speaks M"** — a half-finished update. Rebuild the
-  agent images: `impi agent sync`.
+- **"protocol N, the engine speaks M"** — a half-finished update: the engine
+  runs the new release and an agent's container the old one. `impi update`
+  rebuilds and recreates both; if an update was interrupted, `impi agent sync`
+  finishes the agents' half.
 - **An agent runs in the engine even though the axis is on** — no token for it
   yet, which means it was never synced. The engine logs it by name at boot.
 - **"Permission denied" inside the agent** — first, the process is confined:

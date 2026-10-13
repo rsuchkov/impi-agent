@@ -118,8 +118,12 @@ Say what it does and does not buy, rather than "it is isolated":
 - **Every tool call from one agent fails** — the tool server is still bound to
   loopback. The generated overlay sets it; a drop-in in `compose.d/` that names
   the engine service can override it back.
-- **"protocol N, the engine speaks M"** — a half-finished update. `impi agent sync`
-  rebuilds the agent images.
+- **"protocol N, the engine speaks M"** — a half-finished update: the engine is
+  on the new release, an agent's container on the old one. `impi update`
+  rebuilds and recreates both (it recreates every service it rebuilt
+  explicitly — podman-compose would otherwise keep a container whose
+  definition did not change on the old image); if an update was interrupted,
+  `impi agent sync` finishes the agents' half.
 - **A skill will not load** — it is outside the two mounted roots (the agent's
   own directory and the shared library). An absolute path to somewhere else
   cannot work here; install it into the library instead.

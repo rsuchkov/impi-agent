@@ -112,6 +112,24 @@ build_services() {
     printf '%s\n' "$_services"
 }
 
+# up_rebuilt -> bring the stack up after its images were rebuilt, so that every
+# service built from source runs the image just built.
+#
+# `up -d` alone does not do that on podman-compose: it recreates a container
+# only when its service's DEFINITION changed, and a rebuilt image under the same
+# tag changes nothing in the definition — so after an update the engine, the
+# broker and every agent kept running the release before, while the wrapper
+# reported the update done (the readiness check read "app built:" from the old
+# container's log). docker compose compares the image as well, and recreating
+# explicitly costs it nothing it would not have done. The plain `up` first, so
+# a service a release adds is created before the rebuilt ones are replaced;
+# `--no-deps`, so the services the rebuilt ones depend on (the chat platform,
+# its database) are not restarted for a change that is not theirs.
+up_rebuilt() {
+    # shellcheck disable=SC2046  # a list of services is meant to split
+    compose up -d && compose up -d --force-recreate --no-deps $(build_services)
+}
+
 # infer_mode_from_files FILES -> codeploy | external | slack. Reads the mode back
 # out of a legacy IMPI_COMPOSE_FILES list, for installations made before the mode
 # itself was recorded.

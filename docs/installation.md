@@ -204,8 +204,12 @@ the `VERSION` file mirrors the tag, and [`CHANGELOG.md`](../CHANGELOG.md)
 carries the release notes (the release script stamps the `Unreleased` section
 with the version and refuses to cut a release with empty notes). `impi update`
 fetches tags, shows the target version's release notes, checks out the newest
-tag, rebuilds the image, and restarts — with a health gate and an offered
-rollback if the new engine does not come up.
+tag, rebuilds the images (the engine's, the broker's and every agent
+container's, after re-rendering the agents' containers with the new engine),
+recreates the services that were rebuilt — explicitly, because podman-compose
+would otherwise keep a container whose definition did not change on the old
+image — and restarts, with a health gate and an offered rollback if the new
+engine does not come up.
 
 ## Your own compose overlays
 

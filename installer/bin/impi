@@ -296,6 +296,19 @@ agent_containers_on() { [ "${IMPI_AGENT_CONTAINERS:-0}" = 1 ]; }
 # something a person on this machine brings into being.
 cmd_agent_sync() {
     agent_containers_on || die "per-agent containers are off — put IMPI_AGENT_CONTAINERS=1 in $IMPI_HOME/compose.env first"
+    render_agents
+    build_images
+    up_rebuilt
+    ok "each agent is running in a container of its own"
+    printf 'logs for one of them: impi agent logs <agent>\n'
+}
+
+# Ask the engine what each agent's container needs — it runs inside the
+# engine's image, which is what reads the profiles — and build the shared image
+# every agent's own image is built on. The engine's image must already be the
+# release being deployed: the render is that release's code, and an update that
+# rendered with the image of the release before would write the old layout.
+render_agents() {
     local _args="" _runtime
     [ "${IMPI_VAULT:-0}" = 1 ] && _args="$_args --with-vault"
     [ "${IMPI_BROWSER:-0}" = 1 ] && _args="$_args --with-browser"
@@ -312,10 +325,6 @@ cmd_agent_sync() {
         --build-arg "IMPI_GID=${IMPI_GID:-1000}" \
         -t localhost/impi-agent:local "$REPO" \
         || die "the shared agent image did not build"
-    build_images
-    compose up -d
-    ok "each agent is running in a container of its own"
-    printf 'logs for one of them: impi agent logs <agent>\n'
 }
 
 # Move what an agent already has into the volumes its own container will mount.
@@ -433,15 +442,17 @@ cmd_update() {
     # Agent containers are generated from the release: an update that did not
     # re-render them would leave the agents on the old layout, the old base
     # image and the old runtime until somebody remembered `impi agent sync`.
+    # The engine's image goes first, because the render runs inside it.
     if agent_containers_on; then
         printf 're-rendering the agents'"'"' containers for this release\n'
-        ( cmd_agent_sync ) || bad "the agents' containers did not re-render — run: impi agent sync"
+        ( compose build impi && render_agents ) \
+            || bad "the agents' containers did not re-render — run: impi agent sync"
     fi
-    if ! build_images || ! compose up -d; then
+    if ! build_images || ! up_rebuilt; then
         bad "update failed"
         if confirm "Roll back to $prev?" y; then
             git -C "$REPO" checkout --quiet "$prev"
-            build_images && compose up -d
+            build_images && up_rebuilt
             die "rolled back to $prev"
         fi
         exit 1
@@ -456,7 +467,7 @@ cmd_update() {
         bad "engine did not report readiness after the update — check \`impi logs\`"
         if confirm "Roll back to $prev?" n; then
             git -C "$REPO" checkout --quiet "$prev"
-            build_images && compose up -d
+            build_images && up_rebuilt
             die "rolled back to $prev"
         fi
     fi
