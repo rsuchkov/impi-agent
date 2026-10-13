@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.24.0 — 2026-10-14
+
 - **An emoji on a message can be a command**, on Mattermost and Slack. An
   operator maps emoji names to command words per agent
   (`AGENTS_REACTION_COMMANDS__<AGENT>=white_check_mark=done,eyes=summarize`;
