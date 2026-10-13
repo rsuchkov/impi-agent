@@ -207,19 +207,28 @@ In order:
 A tool added to a profile applies on **reload**; a `403 forbidden` right after
 an edit means the change was not applied yet.
 
-Five other 403s say what happened in the body. From the confirmation gate:
+Six other 403s say what happened in the body. From the confirmation gate:
 
 - `declined by the user` — the tool declares `requires_confirmation`, the card
-  went out, and the answer was Deny or nobody answered in time. A human can
-  answer **Allow for…** instead, which stops the questions for that agent and
-  that tool **in that conversation** until the window closes (`TOOL_MAX_GRANT_S`
-  caps it); another thread or direct message is asked on its own.
-- `cannot be confirmed here` — the same tool reached the server in a
-  deployment with no way to ask. Normally it cannot even get there: with
-  interactivity off such a tool is left out of the agent's tool list (the
-  engine log says `not advertised — gateway lacks confirmation`), so seeing
-  this body means something other than the runtime made the call. Turn
-  interactivity on, or drop the tool from that agent.
+  went out, and a person answered Deny. A human can answer **Allow for…**
+  instead, which stops the questions for that agent and that tool **in that
+  conversation** until the window closes (`TOOL_MAX_GRANT_S` caps it); another
+  thread or direct message is asked on its own.
+- `nobody answered the confirmation in time, so the call did not run…` — the
+  card went out and expired unanswered (`INTEGRATIONS_UI_TIMEOUT`, 90 s). Told
+  apart from a Deny on purpose: the agent is expected to say it needs the
+  person's approval and ask them to give it when they are back, or to go on
+  with what needs none — not to retry, and not to treat the silence as a no.
+  Normal in a scheduled turn with nobody at the screen; the ledger says
+  `timeout`.
+- `cannot be confirmed here: there is nobody to ask…` — the gate had nowhere
+  to post the card: a conversation the store does not know, no live chat
+  client for the agent, or the post failed (the ledger says `no_approver`).
+  Without a gate at all the body is `cannot be confirmed here`; normally such a
+  tool cannot even get there: with interactivity off it is left out of the
+  agent's tool list (the engine log says `not advertised — gateway lacks
+  confirmation`), so seeing that body means something other than the runtime
+  made the call. Turn interactivity on, or drop the tool from that agent.
 - `abandoned by the caller` — the card was answered Allow, but the turn that
   asked had already been cancelled or had hung up. Nothing ran; the ledger
   says `abandoned`. Normal after an operator interrupted a turn.

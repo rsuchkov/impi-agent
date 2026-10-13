@@ -27,6 +27,7 @@ from crucible.approvals.pending import (
     PendingApprovals,
     decide,
 )
+from crucible.approvals.ports import ConfirmOutcome
 
 __all__ = [
     "ANSWER_DENY",
@@ -36,6 +37,7 @@ __all__ = [
     "GRANT_LADDER",
     "Approval",
     "ApprovalOutcome",
+    "ConfirmOutcome",
     "PendingApprovals",
     "approval_actions",
     "card_markdown",

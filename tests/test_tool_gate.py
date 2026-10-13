@@ -204,13 +204,20 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
 
 
 async def _call(rig: Rig, name: str, *, conversation: str = "") -> int:
+    status, _ = await _call_told(rig, name, conversation=conversation)
+    return status
+
+
+async def _call_told(rig: Rig, name: str, *, conversation: str = "") -> tuple[int, str]:
+    """The status and what the model is told — the error text, or ""."""
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"http://127.0.0.1:{rig.port}/tool/{name}",
             json={},
             headers={**TOKEN, "X-Runtime-Session": conversation or rig.session},
         ) as response:
-            return response.status
+            body = await response.json()
+            return response.status, str(body.get("error", ""))
 
 
 async def _answer(rig: Rig, value: str) -> Posted:
@@ -250,19 +257,25 @@ async def test_a_call_that_skips_the_runtime_is_still_asked_about(tmp_path: Path
 async def test_a_refusal_means_the_tool_does_not_run(tmp_path: Path) -> None:
     rig = await _rig(tmp_path, 8542)
     try:
-        pending = asyncio.create_task(_call(rig, "dangerous"))
+        pending = asyncio.create_task(_call_told(rig, "dangerous"))
         await _answer(rig, ANSWER_DENY)
-        assert await pending == 403
+        assert await pending == (403, "declined by the user")
         assert rig.tool.ran == 0
         assert rig.poster.updated[-1].card.verdict == "denied"
     finally:
         await _close(rig)
 
 
-async def test_nobody_answering_is_a_refusal(tmp_path: Path) -> None:
+async def test_nobody_answering_is_a_refusal_the_model_can_tell_from_a_no(tmp_path: Path) -> None:
+    """Silence refuses the call, like a no — but the model is told it was
+    silence: a person who is away may still be asked when they are back, a
+    person who said no may not."""
     rig = await _rig(tmp_path, 8543, timeout_s=0.05)
     try:
-        assert await _call(rig, "dangerous") == 403
+        status, told = await _call_told(rig, "dangerous")
+        assert status == 403
+        assert "nobody answered" in told and "not a refusal" in told
+        assert "declined" not in told
         assert rig.tool.ran == 0
         # Closed as a card, not a sentence: the same post, the verdict for a headline.
         closed = rig.poster.updated[-1]
@@ -581,8 +594,11 @@ async def test_a_refusal_for_want_of_anyone_to_ask_is_filed_under_the_same_scope
 ) -> None:
     rig = await _rig(tmp_path, 8555)
     try:
-        # A session the store does not know: nowhere to post, nobody to ask.
-        assert await _call(rig, "dangerous", conversation="assistant--stranger") == 403
+        # A session the store does not know: nowhere to post, nobody to ask —
+        # and the model is told that, not that somebody said no.
+        status, told = await _call_told(rig, "dangerous", conversation="assistant--stranger")
+        assert status == 403
+        assert "nobody to ask" in told and "declined" not in told
         rows = await rig.store.list_audit()
         assert [(r.decision, r.scope) for r in rows] == [
             ("no_approver", tool_scope("dangerous", "assistant--stranger")),

@@ -253,7 +253,9 @@ confirmation can take minutes.
 - **Confirmations work.** A tool that needs confirming puts a `confirmation`
   event in the journal and the turn waits — for up to `INTEGRATIONS_UI_TIMEOUT`, and
   the wait does not count against the turn's own timeout. Answer through the
-  actions endpoint. Nobody answering in time refuses the call; cancelling the
+  actions endpoint. Nobody answering in time refuses the call, and the model
+  is told it was silence rather than a no — it is expected to ask the person
+  for their approval when they are back instead of retrying; cancelling the
   turn withdraws the card, and a click on a withdrawn card runs nothing.
 - **Chat-only things stay chat-only.** An http agent is not offered the
   widgets it would fire and forget (`ask_user_buttons`, `ask_user_select`,

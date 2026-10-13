@@ -5,20 +5,33 @@ approval without importing the store or the chat clients that producing one
 needs.
 """
 
+from enum import Enum, auto
 from typing import Any, Protocol
 
 from crucible.ports.chat.types import CallPreview
+
+
+class ConfirmOutcome(Enum):
+    """How asking ended. Only ALLOWED runs the call; the three refusals are
+    kept apart because the model is told which one it was — a person's no and
+    a person's absence call for different next steps."""
+
+    ALLOWED = auto()
+    DENIED = auto()  # a person said no
+    UNANSWERED = auto()  # nobody answered before the question expired
+    NO_APPROVER = auto()  # nowhere to ask, or the question could not be posted
 
 
 class ToolApproving(Protocol):
     """Ask a human whether a tool call may go ahead.
 
     The tool server holds one of these and consults it before executing a tool
-    that declares ``requires_confirmation``. Returning False means the call does
-    not happen — a refusal, a silence, or nobody available to ask. ``preview``
-    is what the tool itself says the call would do (``Tool.describe``), for the
-    card; None means the person is shown the arguments. ``display_name`` is the
-    tool's name for a person (``Tool.display_name``), "" when it declares none.
+    that declares ``requires_confirmation``. Anything but ``ALLOWED`` means the
+    call does not happen, and says why: a refusal, a silence, or nobody
+    available to ask. ``preview`` is what the tool itself says the call would
+    do (``Tool.describe``), for the card; None means the person is shown the
+    arguments. ``display_name`` is the tool's name for a person
+    (``Tool.display_name``), "" when it declares none.
     """
 
     async def confirm(
@@ -30,4 +43,4 @@ class ToolApproving(Protocol):
         runtime_session_id: str,
         preview: CallPreview | None = None,
         display_name: str = "",
-    ) -> bool: ...
+    ) -> ConfirmOutcome: ...

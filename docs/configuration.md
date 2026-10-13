@@ -378,6 +378,14 @@ for a stuck runtime, not a slow human. It needs interactivity
 it off there is nobody to ask, and such a tool is left out of the agent's tool
 list rather than offered and refused.
 
+A call that is not allowed does not run, and the model is told which of three
+things happened, because they call for different next steps: a person said
+no (`declined by the user`); nobody answered before the card expired
+(`INTEGRATIONS_UI_TIMEOUT`) — not a refusal, so the agent is told to ask the
+person for their approval when they are back, or to go on with what needs
+none, rather than retry; or there was nobody to ask. A scheduled turn with
+nobody at the screen is the usual case of the second.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `TOOL_APPROVERS` | `""` | who may answer a tool's confirmation card (CSV of platform user ids). Empty = the person whose message the turn answers: in a burst merged into one turn the newest one's author, for a scheduled task the person who scheduled it; a conversation that names no person is answered by anyone in it. One set for every agent and gateway — name ids from each platform in use. A click from anyone else is told so privately and the card stays live |

@@ -40,6 +40,7 @@ from typing import Any
 
 from crucible.approvals import (
     Approval,
+    ConfirmOutcome,
     PendingApprovals,
     approval_actions,
     humanize,
@@ -127,7 +128,7 @@ class ToolGate:
         runtime_session_id: str,
         preview: CallPreview | None = None,
         display_name: str = "",
-    ) -> bool:
+    ) -> ConfirmOutcome:
         started = asyncio.get_running_loop().time()
         request_id = f"rq_{tokens.token_hex(6)}"
         scope = tool_scope(tool, runtime_session_id)
@@ -138,7 +139,7 @@ class ToolGate:
                 agent, scope, args, DECISION_REUSED_GRANT, started, request_id,
                 grant_id=grant.id,
             )
-            return True
+            return ConfirmOutcome.ALLOWED
 
         try:
             answer = await self._ask(agent, tool, args, runtime_session_id, preview, display_name)
@@ -151,13 +152,13 @@ class ToolGate:
             # Nowhere to ask. Fail closed, and say so — an engine whose
             # interactivity is off should not be silently running gated tools.
             await self._record(agent, scope, args, DECISION_NO_APPROVER, started, request_id)
-            return False
+            return ConfirmOutcome.NO_APPROVER
         if not answer.allowed:
             decision = DECISION_TIMEOUT if answer.timed_out else DECISION_DENIED
             await self._record(
                 agent, scope, args, decision, started, request_id, approver=answer.approver
             )
-            return False
+            return ConfirmOutcome.UNANSWERED if answer.timed_out else ConfirmOutcome.DENIED
 
         grant_id = ""
         decision = DECISION_APPROVED_ONCE
@@ -168,7 +169,7 @@ class ToolGate:
             agent, scope, args, decision, started, request_id,
             approver=answer.approver, grant_id=grant_id,
         )
-        return True
+        return ConfirmOutcome.ALLOWED
 
     async def _ask(
         self,

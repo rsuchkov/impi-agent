@@ -6,7 +6,20 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The model is told when a confirmation went unanswered, not that it was
+  refused.** A gated call whose card nobody answered in time used to come
+  back as `declined by the user`, the same words as a Deny, so an agent
+  working with nobody at the screen — a scheduled turn, say — read every
+  absence as a refusal and gave up on the call. The tool server now tells the
+  three refusals apart: a person's no (`declined by the user`), a silence
+  (`nobody answered the confirmation in time, so the call did not run` — not a
+  refusal: ask the person for their approval when they are back, or go on with
+  what needs none; do not retry now) and nobody to ask (`cannot be confirmed
+  here: there is nobody to ask`). The ledger and the card said which all
+  along; now the model hears it too. **Breaks:** `ToolApproving.confirm`
+  returns a `ConfirmOutcome` (`crucible.approvals`) instead of a `bool` — an
+  application with its own gate returns `ALLOWED`, `DENIED`, `UNANSWERED` or
+  `NO_APPROVER`.
 
 ## v0.23.0 — 2026-10-11
 

@@ -20,7 +20,7 @@ from typing import Any
 
 from aiohttp import web
 
-from crucible.approvals.ports import ToolApproving
+from crucible.approvals.ports import ConfirmOutcome, ToolApproving
 from crucible.constant_time import find_by_secret
 from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.chat.admin import ChatAdmin
@@ -56,6 +56,28 @@ _SESSION_HEADER = "X-Runtime-Session"
 # The session's own secret, issued to its process at spawn: with a proof book
 # wired, a session id is believed only when this matches what was issued.
 _PROOF_HEADER = "X-Session-Proof"
+
+# What the model is told when a confirmation does not end in a yes. Three
+# sentences rather than one, because they call for different next steps: a
+# person's no is final for this call; a person's silence is not a no — the
+# model may raise it when they are back, or carry on with what needs no
+# approval; nobody to ask is a fact about where the agent runs. A gate that
+# cannot tell these apart teaches the model to read every absence as a refusal.
+DECLINED_ERROR = "declined by the user"
+UNANSWERED_ERROR = (
+    "nobody answered the confirmation in time, so the call did not run. That is "
+    "not a refusal: do not retry it now, but either tell the user you need their "
+    "approval and ask them to say so when they are back, or go on with what "
+    "does not need it"
+)
+NO_APPROVER_ERROR = (
+    "cannot be confirmed here: there is nobody to ask. Tell the user, and do not retry"
+)
+_REFUSALS = {
+    ConfirmOutcome.DENIED: DECLINED_ERROR,
+    ConfirmOutcome.UNANSWERED: UNANSWERED_ERROR,
+    ConfirmOutcome.NO_APPROVER: NO_APPROVER_ERROR,
+}
 
 
 def _log_if_orphaned(task: "asyncio.Future[Any]") -> None:
@@ -236,12 +258,12 @@ class ToolServer:
                 # The preview reads the system (a record, a repository) and is
                 # part of asking: it belongs to the paused time too.
                 preview = await self._preview_of(tool, ctx, args)
-                allowed = await self._tool_gate.confirm(
+                outcome = await self._tool_gate.confirm(
                     agent, tool.name, args, runtime_session_id=runtime_session_id,
                     preview=preview, display_name=tool.display_name,
                 )
-            if not allowed:
-                return web.json_response({"error": "declined by the user"}, status=403)
+            if outcome is not ConfirmOutcome.ALLOWED:
+                return web.json_response({"error": _REFUSALS[outcome]}, status=403)
             if request.transport is None or request.transport.is_closing():
                 # Approved, but for nobody: the caller left while the card was
                 # up and the cancellation has not reached this handler yet.

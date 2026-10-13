@@ -355,6 +355,10 @@ credential, is another user's credential.
 - `confirmations_on=True` with your own `ToolApproving` is how confirmation
   works without a chat card: the server calls your gate, with the tool's
   preview and its `display_name`, and pauses the turn's clock through `clock=runtime` while it waits.
+  The gate answers with a `ConfirmOutcome` (`crucible.approvals`): `ALLOWED`
+  runs the call; `DENIED`, `UNANSWERED` and `NO_APPROVER` refuse it, and the
+  server tells the model which it was — answer `UNANSWERED` for a silence, so
+  the model asks the person again later instead of reading it as a no.
 - `conversation_resolver` maps the calling agent and the runtime session id a
   tool call carries — the same id you passed to `run_stateful` — to a
   `SessionConversation` (`crucible.ports.conversation`): channel, last

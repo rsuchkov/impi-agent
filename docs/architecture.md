@@ -212,7 +212,11 @@ a scheduled task's turn goes to whoever scheduled it, and a conversation that
 names no person is answered by anyone in it), so a human can answer "once" or "for the next 15 minutes"
 (`TOOL_MAX_GRANT_S` caps the window); the window belongs to the conversation
 it was opened in — the people who were asked are the people it covers — so the
-same tool in another conversation of that agent is asked again. The flag is a
+same tool in another conversation of that agent is asked again. The gate
+answers with a `ConfirmOutcome`, and the server tells the model which refusal
+it was — a person's no, nobody answering in time, nobody to ask — because a
+silence is not a no: the model may raise the call again when the person is
+back, where a refused call is closed. The flag is a
 capability like any other
 (`CAP_CONFIRMATION`): a deployment with no gate does not advertise the tool,
 and the server still refuses a call that arrives for one. What the card shows
