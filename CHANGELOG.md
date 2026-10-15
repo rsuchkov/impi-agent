@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.25.0 — 2026-10-15
+
 - **Four small things applications asked for.** A gate of an application's
   own can refuse to ask at all: `ToolApproving.confirm` may answer
   `NotAsked(reason)` (`crucible.approvals`) and the model hears `not asked:
