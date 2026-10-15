@@ -30,8 +30,9 @@ and what it does not hold against.
 ### The model and the engine
 
 What crosses: the prompt the engine builds (who is speaking, replayed history,
-an attachment's path), the tools the agent's profile allows, the results those
-tools return. The model never sees a credential (the broker binds a value into
+an attachment's path, the report a turn the engine started is about — quoted
+as data from its source, never as a person's words), the tools the agent's
+profile allows, the results those tools return. The model never sees a credential (the broker binds a value into
 a process, see [secrets.md](secrets.md)), and never sees a result it was not
 meant to act on without a marker: a tool that returns other people's text
 declares `returns_untrusted`, and the engine wraps what it returns so the

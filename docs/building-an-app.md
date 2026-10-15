@@ -325,6 +325,30 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   **trusted** text, unlike the preamble: never put a person's words there.
   Pass `manifests_dir=` to `purge_idle` (or call `prepare_runtime_storage`,
   which does) so a forgotten conversation's manifest goes with its memory.
+- **Turns the engine starts.** A person's message opens a turn through a
+  gateway; the engine opens one by itself through a `TurnDispatcher`
+  (`crucible.ports.engine_turn`) — the scheduler does for a `turn`-mode task,
+  and an application does when something it watches has happened and the
+  agent should come back to the conversation with its memory: a pipeline
+  finished, a ticket moved. `TurnRequest` names the agent and the
+  conversation by the engine's own keys (the platform's ids on a chat
+  gateway; on the http gateway the realm-namespaced key `HttpHub.conversation_key`
+  spells), a `message_id` of the run's own, `user_id`/`username` for who it
+  appears to come from, and two things the application adds: `event`, an
+  `EventReport(source, text)` the flow quotes as data in a
+  `[context <tag>: event reported by <source>]` block ahead of the speaker
+  line (`text` is then the one-phrase summary the line carries), and `turn`,
+  a `TurnScope` of attributes and secrets for the tools — only what the
+  application still holds: with no fresh credential a gated write ends in an
+  unanswered card and a read in a refused secret, so the agent reports and
+  asks rather than acts. The dispatcher is the composition root's: `impi`'s
+  `SinkTurnDispatcher` puts the request into the agent's sink as a synthetic
+  message (`requested_message` builds it) and, for an agent on the http
+  gateway, hands it to `HttpHub.run_turn`, which opens a turn the client reads
+  like any other (`startedBy: "engine"`). The conversation's record is stamped
+  (`last_engine_turn_at`), and `HttpHub(engine_turns=engine_turns_lookup(sessions))`
+  answers `GET …/conversations?startedSince=` from it, so a program shows a
+  person what moved with one request.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base

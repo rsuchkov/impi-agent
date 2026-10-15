@@ -32,6 +32,11 @@ from crucible.ports.chat.types import Action
 
 logger = logging.getLogger(__name__)
 
+# Who opened a turn, on its first journal event: the caller's message, or the
+# engine by itself (a scheduled task, an event the application reported).
+STARTED_BY_CALLER = "caller"
+STARTED_BY_ENGINE = "engine"
+
 # Which outcomes count as the turn having worked. The names travel to the
 # client lower-cased (`replied`, `timeout`, …) and are part of the contract.
 _FAILED = frozenset({TurnOutcome.TIMEOUT, TurnOutcome.ERROR})
@@ -53,6 +58,7 @@ class Turn:
     owner: str  # who may read it: the caller's realm/user
     client_message_id: str
     journal: TurnJournal
+    started_by: str = STARTED_BY_CALLER
     runtime_session_id: str = ""  # learned when the flow begins the turn
     # The controls this turn has put up, by post id, so a click can be matched
     # to the action it names — and the token in that action's context. Cleared
@@ -99,7 +105,8 @@ class HttpTurns:
     # -- starting and ending ---------------------------------------------------
 
     def start(
-        self, *, agent: str, conversation: str, owner: str, client_message_id: str
+        self, *, agent: str, conversation: str, owner: str, client_message_id: str,
+        started_by: str = STARTED_BY_CALLER,
     ) -> tuple[Turn, bool]:
         """A new turn for the conversation, or the one this message already
         started (``created`` False). Raises TurnInProgress when another message
@@ -114,6 +121,7 @@ class HttpTurns:
         turn = Turn(
             id=turn_id, agent=agent, conversation=conversation, owner=owner,
             client_message_id=client_message_id, journal=TurnJournal(turn_id),
+            started_by=started_by,
         )
         self._by_id[turn_id] = turn
         self._active[conversation] = turn
@@ -121,7 +129,7 @@ class HttpTurns:
         self._by_message[(conversation, client_message_id)] = turn_id
         while len(self._by_message) > self._remembered:
             self._by_message.popitem(last=False)
-        turn.journal.emit(EV_TURN_STARTED)
+        turn.journal.emit(EV_TURN_STARTED, startedBy=started_by)
         return turn, True
 
     def finish(self, turn: Turn, outcome: TurnOutcome) -> None:

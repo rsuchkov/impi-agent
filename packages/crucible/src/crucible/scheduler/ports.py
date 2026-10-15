@@ -1,46 +1,16 @@
 """What the scheduler needs from the engine around it.
 
-Three narrow verbs, so the scheduler never holds a flow, a runtime, a gateway or
+Narrow verbs, so the scheduler never holds a flow, a runtime, a gateway or
 the presence registry — the composition root implements them over whatever it
 happens to have. Between this and the store, the scheduler's whole world is
-ports and rows.
+ports and rows. The turn it starts goes through ``ports.engine_turn`` —
+``TurnRequest`` / ``TurnDispatcher`` — which it shares with every other way
+the engine opens a turn by itself.
 """
 
-from dataclasses import dataclass
 from typing import Protocol
 
 from crucible.ports.agent.runtime import AgentResult
-from crucible.ports.chat.flow import TurnOutcome
-
-
-class DispatchError(Exception):
-    """The turn could not be started at all — the agent is not live, or the
-    conversation cannot be addressed. Distinct from a turn that ran and failed."""
-
-
-@dataclass(frozen=True)
-class TurnRequest:
-    """One scheduled turn, addressed the way a click or a command is.
-
-    ``message_id`` is the run's own id, so the flow's replay dedup never mistakes
-    two runs for one; ``username`` is who the prompt appears to come from, and is
-    never empty — the prompt envelope would render an anonymous ``[]:`` line."""
-
-    agent: str
-    channel_id: str
-    conversation_id: str
-    kind: str
-    text: str
-    message_id: str
-    user_id: str = ""
-    username: str = "scheduler"
-
-
-class TurnDispatcher(Protocol):
-    """Runs a scheduled turn in the task's own conversation, with the agent's
-    memory, and reports how it ended. Raises DispatchError if it never started."""
-
-    async def run_turn(self, request: TurnRequest) -> TurnOutcome: ...
 
 
 class PromptRunner(Protocol):

@@ -250,7 +250,7 @@ async def test_the_scheduler_dispatches_through_the_agents_own_sink(tmp_path: Pa
     from crucible.flows.coalescer import MessageCoalescer
     from crucible.interactions import AgentSink
     from crucible.ports.chat.flow import TurnOutcome
-    from crucible.scheduler.ports import DispatchError, TurnRequest
+    from crucible.ports.engine_turn import DispatchError, TurnRequest
     from impi.scheduling import SinkTurnDispatcher
     from tests.fakes.fake_chat import FakeChat
 
@@ -738,3 +738,68 @@ def test_configured_providers_are_the_logins_and_the_definitions(tmp_path: Path)
     (tmp_path / "models.json").write_text("not json")
     (tmp_path / "auth.json").unlink()
     assert configured_providers(tmp_path) == frozenset()
+
+
+async def test_an_engine_turn_for_an_http_agent_goes_through_the_hub(tmp_path: Path) -> None:
+    from crucible.ports.chat.flow import TurnOutcome
+    from crucible.ports.engine_turn import TurnRequest
+    from impi.scheduling import SinkTurnDispatcher
+
+    class Hub:
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        def serves(self, agent: str) -> bool:
+            return agent == "web"
+
+        async def run_turn(self, request) -> TurnOutcome:
+            self.requests.append(request)
+            return TurnOutcome.ACTED
+
+    hub = Hub()
+    dispatcher = SinkTurnDispatcher({}, http=hub)  # type: ignore[arg-type]
+    request = TurnRequest(agent="web", channel_id="portal:c1", conversation_id="portal:c1",
+                          kind="dm", text="hi", message_id="ev-1")
+
+    assert await dispatcher.run_turn(request) is TurnOutcome.ACTED
+    assert hub.requests == [request]
+
+
+async def test_a_request_with_a_scope_of_its_own_keeps_it_on_a_chat_agent(tmp_path: Path) -> None:
+    from crucible.flows.coalescer import MessageCoalescer
+    from crucible.interactions import AgentSink
+    from crucible.ports.chat.flow import TurnOutcome
+    from crucible.ports.chat.types import EventReport
+    from crucible.ports.engine_turn import TurnRequest
+    from crucible.ports.turn import TurnScope
+    from impi.scheduling import SCHEDULED_TURN_ATTRIBUTE, SinkTurnDispatcher
+    from tests.fakes.fake_chat import FakeChat
+
+    class Answering:
+        def __init__(self) -> None:
+            self.batches: list = []
+
+        async def handle_batch(self, msgs, chat) -> TurnOutcome:
+            self.batches.append(msgs)
+            return TurnOutcome.REPLIED
+
+    flow = Answering()
+    sinks = {"assistant": AgentSink(sink=MessageCoalescer(flow), chat=FakeChat())}
+    dispatcher = SinkTurnDispatcher(sinks)
+
+    await dispatcher.run_turn(TurnRequest(
+        agent="assistant", channel_id="ch1", conversation_id="root1", kind="thread",
+        text="pipeline done", message_id="ev-1", user_id="u1", username="gitlab",
+        event=EventReport("gitlab", "status: success"),
+        turn=TurnScope(turn_id="", attributes={"pipeline": "1234"}),
+    ))
+    await dispatcher.run_turn(TurnRequest(
+        agent="assistant", channel_id="ch1", conversation_id="root1", kind="thread",
+        text="the digest", message_id="sched-1",
+    ))
+
+    (with_scope,), (scheduled,) = flow.batches
+    assert with_scope.engine_started and with_scope.event == EventReport("gitlab", "status: success")
+    assert with_scope.turn is not None and with_scope.turn.attributes == {"pipeline": "1234"}
+    assert with_scope.turn.turn_id == "ev-1"
+    assert scheduled.turn is not None and scheduled.turn.attributes == {SCHEDULED_TURN_ATTRIBUTE: "1"}

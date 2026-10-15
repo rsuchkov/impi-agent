@@ -6,6 +6,25 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The engine can start a turn on an event, and on the http gateway at all.**
+  A turn used to begin only with a person's message or a scheduled task, and
+  on the http gateway not even that: a scheduled turn's reply arrived with no
+  turn open and was dropped. `TurnRequest` and `TurnDispatcher` now live in
+  `crucible.ports.engine_turn`, where an application makes requests of its
+  own — a pipeline finished, a ticket moved — with an `EventReport` the flow
+  quotes as data (`[context <tag>: event reported by <source>]`) ahead of the
+  one-phrase summary, and a `TurnScope` of its own for the tools.
+  `HttpHub.run_turn` opens such a turn like a posted message: `activeTurn`
+  while it runs, a journal the client reads, `turn.started` now carrying
+  `startedBy` (`caller` or `engine`); `impi`'s dispatcher sends an http
+  agent's turns there, which makes `turn`-mode tasks work for http agents.
+  The conversation's record is stamped (`last_engine_turn_at`), and
+  `GET /v1/agents/{agent}/conversations?startedSince=` lists the caller's
+  conversations the engine moved since a moment, so a program draws a badge
+  with one request. **Breaks:** `TurnRequest`, `TurnDispatcher` and
+  `DispatchError` import from `crucible.ports.engine_turn`, not
+  `crucible.scheduler.ports`; a `SessionStore` of an application's own gains
+  `recent_engine_turns(agent, since)` and `touch(..., engine_turn=)`.
 - **A conversation can be entitled to less than its agent.** An agent's
   profile used to be the one list of tools and the one system prompt for
   everyone who talked to it: every process of every conversation advertised

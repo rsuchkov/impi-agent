@@ -14,7 +14,12 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from crucible.attachments import AttachmentStore
-from crucible.ports.conversation import ConversationResolver, SessionConversation
+from crucible.ports.conversation import (
+    ConversationResolver,
+    EngineTurn,
+    EngineTurnsSince,
+    SessionConversation,
+)
 from crucible.store.base import SessionStore
 
 
@@ -46,3 +51,16 @@ def conversation_files_dir_lookup(
         return found.files_dir if found is not None else None
 
     return conversation_files_dir_for
+
+
+def engine_turns_lookup(sessions: SessionStore) -> EngineTurnsSince:
+    """(agent, since) -> the conversations the engine started a turn in since
+    then — what ``HttpHub(engine_turns=…)`` answers ``startedSince`` from."""
+
+    async def engine_turns(agent: str, since: str) -> list[EngineTurn]:
+        return [
+            EngineTurn(record.conversation_id, record.last_user_id, record.last_engine_turn_at)
+            for record in await sessions.recent_engine_turns(agent, since)
+        ]
+
+    return engine_turns

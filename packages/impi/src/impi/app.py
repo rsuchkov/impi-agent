@@ -38,6 +38,7 @@ from crucible.confinement import landlock_abi
 from crucible.conversation_files import (
     conversation_files_dir_lookup,
     conversation_lookup,
+    engine_turns_lookup,
 )
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
@@ -588,6 +589,9 @@ def build_app(settings: ImpiSettings) -> App:
             directory=registry, attachments=attachments,
             dispatcher=interactions.dispatcher, control=runtime,
             max_wait_s=settings.http_max_wait_s,
+            # `startedSince`: which of a person's conversations the engine
+            # started a turn in — a scheduled task, an event — from the inventory.
+            engine_turns=engine_turns_lookup(sessions),
         )
     # What belongs to one turn (a credential a caller sent along), bound by the
     # flow for the turn and read by the tool server. One registry for the app.
@@ -689,7 +693,7 @@ def build_app(settings: ImpiSettings) -> App:
 
         scheduler = Scheduler(
             sessions,
-            dispatcher=SinkTurnDispatcher(sinks_by_agent),
+            dispatcher=SinkTurnDispatcher(sinks_by_agent, http=http_hub),
             prompts=RuntimePromptRunner(runtime, _profile_of),
             notifier=PresenceNotifier(presence),
             tick_s=settings.scheduler.tick_s,

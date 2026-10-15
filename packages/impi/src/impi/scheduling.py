@@ -9,13 +9,14 @@ import logging
 from collections.abc import Callable, Mapping
 
 from crucible.flows.coalescer import MessageCoalescer
+from crucible.gateways.http import HttpHub
 from crucible.interactions import AgentSink
 from crucible.interactions.presence import AgentPresence
 from crucible.ports.agent import AgentProfile, AgentResult, AgentRuntime
 from crucible.ports.chat.flow import TurnOutcome
-from crucible.ports.chat.types import KIND_THREAD, ConversationRef, IncomingMessage
+from crucible.ports.chat.types import KIND_THREAD, ConversationRef
+from crucible.ports.engine_turn import DispatchError, TurnRequest, requested_message
 from crucible.ports.turn import TurnScope
-from crucible.scheduler.ports import DispatchError, TurnRequest
 
 logger = logging.getLogger(__name__)
 
@@ -39,16 +40,21 @@ def conversation_ref(
 
 
 class SinkTurnDispatcher:
-    """Runs a scheduled turn the way a slash command runs one: a synthetic
-    message into the agent's own sink. It goes through the coalescer like
-    everything else — and asks for the outcome, which is the whole difference."""
+    """Runs an engine-started turn the way a slash command runs one: a
+    synthetic message into the agent's own sink. It goes through the coalescer
+    like everything else — and asks for the outcome, which is the whole
+    difference. An agent on the http gateway has no chat to answer in: its
+    turn goes through the hub, which opens a journal for the client to read."""
 
-    def __init__(self, sinks: Mapping[str, AgentSink]) -> None:
+    def __init__(self, sinks: Mapping[str, AgentSink], *, http: HttpHub | None = None) -> None:
         # The app's live map; read per call, so an agent that reloads or arrives
         # later is picked up without re-wiring.
         self._sinks = sinks
+        self._http = http
 
     async def run_turn(self, request: TurnRequest) -> TurnOutcome:
+        if self._http is not None and self._http.serves(request.agent):
+            return await self._http.run_turn(request)
         target = self._sinks.get(request.agent)
         if target is None:
             raise DispatchError(
@@ -57,21 +63,15 @@ class SinkTurnDispatcher:
         sink = target.sink
         if not isinstance(sink, MessageCoalescer):
             raise DispatchError(f"agent {request.agent!r} cannot report a turn's outcome")
-        message = IncomingMessage(
-            ref=conversation_ref(
+        message = requested_message(
+            request,
+            conversation_ref(
                 channel_id=request.channel_id, conversation_id=request.conversation_id,
                 kind=request.kind, message_id=request.message_id,
             ),
-            text=request.text,
-            user_id=request.user_id,
-            username=request.username,
-            kind=request.kind,
-            # Addressed to this agent by definition, and not typed by a human —
-            # the same two flags a command sets.
-            mentioned=True,
-            synthetic=True,
             # Said so tools can tell: nobody is behind this turn, so nothing
-            # may act as a person in it (their connected accounts, say).
+            # may act as a person in it (their connected accounts, say). A
+            # request that brings a scope of its own has decided that itself.
             turn=TurnScope(turn_id=request.message_id, attributes={SCHEDULED_TURN_ATTRIBUTE: "1"}),
         )
         return await sink.submit_tracked(message, target.chat)

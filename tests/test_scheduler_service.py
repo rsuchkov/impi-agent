@@ -13,8 +13,8 @@ from typing import Any
 import pytest
 
 from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.engine_turn import DispatchError
 from crucible.scheduler.health import ALIVE, NEVER, STALE, liveness
-from crucible.scheduler.ports import DispatchError
 from crucible.scheduler.service import Scheduler
 from crucible.scheduler.triggers import parse_trigger, to_iso
 from crucible.store.base import (

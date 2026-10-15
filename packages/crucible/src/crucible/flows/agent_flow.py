@@ -63,6 +63,9 @@ _LABEL_PREAMBLE = "who is asking"
 # words, quoted under their name — never after the speaker's own `]: `, where
 # the model would take them for the speaker's request.
 _LABEL_POINTED_AT = "the message this points at, by {author}"
+# What a turn the engine started on an event is about: the report, as data
+# from the system it came from — not a person's words and not a request.
+_LABEL_EVENT = "event reported by {source}"
 # Later turns: what people said in this conversation while the agent wasn't
 # addressed (in a channel it only runs when mentioned, so those messages never
 # reached it as a turn).
@@ -355,7 +358,9 @@ class AgentFlow:
                 # was in.
                 await trace.end(interrupted=interrupted)
 
-        await self._sessions.touch(self._agent_name, anchor.conversation_id)
+        await self._sessions.touch(
+            self._agent_name, anchor.conversation_id, engine_turn=anchor.engine_started
+        )
         if result.text:
             # One hop past the deepest message in the batch, so any agent we
             # mention accounts for the cascade (see LoopGuard).
@@ -416,6 +421,9 @@ class AgentFlow:
             if m.quoted is not None:
                 label = _LABEL_POINTED_AT.format(author=f"@{speaker(m.quoted.author)}")
                 lines.append(f"{_context_open(tag, label)}\n{quoted(m.quoted.text)}\n{_context_close(tag)}")
+            if m.event is not None:
+                label = _LABEL_EVENT.format(source=speaker(m.event.source))
+                lines.append(f"{_context_open(tag, label)}\n{quoted(m.event.text)}\n{_context_close(tag)}")
             lines.append(f"[{author}{when}]: {quoted(m.text, inline=True)}")
             lines += [_attachment_line(a) for a in m.attachments]
             parts.append("\n".join(lines))

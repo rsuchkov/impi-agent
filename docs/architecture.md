@@ -91,6 +91,12 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   `Attachment`, `Action`, `Form`, …).
 - **Tasks** (`ports/tasks`): `TaskService` — the tool-facing "schedule this for
   later", kept apart from the chat ports because scheduling is not a chat idea.
+- **Engine turn** (`ports/engine_turn`): `TurnRequest` (a turn the engine
+  starts by itself — a scheduled task, an event the application reports — with
+  the `EventReport` it is about and the `TurnScope` it runs under),
+  `TurnDispatcher` (runs it where the agent lives and answers with the
+  outcome; the http hub is one, an application's sink dispatcher another),
+  `requested_message` (the one way a request becomes the sink's message).
 - **Entitlement** (`ports/entitlement`): `Entitlement` (what one conversation
   may do, out of its agent's profile: a subset of its tool names, built-ins
   included, and trusted instructions for its system prompt),

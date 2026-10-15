@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import fields
+from dataclasses import MISSING, fields
 from typing import Any, TypeVar
 
 from pymongo.asynchronous.collection import AsyncCollection
@@ -90,8 +90,14 @@ def to_doc(record: object, **extra: Any) -> dict[str, Any]:
 def from_doc(cls: type[T], doc: dict[str, Any]) -> T:
     """A document back as a record, ignoring whatever else the document carries
     (`_id`, and any field a newer engine added). Reading by an explicit field
-    list is what lets an older engine keep working against a newer collection."""
-    return cls(**{f.name: doc[f.name] for f in fields(cls)})  # type: ignore[arg-type,call-arg]
+    list is what lets an older engine keep working against a newer collection;
+    a field this engine added since the document was written takes the
+    record's default, which is what lets a newer engine read an older one."""
+    values = {
+        f.name: doc[f.name] if f.name in doc or f.default is MISSING else f.default
+        for f in fields(cls)  # type: ignore[arg-type]
+    }
+    return cls(**values)  # type: ignore[call-arg]
 
 
 async def create_indexes(db: Collections) -> None:

@@ -25,3 +25,19 @@ class SessionConversation:
 
 # (agent, runtime session id) -> its conversation, or None.
 ConversationResolver = Callable[[str, str], Awaitable[SessionConversation | None]]
+
+
+@dataclass(frozen=True)
+class EngineTurn:
+    """A conversation the engine started a turn in by itself: which one, whose
+    it is (who spoke last there), and when — so a program can show a person
+    that something moved while they were away."""
+
+    conversation_id: str
+    user_id: str
+    at: str  # ISO8601 UTC
+
+
+# (agent, since — ISO8601 UTC) -> the agent's conversations with an engine
+# turn at or after that moment, newest first.
+EngineTurnsSince = Callable[[str, str], Awaitable[list[EngineTurn]]]

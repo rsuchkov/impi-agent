@@ -243,3 +243,29 @@ def test_an_old_file_with_two_conversations_on_one_runtime_key_is_refused_by_nam
     conn.close()
     with pytest.raises(RuntimeError, match="assistant/john@x.*sessions_cli delete"):
         SqliteSessionStore(db)
+
+
+async def test_migration_adds_last_engine_turn_at_to_old_db(tmp_path: Path) -> None:
+    db = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        "CREATE TABLE sessions (id INTEGER PRIMARY KEY, agent TEXT NOT NULL, "
+        "channel_id TEXT NOT NULL, conversation_id TEXT NOT NULL, kind TEXT NOT NULL, "
+        "runtime_session_id TEXT NOT NULL, created_at TEXT NOT NULL, last_active TEXT NOT NULL, "
+        "last_user_id TEXT NOT NULL DEFAULT '', UNIQUE (agent, conversation_id));"
+        "INSERT INTO sessions (agent, channel_id, conversation_id, kind, runtime_session_id, "
+        "created_at, last_active) VALUES "
+        "('assistant','ch1','root1','thread','assistant--root1','2020-01-01','2020-01-01');"
+    )
+    conn.commit()
+    conn.close()
+
+    store = SqliteSessionStore(db)
+    try:
+        rec = await store.get_by_runtime_session("assistant--root1")
+        assert rec is not None and rec.last_engine_turn_at == ""
+        await store.touch("assistant", "root1", engine_turn=True)
+        rec2 = await store.get_by_runtime_session("assistant--root1")
+        assert rec2 is not None and rec2.last_engine_turn_at != ""
+    finally:
+        await store.close()

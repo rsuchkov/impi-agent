@@ -30,7 +30,12 @@ from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.http.auth import Caller, CallerAuthenticator, Refusal
 from crucible.gateways.http.client import HttpChatClient
 from crucible.gateways.http.journal import EV_ACTIONS_RETIRED, STATUS_RUNNING
-from crucible.gateways.http.turns import HttpTurns, Turn, TurnInProgress
+from crucible.gateways.http.turns import (
+    STARTED_BY_ENGINE,
+    HttpTurns,
+    Turn,
+    TurnInProgress,
+)
 from crucible.gateways.ws.events import files_error, frame_files
 from crucible.interactions.screens import SCREEN_KEY, STATE_KEY
 from crucible.ports.agent.runtime import RuntimeControl
@@ -42,6 +47,8 @@ from crucible.ports.chat.types import (
     ConversationRef,
     IncomingMessage,
 )
+from crucible.ports.conversation import EngineTurnsSince
+from crucible.ports.engine_turn import DispatchError, TurnRequest, requested_message
 from crucible.ports.turn import TurnScope
 
 logger = logging.getLogger(__name__)
@@ -103,6 +110,7 @@ class HttpHub:
         routes: Sequence[web.RouteDef] = (),
         middlewares: Sequence[Middleware] = (),
         readiness_probes: Sequence[ReadinessProbe] = (),
+        engine_turns: EngineTurnsSince | None = None,
     ) -> None:
         self._host = host
         self._port = port
@@ -135,7 +143,12 @@ class HttpHub:
         # pod taken out of rotation moves its users, which a store outage
         # every pod shares does not cure.
         self._readiness_probes = list(readiness_probes)
-        self._settling: set[asyncio.Task[None]] = set()
+        # Where `startedSince` is answered from: the conversations the engine
+        # started a turn in by itself, from the session inventory
+        # (``crucible.conversation_files.engine_turns_lookup``). None = the
+        # listing is not offered.
+        self._engine_turns = engine_turns
+        self._settling: set[asyncio.Task[TurnOutcome]] = set()
         self._runner: web.AppRunner | None = None
         self._started = False
         self._draining = False
@@ -143,6 +156,54 @@ class HttpHub:
     def register_agent(self, agent: str, sink: TrackedSink, chat: HttpChatClient) -> None:
         """Called by the gateway factory for every agent living on this hub."""
         self._agents[agent] = (sink, chat)
+
+    def serves(self, agent: str) -> bool:
+        """Whether this agent's conversations live on this hub — where a
+        composition root decides which dispatcher an engine-started turn for
+        the agent goes through."""
+        return agent in self._agents
+
+    # -- TurnDispatcher: a turn the engine starts on this gateway ---------------
+
+    async def run_turn(self, request: TurnRequest) -> TurnOutcome:
+        """Open a turn in the request's conversation the way a caller's message
+        would — a journal the client reads, `activeTurn` while it runs — and
+        answer with how it ended. ``conversation_id`` is the engine's key
+        (realm-namespaced, as ``conversation_key`` spells it); the turn belongs
+        to ``user_id`` in that realm, who is the one to read its journal."""
+        entry = self._agents.get(request.agent)
+        if entry is None:
+            raise DispatchError(f"agent {request.agent!r} is not on this gateway")
+        if self._draining:
+            raise DispatchError("this engine is shutting down")
+        sink, chat = entry
+        realm, _, _ = request.conversation_id.partition(_SEP)
+        self._sweep()
+        try:
+            turn, created = self.turns.start(
+                agent=request.agent, conversation=request.conversation_id,
+                owner=f"{realm}/{request.user_id}", client_message_id=request.message_id,
+                started_by=STARTED_BY_ENGINE,
+            )
+        except TurnInProgress as exc:
+            raise DispatchError("the conversation already has a turn running") from exc
+        if not created:
+            raise DispatchError(f"a turn for message {request.message_id!r} was already started")
+        message = requested_message(
+            request,
+            ConversationRef(
+                channel_id=request.conversation_id, conversation_id=request.conversation_id,
+                message_id=f"{realm}{_SEP}{request.message_id}", thread_root_id="",
+            ),
+            turn=TurnScope(turn_id=turn.id),
+        )
+        message = replace(message, is_dm=True, timestamp=datetime.now(timezone.utc))
+        try:
+            outcome = sink.submit_tracked(message, chat)
+        except Exception:
+            self.turns.abandon(turn)
+            raise
+        return await self._settle(turn, outcome)
 
     # -- for an application's own routes ----------------------------------------
 
@@ -196,6 +257,7 @@ class HttpHub:
         app.router.add_get("/stats", self._stats)
         app.router.add_get("/v1/agents", self._list_agents)
         app.router.add_post("/v1/agents/{agent}/conversations/{conversation}/messages", self._post_message)
+        app.router.add_get("/v1/agents/{agent}/conversations", self._list_conversations)
         app.router.add_get("/v1/agents/{agent}/conversations/{conversation}", self._get_conversation)
         app.router.add_post("/v1/agents/{agent}/conversations/{conversation}/cancel", self._cancel)
         app.router.add_get("/v1/turns/{turn}/events", self._events)
@@ -428,7 +490,7 @@ class HttpHub:
         task.add_done_callback(self._settling.discard)
         return web.json_response(answer, status=202)
 
-    async def _settle(self, turn: Turn, outcome) -> None:
+    async def _settle(self, turn: Turn, outcome) -> TurnOutcome:
         try:
             result = await outcome
         except asyncio.CancelledError:
@@ -438,6 +500,7 @@ class HttpHub:
             logger.exception("turn %s: the flow raised", turn.id)
             result = TurnOutcome.ERROR
         self.turns.finish(turn, result)
+        return result
 
     def _sweep(self) -> None:
         self.turns.sweep(asyncio.get_running_loop().time())
@@ -454,6 +517,27 @@ class HttpHub:
             "events": [e.to_wire() for e in found],
             "cursor": found[-1].seq if found else after,
         })
+
+    async def _list_conversations(self, request: web.Request) -> web.Response:
+        """The caller's conversations the engine started a turn in since a
+        moment: one request for a badge, instead of polling every conversation
+        the program knows. Only the caller's own — their realm, their user."""
+        caller = await self.caller(request, None)
+        agent, _, _ = self._agent(request, caller)
+        if self._engine_turns is None:
+            raise Refusal(404, "not_found", "this engine does not list engine-started turns")
+        since = request.query.get("startedSince", "")
+        try:
+            datetime.fromisoformat(since)
+        except ValueError as exc:
+            raise Refusal(422, "validation", "`startedSince` must be an ISO-8601 time") from exc
+        prefix = f"{caller.realm}{_SEP}"
+        found = [
+            {"conversationId": turn.conversation_id.removeprefix(prefix), "startedAt": turn.at}
+            for turn in await self._engine_turns(agent, since)
+            if turn.conversation_id.startswith(prefix) and turn.user_id == caller.user_id
+        ]
+        return web.json_response({"conversations": found})
 
     async def _get_conversation(self, request: web.Request) -> web.Response:
         caller = await self.caller(request, None)

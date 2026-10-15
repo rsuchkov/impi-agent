@@ -282,6 +282,17 @@ class ConversationRef:
 
 
 @dataclass(frozen=True)
+class EventReport:
+    """What happened outside the conversation, for a turn the engine starts
+    on an event: where the report comes from (a system's name) and the report
+    itself. Data, not a request — the flow quotes it in a context block, so
+    the model reads it as information rather than as somebody's instructions."""
+
+    source: str
+    text: str
+
+
+@dataclass(frozen=True)
 class QuotedMessage:
     """A message this one points at — the one a reaction was put on — with who
     wrote it. Somebody else's words: the flow quotes them as that person's, in
@@ -317,6 +328,13 @@ class IncomingMessage:
     # reaction names the message the emoji was put on. Rendered as another
     # person's quoted words, under their name, not as this speaker's text.
     quoted: QuotedMessage | None = None
+    # A turn the engine started by itself — on a schedule, on an event — not
+    # one a person's message opened. Recorded on the conversation so a program
+    # can ask which of a person's conversations moved while they were away.
+    engine_started: bool = False
+    # The event such a turn is about, when it is about one: rendered as data
+    # ahead of the speaker line, which then carries the one-phrase summary.
+    event: EventReport | None = None
     # Escape hatch: the platform-native payload. Only adapters/dispatchers may
     # read it — flows never do (they'd silently couple to the platform).
     raw: dict[str, Any] = field(default_factory=dict)

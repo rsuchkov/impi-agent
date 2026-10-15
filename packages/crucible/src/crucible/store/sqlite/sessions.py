@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL,        -- ISO8601 UTC
   last_active TEXT NOT NULL,
   last_user_id TEXT NOT NULL DEFAULT '',  -- who last triggered a turn here
+  last_engine_turn_at TEXT NOT NULL DEFAULT '',  -- when the engine last started one itself
   UNIQUE (agent, conversation_id)
 );
 -- agent registry snapshot (synced from profiles) + processed-post dedup:
@@ -80,10 +81,10 @@ _FORM_COLUMNS = (
     "token, agent, channel_id, conversation_id, kind, spec, created_at, post_id, handler"
 )
 
-# Order matches SessionRecord's fields (SessionRecord(*row)); last_user_id last.
+# Order matches SessionRecord's fields (SessionRecord(*row)).
 _COLUMNS = (
     "agent, channel_id, conversation_id, kind, runtime_session_id, "
-    "created_at, last_active, last_user_id"
+    "created_at, last_active, last_user_id, last_engine_turn_at"
 )
 
 
@@ -156,6 +157,10 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, Co
             self._conn.execute(
                 "ALTER TABLE sessions ADD COLUMN last_user_id TEXT NOT NULL DEFAULT ''"
             )
+        if "last_engine_turn_at" not in cols:
+            self._conn.execute(
+                "ALTER TABLE sessions ADD COLUMN last_engine_turn_at TEXT NOT NULL DEFAULT ''"
+            )
         seen = {row[1] for row in self._conn.execute("PRAGMA table_info(processed_posts)")}
         if "seen_at" not in seen:
             # Rows from before the column have no date; the first prune takes
@@ -185,11 +190,16 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, Co
             self.get_or_create_sync, agent, channel_id, conversation_id, kind, user_id
         )
 
-    async def touch(self, agent: str, conversation_id: str, user_id: str = "") -> None:
-        await asyncio.to_thread(self.touch_sync, agent, conversation_id, user_id)
+    async def touch(
+        self, agent: str, conversation_id: str, user_id: str = "", *, engine_turn: bool = False
+    ) -> None:
+        await asyncio.to_thread(self.touch_sync, agent, conversation_id, user_id, engine_turn=engine_turn)
 
     async def list(self, agent: str | None = None) -> list[SessionRecord]:
         return await asyncio.to_thread(self.list_sync, agent)
+
+    async def recent_engine_turns(self, agent: str, since: str) -> list[SessionRecord]:
+        return await asyncio.to_thread(self.recent_engine_turns_sync, agent, since)
 
     async def delete(self, agent: str, conversation_id: str) -> SessionRecord | None:
         return await asyncio.to_thread(self.delete_sync, agent, conversation_id)
@@ -237,9 +247,9 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, Co
         runtime_session_id = derive_runtime_session_id(agent, conversation_id)
         with self._lock:
             cursor = self._conn.execute(
-                f"INSERT INTO sessions ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                f"INSERT INTO sessions ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (agent, conversation_id) DO NOTHING",
-                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now, user_id),
+                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now, user_id, ""),
             )
             created = cursor.rowcount == 1
             # Refresh the last user on an existing row too, so a tool called
@@ -258,21 +268,33 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, Co
             ).fetchone()
         return SessionRecord(*row), created
 
-    def touch_sync(self, agent: str, conversation_id: str, user_id: str = "") -> None:
+    def touch_sync(
+        self, agent: str, conversation_id: str, user_id: str = "", *, engine_turn: bool = False
+    ) -> None:
+        now = clock.now_iso()
+        changes = ["last_active = ?"]
+        values: list[str] = [now]
+        if user_id:
+            changes.append("last_user_id = ?")
+            values.append(user_id)
+        if engine_turn:
+            changes.append("last_engine_turn_at = ?")
+            values.append(now)
         with self._lock:
-            if user_id:
-                self._conn.execute(
-                    "UPDATE sessions SET last_active = ?, last_user_id = ? "
-                    "WHERE agent = ? AND conversation_id = ?",
-                    (clock.now_iso(), user_id, agent, conversation_id),
-                )
-            else:
-                self._conn.execute(
-                    "UPDATE sessions SET last_active = ? "
-                    "WHERE agent = ? AND conversation_id = ?",
-                    (clock.now_iso(), agent, conversation_id),
-                )
+            self._conn.execute(
+                f"UPDATE sessions SET {', '.join(changes)} WHERE agent = ? AND conversation_id = ?",
+                (*values, agent, conversation_id),
+            )
             self._conn.commit()
+
+    def recent_engine_turns_sync(self, agent: str, since: str) -> list[SessionRecord]:
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {_COLUMNS} FROM sessions WHERE agent = ? AND last_engine_turn_at >= ? "
+                "AND last_engine_turn_at != '' ORDER BY last_engine_turn_at DESC",
+                (agent, since),
+            ).fetchall()
+        return [SessionRecord(*row) for row in rows]
 
     def list_sync(self, agent: str | None = None) -> list[SessionRecord]:
         query = f"SELECT {_COLUMNS} FROM sessions"

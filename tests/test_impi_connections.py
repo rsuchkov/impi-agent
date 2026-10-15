@@ -522,7 +522,7 @@ def test_a_scheduled_turn_acts_as_nobody() -> None:
 async def test_a_scheduler_turn_says_it_is_one() -> None:
     from crucible.flows.coalescer import MessageCoalescer
     from crucible.interactions import AgentSink
-    from crucible.scheduler.ports import TurnRequest
+    from crucible.ports.engine_turn import TurnRequest
     from impi.scheduling import SinkTurnDispatcher
 
     class Tracked(MessageCoalescer):

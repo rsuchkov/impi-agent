@@ -26,12 +26,10 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.engine_turn import DispatchError, TurnDispatcher, TurnRequest
 from crucible.scheduler.ports import (
-    DispatchError,
     Notifier,
     PromptRunner,
-    TurnDispatcher,
-    TurnRequest,
 )
 from crucible.scheduler.triggers import (
     Trigger,

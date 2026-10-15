@@ -63,6 +63,11 @@ class SessionRecord:
     # tool address that person (e.g. an ephemeral reply) without the runtime
     # forwarding per-message identity. "" when unknown.
     last_user_id: str = ""
+    # When the engine last started a turn here by itself (a scheduled run, an
+    # event the application reported), ISO8601 UTC; "" when it never has. What
+    # a program polls to learn which of a person's conversations moved while
+    # nobody was looking.
+    last_engine_turn_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -626,9 +631,19 @@ class SessionStore(Protocol):
         mid-turn tool can address them."""
         ...
 
-    async def touch(self, agent: str, conversation_id: str, user_id: str = "") -> None: ...
+    async def touch(
+        self, agent: str, conversation_id: str, user_id: str = "", *, engine_turn: bool = False
+    ) -> None:
+        """A turn ended here: refresh ``last_active`` (and the last user when
+        given); ``engine_turn`` also stamps ``last_engine_turn_at``."""
+        ...
 
     async def list(self, agent: str | None = None) -> list[SessionRecord]: ...
+
+    async def recent_engine_turns(self, agent: str, since: str) -> list[SessionRecord]:
+        """The agent's conversations in which the engine started a turn at or
+        after ``since`` (ISO8601 UTC), newest first."""
+        ...
 
     async def delete(self, agent: str, conversation_id: str) -> SessionRecord | None: ...
 

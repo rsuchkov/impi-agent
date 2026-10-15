@@ -84,11 +84,16 @@ class MongoSessionStore(MongoTaskMixin, MongoApprovalMixin, MongoTraceMixin, Mon
         assert doc is not None  # we just upserted it
         return from_doc(SessionRecord, doc), created
 
-    async def touch(self, agent: str, conversation_id: str, user_id: str = "") -> None:
+    async def touch(
+        self, agent: str, conversation_id: str, user_id: str = "", *, engine_turn: bool = False
+    ) -> None:
         db = await self._ready()
-        changes = {"last_active": clock.now_iso()}
+        now = clock.now_iso()
+        changes = {"last_active": now}
         if user_id:
             changes["last_user_id"] = user_id
+        if engine_turn:
+            changes["last_engine_turn_at"] = now
         await db[SESSIONS].update_one(
             {"agent": agent, "conversation_id": conversation_id}, {"$set": changes}
         )
@@ -97,6 +102,13 @@ class MongoSessionStore(MongoTaskMixin, MongoApprovalMixin, MongoTraceMixin, Mon
         db = await self._ready()
         query = {"agent": agent} if agent is not None else {}
         cursor = db[SESSIONS].find(query).sort([("last_active", -1)])
+        return [from_doc(SessionRecord, doc) async for doc in cursor]
+
+    async def recent_engine_turns(self, agent: str, since: str) -> list[SessionRecord]:
+        db = await self._ready()
+        cursor = db[SESSIONS].find(
+            {"agent": agent, "last_engine_turn_at": {"$gte": since, "$ne": ""}}
+        ).sort([("last_engine_turn_at", -1)])
         return [from_doc(SessionRecord, doc) async for doc in cursor]
 
     async def delete(self, agent: str, conversation_id: str) -> SessionRecord | None:

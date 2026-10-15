@@ -117,7 +117,7 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 
 | type | payload | meaning |
 |---|---|---|
-| `turn.started` | — | the message was accepted |
+| `turn.started` | `startedBy` | the turn opened: `caller` for a message you posted, `engine` for one the engine started by itself (a scheduled task, an event the application reported) |
 | `tool.started` | `callId`, `tool` | a tool began |
 | `tool.finished` | `callId`, `tool`, `ok` | it ended |
 | `message` | `messageId`, `format: "markdown"`, `text` | the agent's answer |
@@ -163,6 +163,16 @@ ended.
 
 `200 {"conversationId", "activeTurn": {"turnId", "status", "cursor"} | null}` —
 for resuming after a page reload: poll the active turn from its cursor.
+
+### `GET /v1/agents/{agent}/conversations?startedSince=<ISO-8601>`
+
+`200 {"conversations": [{"conversationId", "startedAt"}]}` — the caller's
+conversations (their realm, their user) in which the **engine** started a turn
+at or after `startedSince`, newest first: one request for a badge or an unread
+mark, instead of polling every conversation the program knows. Answered from
+the engine's session inventory, so it survives a restart. `404` when the
+engine is not wired to answer it (`HttpHub(engine_turns=…)`), `422` for a
+time that does not parse.
 
 ### `POST /v1/agents/{agent}/conversations/{conversation}/cancel`
 
@@ -266,6 +276,15 @@ confirmation can take minutes.
   channel-admin tools are not advertised either. The tool-trace widget under a
   reply has no message to sit under: the same tool events go to the journal
   instead. The journal is swept on every call, not only on new messages.
+- **The engine can open a turn too.** A scheduled task in `turn` mode, or an
+  event the application reports (`HttpHub.run_turn(TurnRequest)`, see
+  [building-an-app.md](building-an-app.md) "Turns the engine starts"), opens a
+  turn in the conversation exactly as a posted message would: `activeTurn`
+  shows it while it runs, its journal reads the same, its first event says
+  `startedBy: "engine"`, and it belongs to the user the request names — in
+  that realm — who is the one to read it. A message posted meanwhile is
+  refused with `turn_in_progress`, like any other; `startedSince` is how a
+  client learns it happened without being told.
 - **Identity is the caller's claim.** `X-User-Id` is whatever the program says.
   Keep the token where only your server can read it, and never let a browser
   talk to the hub directly.

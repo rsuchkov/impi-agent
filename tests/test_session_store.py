@@ -180,3 +180,28 @@ async def test_answered_messages_are_forgotten_after_their_retention(
     assert forgotten == 1
     assert await store.mark_processed("assistant", "old-post") is True  # forgotten: first sight again
     assert await store.mark_processed("assistant", "newer-post") is False  # kept: still a replay
+
+
+async def test_an_engine_turn_is_stamped_on_the_conversation_and_listed_since(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A person's turn leaves no stamp; the engine's does, and the listing
+    # answers "which conversations moved since" without reading them all.
+    await store.get_or_create("assistant", "ch1", "portal:c1", KIND_DM, user_id="u1")
+    await store.get_or_create("assistant", "ch2", "portal:c2", KIND_DM, user_id="u1")
+    await store.get_or_create("scribe", "ch3", "portal:c3", KIND_DM, user_id="u1")
+    monkeypatch.setattr(clock, "now_iso", lambda: "2026-10-15T10:00:00+00:00")
+    await store.touch("assistant", "portal:c1")
+    await store.touch("scribe", "portal:c3", engine_turn=True)
+    monkeypatch.setattr(clock, "now_iso", lambda: "2026-10-15T10:05:00+00:00")
+    await store.touch("assistant", "portal:c2", user_id="u1", engine_turn=True)
+
+    c1 = await store.get_by_runtime_session(derive_runtime_session_id("assistant", "portal:c1"))
+    c2 = await store.get_by_runtime_session(derive_runtime_session_id("assistant", "portal:c2"))
+    assert c1 is not None and c1.last_engine_turn_at == ""
+    assert c2 is not None and c2.last_engine_turn_at == "2026-10-15T10:05:00+00:00"
+    assert c2.last_active == c2.last_engine_turn_at and c2.last_user_id == "u1"
+
+    since = [r.conversation_id for r in await store.recent_engine_turns("assistant", "2026-10-15T10:00:00+00:00")]
+    assert since == ["portal:c2"]  # the other agent's and the untouched one are not listed
+    assert await store.recent_engine_turns("assistant", "2026-10-15T10:06:00+00:00") == []

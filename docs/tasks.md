@@ -63,7 +63,9 @@ Two modes, chosen per task:
 
 - **`turn`** (default) — the prompt arrives as an ordinary turn in the task's
   conversation, with that conversation's memory and the agent's tools. The reply
-  lands there, and you can just answer it.
+  lands there, and you can just answer it. For an agent on the http gateway the
+  turn opens on the hub like a posted message would, with a journal the client
+  reads (`startedBy: "engine"`) — see [http-gateway.md](http-gateway.md).
 - **`prompt`** — a fresh run with no history, whose answer the scheduler posts.
   Cheaper and repeatable; use it for polls and digests that shouldn't drag the
   whole thread into the model.

@@ -3,6 +3,7 @@
 import asyncio
 import base64
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -1095,3 +1096,126 @@ async def test_what_a_screen_tells_the_clicker_alone_comes_back_in_the_answer() 
     finally:
         await hub.stop()
 
+
+
+async def test_the_engine_can_start_a_turn_on_the_hub_and_the_client_follows_it() -> None:
+    """A scheduled task or an event opens a turn the way a caller's message
+    would: a journal the client reads, `activeTurn` while it runs, the report
+    on the message as data — and the outcome back to whoever asked."""
+    from crucible.ports.chat.types import EventReport
+    from crucible.ports.engine_turn import DispatchError, TurnRequest
+    from crucible.ports.turn import TurnScope
+
+    seen: list[IncomingMessage] = []
+    gate = asyncio.Event()
+
+    async def slow(msg, chat):
+        seen.append(msg)
+        await gate.wait()
+        await chat.post_reply(msg.ref, "the pipeline is green")
+        return TurnOutcome.REPLIED
+
+    hub, _ = _hub(8521, script=slow)
+    await hub.start()
+    try:
+        request = TurnRequest(
+            agent="helper", channel_id="portal:c1", conversation_id="portal:c1", kind="dm",
+            text="pipeline 1234 finished", message_id="ev-1", user_id="u-7", username="gitlab",
+            event=EventReport(source="gitlab", text="status: success"),
+            turn=TurnScope(turn_id="", attributes={"pipeline": "1234"}),
+        )
+        running = asyncio.ensure_future(hub.run_turn(request))
+        async with aiohttp.ClientSession() as s:
+            for _ in range(50):
+                _, conv = await _get(s, 8521, "/v1/agents/helper/conversations/c1")
+                if conv["activeTurn"] is not None:
+                    break
+                await asyncio.sleep(0.02)
+            assert conv["activeTurn"] is not None  # the owner sees it running
+            turn_id = conv["activeTurn"]["turnId"]
+            # Somebody else in the realm does not.
+            _, other = await _get(s, 8521, "/v1/agents/helper/conversations/c1",
+                                  headers={**AUTH, "X-User-Id": "u-8"})
+            assert other["activeTurn"] is None
+            # A caller's message meanwhile is refused with the running turn's id.
+            status, busy = await _post(s, 8521, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
+            assert status == 409 and busy["turnId"] == turn_id
+            gate.set()
+            assert await running is TurnOutcome.REPLIED
+            events, status = await _drain(s, 8521, turn_id)
+        assert events[0]["type"] == "turn.started" and events[0]["startedBy"] == "engine"
+        assert [e["type"] for e in events] == ["turn.started", "message", "turn.finished"]
+        message = seen[0]
+        assert message.engine_started and message.synthetic and message.mentioned and message.is_dm
+        assert message.event == EventReport(source="gitlab", text="status: success")
+        assert message.ref.message_id == "portal:ev-1" and message.conversation_id == "portal:c1"
+        assert message.turn is not None and message.turn.turn_id == turn_id
+        assert message.turn.attributes == {"pipeline": "1234"}
+        assert message.timestamp is not None
+        # The same run again is not a second turn; an unknown agent is a dispatch error.
+        with pytest.raises(DispatchError, match="already started"):
+            await hub.run_turn(request)
+        with pytest.raises(DispatchError, match="not on this gateway"):
+            await hub.run_turn(replace(request, agent="nobody"))
+    finally:
+        await hub.stop()
+
+
+async def test_a_callers_turn_is_marked_as_theirs_and_a_draining_hub_starts_none() -> None:
+    from crucible.ports.engine_turn import DispatchError, TurnRequest
+
+    hub, _ = _hub(8522)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8522, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
+            events, _ = await _drain(s, 8522, started["turnId"])
+            assert events[0]["startedBy"] == "caller"
+        hub.drain()
+        with pytest.raises(DispatchError, match="shutting down"):
+            await hub.run_turn(TurnRequest(
+                agent="helper", channel_id="portal:c2", conversation_id="portal:c2", kind="dm",
+                text="x", message_id="ev-2", user_id="u-7",
+            ))
+    finally:
+        await hub.stop()
+
+
+async def test_a_caller_lists_the_conversations_the_engine_moved_since() -> None:
+    from crucible.ports.conversation import EngineTurn
+
+    asked: list[tuple[str, str]] = []
+
+    async def engine_turns(agent: str, since: str):
+        asked.append((agent, since))
+        return [
+            EngineTurn("portal:c1", "u-7", "2026-10-15T10:05:00+00:00"),
+            EngineTurn("portal:c2", "u-8", "2026-10-15T10:06:00+00:00"),  # somebody else's
+            EngineTurn("other:c3", "u-7", "2026-10-15T10:07:00+00:00"),  # another realm
+        ]
+
+    hub, _ = _hub(8523, engine_turns=engine_turns)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            status, body = await _get(
+                s, 8523, "/v1/agents/helper/conversations?startedSince=2026-10-15T10:00:00%2B00:00"
+            )
+            assert status == 200
+            assert body == {"conversations": [{"conversationId": "c1", "startedAt": "2026-10-15T10:05:00+00:00"}]}
+            assert asked == [("helper", "2026-10-15T10:00:00+00:00")]
+            status, body = await _get(s, 8523, "/v1/agents/helper/conversations?startedSince=yesterday")
+            assert status == 422
+            status, body = await _get(s, 8523, "/v1/agents/scribe/conversations?startedSince=2026-10-15T10:00:00%2B00:00")
+            assert status == 403  # not an agent on this hub
+    finally:
+        await hub.stop()
+
+    plain, _ = _hub(8524)
+    await plain.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            status, _ = await _get(s, 8524, "/v1/agents/helper/conversations?startedSince=2026-10-15T10:00:00%2B00:00")
+            assert status == 404  # nothing wired to answer from
+    finally:
+        await plain.stop()
