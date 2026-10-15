@@ -11,12 +11,14 @@ by review alone, and review had already let a few through.
    a second app would be covered without editing this file.
 
 2. **The neutral layers name no runtime.** `pi` specifics belong in
-   `runtimes/pi/` and the composition root; the neutral layers say "the
-   runtime", and that applies to comments and docstrings as much as to imports.
-   Which layers those are is listed below rather than inferred — the modules
-   that legitimately know the runtime (its driver, the settings boundary whose
-   knobs are spelled `pi_*`, the session CLI that deletes its files) are exactly
-   the ones a broad "everything else" rule would get wrong.
+   `runtimes/pi/` and the composition root; everything else in the library says
+   "the runtime", and that applies to comments, docstrings and identifiers as
+   much as to imports. The modules that legitimately know the runtime are
+   listed below — its driver, the settings boundary whose knobs are spelled
+   `pi_*`, the few that prepare or delete its files — and every other module is
+   neutral by default, a new one included: the first version of this rule
+   listed the neutral layers instead, and a new module at the package root
+   fell outside the list and named the runtime in a class name.
 
 Run by `make lint`. A finding prints the file, the line and the rule; if a
 violation is genuinely too expensive to fix right now, it goes in ALLOWED below
@@ -34,14 +36,18 @@ import tomllib
 ROOT = Path(__file__).resolve().parent.parent
 LIBRARY = ROOT / "packages" / "crucible" / "src" / "crucible"
 
-# The layers the runtime rule applies to: the ones whose import contracts in
-# pyproject.toml already forbid `crucible.runtimes.pi`. Naming them here rather
-# than saying "everything except the driver" keeps the two halves of the rule —
-# imports and words — describing the same set.
-NEUTRAL = (
-    "approvals", "attachments.py", "builtin_tools.py", "confinement", "constant_time.py", "containment.py",
-    "flows", "gateways", "interactions", "ports", "private_files.py", "process_scopes.py",
-    "profiles", "scheduler", "skills", "store", "tools",
+# The modules that may name the runtime: its driver, and the ones whose job is
+# the runtime's files or its settings. Everything else in the library is
+# neutral, so a module added anywhere is covered without editing this file.
+# The import contracts in pyproject.toml forbid `crucible.runtimes.pi` to the
+# same set, so the two halves of the rule — imports and words — agree.
+RUNTIME_AWARE = (
+    "__init__.py",  # the package docstring says what the library is built over
+    "config.py",  # the settings boundary: knobs spelled `pi_*`
+    "runtimes",
+    "runtime_storage.py",  # prepares the runtime's files before it starts
+    "session_retention.py",  # deletes the runtime's memory with the record
+    "sessions_cli.py",  # the same, by hand
 )
 
 # Escape hatch for a violation that is genuinely not worth the change it would
@@ -66,7 +72,7 @@ def sources() -> list[Path]:
 
 
 def is_neutral(path: Path) -> bool:
-    return path.relative_to(LIBRARY).parts[0] in NEUTRAL
+    return path.relative_to(LIBRARY).parts[0] not in RUNTIME_AWARE
 
 
 def violations() -> dict[str, str]:
@@ -85,8 +91,10 @@ def violations() -> dict[str, str]:
         re.IGNORECASE,
     )
     # Word-boundary, case-sensitive: `pi` the runtime, not "pip", "api" or
-    # "mapping". Also catches the possessive, which is how it usually shows up.
-    runtime_pattern = re.compile(r"\bpi\b|\bpi's\b")
+    # "mapping". Also catches the possessive, which is how it usually shows up,
+    # and an identifier that carries the driver's prefix (`PiProfile`,
+    # `PiSomething`) into a layer that should not know whose profile it is.
+    runtime_pattern = re.compile(r"\bpi\b|\bpi's\b|\bPi[A-Z]\w*")
 
     found: dict[str, str] = {}
     for path in sources():

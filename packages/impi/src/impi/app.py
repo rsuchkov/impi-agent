@@ -72,6 +72,7 @@ from crucible.runtimes.pi import (
     LocalHost,
     RemoteHost,
     build_pi_profile,
+    with_tool_env,
 )
 from crucible.runtimes.pi.auth_file import configured_providers
 from crucible.runtimes.pi.auth_refresh import AuthRefresher
@@ -81,7 +82,7 @@ from crucible.scheduler.service import Scheduler
 from crucible.skills import SkillLibrary
 from crucible.store import open_store
 from crucible.store.base import SessionStore
-from crucible.tools import MANIFEST_ENV, SessionProofBook, ToolServer, ToolWiring
+from crucible.tools import SessionProofBook, ToolServer, ToolWiring
 from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
@@ -268,19 +269,7 @@ class ProfileBuilder:
             append_system_prompt=self.hints.get(spec.name, ""),
             inherit_all=spec.name in self._engine_owned,
         )
-        env = self._tools.profile_env(spec)
-        if env is None:
-            return base
-        # The manifest is a PATH. Kept apart from the rest of the env so a host
-        # with its own filesystem is handed the content instead — see
-        # PiProfile.env_files.
-        values = dict(env)
-        manifest = values.pop(MANIFEST_ENV, "")
-        return dataclasses.replace(
-            base,
-            env=values,
-            env_files={MANIFEST_ENV: manifest} if manifest else {},
-        )
+        return with_tool_env(base, self._tools.profile_env(spec))
 
 
 def _build_unit(

@@ -218,8 +218,12 @@ spawns `pi` with cwd = the agent's **profile directory** — that is what makes
   `PI_BIN` of your own) refuses it and exits at once, so every turn fails with
   `Unknown option: --no-mcp` in the error.
 - **Config is baked at spawn.** `pi` reads `.pi/*` and the CLI flags when the
-  subprocess starts, so applying a profile change means dropping idle sessions
-  (hot-reload) — the on-disk memory persists per session id.
+  subprocess starts. A changed *profile* (tools, model, system prompt
+  additions, env) restarts a conversation's process on its next turn by
+  itself — the runtime compares what the process was started with
+  (`spawn_fingerprint`); a change to `.pi/*` or a skill's contents needs the
+  idle sessions dropped (hot-reload). Either way the on-disk memory persists
+  per session id.
 
 ## Interrupting and forgetting a conversation
 

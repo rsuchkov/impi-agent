@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, TypeVar, cast
 
 from crucible.private_files import private_dir, write_private
+from crucible.tool_manifests import manifest_path, session_manifest_path
 from crucible.tools.base import SPEAKS_TO_USER_NOTE, UNTRUSTED_NOTE, Tool
 
 _registered: list[Tool] = []
@@ -83,9 +84,22 @@ class ToolRegistry:
         is stable per agent, so a hot-reload can rewrite it in place."""
         # The owner's alone: it says what each agent may call, and nobody else
         # on the machine needs to read that.
-        path = private_dir(dir_path) / f"{agent}.json"
+        private_dir(dir_path)
+        return self._write(manifest_path(dir_path, agent), allowed)
+
+    def write_session_manifest(
+        self, dir_path: Path, agent: str, runtime_session_id: str, allowed: tuple[str, ...]
+    ) -> Path:
+        """Persist one conversation's manifest to ``<dir>/<agent>/<session>.json``:
+        what that conversation's process advertises, rewritten before every
+        turn it may start a process for."""
+        path = session_manifest_path(dir_path, agent, runtime_session_id)
+        private_dir(path.parent)
+        return self._write(path, allowed)
+
+    def _write(self, path: Path, allowed: tuple[str, ...]) -> Path:
         write_private(path, json.dumps(self.manifest(allowed), ensure_ascii=False))
-        return path.resolve()
+        return path
 
 
 def build_registry() -> ToolRegistry:

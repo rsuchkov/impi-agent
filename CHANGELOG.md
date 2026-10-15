@@ -6,7 +6,29 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A conversation can be entitled to less than its agent.** An agent's
+  profile used to be the one list of tools and the one system prompt for
+  everyone who talked to it: every process of every conversation advertised
+  all of the agent's tools, and an application whose users had different
+  rights had to offer everything and refuse at the call. An application can
+  now hand the flow an `EntitlementSource` (`crucible.ports.entitlement`) that
+  answers, from the message opening each turn, which of the agent's tools this
+  conversation may use (built-ins included) and what trusted instructions go
+  into its system prompt, plus `EntitledProfiles`
+  (`crucible.conversation_profiles`) over the runtime driver's
+  `narrow_pi_profile` to build the profile the turn runs with.
+  The runtime's allowlist is narrowed, the process advertises from a manifest
+  of the conversation's own (`tool-manifests/<agent>/<session>.json`), and the
+  tool server refuses a call for a tool outside the set — `not available in
+  this conversation` — once the session is proven, whatever the process
+  claims. The entitlement may change between turns: the runtime restarts a
+  conversation's process whose profile is not the one it was started with
+  (`spawn_fingerprint`) and resumes its memory from disk, which also means a
+  hot-reload now reaches a conversation on its next turn instead of after
+  its process idles out. A forgotten conversation's manifest goes with its
+  memory (`purge_idle(manifests_dir=…)`, done by `prepare_runtime_storage`
+  and the sessions CLI). `impi` wires no source yet; the recipe is in
+  [building-an-app.md](docs/building-an-app.md).
 
 ## v0.24.0 — 2026-10-14
 

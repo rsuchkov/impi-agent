@@ -106,7 +106,13 @@ What remains, and what the engine does about it:
   with a token it found has to also name a live session and its proof;
 - an agent's process is handed only the environment the engine grants it, so
   what an unconfined neighbour can read there is the tool server's two secrets
-  and the session id, not the engine's own tokens.
+  and the session id, not the engine's own tokens;
+- a conversation the application entitles to fewer tools than its agent has
+  (`crucible.ports.entitlement`) is held to that set by the server, once the
+  session id is proven, not only by the shorter manifest its process was
+  started with: a call for a tool outside the set answers `not available in
+  this conversation`, whatever the process claims — a model that read a tool's
+  name in a ticket gets a refusal, not the tool.
 
 The weighed alternatives — a kernel-attested caller identity over a unix
 socket, a user id per conversation, `hidepid` on `/proc` — are not needed

@@ -73,8 +73,9 @@ runtime:
 The profile is the single source of truth — **removing the line is how you turn
 a skill off**; there is no separate enabled/disabled state to drift out of sync.
 An agent picks up the change on its next turn after a reload (`impi reload`; the
-chat paths reload for you). A conversation already in flight keeps its current
-configuration until its session is reset — its memory is not lost.
+chat paths reload for you) — a conversation already in flight too: its process
+restarts with the new profile and resumes its memory. An edit to a skill's
+*contents* reaches an in-flight conversation once its process has idled out.
 
 > `AGENTS_SKILLS__<AGENT>` in `.env` **replaces** an agent's whole list. It is an
 > escape hatch; while it is set, assignments won't show up.

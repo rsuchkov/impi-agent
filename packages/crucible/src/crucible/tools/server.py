@@ -78,6 +78,9 @@ _REFUSALS = {
     ConfirmOutcome.UNANSWERED: UNANSWERED_ERROR,
     ConfirmOutcome.NO_APPROVER: NO_APPROVER_ERROR,
 }
+# A tool the agent has and this conversation does not: said so, because the
+# model may have read the tool's name somewhere and there is nothing to retry.
+NOT_IN_CONVERSATION_ERROR = "not available in this conversation"
 
 
 def _log_if_orphaned(task: "asyncio.Future[Any]") -> None:
@@ -99,6 +102,7 @@ class ToolServer:
         admins: Mapping[str, ChatAdmin],
         tokens: Mapping[str, str],  # token -> agent name
         allowlists: Mapping[str, frozenset[str]],  # agent name -> allowed tool names
+        session_allowlists: Mapping[str, frozenset[str]] | None = None,
         host: str = "127.0.0.1",
         port: int = 8422,
         tool_configs: Mapping[str, Any] | None = None,  # tool name -> its config
@@ -117,6 +121,12 @@ class ToolServer:
         self._admins = admins
         self._tokens = tokens
         self._allowlists = allowlists
+        # The second door, behind the agent's: a conversation entitled to fewer
+        # tools than its agent has an entry here (runtime session id -> its
+        # tools), kept current by whoever builds the conversation's profile.
+        # Checked once the session id is believed, so a process cannot step
+        # out of its conversation's set by naming another conversation.
+        self._session_allowlists: Mapping[str, frozenset[str]] = session_allowlists or {}
         self._host = host
         self._port = port
         self._tool_configs = tool_configs or {}
@@ -213,6 +223,16 @@ class ToolServer:
                     tool.name, agent, runtime_session_id,
                 )
                 return web.json_response({"error": "session not proven"}, status=403)
+        scoped = self._session_allowlists.get(runtime_session_id) if runtime_session_id else None
+        if scoped is not None and name not in scoped:
+            # The agent has the tool; this conversation was not given it. The
+            # process was told as much by its manifest, so a call that arrives
+            # anyway is the model acting on a name it read elsewhere.
+            logger.info(
+                "tool %s: not in the set of conversation %s (agent %s); refused",
+                tool.name, runtime_session_id, agent,
+            )
+            return web.json_response({"error": NOT_IN_CONVERSATION_ERROR}, status=403)
         conversation = (
             await self._conversation_resolver(agent, runtime_session_id)
             if self._conversation_resolver is not None and runtime_session_id else None

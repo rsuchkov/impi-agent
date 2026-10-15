@@ -39,13 +39,20 @@ For each item, look at the diff AND the code around it; cite `file:line`.
      does it only pass because no contract covers it yet?
    - A cycle avoided by an import inside a function is a dependency pointing the
      wrong way: report it (ruff `PLC0415` catches the syntax, not the design).
-2. **Runtime-neutral core.** The neutral layers (`ports`, `flows`, `tools`,
-   `interactions`, `store`, `profiles`, `gateways`, `scheduler`, `approvals`,
-   `skills`, `attachments`, `containment`) name no concrete runtime — not in
-   comments, docstrings, names or strings. `pi` belongs in `runtimes/pi/` and
-   the composition root. `check_names.py` catches the word; you catch the
-   concept (a neutral module that knows a pi file layout, a pi flag, a pi event
-   name under another name).
+2. **Runtime-neutral core.** Everything in `crucible` outside `runtimes/pi/`
+   and the few modules AGENTS.md names as runtime-aware (`config.py`,
+   `sessions_cli.py`, `session_retention.py`, `runtime_storage.py`) names no
+   concrete runtime — not in comments, docstrings, identifiers or strings. A
+   new module is neutral by default, wherever it sits: a module at the package
+   root is not "above the layers", it is one of them. Look at every name the
+   change adds for the driver's prefix (`Pi…`) and at every new import of
+   `crucible.runtimes.pi` from outside the driver: a class that composes the
+   tool layer with the driver belongs in the composition root, or is split
+   into a neutral half over a port and the driver's half in `runtimes/pi/`
+   (`conversation_profiles.py` + `ProfileNarrowing` is the pattern).
+   `check_names.py` catches the word and the prefix; you catch the concept (a
+   neutral module that knows a pi file layout, a pi flag, a pi event name
+   under another name).
 3. **The library names no application.** Nothing under `crucible` knows
    `impi`, `ward`, `wardline`, `runtime-relay` — including in messages it logs
    and advice it prints. A list of an application's settings or key families in

@@ -99,17 +99,21 @@ duplicate architecture here.
   constructor injection. Layer boundaries are enforced by import-linter (`make
   lint`), so a boundary breach fails the lint rather than surfacing at review.
 
-- **Runtime-neutral core.** The neutral layers — `ports`, `flows`, `tools`,
-  `interactions`, `store`, `profiles`, `gateways`, `scheduler`, `approvals`,
-  `skills`, `attachments`, `confinement`, `containment`, `process_scopes`,
-  `conversation_files`, `connections`, `private_files` — name no concrete runtime, and not only in imports:
-  comments, docstrings, names, and strings there use neutral terms ("the
+- **Runtime-neutral core.** Everything in `crucible` is neutral unless it is
+  the runtime's driver or one of the few modules whose job is the runtime's
+  files or settings: `runtimes/pi/`, the backend knobs in `config.py` (`pi_*`,
+  an explicit settings boundary), `sessions_cli.py` and
+  `session_retention.py`, which delete the runtime's own session files, and
+  `runtime_storage.py`, which prepares them and the runtime's agent directory.
+  A neutral module names no concrete runtime, and not only in imports:
+  comments, docstrings, identifiers and strings use neutral terms ("the
   runtime", "the runtime's tool extension / session / UI request"), never
-  "pi's …". `pi` specifics live only in `runtimes/pi/` and the composition root;
-  the exceptions are the backend knobs in `config.py` (`pi_*`), an explicit
-  settings boundary, `sessions_cli.py` and `session_retention.py`, which
-  delete the runtime's own session files, and `runtime_storage.py`, which
-  prepares them and the runtime's agent directory.
+  "pi's …" and never the driver's prefix (`Pi…`). A new module is neutral
+  wherever it sits — the package root included; code that needs both the
+  driver and a neutral layer is split, the driver's half behind a port in
+  `runtimes/pi/` (`ProfileNarrowing` / `narrow_pi_profile`) and the neutral
+  half over the port. `scripts/check_names.py` enforces the words; the list of
+  runtime-aware modules lives there.
 
 - **The library names no application.** `crucible` is reusable, so nothing under
   it says "impi" — not in a message it emits, a file it writes, or a path it

@@ -37,6 +37,7 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     PostSnippet,
 )
+from crucible.ports.entitlement import ConversationProfiles, EntitlementSource
 from crucible.ports.turn import TurnBinding
 from crucible.store.base import SessionRecord, SessionStore
 
@@ -164,8 +165,15 @@ class AgentFlow:
         control: RuntimeControl | None = None,
         history: HistorySource | None = None,
         context: ContextSource | None = None,
+        entitlements: EntitlementSource | None = None,
+        conversation_profiles: ConversationProfiles | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
+        if (entitlements is None) != (conversation_profiles is None):
+            raise ValueError(
+                "AgentFlow needs entitlements and conversation_profiles together: one "
+                "says what a conversation may do, the other builds the profile that does it"
+            )
         self._runtime = runtime
         self._profile = profile
         self._sessions = sessions
@@ -189,6 +197,11 @@ class AgentFlow:
         self._history = history
         # Who is asking, from the application, ahead of the message. Every turn.
         self._context = context
+        # What this conversation may do, from the application, every turn — and
+        # what turns the answer into the profile the turn runs with. None =
+        # every conversation runs with the agent's profile.
+        self._entitlements = entitlements
+        self._conversation_profiles = conversation_profiles
         # The code on this turn's context markers. Injectable so a test can pin
         # it; the default is fresh per prompt.
         self._envelope_tag = envelope_tag
@@ -210,10 +223,21 @@ class AgentFlow:
         return self._profile
 
     def set_profile(self, profile: AgentProfile) -> None:
-        """Swap the profile the next turn runs with (hot-reload). Only affects
-        conversations whose session has not started yet; a live conversation
-        keeps its current profile until the runtime resets its session."""
+        """Swap the profile the next turn runs with (hot-reload). A live
+        conversation picks it up on its next turn too: the runtime restarts a
+        process whose profile is not the one it was started with, and resumes
+        the conversation's memory."""
         self._profile = profile
+
+    async def _profile_for(self, anchor: IncomingMessage, record: SessionRecord) -> AgentProfile:
+        """The profile this turn runs with: the agent's, or the conversation's
+        own when the application entitles it to less or tells it more."""
+        if self._entitlements is None or self._conversation_profiles is None:
+            return self._profile
+        entitlement = await self._entitlements.entitlement(self._agent_name, anchor)
+        return self._conversation_profiles.build(
+            self._agent_name, self._profile, entitlement, record.runtime_session_id
+        )
 
     async def handle(self, msg: IncomingMessage, chat: ChatClient) -> TurnOutcome:
         return await self.handle_batch([msg], chat)
@@ -275,6 +299,7 @@ class AgentFlow:
         since = None if first_turn else _parse_iso(record.last_active)
         prompt = await self._render_prompt(fresh, chat, first_turn=first_turn, since=since)
         images = await self._inline_images(fresh)
+        profile = await self._profile_for(anchor, record)
 
         # Only a real message can wear the "working on it" mark. A synthetic
         # anchor — a slash command, a widget click, a scheduled run — carries an
@@ -300,7 +325,7 @@ class AgentFlow:
         try:
             async with bound:
                 result = await self._runtime.run_stateful(
-                    self._profile, record.runtime_session_id, prompt, images=images,
+                    profile, record.runtime_session_id, prompt, images=images,
                     on_event=trace.on_event if trace is not None else None,
                 )
             interrupted = False

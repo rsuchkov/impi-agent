@@ -2,6 +2,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from crucible.flows.agent_flow import EMPTY_ANSWER_MESSAGE, AgentFlow
 from crucible.interactions.tooltrace import ToolTrace
 from crucible.ports.agent.errors import (
@@ -20,6 +22,7 @@ from crucible.ports.chat.types import (
     PostSnippet,
     QuotedMessage,
 )
+from crucible.ports.entitlement import Entitlement
 from crucible.ports.turn import TurnScope
 from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
@@ -1351,3 +1354,63 @@ async def test_a_turn_with_no_real_message_keeps_the_trace_beside_the_reply(tmp_
 
     assert chat.posted_cards[0][0].thread_root_id == ""
     await store.close()
+
+
+class FakeEntitlements:
+    def __init__(self, entitlement: Entitlement) -> None:
+        self.entitlement_ = entitlement
+        self.asked: list[tuple[str, str]] = []
+
+    async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement:
+        self.asked.append((agent, msg.user_id))
+        return self.entitlement_
+
+
+class FakeConversationProfiles:
+    def __init__(self) -> None:
+        self.built: list[tuple[str, object, Entitlement, str]] = []
+
+    def build(self, agent: str, profile, entitlement: Entitlement, runtime_session_id: str):
+        self.built.append((agent, profile, entitlement, runtime_session_id))
+        return ("scoped", profile, entitlement.tools, runtime_session_id)
+
+
+async def test_the_turn_runs_with_the_conversations_profile_when_the_application_entitles_it(
+    tmp_path: Path,
+) -> None:
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    entitlements = FakeEntitlements(Entitlement(tools=("read",)))
+    profiles = FakeConversationProfiles()
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant",
+                     entitlements=entitlements, conversation_profiles=profiles)
+    chat = FakeChat()
+    try:
+        await flow.handle(_dm("hello"), chat)
+        # Asked with the agent and the message that opens the turn; built from
+        # the flow's CURRENT profile for this conversation's session.
+        assert entitlements.asked == [("assistant", "u1")]
+        assert profiles.built == [("assistant", PROFILE, Entitlement(tools=("read",)), "assistant--dm1")]
+        assert runtime.profiles == [("scoped", PROFILE, ("read",), "assistant--dm1")]
+    finally:
+        await store.close()
+
+
+async def test_without_a_source_every_turn_runs_with_the_agents_profile(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    try:
+        await flow.handle(_dm("hello"), FakeChat())
+        assert runtime.profiles == [PROFILE]
+    finally:
+        await store.close()
+
+
+def test_entitlements_and_conversation_profiles_come_together(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    with pytest.raises(ValueError):
+        AgentFlow(FakeRuntime(), PROFILE, store, agent_name="assistant",
+                  entitlements=FakeEntitlements(Entitlement()))
+    with pytest.raises(ValueError):
+        AgentFlow(FakeRuntime(), PROFILE, store, agent_name="assistant",
+                  conversation_profiles=FakeConversationProfiles())

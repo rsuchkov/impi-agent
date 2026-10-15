@@ -30,6 +30,7 @@ from crucible.runtimes.pi.auth_file import (
 from crucible.runtimes.pi.spawn import migrate_session_layout
 from crucible.session_retention import purge_idle
 from crucible.store.base import SessionStore
+from crucible.tool_manifests import manifests_dir
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,10 @@ async def prepare_runtime_storage(settings: Settings, sessions: SessionStore) ->
     if settings.session_retention_days <= 0:
         return
     try:
-        forgotten = await purge_idle(session_dir, sessions, days=settings.session_retention_days)
+        forgotten = await purge_idle(
+            session_dir, sessions, days=settings.session_retention_days,
+            manifests_dir=manifests_dir(settings.data_dir),
+        )
     except Exception:
         # A store that cannot answer must not keep the application from serving.
         logger.exception("could not forget idle conversations; carrying on")

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import aiohttp
@@ -1418,3 +1419,76 @@ def test_connections_are_promised_exactly_when_they_are_handed_over(tmp_path) ->
     with pytest.raises(ValueError, match="disagree"):
         wiring().build_server(**build, connections=lambda a, u, t: None)  # type: ignore[arg-type]
     assert promised.build_server(**build, connections=lambda a, u, t: None) is not None  # type: ignore[arg-type]
+
+
+async def test_the_server_refuses_a_tool_outside_the_conversations_set() -> None:
+    # The second door: the agent has the tool, this conversation was not given
+    # it. Another conversation of the same agent, with no entry, has them all.
+    from crucible.tools.server import NOT_IN_CONVERSATION_ERROR
+
+    admin = FakeAdmin()
+    server = ToolServer(
+        build_registry(),
+        directory=FakeDirectory(AGENTS),
+        admins={"assistant": admin},
+        tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"list_agents", "create_channel"})},
+        session_allowlists={"assistant--narrow": frozenset({"list_agents"})},
+        port=8467,
+    )
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8467/tool/create_channel", json={"display_name": "X"},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--narrow"},
+            ) as resp:
+                assert resp.status == 403
+                assert (await resp.json()) == {"error": NOT_IN_CONVERSATION_ERROR}
+            async with s.post(
+                "http://127.0.0.1:8467/tool/list_agents", json={},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--narrow"},
+            ) as resp:
+                assert resp.status == 200  # in the conversation's set
+            async with s.post(
+                "http://127.0.0.1:8467/tool/create_channel", json={"display_name": "Y"},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--wide"},
+            ) as resp:
+                assert resp.status == 200  # no entry: the agent's whole allowlist
+        assert [c[1] for c in admin.created] == ["Y"]
+    finally:
+        await server.stop()
+
+
+def test_session_env_writes_the_conversations_manifest_within_the_agents(tmp_path: Path) -> None:
+    from crucible.config import ToolSettings
+    from crucible.ports.agent import AgentSpec
+    from crucible.tools import MANIFEST_ENV, ToolWiring
+
+    wiring = ToolWiring(
+        ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
+        data_dir=str(tmp_path), interactivity_on=True,
+    )
+    spec = AgentSpec(
+        name="assistant", display_name="A", role="r", description="d", profile_dir=tmp_path,
+        tools=("list_agents", "ask_user_buttons"),
+    )
+    wiring.enroll(spec, None)
+    agent_env = wiring.profile_env(spec)
+    assert agent_env is not None
+
+    env = wiring.session_env("assistant", "assistant--dm1", ("ask_user_buttons", "create_channel", "ask_user_buttons"))
+
+    assert env is not None
+    assert env[MANIFEST_ENV] == str((tmp_path / "tool-manifests" / "assistant" / "assistant--dm1.json").resolve())
+    assert env["TOOL_TOKEN"] == agent_env["TOOL_TOKEN"]
+    assert wiring.session_allowlists["assistant--dm1"] == frozenset({"ask_user_buttons"})  # the agent's is the ceiling
+    manifest = json.loads(Path(env[MANIFEST_ENV]).read_text())
+    assert [entry["name"] for entry in manifest] == ["ask_user_buttons"]
+
+    # Back to the agent's own: the entry goes, the env names the agent's manifest.
+    back = wiring.session_env("assistant", "assistant--dm1", None)
+    assert back == agent_env
+    assert "assistant--dm1" not in wiring.session_allowlists
+    with pytest.raises(ValueError):
+        wiring.session_env("assistant", "../escape", ("list_agents",))

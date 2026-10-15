@@ -25,6 +25,7 @@ from crucible.runtimes.pi.spawn import forget_conversation_memory, session_files
 from crucible.session_retention import purge_idle
 from crucible.store import open_store
 from crucible.store.base import SessionRecord, Store
+from crucible.tool_manifests import forget_session_manifest, manifests_dir
 
 
 def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
@@ -32,6 +33,8 @@ def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
 
 
 def _forget_memory(settings: Settings, record: SessionRecord) -> int:
+    # The conversation's own tool manifest, if it had one, goes with its memory.
+    forget_session_manifest(manifests_dir(settings.data_dir), record.agent, record.runtime_session_id)
     return forget_conversation_memory(
         settings.resolved_pi_session_dir, record.agent, record.runtime_session_id
     )
@@ -61,7 +64,10 @@ async def cmd_delete(settings: Settings, store: Store, args: argparse.Namespace)
 
 
 async def cmd_purge_idle(settings: Settings, store: Store, args: argparse.Namespace) -> None:
-    victims = await purge_idle(settings.resolved_pi_session_dir, store, days=args.days, agent=args.agent)
+    victims = await purge_idle(
+        settings.resolved_pi_session_dir, store, days=args.days, agent=args.agent,
+        manifests_dir=manifests_dir(settings.data_dir),
+    )
     if not victims:
         print(f"nothing idle for {args.days}+ days")
         return

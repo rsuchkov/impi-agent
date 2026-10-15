@@ -129,3 +129,31 @@ def test_an_agent_directory_the_runtime_cannot_lock_in_is_an_error(
         agent_dir.chmod(0o700)
     assert "point PI_CODING_AGENT_DIR at a writable directory" in caplog.text
     assert str(agent_dir) in caplog.text
+
+
+async def test_a_forgotten_conversation_loses_its_own_tool_manifest_too(tmp_path: Path) -> None:
+    from crucible.tool_manifests import forget_session_manifest, session_manifest_path
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        old, _ = await store.get_or_create("assistant", "old", "old", KIND_DM)
+        long_ago = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat(timespec="seconds")
+        await asyncio.to_thread(
+            store._conn.execute,
+            "UPDATE sessions SET last_active = ? WHERE conversation_id = ?", (long_ago, "old"),
+        )
+        manifests = tmp_path / "tool-manifests"
+        manifest = session_manifest_path(manifests, "assistant", old.runtime_session_id)
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text("[]")
+        agents_own = manifests / "assistant.json"
+        agents_own.write_text("[]")
+
+        await purge_idle(tmp_path / "sessions", store, days=30, manifests_dir=manifests)
+
+        assert not manifest.exists() and agents_own.exists()
+        # Forgetting what is not there is not an error, nor is a bad id.
+        assert forget_session_manifest(manifests, "assistant", old.runtime_session_id) is False
+        assert forget_session_manifest(manifests, "assistant", "../assistant") is False
+    finally:
+        await store.close()

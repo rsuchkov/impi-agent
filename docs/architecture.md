@@ -91,6 +91,17 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   `Attachment`, `Action`, `Form`, …).
 - **Tasks** (`ports/tasks`): `TaskService` — the tool-facing "schedule this for
   later", kept apart from the chat ports because scheduling is not a chat idea.
+- **Entitlement** (`ports/entitlement`): `Entitlement` (what one conversation
+  may do, out of its agent's profile: a subset of its tool names, built-ins
+  included, and trusted instructions for its system prompt),
+  `EntitlementSource` (the application answers it from the message that opens
+  a turn, every turn), `ConversationProfiles` (builds the profile the
+  conversation's process runs with; the neutral `EntitledProfiles` in
+  `crucible.conversation_profiles` keeps the tool server in step) and
+  `ProfileNarrowing` (the runtime driver's half: the profile as one
+  conversation's process gets it — `narrow_pi_profile` for the bundled
+  driver). Without a source every conversation has the
+  agent's whole profile.
 
 ## The `pi` runtime driver
 
@@ -125,7 +136,12 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
 
 **Hot-reload:** on `SIGHUP` the `ProfileReloader` re-reads every profile, swaps
 each flow's profile in place, drops idle sessions, and re-syncs the registry —
-conversation memory is preserved. A *new* agent needs a restart (agents are
+conversation memory is preserved. A conversation whose process was busy during
+the reload gets the new profile on its next turn: the runtime restarts a
+process whose profile is not the one it was started with
+(`spawn_fingerprint`) and resumes the memory. Dropping the idle sessions is
+still needed for what the profile does not carry — `.pi/SYSTEM.md`, the
+settings, a skill's contents — which `pi` reads only when it starts. A *new* agent needs a restart (agents are
 enumerated at startup); an *edited* agent needs a reload.
 
 ## Gateways
@@ -178,6 +194,13 @@ capabilities it `requires`). At runtime:
   **token**, injected into its `pi` subprocess env; each conversation's
   process additionally gets a **session proof**, a secret for that session
   alone (`SessionProofBook`, issued at spawn, revoked when the process goes).
+  A conversation entitled to less than its agent (`ports/entitlement`) gets a
+  manifest of its own, `<agent>/<runtime session id>.json` beside the
+  agent's, and an entry in the server's per-session allowlist
+  (`ToolWiring.session_env`) — both from the one `Entitlement`, so what the
+  process advertises and what the server runs cannot disagree. The runtime
+  restarts the conversation's process when its profile changes
+  (`spawn_fingerprint`); its memory is on disk, so the conversation goes on.
 - The engine's TypeScript **tool-bridge extension** (shipped with the driver,
   loaded via `-e`) turns a `pi` tool call into `POST /tool/<name>` against a
   localhost **tool-server**, with the token, the session id and the session
@@ -185,7 +208,9 @@ capabilities it `requires`). At runtime:
 - `ToolServer` maps token → agent, checks that agent's allowlist, believes the
   session id only when its proof matches (the token is shared by every process
   of the agent, so without the proof any of them could name another
-  conversation), builds a `ToolContext` scoped to that agent and that turn (its
+  conversation), refuses a tool outside the proven session's own set when it
+  has one (`not available in this conversation` — the second door, behind
+  the agent's), builds a `ToolContext` scoped to that agent and that turn (its
   own `ChatAdmin`, the directory, the widget/form services, the turn's scope,
   the conversation's files directory),
   and runs the tool. The proof defeats a claim made from knowledge; a process

@@ -4,15 +4,17 @@ assembled from a ``ToolSettings`` config.
 ``enroll`` mints each agent's auth token, records its admin client and capability
 set, gates its declared tools, and stores its stable tool env. ``profile_env``
 (re)writes an agent's manifest and returns its profile env — called at boot and on
-every hot-reload, so ``caps`` and ``envs`` stay live. A no-op shell when tools are
-disabled (``registry`` is None).
+every hot-reload, so ``caps`` and ``envs`` stay live. ``session_env`` does the
+same for one conversation entitled to less than its agent: a manifest of its
+own and an allowlist of its own that the server checks beside the agent's. A
+no-op shell when tools are disabled (``registry`` is None).
 
 A convenience for composition roots; an app may wire the registry/server by hand.
 """
 
 import logging
 import secrets
-from pathlib import Path
+from collections.abc import Collection
 
 from crucible.approvals.ports import ToolApproving
 from crucible.config import ToolSettings
@@ -25,6 +27,7 @@ from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver
 from crucible.ports.tasks import TaskService
 from crucible.ports.turn import TurnScopes
+from crucible.tool_manifests import MANIFEST_ENV, manifest_path, manifests_dir
 from crucible.tools.base import (
     CAP_CHAT_ADMIN,
     CAP_CONFIRMATION,
@@ -46,10 +49,6 @@ logger = logging.getLogger(__name__)
 # *proved* is proved by a token or a certificate instead. Part of the engine's
 # public surface to whatever runs inside an agent, so it does not change lightly.
 AGENT_NAME_ENV = "AGENT_NAME"
-# The env variable naming the manifest FILE. A name rather than a literal at the
-# call site because the composition root has to tell it apart from the rest of
-# the env: it is a path, and a path only means something where it was written.
-MANIFEST_ENV = "TOOL_MANIFEST"
 
 
 def _gate_tools(
@@ -84,10 +83,15 @@ class ToolWiring:
     ) -> None:
         self._tools = tools
         self.registry = build_registry() if tools.enabled else None
-        self.manifests_dir = Path(data_dir) / "tool-manifests"
+        self.manifests_dir = manifests_dir(data_dir)
         self.tokens: dict[str, str] = {}  # token -> agent name (tool server gate)
         self.admins: dict[str, ChatAdmin] = {}  # agent -> its own admin client
         self.allowlists: dict[str, frozenset[str]] = {}  # agent -> tools it may call
+        # A conversation entitled to less than its agent: runtime session id ->
+        # the tools it may call, out of the agent's. The server checks it as a
+        # second door behind the agent's; a session with no entry has the
+        # agent's whole allowlist.
+        self.session_allowlists: dict[str, frozenset[str]] = {}
         self.envs: dict[str, dict[str, str]] = {}  # agent -> tool env (stable across reloads)
         self.caps: dict[str, frozenset[str]] = {}  # agent -> capability set
         # Widgets/forms exist iff the integrations receiver is on; chat_admin only on
@@ -169,8 +173,33 @@ class ToolWiring:
         # advertised AND callable, instead of being answered with 403 until the
         # next restart.
         self.allowlists[spec.name] = frozenset(advertised)
-        manifest_path = self.registry.write_manifest(self.manifests_dir, spec.name, advertised)
-        return {**self.envs[spec.name], MANIFEST_ENV: str(manifest_path)}
+        path = self.registry.write_manifest(self.manifests_dir, spec.name, advertised)
+        return {**self.envs[spec.name], MANIFEST_ENV: str(path)}
+
+    def session_env(
+        self, agent: str, runtime_session_id: str, tools: Collection[str] | None
+    ) -> dict[str, str] | None:
+        """The tool env of one conversation's process: ``tools`` is what the
+        conversation is entitled to, out of what its agent advertises (a name
+        the agent does not have is ignored, so the agent's manifest is the
+        ceiling). The conversation gets a manifest of its own and an entry in
+        ``session_allowlists`` that the server enforces from now on. None
+        means the agent's own: the entry goes, and the env points at the
+        agent's manifest. Called before every turn, so the entry always says
+        what the conversation's current turn may do."""
+        if self.registry is None:
+            extra = self.envs.get(agent)
+            return dict(extra) if extra else None
+        if tools is None:
+            self.session_allowlists.pop(runtime_session_id, None)
+            return {**self.envs[agent], MANIFEST_ENV: str(manifest_path(self.manifests_dir, agent))}
+        ceiling = self.allowlists.get(agent, frozenset())
+        allowed = tuple(dict.fromkeys(name for name in tools if name in ceiling))
+        self.session_allowlists[runtime_session_id] = frozenset(allowed)
+        path = self.registry.write_session_manifest(
+            self.manifests_dir, agent, runtime_session_id, allowed
+        )
+        return {**self.envs[agent], MANIFEST_ENV: str(path)}
 
     def build_server(
         self,
@@ -214,6 +243,7 @@ class ToolWiring:
             admins=self.admins,
             tokens=self.tokens,
             allowlists=self.allowlists,
+            session_allowlists=self.session_allowlists,
             host=self._tools.server_host,
             port=self._tools.server_port,
             tool_configs=self.registry.load_configs(env_file=dotenv_path),

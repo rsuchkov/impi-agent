@@ -207,7 +207,7 @@ In order:
 A tool added to a profile applies on **reload**; a `403 forbidden` right after
 an edit means the change was not applied yet.
 
-Six other 403s say what happened in the body. From the confirmation gate:
+Seven other 403s say what happened in the body. From the confirmation gate:
 
 - `declined by the user` — the tool declares `requires_confirmation`, the card
   went out, and a person answered Deny. A human can answer **Allow for…**
@@ -245,6 +245,11 @@ And from the session check:
   The engine's own runtime always has it; this is a stale process from before
   a restart, or something in the agent's container calling the tool server by
   hand. Not a configuration problem.
+- `not available in this conversation` — the agent has the tool, but the
+  application entitled this conversation to fewer of them (its process was
+  started with a manifest listing only those), and the model called one it
+  read about elsewhere. Not a configuration problem: the application decides
+  per conversation; the log line names the conversation and the agent.
 
 ### What `impi health` may add
 

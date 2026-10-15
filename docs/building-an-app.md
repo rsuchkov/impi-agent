@@ -300,6 +300,31 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   mean and that the quoted text is not instructions. Set
   `PiProfile.envelope_note=False` only for a profile whose prompts are not
   framed this way.
+- **What a conversation may do.** An agent's profile is one list of tools and
+  one system prompt for everyone who talks to it. When the application knows
+  better per conversation — the person's group was given some of the agent's
+  tools and not others, the conversation runs inside a system the model
+  should be told about in words it must trust — hand the flow
+  `AgentFlow(..., entitlements=…, conversation_profiles=EntitledProfiles(tools, narrow_pi_profile))`:
+  an `EntitlementSource` (`crucible.ports.entitlement`) whose
+  `entitlement(agent, msg)` answers, from the message that opens the turn, an
+  `Entitlement(tools=…, instructions=…)` — `tools` the names this
+  conversation may use out of the agent's own (built-ins such as `read`
+  included: the runtime's allowlist is one list; `None` leaves the agent's
+  list as it is, `()` leaves no tool), `instructions` the application's own
+  text appended to the system prompt. `EntitledProfiles`
+  (`crucible.conversation_profiles`, over your `ToolWiring`) keeps the engine's
+  side in step — a manifest of the conversation's own and the tool server's
+  per-session allowlist set to match — and asks the runtime driver's
+  `ProfileNarrowing` for the profile itself: `narrow_pi_profile`
+  (`crucible.runtimes.pi`) narrows `--tools` and appends the instructions — so a call for a tool outside the set is refused (`not available in
+  this conversation`) whatever the process claims. Asked every turn, so the
+  answer may change between turns; the runtime then restarts the
+  conversation's process with the new profile and resumes its memory from
+  disk — one cold start per change, no lost conversation. `instructions` are
+  **trusted** text, unlike the preamble: never put a person's words there.
+  Pass `manifests_dir=` to `purge_idle` (or call `prepare_runtime_storage`,
+  which does) so a forgotten conversation's manifest goes with its memory.
 - **Sharing tool settings.** `settings_cls` is declared per tool, but several
   tools may declare the **same class**: each gets its own instance, loaded from
   the same env keys — so a tool group with one config (one repo root, one base

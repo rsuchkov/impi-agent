@@ -946,3 +946,55 @@ def test_build_pi_profile_carries_the_fallback_models(tmp_path: Path) -> None:
     spec = AgentSpec(name="a", display_name="a", role="r", description="", profile_dir=tmp_path,
                      fallback_models=("a/x",))
     assert build_pi_profile(spec).fallback_models == ("a/x",)
+
+
+async def test_a_turn_with_another_profile_restarts_the_conversations_process() -> None:
+    # The runtime bakes a profile in at spawn (tools, system prompt, env); a
+    # turn whose profile differs gets a new process, which resumes the
+    # conversation's memory from disk under the same session id.
+    first, second = FakeSession(), FakeSession()
+    rt = _runtime_with([first, second])
+    profile = dataclasses.replace(_profile(), tools=("read", "bash"))
+
+    await rt.run_stateful(profile, "assistant--T1", "a")
+    await rt.run_stateful(dataclasses.replace(profile, tools=("read",)), "assistant--T1", "b")
+
+    assert first.closed and first.calls == [("prompt", "a")]
+    assert second.calls == [("prompt", "b")]
+    assert len(rt._created) == 2  # type: ignore[attr-defined]
+
+
+async def test_what_the_runtime_reads_per_turn_does_not_restart_the_process() -> None:
+    session = FakeSession()
+    rt = _runtime_with([session])
+    profile = _profile()
+
+    await rt.run_stateful(profile, "assistant--T1", "a")
+    await rt.run_stateful(dataclasses.replace(profile, timeout=99.0), "assistant--T1", "b")
+
+    assert not session.closed and len(session.calls) == 2
+    assert len(rt._created) == 1  # type: ignore[attr-defined]
+
+
+async def test_a_restarted_process_gets_the_new_profile_and_its_own_proof() -> None:
+    from crucible.runtimes.pi.runtime import spawn_fingerprint
+
+    spawned: list[PiProfile] = []
+    sessions = [FakeSession(), FakeSession()]
+
+    async def factory(profile, session_id, cwd=None):
+        spawned.append(profile)
+        return sessions[len(spawned) - 1]
+
+    rt = PiRuntime(session_factory=cast(SessionFactory, factory))
+    narrow = dataclasses.replace(_profile(), append_system_prompt="Be brief.")
+    await rt.run_stateful(_profile(), "assistant--T1", "a")
+    await rt.run_stateful(narrow, "assistant--T1", "b")
+    await rt.run_stateful(narrow, "assistant--T1", "c")
+
+    assert spawned == [_profile(), narrow]
+    assert rt._sessions["assistant--T1"].fingerprint == spawn_fingerprint(narrow)
+    assert spawn_fingerprint(narrow) != spawn_fingerprint(_profile())
+    # The digest says nothing about the env it covers.
+    secret = dataclasses.replace(narrow, env={"TOOL_TOKEN": "hunter2"})
+    assert "hunter2" not in spawn_fingerprint(secret)

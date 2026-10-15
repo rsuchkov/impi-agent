@@ -21,6 +21,8 @@ process here, which is what always happened; another may run it elsewhere.
 
 import asyncio
 import contextlib
+import hashlib
+import json
 import logging
 import secrets
 from collections.abc import Awaitable, Callable, Sequence
@@ -40,7 +42,7 @@ from crucible.ports.agent.runtime import (
 from crucible.ports.agent.ui import UiBridge
 from crucible.runtimes.pi.errors import PiBusy, PiProcessError, PiTimeout
 from crucible.runtimes.pi.hosts import HostRouter, LocalHost
-from crucible.runtimes.pi.profiles import PiProfile
+from crucible.runtimes.pi.profiles import PiProfile, require_pi_profile
 from crucible.runtimes.pi.session import EventCallback, PiResult, PiRpcSession
 from crucible.runtimes.pi.spawn import (
     SpawnRequest,
@@ -74,6 +76,9 @@ class _ManagedSession:
     session: PiRpcSession
     agent: str  # whose per-agent permit this session holds
     created_at: float
+    # The profile its process was started with (spawn_fingerprint): a turn
+    # that arrives with another restarts the process.
+    fingerprint: str = ""
     last_used: float = 0.0
 
 
@@ -92,11 +97,28 @@ def _fallback_chain(profile: PiProfile) -> tuple[str, ...]:
     return tuple(dict.fromkeys(ref for ref in profile.fallback_models if ref != own))
 
 
-def _require_pi_profile(profile: AgentProfile) -> PiProfile:
-    """Narrow the opaque port profile at the driver boundary (no cast upstream)."""
-    if not isinstance(profile, PiProfile):
-        raise TypeError(f"PiRuntime needs a PiProfile, got {type(profile).__name__}")
-    return profile
+def spawn_fingerprint(profile: PiProfile) -> str:
+    """What a process was started with, as one string: everything in the
+    profile the runtime bakes into the process at spawn — its tools, skills,
+    model, environment, system prompt additions — and nothing it reads per
+    turn (the timeout). Two profiles with the same fingerprint start the same
+    process; a session whose profile stops matching is restarted. A digest,
+    so the environment's secrets never appear in a log that names it."""
+    baked = {
+        "config_dir": str(profile.config_dir),
+        "tools": list(profile.tools),
+        "skills": list(profile.skills),
+        "provider": profile.provider,
+        "model": profile.model,
+        "env": sorted(profile.env.items()),
+        "env_files": sorted(profile.env_files.items()),
+        "inherit": list(profile.inherit),
+        "inherit_all": profile.inherit_all,
+        "append_system_prompt": profile.append_system_prompt,
+        "envelope_note": profile.envelope_note,
+        "fallback_models": list(profile.fallback_models),
+    }
+    return hashlib.sha256(json.dumps(baked, sort_keys=True).encode()).hexdigest()
 
 
 class PiRuntime:
@@ -279,19 +301,31 @@ class PiRuntime:
         cwd: str | None = None,
         images: Sequence[PromptImage] = (),
     ) -> PiResult:
-        pi_profile = _require_pi_profile(profile)
+        pi_profile = require_pi_profile(profile)
         # One spelling of the key everywhere: what the process is told, what the
         # tool server sees in a call, and what cancel()/human_wait() are given.
         session_id = safe_session_id(session_id)
+        fingerprint = spawn_fingerprint(pi_profile)
         lock = self._locks.setdefault(session_id, asyncio.Lock())
         async with lock:
             managed = self._sessions.get(session_id)
+            if managed is not None and managed.fingerprint != fingerprint:
+                # The process was started with another profile — other tools,
+                # another system prompt, a reloaded agent. The runtime bakes
+                # those in at spawn, so the conversation gets a new process;
+                # its memory is on disk and the new one resumes it.
+                logger.info(
+                    "session %s: its profile changed; restarting its process", session_id
+                )
+                await self._drop_session(session_id)
+                managed = None
             if managed is None:
                 session = await self._create_session(
                     pi_profile, session_id=session_id, cwd=cwd
                 )
                 managed = _ManagedSession(
-                    session=session, agent=pi_profile.name, created_at=self._now()
+                    session=session, agent=pi_profile.name, created_at=self._now(),
+                    fingerprint=fingerprint,
                 )
                 self._sessions[session_id] = managed
 
@@ -331,7 +365,7 @@ class PiRuntime:
         on_event: EventCallback | None = None,
         images: Sequence[PromptImage] = (),
     ) -> PiResult:
-        pi_profile = _require_pi_profile(profile)
+        pi_profile = require_pi_profile(profile)
         session = await self._create_session(pi_profile, session_id=None, cwd=None)
         try:
             return await session.prompt(
@@ -360,6 +394,9 @@ class PiRuntime:
         """Drop an agent's idle sessions so its next turn respawns pi with fresh
         config (new CLI flags + reloaded .pi/*). Used by hot-reload: pi bakes
         config at spawn, so a live process keeps the old config until it dies.
+        A changed PROFILE restarts a process on its next turn anyway
+        (``spawn_fingerprint``); this is for what the profile does not carry —
+        the system prompt file, the settings, the skills' contents.
 
         Busy sessions (in-flight turn) are left alone — the reaper collects them
         once they idle. On-disk pi memory survives a drop, so the respawn resumes

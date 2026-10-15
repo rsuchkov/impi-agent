@@ -7,11 +7,13 @@ job of ``crucible.profiles`` (the ProfileStore); this module only defines the
 shape the pi driver consumes.
 """
 
-from collections.abc import Mapping
+import dataclasses
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from crucible.ports.agent import AgentSpec
+from crucible.ports.agent import AgentProfile, AgentSpec
+from crucible.tool_manifests import MANIFEST_ENV
 
 
 @dataclass(frozen=True)
@@ -71,6 +73,53 @@ def build_pi_profile(spec: AgentSpec) -> PiProfile:
         inherit=spec.inherit,
         fallback_models=spec.fallback_models,
     )
+
+
+def require_pi_profile(profile: AgentProfile) -> PiProfile:
+    """Narrow the opaque port profile at the driver boundary (no cast upstream)."""
+    if not isinstance(profile, PiProfile):
+        raise TypeError(f"PiRuntime needs a PiProfile, got {type(profile).__name__}")
+    return profile
+
+
+def with_tool_env(profile: PiProfile, env: Mapping[str, str] | None) -> PiProfile:
+    """Layer an agent's tool env (``ToolWiring.profile_env``, ``session_env``)
+    onto its profile. The manifest is a PATH and goes in ``env_files``, apart
+    from the rest, so a host with its own filesystem is handed the content
+    instead of a path that means nothing there. None leaves the profile as it
+    is: there are no typed tools."""
+    if env is None:
+        return profile
+    values = dict(env)
+    manifest = values.pop(MANIFEST_ENV, "")
+    return dataclasses.replace(
+        profile,
+        env=values,
+        env_files={MANIFEST_ENV: manifest} if manifest else {},
+    )
+
+
+def narrow_pi_profile(
+    profile: AgentProfile,
+    *,
+    tools: Collection[str] | None,
+    instructions: str,
+    env: Mapping[str, str] | None,
+) -> PiProfile:
+    """This driver's ``ProfileNarrowing`` (``crucible.ports.entitlement``): the
+    agent's profile as one conversation's process gets it. ``--tools`` keeps
+    only the names allowed — built-ins included, since it is one list — so a
+    tool the conversation was not given is not offered to the model either;
+    the instructions follow the profile's own appended prompt; the env is the
+    conversation's (its manifest among it)."""
+    base = require_pi_profile(profile)
+    if tools is not None:
+        allowed = set(tools)
+        base = dataclasses.replace(base, tools=tuple(t for t in base.tools if t in allowed))
+    if instructions.strip():
+        joined = "\n\n".join(p for p in (base.append_system_prompt, instructions.strip()) if p)
+        base = dataclasses.replace(base, append_system_prompt=joined)
+    return with_tool_env(base, env)
 
 
 def _resolve_skill(ref: str, profile_dir: Path) -> str:

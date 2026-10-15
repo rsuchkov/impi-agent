@@ -24,8 +24,9 @@ conversation)`, never invented — while the memory is the actual content of a
 relationship with a person.
 
 **On disk, both are the owner's alone.** The SQLite file (with its write-ahead
-log) is created 0600, the runtime's session directories 0700, the per-agent
-tool manifests 0600, attachments 0600 under 0700 directories — whatever the
+log) is created 0600, the runtime's session directories 0700, the tool
+manifests 0600 (an agent's, and a conversation's own when it is entitled to
+less — forgotten with the conversation), attachments 0600 under 0700 directories — whatever the
 process's umask: a wider one found on disk is narrowed — the inventory and
 the manifests at start, a session directory when its agent runs, attachments
 as they are written. The engine itself runs with `umask 077`. Neither kind is encrypted
