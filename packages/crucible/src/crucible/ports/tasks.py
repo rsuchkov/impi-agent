@@ -7,6 +7,7 @@ may not import the store, so nothing store-shaped may cross this line.
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol
 
 
@@ -35,6 +36,9 @@ class TaskView:
     # Only on a fresh task: the next few fire times, so a wrong expression is
     # obvious now rather than at 03:00 on Sunday.
     upcoming: tuple[str, ...] = field(default_factory=tuple)
+    # A watch's own: what it waits for (the application's key) and until when.
+    watch: str = ""
+    until: str = ""
 
 
 class TaskService(Protocol):
@@ -46,6 +50,16 @@ class TaskService(Protocol):
         schedule: str, mode: str = "turn", timezone: str = "",
         notify: str = "failures", on_missed: str = "run",
     ) -> TaskView: ...
+
+    async def watch(
+        self, agent: str, runtime_session_id: str, *, name: str, watch: str,
+        every_s: int, until: datetime, prompt: str = "",
+    ) -> TaskView:
+        """Wait for something outside the conversation — ``watch`` is the key
+        the application's hook is asked about, every ``every_s`` seconds until
+        ``until`` — and start a turn here when it has happened (or when the
+        wait is over), with ``prompt`` as what the agent is then told to do."""
+        ...
 
     async def list_tasks(self, agent: str) -> list[TaskView]: ...
 

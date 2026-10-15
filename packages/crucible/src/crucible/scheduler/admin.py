@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from crucible.ports.tasks import TaskError, TaskView
 from crucible.scheduler.triggers import (
     JITTER_CAP_S,
+    TRIGGER_EVERY,
     Trigger,
     TriggerError,
     first_run,
@@ -27,10 +28,12 @@ from crucible.scheduler.triggers import (
 )
 from crucible.store.base import (
     MODE_TURN,
-    MODES,
+    MODE_WATCH,
+    NOTIFY_FAILURES,
     NOTIFY_MODES,
     ON_MISSED_RUN,
     ON_MISSED_SKIP,
+    SCHEDULED_MODES,
     STATE_IDLE,
     STATE_PAUSED,
     SessionStore,
@@ -42,6 +45,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_NAME = 40
 _MAX_PROMPT = 4000
+# A watch's check is the application's hook, not a model run, so it may be
+# asked far more often than a task may fire — but not in a tight loop.
+MIN_WATCH_S = 15
+# What a watch's turn says when the application opened it without a prompt
+# of its own: the event block carries what happened.
+WATCH_PROMPT = "What this conversation was waiting for has happened: see the event, and act on it."
 
 
 class TaskAdmin:
@@ -94,8 +103,8 @@ class TaskAdmin:
             raise TaskError("a task needs a prompt: what should the agent do?")
         if len(prompt) > _MAX_PROMPT:
             raise TaskError(f"the prompt is too long ({len(prompt)} > {_MAX_PROMPT})")
-        if mode not in MODES:
-            raise TaskError(f"mode must be one of {', '.join(MODES)}")
+        if mode not in SCHEDULED_MODES:
+            raise TaskError(f"mode must be one of {', '.join(SCHEDULED_MODES)}")
         if notify not in NOTIFY_MODES:
             raise TaskError(f"notify must be one of {', '.join(NOTIFY_MODES)}")
         if on_missed not in (ON_MISSED_RUN, ON_MISSED_SKIP):
@@ -148,6 +157,75 @@ class TaskAdmin:
             trigger.spec,
         )
         return _view(task, upcoming=next_occurrences(trigger, now=now, count=3))
+
+    async def watch(
+        self, agent: str, runtime_session_id: str, *, name: str, watch: str,
+        every_s: int, until: datetime, prompt: str = "",
+    ) -> TaskView:
+        record = await self._sessions.get_by_runtime_session(runtime_session_id)
+        if record is None:
+            raise TaskError("this conversation could not be resolved — nothing is watched")
+        return await self.watch_in(
+            agent, channel_id=record.channel_id, conversation_id=record.conversation_id,
+            kind=record.kind, name=name, watch=watch, every_s=every_s, until=until,
+            prompt=prompt, created_by=record.last_user_id,
+        )
+
+    async def watch_in(
+        self, agent: str, *, channel_id: str, conversation_id: str, kind: str,
+        name: str, watch: str, every_s: int, until: datetime, prompt: str = "",
+        created_by: str = "",
+    ) -> TaskView:
+        """A watch task: the scheduler asks the application's hook about
+        ``watch`` every ``every_s`` seconds until ``until``, and the agent gets
+        one turn here when the answer is yes — or when the wait is over."""
+        name = _clean_name(name)
+        watch = watch.strip()
+        if not watch:
+            raise TaskError("a watch needs a key: what should the application be asked about?")
+        if every_s < MIN_WATCH_S:
+            raise TaskError(f"a watch is checked at most every {MIN_WATCH_S}s")
+        now = self._now()
+        if until.tzinfo is None:
+            raise TaskError("`until` must be timezone-aware")
+        if until <= now:
+            raise TaskError("`until` is already past")
+        prompt = prompt.strip() or WATCH_PROMPT
+        if len(prompt) > _MAX_PROMPT:
+            raise TaskError(f"the prompt is too long ({len(prompt)} > {_MAX_PROMPT})")
+        if await self._store.find_task(agent, name) is not None:
+            raise TaskError(f"you already have a task called {name!r}")
+        existing = await self._store.list_tasks(agent)
+        if len(existing) >= self._max_per_agent:
+            raise TaskError(
+                f"you already have {len(existing)} tasks (the limit is {self._max_per_agent})"
+            )
+        trigger = Trigger(
+            kind=TRIGGER_EVERY, spec=f"every {every_s}s", anchor_at=now,
+            interval_s=every_s, timezone=self._default_timezone,
+        )
+        first = now + timedelta(seconds=every_s)
+        stamp = to_iso(now) or ""
+        task_id = f"tsk_{secrets.token_hex(4)}"
+        task = TaskRecord(
+            id=task_id, agent=agent, name=name, channel_id=channel_id,
+            conversation_id=conversation_id, kind=kind, mode=MODE_WATCH,
+            prompt=prompt, trigger_kind=trigger.kind, trigger_spec=trigger.spec,
+            interval_s=trigger.interval_s, cron_expr="", timezone=trigger.timezone,
+            anchor_at=stamp, next_run_at=to_iso(first), due_at=to_iso(first), jitter_s=0,
+            state=STATE_IDLE, claim_owner="", claim_at="", lease_until="",
+            on_missed=ON_MISSED_RUN, notify=NOTIFY_FAILURES, deadline_s=0,
+            created_by=created_by, created_by_username="",
+            created_at=stamp, updated_at=stamp, last_run_at="", last_status="",
+            run_count=0, miss_count=0, consecutive_failures=0,
+            watch=watch, expires_at=to_iso(until) or "",
+        )
+        await self._store.create_task(task)
+        logger.info(
+            "task %s watches %s for %s in %s, every %ds until %s",
+            task_id, watch, agent, conversation_id, every_s, task.expires_at,
+        )
+        return _view(task)
 
     async def list_tasks(self, agent: str) -> list[TaskView]:
         return [_view(task) for task in await self._store.list_tasks(agent)]
@@ -219,6 +297,7 @@ def _view(task: TaskRecord, *, upcoming: list[datetime] | None = None) -> TaskVi
         last_run=local_time(from_iso(task.last_run_at), task.timezone),
         last_status=task.last_status, notify=task.notify,
         upcoming=tuple(local_time(m, task.timezone) for m in (upcoming or ())),
+        watch=task.watch, until=local_time(from_iso(task.expires_at or None), task.timezone),
     )
 
 

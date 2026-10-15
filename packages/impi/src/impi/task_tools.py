@@ -8,7 +8,7 @@ neither schedule work for someone else nor touch another agent's tasks.
 from typing import Any, ClassVar
 
 from crucible.ports.tasks import TaskError, TaskView
-from crucible.store.base import MODE_TURN, MODES, NOTIFY_MODES
+from crucible.store.base import MODE_TURN, NOTIFY_MODES, SCHEDULED_MODES
 from crucible.tools.base import CAP_SCHEDULER, Tool, ToolContext, ToolError
 from crucible.tools.registry import tool
 
@@ -57,7 +57,7 @@ class ScheduleTask(Tool):
                 "(e.g. Europe/Belgrade); omit for the engine default",
             },
             "mode": {
-                "type": "string", "enum": list(MODES),
+                "type": "string", "enum": list(SCHEDULED_MODES),
                 "description": "turn (default): a normal turn here, with this "
                 "conversation's memory. prompt: a fresh run with no history, "
                 "whose answer is posted here",

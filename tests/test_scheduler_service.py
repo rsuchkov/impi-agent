@@ -681,3 +681,159 @@ def test_a_tick_shorter_than_the_floor_still_wins() -> None:
     # is never lengthened by the floor.
     sched, _ = _scheduler(None, Clock(), tick_s=0.01)
     assert sched._sleep_for(START + timedelta(seconds=5)) == 0.01
+
+
+# -- watches: ask, and run a turn only when the answer is yes ------------------
+
+
+class FakeWatches:
+    def __init__(self, *answers) -> None:
+        self.answers = list(answers)
+        self.asked: list[tuple[str, str]] = []
+
+    async def check(self, agent: str, watch: str):
+        self.asked.append((agent, watch))
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def _watch(clock: Clock, **over) -> TaskRecord:
+    from crucible.store.base import MODE_WATCH
+
+    base = dict(
+        mode=MODE_WATCH, watch="gitlab:pipeline:1234", prompt="tell the person how it went",
+        expires_at=iso(clock.now + timedelta(hours=2)),
+    )
+    base.update(over)
+    return _task(clock, **base)
+
+
+async def test_a_pending_watch_moves_to_the_next_period_and_leaves_no_row(store) -> None:
+    from crucible.scheduler.ports import WatchPending
+
+    clock = Clock()
+    watches = FakeWatches(WatchPending(), WatchPending())
+    scheduler, parts = _scheduler(store, clock, watches=watches)
+    await store.create_task(_watch(clock))
+
+    await scheduler.tick()
+    await _settle()
+
+    assert watches.asked == [("assistant", "gitlab:pipeline:1234")]
+    task = await store.get_task("tsk_1")
+    assert task is not None and task.state == STATE_IDLE
+    assert task.next_run_at == iso(clock.now + timedelta(minutes=15))  # the next check
+    assert await store.list_runs("tsk_1") == []  # a check that found nothing is not history
+    assert parts["dispatcher"].requests == []
+    clock.advance(minutes=15)
+    await scheduler.tick()
+    await _settle()
+    assert len(watches.asked) == 2 and await store.list_runs("tsk_1") == []
+
+
+async def test_a_done_watch_runs_one_turn_with_the_report_and_ends(store) -> None:
+    from crucible.ports.chat.types import EventReport
+    from crucible.ports.turn import TurnScope
+    from crucible.scheduler.ports import WatchDone
+    from crucible.store.base import STATE_DONE
+
+    clock = Clock()
+    report = EventReport(source="gitlab", text="pipeline 1234: success in 4m")
+    scope = TurnScope(turn_id="", attributes={"pipeline": "1234"})
+    scheduler, parts = _scheduler(
+        store, clock, watches=FakeWatches(WatchDone(report, turn=scope)),
+    )
+    await store.create_task(_watch(clock))
+
+    await scheduler.tick()
+    await _settle()
+
+    (request,) = parts["dispatcher"].requests
+    assert request.event == report and request.turn is scope
+    assert request.text == "tell the person how it went"
+    assert request.agent == "assistant" and request.conversation_id == "dm1"
+    assert request.user_id == "u1" and request.username == "roman"
+    task = await store.get_task("tsk_1")
+    assert task is not None and task.state == STATE_DONE and task.next_run_at is None
+    (run,) = await store.list_runs("tsk_1")
+    assert run.status == RUN_OK and run.finished_at
+    clock.advance(minutes=15)
+    await scheduler.tick()  # nothing is due any more
+    assert len(parts["dispatcher"].requests) == 1
+
+
+async def test_a_gone_watch_ends_with_a_row_and_no_turn(store) -> None:
+    from crucible.scheduler.ports import WatchGone
+    from crucible.store.base import RUN_GONE, STATE_DONE
+
+    clock = Clock()
+    scheduler, parts = _scheduler(
+        store, clock, watches=FakeWatches(WatchGone("the person left the project")),
+    )
+    await store.create_task(_watch(clock))
+
+    await scheduler.tick()
+    await _settle()
+
+    assert parts["dispatcher"].requests == []
+    task = await store.get_task("tsk_1")
+    assert task is not None and task.state == STATE_DONE and task.next_run_at is None
+    assert task.consecutive_failures == 0  # ending is not failing
+    (run,) = await store.list_runs("tsk_1")
+    assert run.status == RUN_GONE and run.detail == "the person left the project"
+    assert parts["notifier"].posts == [("assistant", "⏰ Watch «digest» ended: the person left the project.")]
+
+
+async def test_an_expired_watch_runs_a_turn_saying_nothing_happened(store) -> None:
+    from crucible.scheduler.ports import WatchPending
+    from crucible.scheduler.service import WATCH_EXPIRED_SOURCE
+    from crucible.store.base import STATE_DONE
+
+    clock = Clock()
+    watches = FakeWatches(WatchPending())
+    scheduler, parts = _scheduler(store, clock, watches=watches)
+    await store.create_task(_watch(clock, expires_at=iso(clock.now + timedelta(minutes=10))))
+
+    await scheduler.tick()
+    await _settle()
+    assert parts["dispatcher"].requests == []  # still within the wait
+    clock.advance(minutes=15)
+    await scheduler.tick()
+    await _settle()
+
+    (request,) = parts["dispatcher"].requests
+    assert request.event is not None and request.event.source == WATCH_EXPIRED_SOURCE
+    assert "gitlab:pipeline:1234" in request.event.text and "ended" in request.event.text
+    assert watches.asked == [("assistant", "gitlab:pipeline:1234")]  # not asked once expired
+    task = await store.get_task("tsk_1")
+    assert task is not None and task.state == STATE_DONE
+
+
+async def test_a_watch_with_nobody_to_ask_ends_at_once_and_a_failing_hook_is_asked_again(
+    store,
+) -> None:
+    from crucible.scheduler.ports import WatchPending
+    from crucible.store.base import RUN_GONE, STATE_DONE
+
+    clock = Clock()
+    scheduler, parts = _scheduler(store, clock)  # no watches=
+    await store.create_task(_watch(clock))
+    await scheduler.tick()
+    await _settle()
+    (run,) = await store.list_runs("tsk_1")
+    assert run.status == RUN_GONE and "no watch hook" in run.detail
+    task = await store.get_task("tsk_1")
+    assert task is not None and task.state == STATE_DONE
+
+    watches = FakeWatches(RuntimeError("gitlab is down"), WatchPending())
+    scheduler, parts = _scheduler(store, clock, watches=watches)
+    await store.create_task(_watch(clock, id="tsk_2", name="other"))
+    await scheduler.tick()
+    await _settle()
+    task = await store.get_task("tsk_2")
+    assert task is not None and task.state == STATE_IDLE  # asked again next period
+    assert task.next_run_at == iso(clock.now + timedelta(minutes=15))
+    assert await store.list_runs("tsk_2") == []
+    assert "gitlab is down" in scheduler._last_error

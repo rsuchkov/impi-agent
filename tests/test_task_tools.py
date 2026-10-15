@@ -310,3 +310,50 @@ def test_an_interval_task_previews_from_now(store) -> None:
 
     assert local_time(NOW + timedelta(hours=1), "") == "2026-08-07 11:00 (UTC)"
     assert local_time(None, "UTC") == ""
+
+
+# -- watches ---------------------------------------------------------------------
+
+
+async def test_a_watch_is_a_task_that_waits_for_the_application(store) -> None:
+    from datetime import timedelta
+
+    from crucible.scheduler.admin import MIN_WATCH_S, WATCH_PROMPT
+    from crucible.store.base import MODE_WATCH
+
+    admin, session_id = await _admin(store)
+    until = NOW + timedelta(hours=1)
+
+    view = await admin.watch(
+        "assistant", session_id, name="pipeline 1234", watch="gitlab:pipeline:1234",
+        every_s=30, until=until,
+    )
+
+    assert view.mode == MODE_WATCH and view.watch == "gitlab:pipeline:1234"
+    assert view.until.startswith((NOW + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M"))
+    assert view.schedule == "every 30s"
+    assert view.next_run.startswith((NOW + timedelta(seconds=30)).strftime("%Y-%m-%d %H:%M"))
+    (task,) = await store.list_tasks("assistant")
+    assert task.conversation_id == "dm1" and task.created_by == "u1"
+    assert task.prompt == WATCH_PROMPT and task.expires_at == until.isoformat(timespec="seconds")
+    assert task.jitter_s == 0
+
+    with pytest.raises(TaskError, match="already have a task called"):
+        await admin.watch("assistant", session_id, name="pipeline 1234", watch="x",
+                          every_s=30, until=until)
+    with pytest.raises(TaskError, match=f"every {MIN_WATCH_S}s"):
+        await admin.watch("assistant", session_id, name="fast", watch="x", every_s=1, until=until)
+    with pytest.raises(TaskError, match="already past"):
+        await admin.watch("assistant", session_id, name="late", watch="x", every_s=30, until=NOW)
+    with pytest.raises(TaskError, match="needs a key"):
+        await admin.watch("assistant", session_id, name="blank", watch="  ", every_s=30, until=until)
+    with pytest.raises(TaskError, match="timezone-aware"):
+        await admin.watch("assistant", session_id, name="naive", watch="x", every_s=30,
+                          until=until.replace(tzinfo=None))
+
+
+async def test_a_person_cannot_schedule_a_watch_by_hand(store) -> None:
+    admin, session_id = await _admin(store)
+    with pytest.raises(TaskError, match="mode must be one of turn, prompt"):
+        await admin.schedule("assistant", session_id, name="w", prompt="p", schedule="every 15m",
+                             mode="watch")

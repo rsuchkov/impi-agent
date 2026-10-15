@@ -225,3 +225,21 @@ async def test_the_detail_view_does_not_offer_to_open_itself(screen) -> None:
     labels = [a.label for card in detail.cards for a in card.actions]
     assert "Details" not in labels
     assert {"◀ All tasks", "⏸ Pause", "Run now", "🗑 Delete"} <= set(labels)
+
+
+async def test_a_watch_says_what_it_waits_for(screen) -> None:
+    from datetime import timedelta
+
+    task_screen, store, admin, session = screen
+    view = await admin.watch(
+        "assistant", session, name="pipeline", watch="gitlab:pipeline:1234", every_s=30,
+        until=NOW + timedelta(hours=1),
+    )
+
+    details = await task_screen.render(
+        ScreenState(screen="tasks", data={"task": view.id}), user_id="u1"
+    )
+
+    body = _text(details)
+    assert "**Mode** watch" in body
+    assert "**Watching** `gitlab:pipeline:1234` until 2026-08-07 11:00 (UTC)" in body

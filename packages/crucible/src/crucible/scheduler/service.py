@@ -26,10 +26,16 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.types import EventReport
 from crucible.ports.engine_turn import DispatchError, TurnDispatcher, TurnRequest
 from crucible.scheduler.ports import (
     Notifier,
     PromptRunner,
+    WatchDone,
+    Watched,
+    WatchGone,
+    WatchHook,
+    WatchPending,
 )
 from crucible.scheduler.triggers import (
     Trigger,
@@ -41,6 +47,7 @@ from crucible.scheduler.triggers import (
 )
 from crucible.store.base import (
     MODE_PROMPT,
+    MODE_WATCH,
     NOTIFY_ALWAYS,
     NOTIFY_NEVER,
     ON_MISSED_SKIP,
@@ -48,6 +55,7 @@ from crucible.store.base import (
     RUN_DEADLINE,
     RUN_EMPTY,
     RUN_ERROR,
+    RUN_GONE,
     RUN_INTERRUPTED,
     RUN_MISSED,
     RUN_NO_AGENT,
@@ -89,6 +97,12 @@ _STATUS_BY_OUTCOME = {
 # second one about the same thing.
 _FLOW_REPORTED = frozenset({RUN_TIMEOUT, RUN_ERROR, RUN_EMPTY})
 _SUCCEEDED = frozenset({RUN_OK})
+# Not a success, not a failure: a watch that ended because there was nothing
+# left to wait for does not count towards pausing anything.
+_ENDED = frozenset({RUN_GONE})
+# The report a watch's turn carries when the watch gave up: the scheduler's
+# own words, since the application was never able to say what happened.
+WATCH_EXPIRED_SOURCE = "scheduler"
 
 
 class Scheduler:
@@ -102,6 +116,7 @@ class Scheduler:
         dispatcher: TurnDispatcher,
         prompts: PromptRunner,
         notifier: Notifier,
+        watches: WatchHook | None = None,
         tick_s: float = 20.0,
         startup_grace_s: float = 60.0,
         lease_s: float = 3600.0,
@@ -117,6 +132,10 @@ class Scheduler:
         self._dispatcher = dispatcher
         self._prompts = prompts
         self._notifier = notifier
+        # Who answers a watch task's "has it happened yet?". None = no
+        # application wired one: a watch ends at its first check, with a row
+        # saying so, rather than asking forever.
+        self._watches = watches
         self._tick_s = tick_s
         self._startup_grace_s = startup_grace_s
         self._lease_s = lease_s
@@ -241,6 +260,12 @@ class Scheduler:
             # normally; only a late one waits, and only for a minute.
             return
 
+        if task.mode == MODE_WATCH:
+            # A late check is still a check: neither "missed" nor the grace
+            # window means anything to a watch.
+            await self._check_watch(task, scheduled, upcoming, next_due, now)
+            return
+
         grace = grace_window(trigger, now=now)
         if task.on_missed == ON_MISSED_SKIP or lateness > grace:
             why = (
@@ -288,17 +313,68 @@ class Scheduler:
         if wrote:
             logger.info("task %s %s: %s", task.id, status, detail)
 
+    # -- a watch: ask, and run a turn only when the answer is yes -----------------
+
+    async def _check_watch(
+        self, task: TaskRecord, scheduled: datetime, upcoming: datetime | None,
+        next_due: datetime | None, now: datetime,
+    ) -> None:
+        verdict = await self._watch_verdict(task, now)
+        if isinstance(verdict, WatchPending):
+            # No row: a check that found nothing is not an occurrence anyone
+            # needs to read about. The schedule simply moves to the next period.
+            await self._store.reschedule(
+                task.id, next_run_at=to_iso(upcoming), due_at=to_iso(next_due), now=self._iso(now)
+            )
+            return
+        # Done or gone: this is the watch's last occurrence, so the schedule
+        # ends with the claim — the run row is the history.
+        run = await self._store.claim_due(
+            task_id=task.id, seen_due_at=task.due_at or "", next_run_at=None, due_at=None,
+            run=self._new_run(task, scheduled, RUN_RUNNING, started_at=self._iso(now)),
+            owner=self._id,
+            lease_until=self._iso(now + timedelta(seconds=self._lease_s)),
+            now=self._iso(now),
+        )
+        if run is None:
+            return  # somebody else took this occurrence
+        if isinstance(verdict, WatchGone):
+            await self._finish(task, run, RUN_GONE, now, detail=verdict.reason[:200], final=True)
+            return
+        self._spawn(task, run, done=verdict)
+
+    async def _watch_verdict(self, task: TaskRecord, now: datetime) -> Watched:
+        """What the watch found this period: the hook's answer, the scheduler's
+        own when the watch has expired, and "gone" when nobody is there to ask.
+        A hook that raises is noted and asked again next period."""
+        expires = from_iso(task.expires_at or None)
+        if expires is not None and now >= expires:
+            return WatchDone(EventReport(
+                source=WATCH_EXPIRED_SOURCE,
+                text=f"nothing happened to {task.watch} by {task.expires_at}; the watch has ended",
+            ))
+        if self._watches is None:
+            return WatchGone("no watch hook is wired into this engine")
+        try:
+            return await self._watches.check(task.agent, task.watch)
+        except Exception as exc:
+            self._note_error(exc)
+            logger.exception("task %s: the watch hook failed for %s", task.id, task.watch)
+            return WatchPending()
+
     # -- running one occurrence ----------------------------------------------
 
-    def _spawn(self, task: TaskRecord, run: TaskRunRecord) -> None:
-        worker = asyncio.create_task(self._execute(task, run), name=f"sched:{run.run_id}")
+    def _spawn(self, task: TaskRecord, run: TaskRunRecord, *, done: WatchDone | None = None) -> None:
+        worker = asyncio.create_task(self._execute(task, run, done=done), name=f"sched:{run.run_id}")
         self._inflight[run.run_id] = worker
         worker.add_done_callback(lambda _: self._inflight.pop(run.run_id, None))
 
-    async def _execute(self, task: TaskRecord, run: TaskRunRecord) -> None:
+    async def _execute(
+        self, task: TaskRecord, run: TaskRunRecord, *, done: WatchDone | None = None
+    ) -> None:
         deadline = float(task.deadline_s or self._run_deadline_s)
         started = self._now()
-        work = asyncio.create_task(self._perform(task), name=f"sched-work:{run.run_id}")
+        work = asyncio.create_task(self._perform(task, done=done), name=f"sched-work:{run.run_id}")
         try:
             status, detail, result = await asyncio.wait_for(asyncio.shield(work), deadline)
         except TimeoutError:
@@ -312,23 +388,28 @@ class Scheduler:
                 )
             )
             await self._finish(task, run, RUN_DEADLINE, started,
-                               detail=f"still running after {deadline:.0f}s")
+                               detail=f"still running after {deadline:.0f}s", final=done is not None)
             return
         except asyncio.CancelledError:
             work.cancel()
             await self._finish(task, run, RUN_CANCELLED, started,
-                               detail="the engine was shutting down")
+                               detail="the engine was shutting down", final=done is not None)
             raise
         except Exception as exc:  # a bug in the dispatch path, not in the turn
             logger.exception("task %s: run %s crashed", task.id, run.run_id)
             await self._finish(task, run, RUN_ERROR, started,
-                               detail=f"{type(exc).__name__}: {exc}"[:200])
+                               detail=f"{type(exc).__name__}: {exc}"[:200], final=done is not None)
             return
-        await self._finish(task, run, status, started, detail=detail, result=result)
+        await self._finish(task, run, status, started, detail=detail, result=result,
+                           final=done is not None)
 
-    async def _perform(self, task: TaskRecord) -> tuple[str, str, object | None]:
+    async def _perform(
+        self, task: TaskRecord, *, done: WatchDone | None = None
+    ) -> tuple[str, str, object | None]:
         """Do the work; return (status, detail, result). Only the dispatch
-        failures are caught here — a turn reports its own ending."""
+        failures are caught here — a turn reports its own ending. ``done`` is
+        what a watch found: the turn then carries its report and runs under
+        the scope the application gave."""
         if task.mode == MODE_PROMPT:
             try:
                 result = await self._prompts.run_prompt(task.agent, task.prompt)
@@ -351,6 +432,8 @@ class Scheduler:
                     text=task.prompt, message_id=f"sched-{secrets.token_hex(6)}",
                     user_id=task.created_by,
                     username=task.created_by_username or "scheduler",
+                    event=done.event if done is not None else None,
+                    turn=done.turn if done is not None else None,
                 )
             )
         except DispatchError as exc:
@@ -359,13 +442,15 @@ class Scheduler:
 
     async def _finish(
         self, task: TaskRecord, run: TaskRunRecord, status: str, started: datetime,
-        *, detail: str = "", result: object | None = None,
+        *, detail: str = "", result: object | None = None, final: bool = False,
     ) -> None:
-        failed = status not in _SUCCEEDED
+        failed = status not in _SUCCEEDED and status not in _ENDED
         # One more failure would reach the cap: stop burning turns on a task that
         # is plainly broken, and say so once.
         paused = failed and task.consecutive_failures + 1 >= self._max_failures
-        release = STATE_PAUSED if paused else _released_state(task)
+        # ``final``: this was the task's last occurrence (a watch that found its
+        # answer), whatever the record read before the claim said about a next run.
+        release = STATE_PAUSED if paused else STATE_DONE if final else _released_state(task)
         await self._store.complete_run(
             run_id=run.run_id, task_id=task.id, status=status,
             finished_at=self._iso(), detail=detail,
@@ -539,6 +624,7 @@ def _notice_for(
         RUN_INTERRUPTED: f"⏰ Scheduled task {label} was cut short: {run.detail}.",
         RUN_NO_AGENT: f"⏰ Scheduled task {label} could not start: {run.detail}.",
         RUN_CANCELLED: f"⏰ Scheduled task {label} was cancelled: {run.detail}.",
+        RUN_GONE: f"⏰ Watch {label} ended: {run.detail}.",
     }
     text = reasons.get(run.status, f"⏰ Scheduled task {label} failed: {run.detail or run.status}.")
     if task.state == STATE_PAUSED and task.consecutive_failures >= paused_at:

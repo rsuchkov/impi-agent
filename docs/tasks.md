@@ -69,6 +69,19 @@ Two modes, chosen per task:
 - **`prompt`** — a fresh run with no history, whose answer the scheduler posts.
   Cheaper and repeatable; use it for polls and digests that shouldn't drag the
   whole thread into the model.
+- **`watch`** — opened by a program, not by a person: the application is
+  waiting for something outside the conversation (a pipeline, a review, a
+  ticket) and wants the agent back in it when that has happened. Every period
+  the scheduler asks the application's hook about the watch's key — a cheap
+  check, no model involved, so it may run every 15 seconds — and nothing is
+  recorded while the answer is "not yet". When it is "done", the agent gets
+  **one** turn in the conversation with the report as an event, and the task
+  is finished; when the application says there is nothing left to wait for,
+  the task ends with a `gone` row and no turn; when the wait runs out
+  (`until`), the agent gets a turn saying nothing happened. The person sees
+  it in the list (`impi task show` prints what it watches and until when); see
+  "Turns the engine starts" in [building-an-app.md](building-an-app.md) for
+  the application side.
 
 Tasks are spread out by a small per-task offset derived from the task's id, so a
 dozen tasks written `0 9 * * *` don't all spawn a subprocess on the same second.
@@ -100,6 +113,7 @@ about those; everything else it reports itself:
 | `missed` | too late to be worth running, or the task said not to catch up |
 | `overlap` | the previous run was still going when this one came due |
 | `cancelled` | shut down, or the task was removed mid-run |
+| `gone` | a watch ended because there was nothing left to wait for — the application said so (or no hook was wired to ask) |
 
 Per task, `notify` chooses how loud this is: `failures` (default), `always` (also
 confirm good runs) or `never`. After **five failures in a row** a task is paused

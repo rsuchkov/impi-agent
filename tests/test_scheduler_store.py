@@ -412,3 +412,16 @@ async def test_deleting_a_task_takes_its_run_history_with_it(store: Store) -> No
     # task up first — so leaving the rows would only grow the file.
     assert await store.list_runs("tsk_1") == []
     assert await store.unnotified_runs() == []
+
+
+async def test_a_watch_round_trips_its_own_fields(store: Store) -> None:
+    from crucible.store.base import MODE_WATCH
+
+    watch = _task(id="tsk_w", name="watch", mode=MODE_WATCH, watch="gitlab:pipeline:1", expires_at=T2)
+    await store.create_task(watch)
+    assert await store.get_task("tsk_w") == watch
+    plain = await store.get_task("tsk_w")
+    assert plain is not None and plain.watch == "gitlab:pipeline:1" and plain.expires_at == T2
+    # Reads of a task written without them answer the defaults.
+    await store.create_task(_task())
+    assert (await store.get_task("tsk_1")) == _task()

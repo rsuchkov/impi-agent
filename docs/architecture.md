@@ -90,7 +90,10 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   `types` (the neutral vocabulary: `ConversationRef`, `IncomingMessage`,
   `Attachment`, `Action`, `Form`, …).
 - **Tasks** (`ports/tasks`): `TaskService` — the tool-facing "schedule this for
-  later", kept apart from the chat ports because scheduling is not a chat idea.
+  later" and "watch this until it happens", kept apart from the chat ports
+  because scheduling is not a chat idea. The scheduler's own ports
+  (`scheduler/ports`) add `WatchHook`: the application's answer to "has it
+  happened yet?" for a `watch` task.
 - **Engine turn** (`ports/engine_turn`): `TurnRequest` (a turn the engine
   starts by itself — a scheduled task, an event the application reports — with
   the `EventReport` it is about and the `TurnScope` it runs under),

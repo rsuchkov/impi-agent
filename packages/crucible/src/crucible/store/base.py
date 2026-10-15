@@ -174,7 +174,12 @@ class TraceStore(Protocol):
 # reply lands there), or as a fresh memoryless run whose text is posted for it.
 MODE_TURN = "turn"
 MODE_PROMPT = "prompt"
-MODES = (MODE_TURN, MODE_PROMPT)
+# A watch: the scheduler asks the application's hook, every period, whether
+# what the task waits for has happened; a turn runs once, when it has.
+MODE_WATCH = "watch"
+MODES = (MODE_TURN, MODE_PROMPT, MODE_WATCH)
+# The modes a person schedules by hand; a watch is opened by a program.
+SCHEDULED_MODES = (MODE_TURN, MODE_PROMPT)
 
 # A task's own state. `running` doubles as the lease: a task is claimed for one
 # occurrence at a time, so a second ticker cannot fire the same one.
@@ -198,10 +203,11 @@ RUN_MISSED = "missed"  # past its grace window, or on_missed=skip
 RUN_OVERLAP = "overlap"  # the previous run outlasted the task's own period
 RUN_CANCELLED = "cancelled"  # shutdown, or the task was removed mid-run
 RUN_DUPLICATE = "duplicate"  # the turn was deduped — a run id was replayed
+RUN_GONE = "gone"  # a watch ended with nothing to report: the application said so
 RUN_STATUSES = (
     RUN_RUNNING, RUN_OK, RUN_EMPTY, RUN_TIMEOUT, RUN_ERROR, RUN_DEADLINE,
     RUN_INTERRUPTED, RUN_NO_AGENT, RUN_NO_CONVERSATION, RUN_MISSED,
-    RUN_OVERLAP, RUN_CANCELLED, RUN_DUPLICATE,
+    RUN_OVERLAP, RUN_CANCELLED, RUN_DUPLICATE, RUN_GONE,
 )
 # Why an occurrence fired: on time, late but inside its grace window, or by hand.
 TRIGGERED_SCHEDULE = "schedule"
@@ -262,6 +268,10 @@ class TaskRecord:
     run_count: int
     miss_count: int
     consecutive_failures: int
+    # A watch's own: the key the application's hook is asked about (opaque to
+    # the engine), and when the watch gives up — "" for the other modes.
+    watch: str = ""
+    expires_at: str = ""
 
 
 @dataclass(frozen=True)

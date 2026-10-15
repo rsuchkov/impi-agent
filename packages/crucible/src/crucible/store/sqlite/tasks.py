@@ -67,7 +67,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   last_status          TEXT NOT NULL DEFAULT '',
   run_count            INTEGER NOT NULL DEFAULT 0,
   miss_count           INTEGER NOT NULL DEFAULT 0,
-  consecutive_failures INTEGER NOT NULL DEFAULT 0
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  watch                TEXT NOT NULL DEFAULT '',
+  expires_at           TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks (state, due_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_name ON tasks (agent, name);
@@ -149,6 +151,11 @@ class TaskStoreMixin(SqliteBase):
         """Create this facet's tables. The composing store calls it while it
         holds the lock on open, so the schema stays the mixin's own business."""
         self._conn.executescript(_TASK_SCHEMA)
+        # Columns a newer engine added to a table an older one created.
+        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)")}
+        for column in ("watch", "expires_at"):
+            if column not in existing:
+                self._conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
 
     # -- reads ---------------------------------------------------------------
 

@@ -8,9 +8,12 @@ ports and rows. The turn it starts goes through ``ports.engine_turn`` —
 the engine opens a turn by itself.
 """
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from crucible.ports.agent.runtime import AgentResult
+from crucible.ports.chat.types import EventReport
+from crucible.ports.turn import TurnScope
 
 
 class PromptRunner(Protocol):
@@ -35,3 +38,40 @@ class Notifier(Protocol):
     async def announce(
         self, agent: str, *, channel_id: str, conversation_id: str, kind: str, text: str
     ) -> None: ...
+
+
+@dataclass(frozen=True)
+class WatchPending:
+    """Not yet: ask again next period."""
+
+
+@dataclass(frozen=True)
+class WatchDone:
+    """It happened: the agent gets a turn with this report, under this scope
+    (the attributes and secrets the application still holds for the person —
+    nothing fresher, so the agent reports and asks rather than acts)."""
+
+    event: EventReport
+    turn: TurnScope | None = None
+
+
+@dataclass(frozen=True)
+class WatchGone:
+    """Nothing to wait for any more — the person left, the thing watched was
+    deleted, the application turned the feature off. The watch ends with a
+    row in its history and no turn."""
+
+    reason: str
+
+
+Watched = WatchPending | WatchDone | WatchGone
+
+
+class WatchHook(Protocol):
+    """The application's answer to "has it happened yet?", asked by the
+    scheduler every period of a ``watch`` task with the task's own key — an
+    opaque string the application chose when it opened the watch. Cheap by
+    design: no model runs for a check, so it may be asked as often as the
+    period says. One that raises is logged and asked again next period."""
+
+    async def check(self, agent: str, watch: str) -> Watched: ...

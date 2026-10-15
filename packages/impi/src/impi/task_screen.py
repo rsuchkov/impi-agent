@@ -188,6 +188,9 @@ class TaskScreen:
             f"**Next run** {local_time(from_iso(task.next_run_at), task.timezone) or '—'}",
             f"**Mode** {task.mode}  ·  **If missed** {task.on_missed}  "
             f"·  **Notify** {task.notify}",
+            *([f"**Watching** `{task.watch}` until "
+               f"{local_time(from_iso(task.expires_at or None), task.timezone) or '—'}"]
+              if task.watch else []),
             f"**Ran** {task.run_count}×  ·  **missed** {task.miss_count}×"
             + (f"  ·  **{task.consecutive_failures} failures in a row**"
                if task.consecutive_failures else ""),

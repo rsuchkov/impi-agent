@@ -6,6 +6,22 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A task can watch for something instead of running on a clock.** An
+  application that started a long operation — a pipeline, a review — had no
+  way to get the agent back into the conversation when it ended. A `watch`
+  task (`TaskService.watch` / `TaskAdmin.watch_in`, mode `watch`) names an
+  opaque key of the application's and a wait; every period the scheduler asks
+  the application's `WatchHook` (`Scheduler(watches=…)`) about it — a cheap
+  check, no model, nothing written while the answer is pending — and when the
+  answer is `WatchDone`, the agent gets one turn in the conversation with the
+  report as an event and the scope the application gave, and the task is
+  finished; `WatchGone` ends it with a `gone` row and no turn, and the end of
+  the wait starts a turn saying nothing happened. Durable like any task: the
+  rows, the lease and the restart recovery are the scheduler's already.
+  `impi task show` and the `/tasks` panel say what a task watches and until
+  when. **Breaks:** `TaskRecord` gains `watch` and `expires_at` (a schema
+  migration on SQLite; MongoDB reads the defaults); a `TaskService` of an
+  application's own gains `watch`.
 - **The engine can start a turn on an event, and on the http gateway at all.**
   A turn used to begin only with a person's message or a scheduled task, and
   on the http gateway not even that: a scheduled turn's reply arrived with no

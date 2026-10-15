@@ -34,8 +34,13 @@ means UTC, so `0 9 * * 1-5` is nine in the morning UTC unless
 `SCHEDULER_TIMEZONE` is set or the task names its own (`--tz`). This is the most
 common complaint ("it ran at the wrong time") and the first thing to check.
 
-Two run modes: `turn` (default) is an ordinary turn in that conversation, with
-its memory; `prompt` is a fresh memoryless run whose answer the engine posts.
+Two run modes a person picks: `turn` (default) is an ordinary turn in that
+conversation, with its memory; `prompt` is a fresh memoryless run whose answer
+the engine posts. A third, `watch`, is opened by a program, never by hand: the
+application waits for something outside the conversation and the scheduler asks
+its hook every period; the agent gets one turn when it has happened. `impi task
+show` prints what such a task watches and until when; a run status `gone` means
+the application said there was nothing left to wait for.
 
 ## 2. Managing a task (any agent)
 
