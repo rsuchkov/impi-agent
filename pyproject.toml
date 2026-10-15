@@ -133,6 +133,39 @@ forbidden_modules = [
     "crucible.gateways",
     "crucible.store",
     "crucible.profiles",
+    # The manifest's variable name comes from the tool_manifests leaf, never
+    # from the tool layer itself.
+    "crucible.tools",
+]
+
+[[tool.importlinter.contracts]]
+name = "A conversation's profile is built over the tool layer and the ports, never over a runtime or a gateway"
+type = "forbidden"
+source_modules = ["crucible.conversation_profiles"]
+forbidden_modules = [
+    "crucible.runtimes",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.store",
+    "crucible.profiles",
+    "crucible.interactions",
+    "crucible.scheduler",
+]
+
+[[tool.importlinter.contracts]]
+name = "Entitlements and engine-started turns are ports — vocabulary over the other ports, no concrete layer"
+type = "forbidden"
+source_modules = ["crucible.ports.entitlement", "crucible.ports.engine_turn"]
+forbidden_modules = [
+    "crucible.runtimes",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.tools",
+    "crucible.interactions",
+    "crucible.store",
+    "crucible.attachments",
+    "crucible.profiles",
+    "crucible.scheduler",
 ]
 
 [[tool.importlinter.contracts]]
@@ -367,7 +400,7 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Constant-time comparison and log redaction are leaves — they import nothing of the workspace"
 type = "forbidden"
-source_modules = ["crucible.constant_time", "crucible.redaction"]
+source_modules = ["crucible.constant_time", "crucible.redaction", "crucible.tool_manifests"]
 forbidden_modules = [
     "crucible.approvals",
     "crucible.attachments",

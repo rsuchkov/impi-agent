@@ -58,7 +58,7 @@ An application depends only on these; concretes are swappable behind them.
   answers with a `TurnOutcome`, which is how the scheduler learns whether the
   turn it started actually worked.
 - `TaskService` (`crucible.ports.tasks`) — what a tool calls to schedule work
-  for later.
+  for later, or to watch for something until it happens.
 - `AgentDirectory` — who our agents are (for dispatch decisions).
 - `types` — the neutral vocabulary (`ConversationRef`, `IncomingMessage`,
   `Attachment`, `OutgoingFile`, `Action`, `Form`, …),

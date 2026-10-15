@@ -40,8 +40,9 @@ For each item, look at the diff AND the code around it; cite `file:line`.
    - A cycle avoided by an import inside a function is a dependency pointing the
      wrong way: report it (ruff `PLC0415` catches the syntax, not the design).
 2. **Runtime-neutral core.** Everything in `crucible` outside `runtimes/pi/`
-   and the few modules AGENTS.md names as runtime-aware (`config.py`,
-   `sessions_cli.py`, `session_retention.py`, `runtime_storage.py`) names no
+   and the few modules `RUNTIME_AWARE` in `scripts/check_names.py` lists
+   (the settings boundary, the modules that prepare or delete the runtime's
+   files, the package docstring) names no
    concrete runtime — not in comments, docstrings, identifiers or strings. A
    new module is neutral by default, wherever it sits: a module at the package
    root is not "above the layers", it is one of them. Look at every name the

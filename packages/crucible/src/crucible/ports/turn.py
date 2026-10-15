@@ -17,6 +17,12 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import NoReturn, Protocol
 
+# The attribute a dispatcher puts on the scope of a turn the engine started
+# with no scope of the application's: nobody is behind this turn, so a tool
+# that would act as a person (their connected accounts, say) must not. An
+# application that hands the turn a scope of its own has decided that itself.
+ENGINE_TURN_ATTRIBUTE = "engine_turn"
+
 
 class TurnSecrets:
     """Named values a tool may use for this turn only. Says which names it

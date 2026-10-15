@@ -232,7 +232,7 @@ class AgentFlow:
         the conversation's memory."""
         self._profile = profile
 
-    async def _profile_for(self, anchor: IncomingMessage, record: SessionRecord) -> AgentProfile:
+    async def _turn_profile(self, anchor: IncomingMessage, record: SessionRecord) -> AgentProfile:
         """The profile this turn runs with: the agent's, or the conversation's
         own when the application entitles it to less or tells it more."""
         if self._entitlements is None or self._conversation_profiles is None:
@@ -302,7 +302,7 @@ class AgentFlow:
         since = None if first_turn else _parse_iso(record.last_active)
         prompt = await self._render_prompt(fresh, chat, first_turn=first_turn, since=since)
         images = await self._inline_images(fresh)
-        profile = await self._profile_for(anchor, record)
+        profile = await self._turn_profile(anchor, record)
 
         # Only a real message can wear the "working on it" mark. A synthetic
         # anchor — a slash command, a widget click, a scheduled run — carries an

@@ -691,8 +691,8 @@ class FakeWatches:
         self.answers = list(answers)
         self.asked: list[tuple[str, str]] = []
 
-    async def check(self, agent: str, watch: str):
-        self.asked.append((agent, watch))
+    async def check(self, agent: str, watch_key: str):
+        self.asked.append((agent, watch_key))
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -703,7 +703,7 @@ def _watch(clock: Clock, **over) -> TaskRecord:
     from crucible.store.base import MODE_WATCH
 
     base = dict(
-        mode=MODE_WATCH, watch="gitlab:pipeline:1234", prompt="tell the person how it went",
+        mode=MODE_WATCH, watch_key="gitlab:pipeline:1234", prompt="tell the person how it went",
         expires_at=iso(clock.now + timedelta(hours=2)),
     )
     base.update(over)

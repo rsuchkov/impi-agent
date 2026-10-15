@@ -37,7 +37,7 @@ class TaskView:
     # obvious now rather than at 03:00 on Sunday.
     upcoming: tuple[str, ...] = field(default_factory=tuple)
     # A watch's own: what it waits for (the application's key) and until when.
-    watch: str = ""
+    watch_key: str = ""
     until: str = ""
 
 
@@ -52,10 +52,10 @@ class TaskService(Protocol):
     ) -> TaskView: ...
 
     async def watch(
-        self, agent: str, runtime_session_id: str, *, name: str, watch: str,
+        self, agent: str, runtime_session_id: str, *, name: str, watch_key: str,
         every_s: int, until: datetime, prompt: str = "",
     ) -> TaskView:
-        """Wait for something outside the conversation — ``watch`` is the key
+        """Wait for something outside the conversation — ``watch_key`` is the key
         the application's hook is asked about, every ``every_s`` seconds until
         ``until`` — and start a turn here when it has happened (or when the
         wait is over), with ``prompt`` as what the agent is then told to do."""

@@ -14,7 +14,7 @@ from typing import Protocol
 
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import ConversationRef, EventReport, IncomingMessage
-from crucible.ports.turn import TurnScope
+from crucible.ports.turn import ENGINE_TURN_ATTRIBUTE, TurnScope
 
 
 class DispatchError(Exception):
@@ -63,7 +63,13 @@ def requested_message(request: TurnRequest, ref: ConversationRef, *, turn: TurnS
     command sets — marked as the engine's own turn, and carrying the event.
     ``turn`` is the scope the dispatcher settled on; a request's own scope
     comes through with the dispatcher's turn id and fresh flags, since a flag
-    a tool leaves must not outlive the turn it was left in."""
+    a tool leaves must not outlive the turn it was left in. A request with no
+    scope of its own gets the dispatcher's, marked ``ENGINE_TURN_ATTRIBUTE``:
+    the promise ``TurnRequest.turn`` makes, kept here for every dispatcher."""
+    if request.turn is not None:
+        scope = replace(request.turn, turn_id=turn.turn_id, flags=set())
+    else:
+        scope = replace(turn, attributes={**turn.attributes, ENGINE_TURN_ATTRIBUTE: "1"})
     return IncomingMessage(
         ref=ref,
         text=request.text,
@@ -74,5 +80,5 @@ def requested_message(request: TurnRequest, ref: ConversationRef, *, turn: TurnS
         synthetic=True,
         engine_started=True,
         event=request.event,
-        turn=replace(request.turn, turn_id=turn.turn_id, flags=set()) if request.turn is not None else turn,
+        turn=scope,
     )

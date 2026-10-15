@@ -59,7 +59,7 @@ gap; on the day they go back, a time that happens twice runs once.
 
 ## What a run does
 
-Two modes, chosen per task:
+Three modes — two a person chooses per task, one a program opens:
 
 - **`turn`** (default) — the prompt arrives as an ordinary turn in the task's
   conversation, with that conversation's memory and the agent's tools. The reply

@@ -17,7 +17,7 @@ from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.gateways import GatewayConfig
 from crucible.interactions.screens import ScreenState
 from crucible.ports.chat.types import UserProfile
-from crucible.ports.turn import TurnScope
+from crucible.ports.turn import ENGINE_TURN_ATTRIBUTE, TurnScope
 from crucible.skills import SkillLibrary
 from impi import cli
 from impi.config import ImpiSettings
@@ -32,7 +32,6 @@ from impi.connections import (
 from impi.connections_config import connection_providers
 from impi.connections_screen import ConnectionsScreen, ConnectReturn
 from impi.deployment_report import connections_report
-from impi.scheduling import SCHEDULED_TURN_ATTRIBUTE
 from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
 from tests.test_connections import ALICE, FakeProvider
 
@@ -513,7 +512,7 @@ def test_on_a_gateway_whose_user_ids_the_caller_asserts_nobody_is_an_owner() -> 
 
 def test_a_scheduled_turn_acts_as_nobody() -> None:
     connections = _connections(chat="mattermost")
-    scheduled = TurnScope(turn_id="t", attributes={SCHEDULED_TURN_ATTRIBUTE: "1"})
+    scheduled = TurnScope(turn_id="t", attributes={ENGINE_TURN_ATTRIBUTE: "1"})
     assert connections.owner_for("chat", "alice", scheduled) is None
     assert connections.tool_access()("chat", "alice", scheduled) is None
     assert connections.owner_for("chat", "alice", TurnScope(turn_id="t")) == "mattermost:alice"
@@ -540,7 +539,7 @@ async def test_a_scheduler_turn_says_it_is_one() -> None:
         message_id="sched-1", user_id="u1", username="u",
     ))
     turn = sink.messages[0].turn
-    assert turn is not None and turn.attributes.get(SCHEDULED_TURN_ATTRIBUTE)
+    assert turn is not None and turn.attributes.get(ENGINE_TURN_ATTRIBUTE)
 
 
 def test_an_agent_may_not_inherit_the_connection_secrets_by_pattern(tmp_path: Path) -> None:

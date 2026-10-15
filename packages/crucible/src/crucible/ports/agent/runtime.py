@@ -68,7 +68,11 @@ class AgentProfile(Protocol):
 class AgentRuntime(Protocol):
     """Drives an agent over a conversation.
 
-    - ``run_stateful``  — keeps memory across turns under ``session_id``.
+    - ``run_stateful``  — keeps memory across turns under ``session_id``. A
+      ``profile`` that differs from the one the session's live process was
+      started with starts a fresh process that resumes the session's memory:
+      what a conversation's profile says (its tools, its system prompt
+      additions) holds from its next turn, whoever changed it.
     - ``run_stateless`` — a fresh, memoryless run per call.
 
     ``on_event`` streams this call's runtime events (basis for status and

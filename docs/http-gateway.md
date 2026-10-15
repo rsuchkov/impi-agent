@@ -62,7 +62,7 @@ caller, so two programs never reach each other's conversations.
 |---|---|---|
 | `unauthorized` | 401 | no accepted token |
 | `forbidden` | 403 | the agent does not exist on this hub, or this caller may not address it |
-| `not_found` | 404 | unknown turn, another person's turn, a retired control, a question nobody waits on any more, nothing running to cancel, interactivity off |
+| `not_found` | 404 | unknown turn, another person's turn, a retired control, a question nobody waits on any more, nothing running to cancel, interactivity off, an engine not wired to list engine-started turns |
 | `turn_in_progress` | 409 | this conversation already has a turn running; `turnId` names it |
 | `not_cancellable` | 409 | the turn cannot be interrupted here (no runtime behind it yet) |
 | `not_available` | 409 | a form was asked to open; forms are chat-only |

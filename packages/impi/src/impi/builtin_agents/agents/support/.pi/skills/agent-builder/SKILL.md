@@ -139,8 +139,11 @@ profiles are re-read and idle sessions dropped; conversation memory survives.
 - You, on the operator's host (`impi escape`): `impi reload` — `pkill` would
   find no engine there.
 
-A conversation already in flight keeps its current configuration until its
-session resets. A **new** agent still needs a restart.
+A conversation already in flight picks a changed `agent.yaml` (tools, model,
+skills, env) up on its next turn: its process restarts with the new profile
+and resumes its memory. An edit to `SYSTEM.md` or to a skill's *contents*
+reaches it once its process has been dropped — idle at the reload, or idled
+out later. A **new** agent still needs a restart.
 
 Two things a reload does NOT cover where agents have containers of their own:
 `runtime.packages` and `Dockerfile.include` are that agent's IMAGE, so changing

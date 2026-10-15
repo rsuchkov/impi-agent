@@ -279,7 +279,7 @@ async def test_migration_adds_the_watch_columns_to_an_old_tasks_table(tmp_path: 
     db = tmp_path / "old.sqlite"
     await SqliteSessionStore(db).close()  # today's schema...
     conn = sqlite3.connect(str(db))
-    conn.executescript("ALTER TABLE tasks DROP COLUMN watch; ALTER TABLE tasks DROP COLUMN expires_at;")
+    conn.executescript("ALTER TABLE tasks DROP COLUMN watch_key; ALTER TABLE tasks DROP COLUMN expires_at;")
     conn.commit()
     conn.close()
 
@@ -288,10 +288,10 @@ async def test_migration_adds_the_watch_columns_to_an_old_tasks_table(tmp_path: 
         record, _ = await store.get_or_create("assistant", "ch1", "dm1", "dm", user_id="u1")
         admin = TaskAdmin(store, store, default_timezone="UTC")
         view = await admin.watch(
-            "assistant", record.runtime_session_id, name="w", watch="k", every_s=30,
+            "assistant", record.runtime_session_id, name="w", watch_key="k", every_s=30,
             until=datetime.now(timezone.utc) + timedelta(hours=1),
         )
         found = await store.get_task(view.id)
-        assert found is not None and found.watch == "k" and found.expires_at
+        assert found is not None and found.watch_key == "k" and found.expires_at
     finally:
         await store.close()

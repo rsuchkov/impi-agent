@@ -16,7 +16,8 @@ from crucible.runtimes.pi.profiles import (
     narrow_pi_profile,
     with_tool_env,
 )
-from crucible.tools import MANIFEST_ENV, ToolWiring
+from crucible.tool_manifests import MANIFEST_ENV
+from crucible.tools import ToolWiring
 
 
 def _wiring(tmp_path: Path, *, enabled: bool = True) -> tuple[ToolWiring, AgentSpec]:

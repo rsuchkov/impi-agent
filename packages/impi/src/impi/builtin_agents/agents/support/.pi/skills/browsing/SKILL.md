@@ -92,8 +92,9 @@ suggest pasting a password for an agent to type.
   engine, so the overlay did not merge. Check `IMPI_BROWSER=1` and run
   `impi start`.
 - **The agent has the skill but never browses** — it is probably missing `bash`,
-  or the engine has not re-read the profile (`impi reload`). A conversation
-  already in flight keeps its old configuration until its session resets.
+  or the engine has not re-read the profile (`impi reload`). After the reload a
+  conversation already in flight picks the skill up on its next turn: its
+  process restarts with the new profile, memory kept.
 - **Connection refused, or Chrome never opens its port** — `impi logs browser`,
   then `docs/browsing.md`. Never advise `--no-sandbox`: the renderer is what
   parses a stranger's HTML, and that isolation is the point.

@@ -232,7 +232,7 @@ async def test_a_watch_says_what_it_waits_for(screen) -> None:
 
     task_screen, store, admin, session = screen
     view = await admin.watch(
-        "assistant", session, name="pipeline", watch="gitlab:pipeline:1234", every_s=30,
+        "assistant", session, name="pipeline", watch_key="gitlab:pipeline:1234", every_s=30,
         until=NOW + timedelta(hours=1),
     )
 

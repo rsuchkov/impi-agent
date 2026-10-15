@@ -325,11 +325,11 @@ async def test_a_watch_is_a_task_that_waits_for_the_application(store) -> None:
     until = NOW + timedelta(hours=1)
 
     view = await admin.watch(
-        "assistant", session_id, name="pipeline 1234", watch="gitlab:pipeline:1234",
+        "assistant", session_id, name="pipeline 1234", watch_key="gitlab:pipeline:1234",
         every_s=30, until=until,
     )
 
-    assert view.mode == MODE_WATCH and view.watch == "gitlab:pipeline:1234"
+    assert view.mode == MODE_WATCH and view.watch_key == "gitlab:pipeline:1234"
     assert view.until.startswith((NOW + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M"))
     assert view.schedule == "every 30s"
     assert view.next_run.startswith((NOW + timedelta(seconds=30)).strftime("%Y-%m-%d %H:%M"))
@@ -339,16 +339,16 @@ async def test_a_watch_is_a_task_that_waits_for_the_application(store) -> None:
     assert task.jitter_s == 0
 
     with pytest.raises(TaskError, match="already have a task called"):
-        await admin.watch("assistant", session_id, name="pipeline 1234", watch="x",
+        await admin.watch("assistant", session_id, name="pipeline 1234", watch_key="x",
                           every_s=30, until=until)
     with pytest.raises(TaskError, match=f"every {MIN_WATCH_S}s"):
-        await admin.watch("assistant", session_id, name="fast", watch="x", every_s=1, until=until)
+        await admin.watch("assistant", session_id, name="fast", watch_key="x", every_s=1, until=until)
     with pytest.raises(TaskError, match="already past"):
-        await admin.watch("assistant", session_id, name="late", watch="x", every_s=30, until=NOW)
+        await admin.watch("assistant", session_id, name="late", watch_key="x", every_s=30, until=NOW)
     with pytest.raises(TaskError, match="needs a key"):
-        await admin.watch("assistant", session_id, name="blank", watch="  ", every_s=30, until=until)
+        await admin.watch("assistant", session_id, name="blank", watch_key="  ", every_s=30, until=until)
     with pytest.raises(TaskError, match="timezone-aware"):
-        await admin.watch("assistant", session_id, name="naive", watch="x", every_s=30,
+        await admin.watch("assistant", session_id, name="naive", watch_key="x", every_s=30,
                           until=until.replace(tzinfo=None))
 
 

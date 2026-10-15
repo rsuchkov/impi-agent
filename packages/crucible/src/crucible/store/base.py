@@ -270,7 +270,7 @@ class TaskRecord:
     consecutive_failures: int
     # A watch's own: the key the application's hook is asked about (opaque to
     # the engine), and when the watch gives up — "" for the other modes.
-    watch: str = ""
+    watch_key: str = ""
     expires_at: str = ""
 
 

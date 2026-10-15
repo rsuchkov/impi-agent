@@ -105,6 +105,7 @@ Run statuses and what each one means:
 | `overlap` | the previous run outlasted the task's own period |
 | `cancelled` | shutdown, or the task was removed mid-run |
 | `duplicate` | the turn was deduped |
+| `gone` | a watch ended: the application said there was nothing left to wait for (or no hook was wired to ask) |
 
 **Missed runs.** If the engine was down at the due time, the task catches up
 **once** — never once per missed interval — and only inside its grace window:

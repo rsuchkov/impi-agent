@@ -263,7 +263,7 @@ class Scheduler:
         if task.mode == MODE_WATCH:
             # A late check is still a check: neither "missed" nor the grace
             # window means anything to a watch.
-            await self._check_watch(task, scheduled, upcoming, next_due, now)
+            await self._tick_watch(task, scheduled, upcoming, next_due, now)
             return
 
         grace = grace_window(trigger, now=now)
@@ -315,7 +315,7 @@ class Scheduler:
 
     # -- a watch: ask, and run a turn only when the answer is yes -----------------
 
-    async def _check_watch(
+    async def _tick_watch(
         self, task: TaskRecord, scheduled: datetime, upcoming: datetime | None,
         next_due: datetime | None, now: datetime,
     ) -> None:
@@ -351,15 +351,15 @@ class Scheduler:
         if expires is not None and now >= expires:
             return WatchDone(EventReport(
                 source=WATCH_EXPIRED_SOURCE,
-                text=f"nothing happened to {task.watch} by {task.expires_at}; the watch has ended",
+                text=f"nothing happened to {task.watch_key} by {task.expires_at}; the watch has ended",
             ))
         if self._watches is None:
             return WatchGone("no watch hook is wired into this engine")
         try:
-            return await self._watches.check(task.agent, task.watch)
+            return await self._watches.check(task.agent, task.watch_key)
         except Exception as exc:
             self._note_error(exc)
-            logger.exception("task %s: the watch hook failed for %s", task.id, task.watch)
+            logger.exception("task %s: the watch hook failed for %s", task.id, task.watch_key)
             return WatchPending()
 
     # -- running one occurrence ----------------------------------------------

@@ -39,12 +39,11 @@ from crucible.ports.connections import (
     ConnectionAccessFactory,
     TokenGrant,
 )
-from crucible.ports.turn import TurnScope
+from crucible.ports.turn import ENGINE_TURN_ATTRIBUTE, TurnScope
 from crucible.store.base import Store
 from impi.config import ImpiSettings
 from impi.connections_config import ASSERTED_IDENTITY_GATEWAYS, ConnectionProvider
 from impi.connections_screen import CONNECTED, START_AGAIN, ConnectReturn
-from impi.scheduling import SCHEDULED_TURN_ATTRIBUTE
 
 try:
     # The sealing module needs cryptography, an extra: a deployment that
@@ -156,7 +155,7 @@ class Connections:
         gateway = self.gateways.get(agent, "")
         if gateway in ASSERTED_IDENTITY_GATEWAYS:
             return None
-        if turn is not None and turn.attributes.get(SCHEDULED_TURN_ATTRIBUTE):
+        if turn is not None and turn.attributes.get(ENGINE_TURN_ATTRIBUTE):
             return None
         return owner_of(gateway, user_id)
 

@@ -355,11 +355,11 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   (`last_engine_turn_at`), and `HttpHub(engine_turns=engine_turns_lookup(sessions))`
   answers `GET …/conversations?startedSince=` from it, so a program shows a
   person what moved with one request. **Watching for the event** is the
-  scheduler's: `TaskService.watch(agent, runtime_session_id, name=, watch=,
+  scheduler's: `TaskService.watch(agent, runtime_session_id, name=, watch_key=,
   every_s=, until=, prompt=)` (from a tool) or `TaskAdmin.watch_in(...)` (from
-  your own code) opens a `watch` task — `watch` is an opaque key of yours
+  your own code) opens a `watch` task — `watch_key` is an opaque key of yours
   (`"gitlab:pipeline:1234"`) — and `Scheduler(watches=…)` takes your
-  `WatchHook` (`crucible.scheduler.ports`), whose `check(agent, watch)` answers
+  `WatchHook` (`crucible.scheduler.ports`), whose `check(agent, watch_key)` answers
   `WatchPending()`, `WatchDone(EventReport, turn=TurnScope | None)` or
   `WatchGone(reason)`. The scheduler asks every `every_s` seconds, writes no
   history while the answer is pending, starts the turn once on done — through

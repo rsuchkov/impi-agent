@@ -38,7 +38,7 @@ when a release is cut, and `impi update` shows the target version's section.
   the wait starts a turn saying nothing happened. Durable like any task: the
   rows, the lease and the restart recovery are the scheduler's already.
   `impi task show` and the `/tasks` panel say what a task watches and until
-  when. **Breaks:** `TaskRecord` gains `watch` and `expires_at` (a schema
+  when. **Breaks:** `TaskRecord` gains `watch_key` and `expires_at` (a schema
   migration on SQLite; MongoDB reads the defaults); a `TaskService` of an
   application's own gains `watch`.
 - **The engine can start a turn on an event, and on the http gateway at all.**
@@ -82,7 +82,12 @@ when a release is cut, and `impi update` shows the target version's section.
   its process idles out. A forgotten conversation's manifest goes with its
   memory (`purge_idle(manifests_dir=…)`, done by `prepare_runtime_storage`
   and the sessions CLI). `impi` wires no source yet; the recipe is in
-  [building-an-app.md](docs/building-an-app.md).
+  [building-an-app.md](docs/building-an-app.md). **Breaks:** `MANIFEST_ENV`
+  imports from `crucible.tool_manifests`, not `crucible.tools`; the card row
+  labels `ACTION_LABEL`/`TOOL_LABEL` from `crucible.approvals.card`, not
+  `crucible.interactions.toolgate`; a turn the engine starts with no scope of
+  the application's carries `ENGINE_TURN_ATTRIBUTE` (`crucible.ports.turn`)
+  on its scope, which replaces `impi`'s own `scheduled` attribute.
 
 ## v0.24.0 — 2026-10-14
 

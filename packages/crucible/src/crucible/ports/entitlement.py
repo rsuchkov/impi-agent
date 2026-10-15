@@ -46,11 +46,6 @@ class Entitlement:
     tools: Collection[str] | None = None
     instructions: str = ""
 
-    @property
-    def is_default(self) -> bool:
-        """Whether this entitlement changes nothing about the agent's profile."""
-        return self.tools is None and not self.instructions
-
 
 class EntitlementSource(Protocol):
     """Where a flow asks what a conversation may do: answered from the message

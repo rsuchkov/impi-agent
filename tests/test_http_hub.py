@@ -1221,3 +1221,26 @@ async def test_a_caller_lists_the_conversations_the_engine_moved_since() -> None
             assert status == 404  # nothing wired to answer from
     finally:
         await plain.stop()
+
+
+async def test_an_engine_turn_without_a_scope_of_its_own_is_marked_as_the_engines() -> None:
+    from crucible.ports.engine_turn import TurnRequest
+    from crucible.ports.turn import ENGINE_TURN_ATTRIBUTE
+
+    seen: list[IncomingMessage] = []
+
+    async def record(msg, chat):
+        seen.append(msg)
+        return TurnOutcome.ACTED
+
+    hub, _ = _hub(8525, script=record)
+    await hub.start()
+    try:
+        await hub.run_turn(TurnRequest(
+            agent="helper", channel_id="portal:c1", conversation_id="portal:c1", kind="dm",
+            text="the digest", message_id="sched-1", user_id="u-7",
+        ))
+        assert seen[0].turn is not None
+        assert seen[0].turn.attributes == {ENGINE_TURN_ATTRIBUTE: "1"}  # nobody is behind this turn
+    finally:
+        await hub.stop()

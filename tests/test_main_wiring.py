@@ -771,8 +771,8 @@ async def test_a_request_with_a_scope_of_its_own_keeps_it_on_a_chat_agent(tmp_pa
     from crucible.ports.chat.flow import TurnOutcome
     from crucible.ports.chat.types import EventReport
     from crucible.ports.engine_turn import TurnRequest
-    from crucible.ports.turn import TurnScope
-    from impi.scheduling import SCHEDULED_TURN_ATTRIBUTE, SinkTurnDispatcher
+    from crucible.ports.turn import ENGINE_TURN_ATTRIBUTE, TurnScope
+    from impi.scheduling import SinkTurnDispatcher
     from tests.fakes.fake_chat import FakeChat
 
     class Answering:
@@ -802,4 +802,4 @@ async def test_a_request_with_a_scope_of_its_own_keeps_it_on_a_chat_agent(tmp_pa
     assert with_scope.engine_started and with_scope.event == EventReport("gitlab", "status: success")
     assert with_scope.turn is not None and with_scope.turn.attributes == {"pipeline": "1234"}
     assert with_scope.turn.turn_id == "ev-1"
-    assert scheduled.turn is not None and scheduled.turn.attributes == {SCHEDULED_TURN_ATTRIBUTE: "1"}
+    assert scheduled.turn is not None and scheduled.turn.attributes == {ENGINE_TURN_ATTRIBUTE: "1"}

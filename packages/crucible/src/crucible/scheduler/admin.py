@@ -159,7 +159,7 @@ class TaskAdmin:
         return _view(task, upcoming=next_occurrences(trigger, now=now, count=3))
 
     async def watch(
-        self, agent: str, runtime_session_id: str, *, name: str, watch: str,
+        self, agent: str, runtime_session_id: str, *, name: str, watch_key: str,
         every_s: int, until: datetime, prompt: str = "",
     ) -> TaskView:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
@@ -167,21 +167,21 @@ class TaskAdmin:
             raise TaskError("this conversation could not be resolved — nothing is watched")
         return await self.watch_in(
             agent, channel_id=record.channel_id, conversation_id=record.conversation_id,
-            kind=record.kind, name=name, watch=watch, every_s=every_s, until=until,
+            kind=record.kind, name=name, watch_key=watch_key, every_s=every_s, until=until,
             prompt=prompt, created_by=record.last_user_id,
         )
 
     async def watch_in(
         self, agent: str, *, channel_id: str, conversation_id: str, kind: str,
-        name: str, watch: str, every_s: int, until: datetime, prompt: str = "",
+        name: str, watch_key: str, every_s: int, until: datetime, prompt: str = "",
         created_by: str = "",
     ) -> TaskView:
         """A watch task: the scheduler asks the application's hook about
-        ``watch`` every ``every_s`` seconds until ``until``, and the agent gets
+        ``watch_key`` every ``every_s`` seconds until ``until``, and the agent gets
         one turn here when the answer is yes — or when the wait is over."""
         name = _clean_name(name)
-        watch = watch.strip()
-        if not watch:
+        watch_key = watch_key.strip()
+        if not watch_key:
             raise TaskError("a watch needs a key: what should the application be asked about?")
         if every_s < MIN_WATCH_S:
             raise TaskError(f"a watch is checked at most every {MIN_WATCH_S}s")
@@ -218,12 +218,12 @@ class TaskAdmin:
             created_by=created_by, created_by_username="",
             created_at=stamp, updated_at=stamp, last_run_at="", last_status="",
             run_count=0, miss_count=0, consecutive_failures=0,
-            watch=watch, expires_at=to_iso(until) or "",
+            watch_key=watch_key, expires_at=to_iso(until) or "",
         )
         await self._store.create_task(task)
         logger.info(
             "task %s watches %s for %s in %s, every %ds until %s",
-            task_id, watch, agent, conversation_id, every_s, task.expires_at,
+            task_id, watch_key, agent, conversation_id, every_s, task.expires_at,
         )
         return _view(task)
 
@@ -297,7 +297,7 @@ def _view(task: TaskRecord, *, upcoming: list[datetime] | None = None) -> TaskVi
         last_run=local_time(from_iso(task.last_run_at), task.timezone),
         last_status=task.last_status, notify=task.notify,
         upcoming=tuple(local_time(m, task.timezone) for m in (upcoming or ())),
-        watch=task.watch, until=local_time(from_iso(task.expires_at or None), task.timezone),
+        watch_key=task.watch_key, until=local_time(from_iso(task.expires_at or None), task.timezone),
     )
 
 

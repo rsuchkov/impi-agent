@@ -417,11 +417,24 @@ async def test_deleting_a_task_takes_its_run_history_with_it(store: Store) -> No
 async def test_a_watch_round_trips_its_own_fields(store: Store) -> None:
     from crucible.store.base import MODE_WATCH
 
-    watch = _task(id="tsk_w", name="watch", mode=MODE_WATCH, watch="gitlab:pipeline:1", expires_at=T2)
+    watch = _task(id="tsk_w", name="watch", mode=MODE_WATCH, watch_key="gitlab:pipeline:1", expires_at=T2)
     await store.create_task(watch)
     assert await store.get_task("tsk_w") == watch
     plain = await store.get_task("tsk_w")
-    assert plain is not None and plain.watch == "gitlab:pipeline:1" and plain.expires_at == T2
+    assert plain is not None and plain.watch_key == "gitlab:pipeline:1" and plain.expires_at == T2
     # Reads of a task written without them answer the defaults.
     await store.create_task(_task())
     assert (await store.get_task("tsk_1")) == _task()
+
+
+def test_a_document_written_before_a_field_existed_reads_the_fields_default() -> None:
+    # What lets a newer engine read an older collection: the record's default
+    # stands in for a field the document never had.
+    from crucible.store.mongo.base import from_doc, to_doc
+
+    doc = to_doc(_task())
+    del doc["watch_key"], doc["expires_at"]
+    doc["_id"] = "tsk_1"  # what the collection adds, ignored on the way back
+    record = from_doc(TaskRecord, doc)
+    assert record.watch_key == "" and record.expires_at == ""
+    assert record == _task()

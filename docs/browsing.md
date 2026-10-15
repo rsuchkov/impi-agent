@@ -162,8 +162,9 @@ this, the same way it has none for the secret store.
 - **The image will not build, `apt-get` cannot find Chrome** — you pinned a
   version and it expired. Clear `IMPI_BROWSER_CHROME_VERSION` in `compose.env`.
 - **The agent has the skill but never browses** — `impi skill list` shows who
-  has it, and a running engine needs `impi reload`. A conversation already in
-  flight keeps its old configuration until its session resets.
+  has it, and a running engine needs `impi reload`. After it a conversation
+  already in flight picks the skill up on its next turn: its process restarts
+  with the new profile, memory kept.
 
 ## Local development
 

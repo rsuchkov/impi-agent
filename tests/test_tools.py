@@ -1463,7 +1463,8 @@ async def test_the_server_refuses_a_tool_outside_the_conversations_set() -> None
 def test_session_env_writes_the_conversations_manifest_within_the_agents(tmp_path: Path) -> None:
     from crucible.config import ToolSettings
     from crucible.ports.agent import AgentSpec
-    from crucible.tools import MANIFEST_ENV, ToolWiring
+    from crucible.tool_manifests import MANIFEST_ENV
+    from crucible.tools import ToolWiring
 
     wiring = ToolWiring(
         ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),

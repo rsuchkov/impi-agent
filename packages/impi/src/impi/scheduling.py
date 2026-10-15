@@ -20,11 +20,6 @@ from crucible.ports.turn import TurnScope
 
 logger = logging.getLogger(__name__)
 
-# The turn attribute a scheduled turn carries: no person started it, so
-# nothing in it may act as one.
-SCHEDULED_TURN_ATTRIBUTE = "scheduled"
-
-
 def conversation_ref(
     *, channel_id: str, conversation_id: str, kind: str, message_id: str = ""
 ) -> ConversationRef:
@@ -69,10 +64,9 @@ class SinkTurnDispatcher:
                 channel_id=request.channel_id, conversation_id=request.conversation_id,
                 kind=request.kind, message_id=request.message_id,
             ),
-            # Said so tools can tell: nobody is behind this turn, so nothing
-            # may act as a person in it (their connected accounts, say). A
-            # request that brings a scope of its own has decided that itself.
-            turn=TurnScope(turn_id=request.message_id, attributes={SCHEDULED_TURN_ATTRIBUTE: "1"}),
+            # The marker that nobody is behind this turn is the port's to add
+            # (ENGINE_TURN_ATTRIBUTE), the same for every dispatcher.
+            turn=TurnScope(turn_id=request.message_id),
         )
         return await sink.submit_tracked(message, target.chat)
 

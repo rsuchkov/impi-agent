@@ -936,9 +936,9 @@ def _cmd_task_show(args: argparse.Namespace) -> int:
         print(f"  agent        {task.agent}")
         print(f"  schedule     {task.trigger_spec}  ({task.timezone or 'UTC'})")
         print(f"  mode         {task.mode}")
-        if task.watch:
+        if task.watch_key:
             until = local_time(from_iso(task.expires_at or None), task.timezone) or "—"
-            print(f"  watching     {task.watch}  until {until}")
+            print(f"  watching     {task.watch_key}  until {until}")
         print(f"  state        {task.state}")
         print(f"  next run     {local_time(from_iso(task.next_run_at), task.timezone) or '—'}")
         last = local_time(from_iso(task.last_run_at), task.timezone) or "—"

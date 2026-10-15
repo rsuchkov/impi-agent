@@ -200,3 +200,28 @@ async def test_prepare_runtime_storage_copies_the_model_definitions(
         assert (tmp_path / "pi-agent" / "models.json").read_text() == "{}"
     finally:
         await store.close()
+
+
+async def test_deleting_a_conversation_by_hand_takes_its_manifest_too(tmp_path: Path, capsys) -> None:
+    import argparse
+
+    from crucible.sessions_cli import cmd_delete
+    from crucible.tool_manifests import session_manifest_path
+
+    settings = Settings(
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        data_dir=str(tmp_path / "data"),
+    )
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        record, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        manifest = session_manifest_path(tmp_path / "data" / "tool-manifests", "assistant", record.runtime_session_id)
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text("[]")
+
+        await cmd_delete(settings, store, argparse.Namespace(agent="assistant", conversation_id="dm1"))
+
+        assert not manifest.exists()
+        assert "deleted assistant/dm1" in capsys.readouterr().out
+    finally:
+        await store.close()
