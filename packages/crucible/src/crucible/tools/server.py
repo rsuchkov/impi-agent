@@ -20,7 +20,7 @@ from typing import Any
 
 from aiohttp import web
 
-from crucible.approvals.ports import ConfirmOutcome, ToolApproving
+from crucible.approvals.ports import ConfirmOutcome, NotAsked, ToolApproving
 from crucible.constant_time import find_by_secret
 from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.chat.admin import ChatAdmin
@@ -78,6 +78,9 @@ _REFUSALS = {
     ConfirmOutcome.UNANSWERED: UNANSWERED_ERROR,
     ConfirmOutcome.NO_APPROVER: NO_APPROVER_ERROR,
 }
+# The gate's own refusal, with its reason: nobody was asked, so there is no
+# person to come back to — the model tells the user and stops.
+NOT_ASKED_ERROR = "not asked: {reason}. Tell the user, and do not retry"
 # A tool the agent has and this conversation does not: said so, because the
 # model may have read the tool's name somewhere and there is nothing to retry.
 NOT_IN_CONVERSATION_ERROR = "not available in this conversation"
@@ -281,6 +284,10 @@ class ToolServer:
                 outcome = await self._tool_gate.confirm(
                     agent, tool.name, args, runtime_session_id=runtime_session_id,
                     preview=preview, display_name=tool.display_name,
+                )
+            if isinstance(outcome, NotAsked):
+                return web.json_response(
+                    {"error": NOT_ASKED_ERROR.format(reason=outcome.reason)}, status=403
                 )
             if outcome is not ConfirmOutcome.ALLOWED:
                 return web.json_response({"error": _REFUSALS[outcome]}, status=403)

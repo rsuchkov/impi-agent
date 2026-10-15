@@ -157,3 +157,46 @@ async def test_a_forgotten_conversation_loses_its_own_tool_manifest_too(tmp_path
         assert forget_session_manifest(manifests, "assistant", "../assistant") is False
     finally:
         await store.close()
+
+
+def test_the_applications_model_definitions_reach_the_agent_directory_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from crucible.runtime_storage import provide_model_definitions
+
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    source = tmp_path / "image" / "models.json"
+    source.parent.mkdir()
+    source.write_text('{"providers": {}}')
+
+    assert provide_model_definitions(agent_dir, source) is True
+    copied = agent_dir / "models.json"
+    assert copied.read_text() == '{"providers": {}}'
+    assert stat.S_IMODE(copied.stat().st_mode) == 0o600
+    # An operator's edit is not overwritten by the image's copy.
+    copied.write_text('{"providers": {"mine": {}}}')
+    assert provide_model_definitions(agent_dir, source) is False
+    assert copied.read_text() == '{"providers": {"mine": {}}}'
+    # A source that is not there is said, not raised.
+    with caplog.at_level(logging.WARNING):
+        assert provide_model_definitions(tmp_path / "other", tmp_path / "nowhere.json") is False
+    assert "no model definitions" in caplog.text
+
+
+async def test_prepare_runtime_storage_copies_the_model_definitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pi-agent"))
+    settings = ImpiSettings(
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        data_dir=str(tmp_path / "data"), session_retention_days=0,
+    )
+    source = tmp_path / "models.json"
+    source.write_text("{}")
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        await prepare_runtime_storage(settings, store, models_from=source)
+        assert (tmp_path / "pi-agent" / "models.json").read_text() == "{}"
+    finally:
+        await store.close()

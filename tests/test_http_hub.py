@@ -853,7 +853,8 @@ async def test_a_confirmation_arrives_as_data_not_as_a_rendered_card() -> None:
             msg.ref,
             ApprovalCard(
                 agent="helper", headline="wants to run jira_transition_issue — move IPA-7 to Done",
-                icon="⚠️", fields=(PreviewRow("Status", "Done", before="Open"),),
+                icon="⚠️", title="move IPA-7", tool="dangerous",
+                fields=(PreviewRow("Status", "Done", before="Open"),),
                 block_label="Arguments", block='{"key": "IPA-7"}', danger=True,
                 expires_at="2026-10-04T12:00:00+00:00",
             ),
@@ -875,6 +876,7 @@ async def test_a_confirmation_arrives_as_data_not_as_a_rendered_card() -> None:
             assert card["agent"] == "helper" and card["icon"] == "⚠️" and card["danger"] is True
             assert card["headline"] == "wants to run jira_transition_issue — move IPA-7 to Done"
             assert card["fields"] == [{"label": "Status", "value": "Done", "before": "Open"}]
+            assert card["title"] == "move IPA-7" and card["tool"] == "dangerous"  # their own fields, no label to parse
             assert card["block"] == {"label": "Arguments", "text": '{"key": "IPA-7"}'}
             assert card["expiresAt"] == "2026-10-04T12:00:00+00:00"
             assert (card["verdict"], card["grantS"]) == ("", 0)  # still asking

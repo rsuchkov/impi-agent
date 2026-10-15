@@ -78,3 +78,23 @@ def test_a_log_record_is_scrubbed_with_its_arguments_and_its_traceback(caplog: p
         logger.filters.clear()
     assert "deadbeef" not in caplog.text and "TOOL_TOKEN=***" in caplog.text
     assert "leaked.jwt.value" not in caplog.text and "Traceback" in caplog.text
+
+
+@pytest.mark.parametrize(("text", "gone"), [
+    # A cookie or an authorization value is one value to its end: spaces and
+    # semicolons inside it are not where it stops.
+    ("Cookie: JSESSIONID=abc123; _oauth2_proxy=SECRET-TAIL", "SECRET-TAIL"),
+    ("Authorization: Basic dXNlcjpwYXNz with spaces after", "with spaces after"),
+    ("headers={'Cookie': 'a=1; session=s3cr3t', 'Accept': 'json'}", "s3cr3t"),
+    ("Set-Cookie: session=s3cr3t; Path=/; HttpOnly\nnext line kept", "s3cr3t"),
+])
+def test_a_cookie_or_authorization_value_goes_whole(text: str, gone: str) -> None:
+    out = scrub(text)
+    assert gone not in out and REDACTED in out
+
+
+def test_the_line_after_a_cookie_and_the_next_header_survive() -> None:
+    out = scrub("Set-Cookie: session=s3cr3t; Path=/\nX-Request-Id: 42")
+    assert out.endswith("\nX-Request-Id: 42")
+    quoted = scrub("headers={'Cookie': 'a=1; session=s3cr3t', 'Accept': 'json'}")
+    assert "'Accept': 'json'" in quoted

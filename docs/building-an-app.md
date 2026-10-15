@@ -173,8 +173,9 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   `AttachmentStore` renames an id it cannot use as a directory name.
 - **Name a confirmed tool for a person.** `display_name = "Add a comment"` on
   the tool class puts that on its card — "wants to run “Add a comment”." — where
-  the id would read as engine output; the id stays on the card as a `Tool`
-  row, for the operator and the audit. A tool without one is named by its id.
+  the id would read as engine output; the id stays on the card as its `tool`
+  field (drawn as a `Tool` row in a chat), for the operator and the audit. A
+  tool without one is named by its id.
 - **Say what the call would do, not what the model said.** A confirmed tool
   should implement `describe(ctx, args) -> CallPreview | None` (`Describing` in
   `crucible.tools`; `CallPreview`/`PreviewRow` in `crucible.ports.chat.types`,
@@ -192,9 +193,11 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   native Block Kit fields, the http gateway as a `confirmation` event. Once
   answered, expired or withdrawn, the same post is rewritten with the verdict
   as a card again (`update_confirmation`, no actions left), its facts still on
-  it. The preview's `title` is the card's first field (`Action`), not part of
-  the headline: the headline is the engine's sentence, every value is the
-  tool's text and takes the channel's hardening. A chat client of your own
+  it. The preview's `title` is the card's `title` (drawn as the `Action` row,
+  the first), not part of the headline: the headline is the engine's sentence,
+  every value is the tool's text and takes the channel's hardening. A program
+  reading the card gets `title` and `tool` as fields of their own and `fields`
+  as only what the call changes — nothing to tell apart by an English label. A chat client of your own
   must implement both verbs; the table in
   [architecture.md](architecture.md#gateways) says which verb carries the
   model's words and which carries the engine's structure.
@@ -263,9 +266,12 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   Every step is housekeeping: a failure is logged and the application carries
   on. The runtime takes a lock beside its credential before every model call,
   so the agent directory must be writable. On a read-only root, point
-  `PI_CODING_AGENT_DIR` at a writable volume and copy your `models.json`
-  there; the function logs an ERROR naming the directory when it is not
-  writable.
+  `PI_CODING_AGENT_DIR` at a writable volume and pass
+  `models_from=Path("/app/models.json")` — your image's model definitions,
+  which the runtime reads from its agent directory alone: the file is copied
+  there when the directory has none, and left alone once it is (an operator
+  may have edited it). The function logs an ERROR naming the directory when it
+  is not writable.
 - **Replaying a conversation the runtime forgot.** The runtime's memory is a
   session on its disk; a pod rescheduled without that disk, an idle session
   evicted, an operator's `reset` all leave a conversation the store knows and
@@ -420,7 +426,11 @@ credential, is another user's credential.
   The gate answers with a `ConfirmOutcome` (`crucible.approvals`): `ALLOWED`
   runs the call; `DENIED`, `UNANSWERED` and `NO_APPROVER` refuse it, and the
   server tells the model which it was — answer `UNANSWERED` for a silence, so
-  the model asks the person again later instead of reading it as a no.
+  the model asks the person again later instead of reading it as a no. A gate
+  that decides not to ask at all — a budget of questions per turn is spent, a
+  policy refuses the call outright — answers `NotAsked(reason)`, and the model
+  hears `not asked: <reason>` with a note not to retry: the three outcomes are
+  facts about a person, this one is the gate's own words.
 - `conversation_resolver` maps the calling agent and the runtime session id a
   tool call carries — the same id you passed to `run_stateful` — to a
   `SessionConversation` (`crucible.ports.conversation`): channel, last

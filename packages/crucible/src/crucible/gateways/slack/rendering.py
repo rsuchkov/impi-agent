@@ -15,6 +15,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from crucible.approvals.card import card_rows
 from crucible.containment import code_block, code_span, one_line
 from crucible.gateways.slack.formatter import markdown_to_mrkdwn
 from crucible.ports.chat.types import (
@@ -150,7 +151,7 @@ def build_confirmation_blocks(card: ApprovalCard, actions: list[Action]) -> list
             "text": f"*{_mrkdwn_text(one_line(row.label))}*\n"
             + (f"{_mrkdwn_code(row.before)} → {_mrkdwn_code(row.value)}" if row.before else _mrkdwn_code(row.value)),
         }
-        for row in card.fields
+        for row in card_rows(card)
         if row.value or row.before  # a change to nothing is still a change
     ]
     for start in range(0, len(fields), _FIELDS_PER_SECTION):

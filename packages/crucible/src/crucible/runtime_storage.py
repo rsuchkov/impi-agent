@@ -19,11 +19,13 @@ store included — creates a file.
 
 import logging
 import os
+import shutil
 from pathlib import Path
 
 from crucible.config import Settings
 from crucible.runtimes.pi.auth_file import (
     AUTH_FILE,
+    MODELS_FILE,
     MODELS_STORE_FILE,
     runtime_agent_dir,
 )
@@ -40,11 +42,19 @@ logger = logging.getLogger(__name__)
 RUNTIME_AGENT_DIR_FILES = (AUTH_FILE, MODELS_STORE_FILE)
 
 
-async def prepare_runtime_storage(settings: Settings, sessions: SessionStore) -> None:
+async def prepare_runtime_storage(
+    settings: Settings, sessions: SessionStore, *, models_from: Path | None = None
+) -> None:
     """Before anything runs, so nothing live is using what is touched. Every
     step is housekeeping: a failure is said in the log and the application
-    carries on serving."""
+    carries on serving. ``models_from``: the application's own model
+    definitions (a ``models.json`` shipped in its image), copied into the
+    runtime's agent directory when that has none — the runtime reads the file
+    from its agent directory alone, and on a read-only image that directory is
+    a writable volume the image's copy never reached."""
     prepare_runtime_agent_dir(runtime_agent_dir())
+    if models_from is not None:
+        provide_model_definitions(runtime_agent_dir(), models_from)
     session_dir = settings.resolved_pi_session_dir
     moved = migrate_session_layout(session_dir)
     if moved:
@@ -86,6 +96,26 @@ def prepare_runtime_agent_dir(agent_dir: Path) -> bool:
         agent_dir, problem,
     )
     return False
+
+
+def provide_model_definitions(agent_dir: Path, source: Path) -> bool:
+    """Copy ``source`` to the runtime's ``models.json`` when the agent directory
+    has none. One that exists is left alone — an operator may have edited it.
+    True when the copy was made."""
+    target = agent_dir / MODELS_FILE
+    if target.exists():
+        return False
+    if not source.is_file():
+        logger.warning("no model definitions at %s to copy into %s", source, agent_dir)
+        return False
+    try:
+        shutil.copyfile(source, target)
+        target.chmod(0o600)
+    except OSError as exc:
+        logger.error("could not copy %s into %s: %s", source, agent_dir, exc.strerror or exc)
+        return False
+    logger.info("copied the model definitions from %s into %s", source, agent_dir)
+    return True
 
 
 def _create_empty(path: Path) -> None:

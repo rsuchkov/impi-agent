@@ -40,12 +40,15 @@ _NAME_END = _SECRET_WORDS + r"(?:__[a-z0-9_]+)?"
 BUILTIN_PATTERNS: tuple[re.Pattern[str], ...] = (
     # A private key, whole.
     re.compile(r"(-----BEGIN [A-Z ]*PRIVATE KEY-----).*?-----END [A-Z ]*PRIVATE KEY-----", re.S),
-    # Headers, by their names — X-Tool-Token, X-Session-Proof, X-Api-Key,
-    # Authorization, Set-Cookie — not any word before a colon in a sentence.
+    # Headers, by their names — X-Tool-Token, X-Session-Proof, X-Api-Key —
+    # not any word before a colon in a sentence.
     re.compile(
-        r"(?i)\b((?:x-[a-z0-9-]*?(?:token|secret|proof|key|auth[a-z]*)|(?:proxy-)?authorization"
-        r"|(?:set-)?cookie)\s*:\s*)(?:bearer\s+|basic\s+)?[^\s,;]+"
+        r"(?i)\b((?:x-[a-z0-9-]*?(?:token|secret|proof|key|auth[a-z]*))\s*:\s*)[^\s,;]+"
     ),
+    # Authorization and Cookie carry a value that may itself hold spaces and
+    # semicolons (``Basic …``, ``a=1; session=…``): the whole value goes, to
+    # the end of the line or the quote that closes it.
+    re.compile(r"""(?i)(\b(?:(?:proxy-)?authorization|(?:set-)?cookie)\s*:\s*)[^\r\n"']+"""),
     # A bearer token on its own.
     re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+"),
     # Variables and query parameters: TOOL_TOKEN=…, TOOL_SESSION_PROOF=…,

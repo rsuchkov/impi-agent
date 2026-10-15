@@ -6,6 +6,25 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Four small things applications asked for.** A gate of an application's
+  own can refuse to ask at all: `ToolApproving.confirm` may answer
+  `NotAsked(reason)` (`crucible.approvals`) and the model hears `not asked:
+  <reason>. Tell the user, and do not retry` — a fact about the gate, apart
+  from the three `ConfirmOutcome` refusals that are facts about a person. A
+  confirmation card carries the preview's title and the tool's id as fields
+  of their own (`ApprovalCard.title`, `.tool`; `title` and `tool` on the http
+  `confirmation` event) and `fields` is only what the call changes, so a
+  program no longer tells them apart by the English labels `Action` and
+  `Tool`; chats still draw those rows (`card_rows`). `crucible.redaction`
+  scrubs a `Cookie` or `Authorization` value whole, to the end of the line
+  or the closing quote — it used to stop at the first `;`, leaving the rest
+  of a cookie in the log. `prepare_runtime_storage(..., models_from=)` copies
+  an application's `models.json` into the runtime's agent directory when
+  that has none, for an image whose agent directory is a writable volume the
+  image's copy never reached. **Breaks:** `ToolApproving.confirm` returns
+  `ConfirmOutcome | NotAsked`; on the http gateway a `confirmation` event's
+  `fields` no longer holds the `Action` and `Tool` rows — read `title` and
+  `tool` instead.
 - **A task can watch for something instead of running on a clock.** An
   application that started a long operation — a pipeline, a review — had no
   way to get the agent back into the conversation when it ended. A `watch`

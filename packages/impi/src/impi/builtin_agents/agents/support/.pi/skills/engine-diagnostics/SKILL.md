@@ -207,7 +207,7 @@ In order:
 A tool added to a profile applies on **reload**; a `403 forbidden` right after
 an edit means the change was not applied yet.
 
-Seven other 403s say what happened in the body. From the confirmation gate:
+Eight other 403s say what happened in the body. From the confirmation gate:
 
 - `declined by the user` — the tool declares `requires_confirmation`, the card
   went out, and a person answered Deny. A human can answer **Allow for…**
@@ -232,6 +232,10 @@ Seven other 403s say what happened in the body. From the confirmation gate:
 - `abandoned by the caller` — the card was answered Allow, but the turn that
   asked had already been cancelled or had hung up. Nothing ran; the ledger
   says `abandoned`. Normal after an operator interrupted a turn.
+- `not asked: <reason>. Tell the user, and do not retry` — an application's
+  own gate decided not to put the question at all and said why (a budget of
+  questions for the turn, a policy). Not seen with the engine's gate, which
+  always asks; the reason is the application's and the fix is on its side.
 
 And from the session check:
 

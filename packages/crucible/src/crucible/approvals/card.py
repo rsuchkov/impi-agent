@@ -8,7 +8,13 @@ where the hardening and its rationale live.
 from collections.abc import Sequence
 
 from crucible.containment import code_block, code_span, one_line
-from crucible.ports.chat.types import ApprovalCard
+from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+# How a card's ``title`` and ``tool`` read when a channel draws them as rows:
+# the one-line account of the call first, the tool's id last. A program gets
+# them as fields of their own and never sees these words.
+ACTION_LABEL = "Action"
+TOOL_LABEL = "Tool"
 
 
 def render_card(
@@ -28,6 +34,21 @@ def render_card(
     return "\n".join(lines)
 
 
+def card_rows(card: ApprovalCard) -> tuple[PreviewRow, ...]:
+    """The rows a chat draws: the title as ``Action`` ahead of the fields, and
+    the tool's id as ``Tool`` after them — the latter only where the headline
+    does not already say it (a tool named by its display name), since the
+    operator and the audit speak in ids and a person should not read the same
+    word twice."""
+    rows: list[PreviewRow] = []
+    if card.title:
+        rows.append(PreviewRow(ACTION_LABEL, card.title))
+    rows.extend(card.fields)
+    if card.tool and card.tool not in card.headline:
+        rows.append(PreviewRow(TOOL_LABEL, card.tool))
+    return tuple(rows)
+
+
 def card_markdown(card: ApprovalCard) -> str:
     """An ``ApprovalCard`` as Markdown — what a chat platform shows, and the
     text form any channel may fall back to. The agent's name and the engine's
@@ -35,7 +56,7 @@ def card_markdown(card: ApprovalCard) -> str:
     headline = f"{card.icon} **{card.agent}** {one_line(card.headline)}"
     fields = [
         (one_line(row.label), f"{row.before} → {row.value}" if row.before else row.value)
-        for row in card.fields
+        for row in card_rows(card)
     ]
     text = render_card(headline, fields, block_label=card.block_label, block=card.block)
     if card.expires_at:

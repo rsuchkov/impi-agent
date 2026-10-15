@@ -250,7 +250,10 @@ same tool in another conversation of that agent is asked again. The gate
 answers with a `ConfirmOutcome`, and the server tells the model which refusal
 it was — a person's no, nobody answering in time, nobody to ask — because a
 silence is not a no: the model may raise the call again when the person is
-back, where a refused call is closed. The flag is a
+back, where a refused call is closed. A gate of an application's own may also
+answer `NotAsked(reason)` — it never put the question, for a reason of its
+own (a budget of questions for the turn) — and the model hears
+`not asked: <reason>`. The flag is a
 capability like any other
 (`CAP_CONFIRMATION`): a deployment with no gate does not advertise the tool,
 and the server still refuses a call that arrives for one. What the card shows
@@ -258,7 +261,9 @@ is the tool's own account of the call when it has one (`Tool.describe` →
 `CallPreview`, rows with a before and an after), and the raw arguments when it
 has not — the arguments are what the model asked for, and the model reads text
 other people wrote. The card itself crosses the chat port as data
-(`ApprovalCard`, via `ChatClient.post_confirmation`) and is drawn by the
+(`ApprovalCard`: the preview's `title` and the tool's id as fields of their
+own, `fields` only what the call changes; `card_rows` turns the two into the
+`Action` and `Tool` rows a chat draws), via `ChatClient.post_confirmation`, and is drawn by the
 adapter: Markdown on Mattermost, Block Kit fields on Slack, a `confirmation`
 event on http — the secret broker's credential card takes the same route, and
 so does the verdict it is rewritten to (`update_confirmation`).

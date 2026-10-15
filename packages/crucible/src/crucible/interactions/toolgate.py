@@ -54,7 +54,6 @@ from crucible.ports.chat.types import (
     VERDICT_WITHDRAWN,
     ApprovalCard,
     CallPreview,
-    PreviewRow,
 )
 from crucible.store.base import (
     DECISION_ABANDONED,
@@ -82,11 +81,6 @@ _ABANDONED = "— ⌛ {tool} was withdrawn before anyone answered."
 # message past a few thousand characters, and a refused card is a refused call;
 # the model's own account of a long argument is not worth that.
 ARGUMENTS_LIMIT = 2000
-# The preview's one-line account of the call, as the card's first row.
-ACTION_LABEL = "Action"
-# The tool's id, as a row, on a card whose headline names it by its display
-# name: the operator and the audit speak in ids.
-TOOL_LABEL = "Tool"
 
 
 def _now() -> str:
@@ -331,26 +325,28 @@ def _card(
     block. The headline is the engine's sentence and nothing the model or a
     person wrote goes in it — the tool, by its display name when it declares
     one (the application's own words, like its id), else by its id; the id
-    then stays a row. The preview's title, like every value, is the tool's text and takes
-    the channel's hardening as a field, where a line break or a mention cannot
-    restyle the card. Each channel renders it."""
+    then stays on the card as ``tool``. The preview's title is the card's
+    ``title`` — like every value the tool's text, which a renderer hardens as
+    a field, where a line break or a mention cannot restyle the card. Each
+    channel renders it (``crucible.approvals.card_rows`` says how the title
+    and the id become rows)."""
     headline = f"wants to run {_named(tool, display_name)}."
-    tool_row = (PreviewRow(TOOL_LABEL, tool),) if display_name else ()
     if preview is None:
         return ApprovalCard(
             agent=agent,
             headline=headline,
-            fields=tool_row,
+            tool=tool,
             block_label="Arguments" if args else "",
             block=_arguments(args) if args else "",
             expires_at=expires_at,
         )
-    action = (PreviewRow(ACTION_LABEL, preview.title),) if preview.title else ()
     return ApprovalCard(
         agent=agent,
         headline=headline,
         icon="⚠️" if preview.danger else "⚙️",
-        fields=action + tuple(preview.rows) + tool_row,
+        title=preview.title,
+        tool=tool,
+        fields=tuple(preview.rows),
         danger=preview.danger,
         expires_at=expires_at,
     )

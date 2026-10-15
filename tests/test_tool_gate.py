@@ -25,6 +25,7 @@ from crucible.approvals import (
     PendingApprovals,
     card_markdown,
 )
+from crucible.approvals.card import card_rows
 from crucible.config import ToolSettings
 from crucible.interactions import toolgate
 from crucible.interactions.toolgate import ToolGate, tool_scope
@@ -622,7 +623,8 @@ async def test_the_gate_asks_with_the_card_as_data(tmp_path: Path) -> None:
         assert card is not None
         assert (card.agent, card.icon, card.danger) == ("assistant", "⚠️", True)
         assert card.headline == "wants to run dangerous."  # the engine's words only
-        assert card.fields == (PreviewRow("Action", "move IPA-7"), PreviewRow("Status", "Done", before="Open"))
+        assert card.title == "move IPA-7" and card.tool == "dangerous"
+        assert card.fields == (PreviewRow("Status", "Done", before="Open"),)  # what the call changes, alone
         remaining = datetime.fromisoformat(card.expires_at) - datetime.now(timezone.utc)
         assert timedelta(seconds=80) < remaining <= timedelta(seconds=90)
     finally:
@@ -660,7 +662,9 @@ async def test_a_tool_with_a_display_name_is_named_by_it_and_keeps_its_id_as_a_r
         asked = rig.poster.posts[-1].card
         assert asked is not None
         assert asked.headline == "wants to run “Add a comment”."
-        assert asked.fields == (PreviewRow("Action", "comment on IPA-7"), PreviewRow("Tool", "dangerous"))
+        assert asked.title == "comment on IPA-7" and asked.tool == "dangerous" and asked.fields == ()
+        # Drawn, the id becomes a row after the facts — the headline does not say it.
+        assert card_rows(asked) == (PreviewRow("Action", "comment on IPA-7"), PreviewRow("Tool", "dangerous"))
         closed = rig.poster.updated[-1].card
         assert closed.headline == toolgate._EXPIRED.format(tool="“Add a comment”")
         assert (await rig.store.list_audit())[0].scope.startswith("dangerous@")
@@ -671,7 +675,11 @@ async def test_a_tool_with_a_display_name_is_named_by_it_and_keeps_its_id_as_a_r
 def test_a_card_without_a_preview_keeps_the_id_beside_the_arguments() -> None:
     card = toolgate._card("assistant", "add_comment", {"body": "hi"}, display_name="Add a comment")
     assert card.headline == "wants to run “Add a comment”."
-    assert card.fields == (PreviewRow("Tool", "add_comment"),) and card.block_label == "Arguments"
+    assert card.tool == "add_comment" and card.fields == () and card.block_label == "Arguments"
+    assert card_rows(card) == (PreviewRow("Tool", "add_comment"),)
+    # Named by its id in the headline, the id is not repeated as a row.
+    plain = toolgate._card("assistant", "add_comment", {"body": "hi"})
+    assert plain.tool == "add_comment" and card_rows(plain) == ()
 
 
 @pytest.mark.parametrize("hostile", [
@@ -728,5 +736,27 @@ async def test_named_approvers_replace_the_asker(tmp_path: Path) -> None:
         assert rig.approvals.resolve(token, ANSWER_ONCE, "uid-asker").name == "NOT_ALLOWED"
         assert rig.approvals.resolve(token, ANSWER_ONCE, "uid-ops").name == "RESOLVED"
         assert await pending == 200
+    finally:
+        await _close(rig)
+
+
+
+async def test_a_gate_that_never_asked_says_why_and_the_model_does_not_retry(tmp_path: Path) -> None:
+    """An application's own gate may refuse to put the question at all — a
+    budget of questions spent, a policy — and the model hears its reason, apart
+    from the three refusals that are about a person."""
+    from crucible.approvals import NotAsked
+
+    class Budget:
+        async def confirm(self, agent, tool, args, *, runtime_session_id, preview=None, display_name=""):
+            return NotAsked("third write this turn without a question in between")
+
+    rig = await _rig(tmp_path, 8559)
+    rig.server._tool_gate = Budget()  # the composition's choice of gate
+    try:
+        status, told = await _call_told(rig, "dangerous")
+        assert status == 403
+        assert told == "not asked: third write this turn without a question in between. Tell the user, and do not retry"
+        assert rig.tool.ran == 0 and rig.poster.posts == []
     finally:
         await _close(rig)

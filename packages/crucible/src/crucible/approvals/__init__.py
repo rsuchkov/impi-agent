@@ -9,7 +9,7 @@ The rendering half is the security-critical one: what a card says is all a human
 has to go on, and everything interesting in it comes from the caller.
 """
 
-from crucible.approvals.card import card_markdown, render_card
+from crucible.approvals.card import card_markdown, card_rows, render_card
 from crucible.approvals.controls import (
     GRANT_LADDER,
     approval_actions,
@@ -27,7 +27,7 @@ from crucible.approvals.pending import (
     PendingApprovals,
     decide,
 )
-from crucible.approvals.ports import ConfirmOutcome
+from crucible.approvals.ports import ConfirmOutcome, NotAsked
 
 __all__ = [
     "ANSWER_DENY",
@@ -38,9 +38,11 @@ __all__ = [
     "Approval",
     "ApprovalOutcome",
     "ConfirmOutcome",
+    "NotAsked",
     "PendingApprovals",
     "approval_actions",
     "card_markdown",
+    "card_rows",
     "decide",
     "humanize",
     "render_card",
