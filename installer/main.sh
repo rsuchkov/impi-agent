@@ -255,7 +255,7 @@ else
     dim "without one (an agent can still override both in its agent.yaml)."
     ask_opt IMPI_DEFAULT_PROVIDER "Pin a provider, e.g. openai-codex (Enter = the one you log in with)"
     if [ -n "${IMPI_DEFAULT_PROVIDER:-}" ]; then
-        ask IMPI_DEFAULT_MODEL "Model on $IMPI_DEFAULT_PROVIDER, e.g. gpt-5.5 (required with a pinned provider)"
+        ask IMPI_DEFAULT_MODEL "Model on $IMPI_DEFAULT_PROVIDER, e.g. gpt-6.1-sol (required with a pinned provider)"
     else
         ask_opt IMPI_DEFAULT_MODEL "Pin a model (Enter = pi's own default)"
     fi

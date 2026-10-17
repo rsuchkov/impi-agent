@@ -43,7 +43,7 @@ from crucible.tools.base import CAP_CONFIRMATION, Tool, ToolContext
 from crucible.tools.registry import ToolRegistry
 from crucible.tools.server import ToolServer
 from crucible.tools.wiring import ToolWiring, _gate_tools
-from impi.engine_tools import engine_registry
+from impi.engine_tools import engine_tool_registry
 
 AGENTS = [
     AgentInfo(name="assistant", role="r", description="", username="assistant", user_id="bot-1")
@@ -554,7 +554,7 @@ def test_arguments_cannot_forge_the_question(hostile: str) -> None:
 def _wiring(tmp_path: Path, **flags) -> ToolWiring:
     return ToolWiring(
         ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
-        registry=engine_registry(),
+        registry=engine_tool_registry(),
         data_dir=str(tmp_path), interactivity_on=True, **flags,
     )
 

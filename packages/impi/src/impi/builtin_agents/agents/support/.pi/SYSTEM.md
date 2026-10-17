@@ -90,7 +90,7 @@ role: ...
 description: ...
 runtime:
   provider: openai-codex   # OPTIONAL — omit to inherit DEFAULT_PROVIDER
-  model: gpt-5.5           # OPTIONAL — omit to inherit DEFAULT_MODEL; a provider
+  model: gpt-6.1-sol       # OPTIONAL — omit to inherit DEFAULT_MODEL; a provider
                            # needs a model, here or in DEFAULT_MODEL
   fallback_models: [ ... ] # OPTIONAL — provider/model, tried in order when the model is down
   timeout: 180

@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from crucible.profiles import FsProfileStore
-from impi.engine_tools import engine_registry
+from impi.engine_tools import engine_tool_registry
 from impi.profiles import BUILTIN_AGENTS_PATH
 
 SUPPORT = BUILTIN_AGENTS_PATH / "agents" / "support"
@@ -27,7 +27,7 @@ def _spec():
 
 
 def test_every_tool_support_asks_for_actually_exists() -> None:
-    known = PI_BUILTINS | EXTENSION_TOOLS | set(engine_registry().names())
+    known = PI_BUILTINS | EXTENSION_TOOLS | set(engine_tool_registry().names())
 
     unknown = sorted(set(_spec().tools) - known)
 

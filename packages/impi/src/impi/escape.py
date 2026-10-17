@@ -33,7 +33,7 @@ from crucible.runtimes.pi.hosts.local import interactive_args
 from crucible.runtimes.pi.profiles import build_pi_profile
 from crucible.runtimes.pi.spawn import SpawnRequest
 from impi.config import ImpiSettings
-from impi.engine_tools import engine_registry
+from impi.engine_tools import engine_tool_registry
 from impi.profiles import IMPI_ROOT, build_pi_env
 
 ESCAPE_NOTE = """\
@@ -65,7 +65,7 @@ BRIDGE_TOOLS = frozenset({"ask_user_confirm"})
 def host_tools(tools: Iterable[str]) -> tuple[str, ...]:
     """The profile's allowlist minus what only the engine could serve. pi's
     own built-ins and anything an extension of the profile adds stay."""
-    engine = set(engine_registry().names()) | BRIDGE_TOOLS
+    engine = set(engine_tool_registry().names()) | BRIDGE_TOOLS
     return tuple(name for name in tools if name not in engine)
 
 

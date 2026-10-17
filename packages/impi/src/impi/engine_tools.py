@@ -11,7 +11,7 @@ from crucible.tools.registry import ToolRegistry, build_registry
 from impi import agent_tools, chat_tools, connection_tools, skill_tools, task_tools
 
 
-def engine_registry() -> ToolRegistry:
+def engine_tool_registry() -> ToolRegistry:
     return build_registry(
         builtin_tools, chat_tools, agent_tools, skill_tools, task_tools, connection_tools
     )

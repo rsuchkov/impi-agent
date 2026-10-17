@@ -88,7 +88,7 @@ from impi.deployment_report import (
     needs_receiver,
     select_specs,
 )
-from impi.engine_tools import engine_registry
+from impi.engine_tools import engine_tool_registry
 from impi.gateways import resolve_gateway
 from impi.profiles import (
     IMPI_ROOT,
@@ -532,7 +532,7 @@ def build_app(settings: ImpiSettings) -> App:
         window_s=settings.agent_rate_window_s,
     )
     tools = ToolWiring(
-        settings.tools, registry=engine_registry(), data_dir=settings.data_dir,
+        settings.tools, registry=engine_tool_registry(), data_dir=settings.data_dir,
         interactivity_on=settings.integrations.enabled,
         files_on=settings.attachments_enabled,
         scheduler_on=settings.scheduler.enabled,

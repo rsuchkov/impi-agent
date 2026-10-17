@@ -29,7 +29,7 @@ def render_card(
     lines = [title, ""]
     lines += [f"**{label}:** {code_span(value)}" for label, value in fields if value]
     if block:
-        lines.append(f"**{block_label}:**" if block_label else "")
+        lines.append(f"**{one_line(block_label)}:**" if block_label else "")
         lines.append(code_block(block))
     return "\n".join(lines)
 

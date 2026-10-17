@@ -513,10 +513,13 @@ credential, is another user's credential.
   their token on every turn, refreshed when it is about to end; the model
   never sees it. Yours: the `OAuthProvider` (one per provider), who the owner
   is, where the provider sends the person back (you call
-  `finish(state, code, owner=…)` from there — `CallbackServer(…,
+  `finish(state, code, owner=…, facts=…)` from there — `CallbackServer(…,
   start_again=…)` is a ready page, told what its "try again" should say), and
-  an `AccountPolicy` whose `refusal(owner, provider, account)` says why an
-  account may not be bound to that person, or None. The consent URL `begin` returns goes to the
+  an `AccountPolicy` whose `refusal(owner, provider, account, facts)` says why
+  an account may not be bound to that person, or None; `facts` is what your
+  route knew about the person when it finished the connect (an email, a
+  realm), passed as plain strings rather than through a context variable
+  around the call. The consent URL `begin` returns goes to the
   person privately: whoever holds it can finish the connect. Seal with
   `FernetSealer(keys)` (`crucible[connections]`); the first key seals, every
   key opens. `OAuth2Provider(OAuth2Config(...))` covers a provider that

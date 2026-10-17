@@ -16,7 +16,8 @@ when a release is cut, and `impi update` shows the target version's section.
 - **Fixed: a watch hook that never answers no longer stops the scheduler.**
   Due tasks are checked one after another, so a hanging `WatchHook.check`
   held every task on the engine. A check now has a bounded wait
-  (`WATCH_CHECK_TIMEOUT_S`, 10 s); a hook that runs over it is noted in the
+  (a fixed 10 s, `WATCH_CHECK_TIMEOUT_S` in `crucible.scheduler.service`); a
+  hook that runs over it is noted in the
   heartbeat and asked again next period.
 - **Fixed: a cookie or an authorization written as a variable is scrubbed
   whole.** `cookie=JSESSIONID=…; other=SECRET` in a repr or a query string
@@ -38,7 +39,9 @@ when a release is cut, and `impi update` shows the target version's section.
   module is now a missing name in one call rather than a tool that quietly
   vanished, two tools with one name are refused at startup, and a test's
   registry no longer depends on what else was imported. `impi` builds its
-  own in `impi.engine_tools.engine_registry()`. **Breaks:** `build_registry()`
+  own in `impi.engine_tools.engine_tool_registry()`, and `impi escape` strips
+  from the host profile's allowlist every tool in it — now including the
+  connected-account tools, which only the engine can serve. **Breaks:** `build_registry()`
   takes the modules (or tools) to offer, and an import kept only for its
   `@tool` side effect now offers nothing; `ToolWiring` needs `registry=` when
   tools are enabled.
@@ -72,6 +75,12 @@ when a release is cut, and `impi update` shows the target version's section.
   agent, to be answered and acted on, and that only a quoted block — like a
   file's contents or a tool's result — is information. The quoting, the
   per-turn codes and the escaping are unchanged.
+- **The end-to-end install can test an update.** `make e2e-install
+  UPDATE_FROM=v0.24.0` installs that release, runs `impi update` with that
+  release's own wrapper to the newest tag, and asserts that every rebuilt
+  service runs in a new container, that one engine runs, that the schema moved
+  and that the version was recorded; the live-model leg also puts a reaction
+  on a message and checks the engine ran it as a command.
 
 ## v0.25.0 — 2026-10-15
 

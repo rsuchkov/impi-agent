@@ -17,6 +17,7 @@ from impi.escape import (
     EscapeError,
     Plan,
     build_plan,
+    host_tools,
     map_path,
     parse_map,
     render_nul,
@@ -160,6 +161,9 @@ def test_the_note_is_appended_and_tools_can_be_replaced_for_one_run(tmp_path: Pa
         tools=["read"], extra_note="Be brief.",
     )
     assert _flag(narrowed.argv, "--tools") == "read"
+    # Every engine tool goes, whichever module defines it: the connected-account
+    # tools are served by the engine as much as send_file is.
+    assert host_tools(["read", "connected_api_read", "connected_accounts", "bash"]) == ("read", "bash")
     # The operator's own list is taken as given, engine tool or not.
     insisted = build_plan(
         _spec(settings), settings, engine_owned=False, agents_path=settings.agents_path,

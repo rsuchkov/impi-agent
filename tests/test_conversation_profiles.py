@@ -17,13 +17,13 @@ from crucible.runtimes.pi.profiles import (
 )
 from crucible.tool_manifests import MANIFEST_ENV
 from crucible.tools import ToolWiring
-from impi.engine_tools import engine_registry
+from impi.engine_tools import engine_tool_registry
 
 
 def _wiring(tmp_path: Path, *, enabled: bool = True) -> tuple[ToolWiring, AgentSpec]:
     wiring = ToolWiring(
         ToolSettings(enabled=enabled, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
-        registry=engine_registry(), data_dir=str(tmp_path), interactivity_on=True,
+        registry=engine_tool_registry(), data_dir=str(tmp_path), interactivity_on=True,
     )
     spec = AgentSpec(
         name="assistant", display_name="A", role="r", description="d", profile_dir=tmp_path,
