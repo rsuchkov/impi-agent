@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.26.0 — 2026-10-17
+
 - **Fixed: the tool server never checked a conversation's tool set.** The
   per-session allowlist v0.25.0 added was handed to the server as the wiring's
   own mapping, empty at startup, and the server replaced an empty mapping with
