@@ -3,9 +3,9 @@
 so what it posts IS the agent's reply and the turn may end on the call; the note
 telling the model that is generated from the flag, never written out here. This
 is content, not framework — it lives beside the tools package (which
-holds only base/registry/server). Importing it runs the @tool decorators, so the
-composition root imports it to include these tools, exactly like an app imports
-its own tool modules. Tools depend only on ports (the interaction service)."""
+holds only base/registry/server). Each tool is marked ``@tool``; the composition
+root names this module to ``build_registry`` to offer them, exactly like it
+names its own tool modules. Tools depend only on ports (the interaction service)."""
 
 from typing import Any, ClassVar
 

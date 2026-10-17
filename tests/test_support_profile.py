@@ -10,16 +10,8 @@ from pathlib import Path
 
 import yaml
 
-# The tool modules, for their registrations: the registry holds what was
-# imported, and this file has to stand on its own rather than on whichever
-# test happened to import them first.
-import crucible.builtin_tools  # noqa: F401
-import impi.agent_tools  # noqa: F401
-import impi.chat_tools  # noqa: F401
-import impi.skill_tools  # noqa: F401
-import impi.task_tools  # noqa: F401
 from crucible.profiles import FsProfileStore
-from crucible.tools import build_registry
+from impi.engine_tools import engine_registry
 from impi.profiles import BUILTIN_AGENTS_PATH
 
 SUPPORT = BUILTIN_AGENTS_PATH / "agents" / "support"
@@ -35,7 +27,7 @@ def _spec():
 
 
 def test_every_tool_support_asks_for_actually_exists() -> None:
-    known = PI_BUILTINS | EXTENSION_TOOLS | set(build_registry().names())
+    known = PI_BUILTINS | EXTENSION_TOOLS | set(engine_registry().names())
 
     unknown = sorted(set(_spec().tools) - known)
 

@@ -37,7 +37,11 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     PostSnippet,
 )
-from crucible.ports.entitlement import ConversationProfiles, EntitlementSource
+from crucible.ports.entitlement import (
+    ConversationProfiles,
+    EntitlementSource,
+    shared_entitlement,
+)
 from crucible.ports.turn import TurnBinding
 from crucible.store.base import SessionRecord, SessionStore
 
@@ -232,12 +236,20 @@ class AgentFlow:
         the conversation's memory."""
         self._profile = profile
 
-    async def _turn_profile(self, anchor: IncomingMessage, record: SessionRecord) -> AgentProfile:
+    async def _turn_profile(self, msgs: list[IncomingMessage], record: SessionRecord) -> AgentProfile:
         """The profile this turn runs with: the agent's, or the conversation's
-        own when the application entitles it to less or tells it more."""
+        own when the application entitles it to less or tells it more. A batch
+        may hold several people's messages (a channel, a thread): each is
+        asked about once, and the turn gets what they are jointly entitled to
+        — the tools all of them may use, instructions only where they agree."""
         if self._entitlements is None or self._conversation_profiles is None:
             return self._profile
-        entitlement = await self._entitlements.entitlement(self._agent_name, anchor)
+        first_by_author = {m.user_id: m for m in reversed(msgs)}
+        answers = [
+            await self._entitlements.entitlement(self._agent_name, m)
+            for m in first_by_author.values()
+        ]
+        entitlement = answers[0] if len(answers) == 1 else shared_entitlement(answers)
         return self._conversation_profiles.build(
             self._agent_name, self._profile, entitlement, record.runtime_session_id
         )
@@ -302,7 +314,7 @@ class AgentFlow:
         since = None if first_turn else _parse_iso(record.last_active)
         prompt = await self._render_prompt(fresh, chat, first_turn=first_turn, since=since)
         images = await self._inline_images(fresh)
-        profile = await self._turn_profile(anchor, record)
+        profile = await self._turn_profile(fresh, record)
 
         # Only a real message can wear the "working on it" mark. A synthetic
         # anchor — a slash command, a widget click, a scheduled run — carries an

@@ -274,3 +274,13 @@ def test_a_reaction_command_entry_that_is_not_emoji_equals_word_is_refused(monke
     # The global map is checked as the settings load, like its siblings.
     with pytest.raises(ValidationError, match="REACTION_COMMANDS"):
         _settings(agent_name="assistant", dotenv_path="/dev/null", reaction_commands="=x")
+
+
+def test_a_callers_name_may_not_carry_the_conversation_keys_separator(monkeypatch, tmp_path) -> None:
+    # The name is the realm, the realm prefixes every conversation key as
+    # `realm:conversation`: a colon in it would be unreadable from the other end.
+    env = tmp_path / "callers.env"
+    env.write_text("HTTP_CALLER_TOKEN__A:B=tok\n")
+    settings = _settings(dotenv_path=str(env))
+    with pytest.raises(ValueError, match="must not contain ':'"):
+        settings.http_callers()

@@ -33,7 +33,7 @@ compose differently.
 |---|---|---|
 | `GatewayFactory.create(agent, GatewayConfig)` | which transport + tokens | a `GatewayHandle` (chat client, admin, a gateway builder, prompt hint, needs-receiver) |
 | `InteractionWiring(IntegrationsSettings, sessions, presence, codec=…, needs_receiver=…)` | the interactivity config, an `AgentPresence`, a `CallbackCodec` | the UI bridge, the dispatcher, the interaction service, and (when `needs_receiver`) the HTTP receiver — all built up front, all reading the presence lazily |
-| `ToolWiring(ToolSettings, data_dir=…, interactivity_on=…)` | the tool-server config | per-agent `enroll`/`profile_env` and `build_server` |
+| `ToolWiring(ToolSettings, registry=build_registry(…), data_dir=…, interactivity_on=…)` | the tool-server config and the registry over the tool modules the root names | per-agent `enroll`/`profile_env` and `build_server` |
 
 `InteractionWiring` holds no per-agent state: it reads an **`AgentPresence`** (a
 lookup of `agent -> ChatClient` / `AgentSink`) that the app owns and fills as it
@@ -65,6 +65,7 @@ Illustrative — trimmed of engine-owned agents and hot-reload; see `impi/app.py
 for the complete version.
 
 ```python
+from crucible import builtin_tools
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import GatewayConfig, GatewayFactory, needs_http_receiver
@@ -74,7 +75,8 @@ from crucible.profiles import FsProfileStore
 from crucible.runtimes.pi import build_pi_profile
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.store.sqlite import SqliteSessionStore
-from crucible.tools import ToolWiring
+from crucible.tools import ToolWiring, build_registry
+from my_app import my_tools  # your own tool module: each Tool class marked @tool
 
 
 def build_app(settings, registry, loop_guard):  # registry implements AgentDirectory
@@ -102,7 +104,9 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
     )
     runtime = PiRuntime(pi_bin="pi", session_dir=settings.session_dir,
                         ui_bridge=interactions.ui_bridge)
-    tools = ToolWiring(settings.tools, data_dir=settings.data_dir,
+    # The tools this deployment offers: what the named modules mark @tool.
+    tools = ToolWiring(settings.tools, registry=build_registry(builtin_tools, my_tools),
+                       data_dir=settings.data_dir,
                        interactivity_on=settings.integrations.enabled)
     # Trimmed: a real root also passes confirmations_on/tool_gate, clock,
     # session_proofs and turns — see the composition notes below.
@@ -185,8 +189,11 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   Done`, the issue's title beside its key — instead of the raw arguments. Read
   the current state from the system there; the arguments are the model's
   account, and the model reads text other people wrote. `danger=True` puts a
-  warning on the card. A `describe` that raises is logged and the card falls
-  back to the arguments, so a preview can never block the decision. The gate
+  warning on the card; `block_label`/`block` carry a verbatim piece the person
+  must read as written — a script, a command line — and reach the card whole,
+  never cut the way raw arguments are. A `describe` that raises is logged and
+  the card falls back to the arguments, so a preview can never block the
+  decision. The gate
   puts the request on the wire as data — `ChatClient.post_confirmation(ref,
   ApprovalCard, actions)` — and each channel draws it: Mattermost as Markdown
   (`crucible.approvals.card_markdown`, hardened by `containment`), Slack as
@@ -328,7 +335,11 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   answer may change between turns; the runtime then restarts the
   conversation's process with the new profile and resumes its memory from
   disk — one cold start per change, no lost conversation. `instructions` are
-  **trusted** text, unlike the preamble: never put a person's words there.
+  **trusted** text, unlike the preamble: never put a person's words there. A
+  batch merged from several people's messages (a channel, a thread) asks the
+  source about each of them once and runs with what they are jointly entitled
+  to — the tools all of them may use, instructions only where every answer is
+  the same (`shared_entitlement`).
   Pass `manifests_dir=` to `purge_idle` (or call `prepare_runtime_storage`,
   which does) so a forgotten conversation's manifest goes with its memory.
 - **Turns the engine starts.** A person's message opens a turn through a
@@ -392,12 +403,14 @@ all — a request/turn API of its own, a batch job, a test harness. The pieces i
 needs are the ones a bot needs minus the gateway:
 
 ```python
+from crucible import builtin_tools
 from crucible.ports.chat.directory import AgentInfo, StaticDirectory
-from crucible.tools import ToolWiring
+from crucible.tools import ToolWiring, build_registry
+from my_app import my_tools
 
 directory = StaticDirectory([AgentInfo(spec.name, spec.role, spec.description, "", "")])
-tools = ToolWiring(settings.tools, data_dir=settings.data_dir,
-                   interactivity_on=False, confirmations_on=True)
+tools = ToolWiring(settings.tools, registry=build_registry(builtin_tools, my_tools),
+                   data_dir=settings.data_dir, interactivity_on=False, confirmations_on=True)
 tools.enroll(spec, None)                       # no admin client: no chat
 profile = replace(build_pi_profile(spec), env=tools.profile_env(spec) or {})
 runtime = PiRuntime(..., extra_extensions=[str(EXTENSION_PATH.resolve())])

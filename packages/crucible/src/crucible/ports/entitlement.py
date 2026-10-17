@@ -22,7 +22,7 @@ is on disk, so the conversation goes on — and the tool server refuses a call
 for a tool outside the conversation's set whatever the process claims.
 """
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -45,6 +45,32 @@ class Entitlement:
 
     tools: Collection[str] | None = None
     instructions: str = ""
+
+
+def shared_entitlement(entitlements: Sequence[Entitlement]) -> Entitlement:
+    """What several people in one turn are jointly entitled to — a batch of
+    messages in a channel or a thread may come from more than one person, and
+    the turn runs once for all of them. Tools: only what every one of them
+    may use (an answer of None imposes nothing; one answer of ``()`` leaves
+    none). Instructions: only when every answer says the same, since words the
+    application vouches for about one person cannot stand for another."""
+    if not entitlements:
+        return Entitlement()
+    tools: set[str] | None = None
+    for entitlement in entitlements:
+        if entitlement.tools is None:
+            continue
+        tools = set(entitlement.tools) if tools is None else tools & set(entitlement.tools)
+    ordered: Collection[str] | None = None
+    if tools is not None:
+        # Kept in the order the first restricting answer gave them.
+        first = next(e.tools for e in entitlements if e.tools is not None)
+        ordered = tuple(dict.fromkeys(t for t in first if t in tools))
+    instructions = {e.instructions for e in entitlements}
+    return Entitlement(
+        tools=ordered,
+        instructions=next(iter(instructions)) if len(instructions) == 1 else "",
+    )
 
 
 class EntitlementSource(Protocol):

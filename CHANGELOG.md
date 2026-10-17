@@ -6,7 +6,54 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: the tool server never checked a conversation's tool set.** The
+  per-session allowlist v0.25.0 added was handed to the server as the wiring's
+  own mapping, empty at startup, and the server replaced an empty mapping with
+  a fresh one — so every entry written later went nowhere and a call for a
+  tool outside the conversation's set ran. The server now keeps the mapping it
+  was given; the test writes its entry after the server is built, which is
+  what a deployment does.
+- **Fixed: a watch hook that never answers no longer stops the scheduler.**
+  Due tasks are checked one after another, so a hanging `WatchHook.check`
+  held every task on the engine. A check now has a bounded wait
+  (`WATCH_CHECK_TIMEOUT_S`, 10 s); a hook that runs over it is noted in the
+  heartbeat and asked again next period.
+- **Fixed: a cookie or an authorization written as a variable is scrubbed
+  whole.** `cookie=JSESSIONID=…; other=SECRET` in a repr or a query string
+  kept everything after the first `;`; the value now goes to the end of the
+  line, the closing quote or the next `&`, as the header form already did.
+- **MongoDB indexes the engine-turn listing** (`agent, last_engine_turn_at`),
+  so a program polling `startedSince` does not scan an agent's conversations.
+- **A conversation with several people in one turn is entitled to what they
+  share.** A batch merged from more than one person asked the application
+  about the newest sender only; it now asks about each of them once and runs
+  with the intersection of their tools, with the application's instructions
+  only where every answer agrees (`shared_entitlement`).
+- **Tools are collected from the modules the root names, not registered by
+  import.** `@tool` stays as it was written but marks the class instead of
+  appending it to a global list; `build_registry(builtin_tools, my_tools)`
+  takes the modules and collects what each marks, and a list of instances the
+  root configured itself (a tool built from a definition at startup needs no
+  dynamic class). `ToolWiring(registry=…)` takes the result. A forgotten
+  module is now a missing name in one call rather than a tool that quietly
+  vanished, two tools with one name are refused at startup, and a test's
+  registry no longer depends on what else was imported. `impi` builds its
+  own in `impi.engine_tools.engine_registry()`. **Breaks:** `build_registry()`
+  takes the modules (or tools) to offer, and an import kept only for its
+  `@tool` side effect now offers nothing; `ToolWiring` needs `registry=` when
+  tools are enabled.
+- **A preview can carry a verbatim block.** `CallPreview(block_label=, block=)`
+  reaches the confirmation card as its block, whole — for a tool that shows a
+  script or a command line the person must read as written; raw arguments are
+  still the fallback without a preview, cut at the usual limit.
+- **An account policy is told what the application knows.**
+  `OAuthConnections.finish(..., facts={"email": …})` hands plain facts about
+  who came back to `AccountPolicy.refusal(owner, provider, account, facts)`,
+  so a policy that matches on something only the callback route knows reads it
+  there instead of from a context variable. **Breaks:** `AccountPolicy.refusal`
+  takes a fourth argument.
+- A caller's name (`HTTP_CALLER_TOKEN__<NAME>`) may not contain `:`, which is
+  the conversation key's separator; settings refuse one that does.
 
 ## v0.25.0 — 2026-10-15
 

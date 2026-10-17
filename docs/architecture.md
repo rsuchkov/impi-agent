@@ -196,8 +196,13 @@ composition root never branches on transport inline.
 ## Tools
 
 `crucible.tools` is a framework, not a set of tools. A tool is a Python class
-registered with `@tool` (name, JSON-Schema parameters, `execute`, and the
-capabilities it `requires`). At runtime:
+(name, JSON-Schema parameters, `execute`, and the capabilities it `requires`);
+marked `@tool` in the module that defines it, and the composition root names
+the modules the deployment offers — `build_registry(builtin_tools, my_tools)`,
+plus a list of instances it configured itself — into the `ToolWiring`. The
+mark registers nothing; it says the class is a tool the root may list, not a
+base or a helper. A forgotten module is a missing name in that call, not a
+tool that quietly vanished. At runtime:
 
 - Each agent gets a per-agent **manifest** (the tools it may use) and a secret
   **token**, injected into its `pi` subprocess env; each conversation's

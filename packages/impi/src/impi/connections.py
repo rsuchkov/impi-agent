@@ -93,7 +93,9 @@ class ChatEmailPolicy:
         self._providers = providers
         self._chat_on_gateway = chat_on_gateway
 
-    async def refusal(self, owner: str, provider: str, account: ProviderAccount) -> str | None:
+    async def refusal(
+        self, owner: str, provider: str, account: ProviderAccount, facts: Mapping[str, str]
+    ) -> str | None:
         settings = self._providers.get(provider)
         if settings is None or not settings.match_email:
             return None

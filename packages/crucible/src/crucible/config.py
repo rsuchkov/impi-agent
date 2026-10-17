@@ -659,6 +659,11 @@ class Settings(BaseSettings):
                 continue
             suffix = key[len(token_prefix):]
             name = suffix.lower().replace("_", "-")
+            if ":" in name:
+                # The name is the realm, and the realm is the prefix of every
+                # conversation key (`realm:conversation`): a colon in it
+                # would make the key unreadable from the other end.
+                raise ValueError(f"{key}: a caller's name must not contain ':'")
             raw_allow = self._override(f"{agents_prefix}{suffix}")
             allow = (
                 None

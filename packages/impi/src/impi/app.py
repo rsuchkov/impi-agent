@@ -23,15 +23,6 @@ from datetime import datetime, timedelta, timezone
 from importlib import metadata
 from pathlib import Path
 
-# Importing these runs their @tool decorators so build_registry() sees them:
-# crucible's generic ask/form tools plus impi's chat-management and
-# agent-provisioning tools.
-import crucible.builtin_tools  # noqa: E402,F401
-import impi.agent_tools  # noqa: E402,F401
-import impi.chat_tools  # noqa: E402,F401
-import impi.connection_tools  # noqa: E402,F401
-import impi.skill_tools  # noqa: E402,F401
-import impi.task_tools  # noqa: E402,F401
 from crucible.approvals import PendingApprovals
 from crucible.attachments import AttachmentStore
 from crucible.confinement import landlock_abi
@@ -97,6 +88,7 @@ from impi.deployment_report import (
     needs_receiver,
     select_specs,
 )
+from impi.engine_tools import engine_registry
 from impi.gateways import resolve_gateway
 from impi.profiles import (
     IMPI_ROOT,
@@ -540,7 +532,7 @@ def build_app(settings: ImpiSettings) -> App:
         window_s=settings.agent_rate_window_s,
     )
     tools = ToolWiring(
-        settings.tools, data_dir=settings.data_dir,
+        settings.tools, registry=engine_registry(), data_dir=settings.data_dir,
         interactivity_on=settings.integrations.enabled,
         files_on=settings.attachments_enabled,
         scheduler_on=settings.scheduler.enabled,

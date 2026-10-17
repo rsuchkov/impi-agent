@@ -4,16 +4,13 @@ from pathlib import Path
 import aiohttp
 import pytest
 
-import crucible.builtin_tools  # noqa: F401  # registers the generic ask/form tools
-import impi.connection_tools  # noqa: F401  # registers the connected-account tools the registry test lists
-import impi.skill_tools  # noqa: F401  # registers the skill tools the registry test lists
-import impi.task_tools  # noqa: F401  # registers the task tools the registry test lists
 from crucible.ports.chat.admin import ChannelMember
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.types import PostSnippet
 from crucible.tools.base import (
     SPEAKS_TO_USER_NOTE,
     UNTRUSTED_NOTE,
+    Tool,
     ToolContext,
     ToolError,
 )
@@ -28,6 +25,7 @@ from impi.chat_tools import (
     ReadChannel,
     SendMessage,
 )
+from impi.engine_tools import engine_registry
 from impi.provisioning import BotCredentials, CreateAgentSettings
 
 
@@ -184,7 +182,7 @@ async def test_read_channel_clamps_bad_limit_to_default() -> None:
 
 async def _server(port: int) -> tuple[ToolServer, FakeAdmin]:
     admin = FakeAdmin()
-    reg = build_registry()
+    reg = engine_registry()
     server = ToolServer(
         reg,
         directory=FakeDirectory(AGENTS),
@@ -247,7 +245,7 @@ async def test_server_forbids_tool_outside_agent_allowlist() -> None:
     # agent doesn't allowlist is 403, not run (server-side enforcement).
     admin = FakeAdmin()
     server = ToolServer(
-        build_registry(),
+        engine_registry(),
         directory=FakeDirectory(AGENTS),
         admins={"assistant": admin},
         tokens={"tok": "assistant"},
@@ -325,7 +323,7 @@ async def test_auto_invite_skipped_when_owner_unset() -> None:
 
 
 def test_registry_manifest_carries_schema() -> None:
-    reg = build_registry()
+    reg = engine_registry()
     manifest = reg.manifest(("list_agents", "create_channel", "unknown"))
     names = [e["name"] for e in manifest]
     assert names == ["list_agents", "create_channel"]  # unknown skipped
@@ -368,7 +366,7 @@ def test_the_manifest_does_not_carry_the_confirmation_flag() -> None:
 
 
 def test_registry_knows_all_default_tools() -> None:
-    reg = build_registry()
+    reg = engine_registry()
     assert set(reg.names()) == {
         "list_agents", "create_channel", "invite_to_channel", "get_channel_members",
         "send_message", "read_channel", "create_agent",
@@ -383,7 +381,7 @@ def test_registry_knows_all_default_tools() -> None:
 async def test_server_injects_per_tool_config() -> None:
     admin = FakeAdmin()
     server = ToolServer(
-        build_registry(),
+        engine_registry(),
         directory=FakeDirectory(AGENTS),
         admins={"assistant": admin},
         tokens={"tok": "assistant"},
@@ -409,7 +407,7 @@ async def test_server_injects_per_tool_config() -> None:
 def test_registry_load_configs_is_generic() -> None:
     # create_channel declares settings_cls -> its config is loaded; tools without
     # settings are absent. Adding a configured tool needs no wiring change.
-    reg = build_registry()
+    reg = engine_registry()
     configs = reg.load_configs(env_file="/nonexistent.env")  # isolate from real .env
     assert "create_channel" in configs
     assert isinstance(configs["create_channel"], CreateChannelSettings)
@@ -431,7 +429,7 @@ def test_require_accessors_raise_when_capability_absent() -> None:
 async def test_tool_runs_without_an_admin_client() -> None:
     # A gateway without channel administration (e.g. Slack) registers no admin;
     # a tool that doesn't need one must still run — not 500 on a missing admin.
-    reg = build_registry()
+    reg = engine_registry()
     server = ToolServer(
         reg,
         directory=FakeDirectory(AGENTS),
@@ -796,7 +794,7 @@ def test_create_agent_is_confirmation_gated() -> None:
     from crucible.tools.wiring import _gate_tools
 
     assert CreateAgent.requires_confirmation is True
-    reg = build_registry()
+    reg = engine_registry()
     kept, dropped = _gate_tools(reg, ("create_agent",), frozenset())
     assert kept == () and dropped == {"create_agent": frozenset({CAP_CONFIRMATION})}
     kept, dropped = _gate_tools(reg, ("create_agent",), frozenset({CAP_CONFIRMATION}))
@@ -1020,7 +1018,7 @@ def test_the_speech_note_is_generated_not_written_by_hand() -> None:
     # Exactly once in what the model is shown, and nowhere in the tool's own
     # description — the moment someone pastes it in by hand, the wordings can
     # drift apart again, which is the whole thing this replaces.
-    reg = build_registry()
+    reg = engine_registry()
     speaking = ("ask_user_buttons", "ask_user_select", "open_form", "open_screen")
     for entry in reg.manifest(speaking):
         declared = reg.get(entry["name"])
@@ -1035,7 +1033,7 @@ def test_the_speech_note_is_generated_not_written_by_hand() -> None:
 def test_no_tool_description_repeats_the_turn_ending_prose() -> None:
     # The anti-drift pin. A description says WHAT the tool does and where the
     # answer arrives; how to speak around it comes from the flag, once.
-    reg = build_registry()
+    reg = engine_registry()
     for name in reg.names():
         declared = reg.get(name)
         assert declared is not None
@@ -1048,7 +1046,7 @@ def test_exactly_the_interaction_tools_speak_to_the_user() -> None:
     # send_file and send_ephemeral are deliberately absent: both post something,
     # but neither is the whole of what the agent has to say, and "do not repeat
     # what was posted" would be wrong advice beside a file.
-    reg = build_registry()
+    reg = engine_registry()
     tools = {name: reg.get(name) for name in reg.names()}
     assert all(t is not None for t in tools.values())
     speaking = {name for name, t in tools.items() if t is not None and t.speaks_to_user}
@@ -1117,14 +1115,14 @@ def test_exactly_the_tools_that_quote_people_return_untrusted_text() -> None:
     # provider's API answers by whoever wrote the issue or the page. Listings of
     # the operator's own agents, tasks and skills are not flagged: the operator
     # put them there.
-    reg = build_registry()
+    reg = engine_registry()
     tools = {name: reg.get(name) for name in reg.names()}
     untrusted = {n for n, t in tools.items() if t is not None and t.returns_untrusted}
     assert untrusted == {"read_channel", "get_channel_members", "connected_api_read", "connected_api_write"}
 
 
 def test_the_manifest_tells_the_model_which_results_are_other_peoples_text() -> None:
-    reg = build_registry()
+    reg = engine_registry()
     entries = {e["name"]: e for e in reg.manifest(("read_channel", "list_agents"))}
     assert entries["read_channel"]["returns_untrusted"] is True
     assert entries["read_channel"]["description"].endswith(UNTRUSTED_NOTE)
@@ -1194,7 +1192,7 @@ def test_every_confirmed_tool_describes_its_call() -> None:
     # into; a confirmed tool that leaves it to the raw arguments has no preview.
     from crucible.tools.base import Describing
 
-    reg = build_registry()
+    reg = engine_registry()
     tools = [reg.get(name) for name in reg.names()]
     gated = [t for t in tools if t is not None and t.requires_confirmation]
     assert gated, "no confirmed tool is registered — the check is vacuous"
@@ -1408,6 +1406,7 @@ def test_connections_are_promised_exactly_when_they_are_handed_over(tmp_path) ->
     def wiring(**flags) -> ToolWiring:
         return ToolWiring(
             ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
+            registry=engine_registry(),
             data_dir=str(tmp_path), interactivity_on=False, **flags,
         )
 
@@ -1428,7 +1427,7 @@ async def test_the_server_refuses_a_tool_outside_the_conversations_set() -> None
 
     admin = FakeAdmin()
     server = ToolServer(
-        build_registry(),
+        engine_registry(),
         directory=FakeDirectory(AGENTS),
         admins={"assistant": admin},
         tokens={"tok": "assistant"},
@@ -1468,7 +1467,7 @@ def test_session_env_writes_the_conversations_manifest_within_the_agents(tmp_pat
 
     wiring = ToolWiring(
         ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
-        data_dir=str(tmp_path), interactivity_on=True,
+        registry=engine_registry(), data_dir=str(tmp_path), interactivity_on=True,
     )
     spec = AgentSpec(
         name="assistant", display_name="A", role="r", description="d", profile_dir=tmp_path,
@@ -1493,3 +1492,87 @@ def test_session_env_writes_the_conversations_manifest_within_the_agents(tmp_pat
     assert "assistant--dm1" not in wiring.session_allowlists
     with pytest.raises(ValueError):
         wiring.session_env("assistant", "../escape", ("list_agents",))
+
+
+async def test_the_servers_session_door_is_the_mapping_it_was_built_with_even_when_empty() -> None:
+    # The wiring's mapping is empty when the server is built and filled as
+    # conversations start; a server that copied it would never see an entry.
+    from crucible.tools.server import NOT_IN_CONVERSATION_ERROR
+
+    door: dict[str, frozenset[str]] = {}
+    server = ToolServer(
+        engine_registry(),
+        directory=FakeDirectory(AGENTS),
+        admins={"assistant": FakeAdmin()},
+        tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"list_agents", "create_channel"})},
+        session_allowlists=door,
+        port=8468,
+    )
+    await server.start()
+    try:
+        door["assistant--narrow"] = frozenset({"list_agents"})  # written after the build
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8468/tool/create_channel", json={"display_name": "X"},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--narrow"},
+            ) as resp:
+                assert resp.status == 403
+                assert (await resp.json()) == {"error": NOT_IN_CONVERSATION_ERROR}
+    finally:
+        await server.stop()
+
+
+def test_two_tools_with_one_name_are_refused_when_the_registry_is_built() -> None:
+    # Said at startup, not resolved by whichever came later in the list.
+    from impi.chat_tools import ListAgents
+
+    with pytest.raises(ValueError, match="two tools are called 'list_agents'"):
+        build_registry([ListAgents, ListAgents()])  # a class and a configured instance alike
+
+
+def test_a_registry_takes_classes_and_instances_alike() -> None:
+    from impi.chat_tools import ListAgents, ReadChannel
+
+    reg = build_registry([ListAgents, ReadChannel()])
+    assert reg.names() == ["list_agents", "read_channel"]
+
+
+def test_a_module_contributes_what_it_marks_and_nothing_it_imports() -> None:
+    # The mark is the root's permission to list a class; a base that is also a
+    # Tool subclass, and a tool re-exported from another module, are not it.
+    import types
+    from typing import Any, ClassVar
+
+    from crucible.tools.registry import tool
+    from impi.chat_tools import ListAgents
+
+    module = types.ModuleType("app.tools")
+
+    class _Base(Tool):  # a helper: no mark, so never offered
+        name = "base"
+        description = ""
+        parameters: ClassVar[dict[str, Any]] = {}
+
+        async def run(self, args: dict[str, Any], ctx: ToolContext) -> Any:
+            return None
+
+    @tool
+    class Offered(_Base):
+        name = "offered"
+
+    class Unmarked(_Base):  # the mark is not inherited
+        name = "unmarked"
+
+    for cls in (_Base, Offered, Unmarked):
+        cls.__module__ = module.__name__
+    vars(module).update(Base=_Base, Offered=Offered, Unmarked=Unmarked, ListAgents=ListAgents)
+
+    assert build_registry(module).names() == ["offered"]
+    # ...so two modules sharing an import do not make a duplicate; a tool
+    # marked in each of two sources still does.
+    from impi import chat_tools
+
+    assert "offered" in build_registry(module, chat_tools).names()
+    with pytest.raises(ValueError, match="two tools are called 'offered'"):
+        build_registry(module, [Offered])

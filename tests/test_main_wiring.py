@@ -13,6 +13,7 @@ from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.store.sqlite import SqliteSessionStore
 from impi.app import App, build_app, build_pi_extensions
 from impi.config import ImpiSettings as Settings
+from impi.engine_tools import engine_registry
 from impi.profiles import build_pi_env
 
 AGENT_YAML = """\
@@ -91,11 +92,10 @@ def test_build_app_skips_agents_without_tokens(tmp_path: Path, monkeypatch) -> N
 
 
 def test_gate_tools_drops_tools_missing_a_capability() -> None:
-    from crucible.tools import build_registry
     from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FORMS, CAP_WIDGETS
     from crucible.tools.wiring import _gate_tools
 
-    reg = build_registry()
+    reg = engine_registry()
     slack_caps = frozenset({CAP_WIDGETS, CAP_FORMS})  # a Slack agent: no chat_admin
     kept, dropped = _gate_tools(
         reg, ("list_agents", "create_channel", "ask_user_buttons", "read"), slack_caps
@@ -210,7 +210,7 @@ def test_a_reloaded_profile_updates_the_servers_allowlist(tmp_path: Path) -> Non
         ToolSettings(
             enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900
         ),
-        data_dir=str(tmp_path), interactivity_on=True,
+        registry=engine_registry(), data_dir=str(tmp_path), interactivity_on=True,
     )
     before = AgentSpec(
         name="assistant", display_name="A", role="r", description="d",

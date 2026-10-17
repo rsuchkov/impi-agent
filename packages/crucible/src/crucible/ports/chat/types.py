@@ -138,14 +138,17 @@ class PreviewRow:
 @dataclass(frozen=True)
 class CallPreview:
     """What a call a person is asked to confirm would do, as the system knows
-    it: a one-line title, labelled rows, and whether it deserves a warning (an
-    irreversible step, a file that will run). Plain data; each channel draws it
-    its own way — a chat renders it into the card's text, a program reading a
-    journal gets the rows themselves."""
+    it: a one-line title, labelled rows, whether it deserves a warning (an
+    irreversible step, a file that will run), and a verbatim piece the person
+    must read as written — a script, a command line — under ``block_label``.
+    Plain data; each channel draws it its own way — a chat renders it into the
+    card's text, a program reading a journal gets the rows themselves."""
 
     title: str
     rows: tuple[PreviewRow, ...] = ()
     danger: bool = False
+    block_label: str = ""
+    block: str = ""
 
 
 # How a closed card was decided, for a program that draws its own line rather

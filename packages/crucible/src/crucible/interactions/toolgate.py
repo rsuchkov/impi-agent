@@ -347,6 +347,10 @@ def _card(
         title=preview.title,
         tool=tool,
         fields=tuple(preview.rows),
+        # The preview's own verbatim piece, whole: it is what the person is
+        # asked to read, and a cut script is a different script.
+        block_label=preview.block_label,
+        block=preview.block,
         danger=preview.danger,
         expires_at=expires_at,
     )

@@ -837,3 +837,30 @@ async def test_a_watch_with_nobody_to_ask_ends_at_once_and_a_failing_hook_is_ask
     assert task.next_run_at == iso(clock.now + timedelta(minutes=15))
     assert await store.list_runs("tsk_2") == []
     assert "gitlab is down" in scheduler._last_error
+
+
+async def test_a_watch_hook_that_never_answers_does_not_stop_the_ticker(store, monkeypatch) -> None:
+    """The ticker asks its due tasks one after another: a hook that hangs
+    would hold every task on the engine. It is given a bounded wait and the
+    watch is asked again next period."""
+    from crucible.scheduler import service
+
+    monkeypatch.setattr(service, "WATCH_CHECK_TIMEOUT_S", 0.05)
+
+    class Hanging:
+        async def check(self, agent: str, watch_key: str):
+            await asyncio.Event().wait()
+
+    clock = Clock()
+    scheduler, parts = _scheduler(store, clock, watches=Hanging())
+    await store.create_task(_watch(clock))
+    await store.create_task(_task(clock, id="tsk_2", name="digest-2", conversation_id="dm2"))
+
+    await asyncio.wait_for(scheduler.tick(), 2.0)
+    await _settle()
+
+    watch = await store.get_task("tsk_1")
+    assert watch is not None and watch.state == STATE_IDLE
+    assert watch.next_run_at == iso(clock.now + timedelta(minutes=15))  # asked again next period
+    assert "TimeoutError" in scheduler._last_error
+    assert [r.agent for r in parts["dispatcher"].requests] == ["assistant"]  # the other task ran

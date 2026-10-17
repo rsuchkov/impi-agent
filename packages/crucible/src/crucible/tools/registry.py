@@ -1,30 +1,53 @@
-"""ToolRegistry + a ``@tool`` decorator to add tools without touching a list.
+"""ToolRegistry: the tools a deployment offers, built from the modules its
+composition root names.
 
-Adding a tool: define a class in any module the composition root imports and
-decorate it with ``@tool``. It self-registers; the manifest and the tool
-extension pick it up automatically. The framework bundles no tools of its own —
-see ``crucible.builtin_tools`` for the generic ones.
+A tool is a ``Tool`` class marked ``@tool`` in the module that defines it. The
+mark registers nothing: it says this class is a tool the root may list, as
+opposed to a base or a helper that also subclasses ``Tool``. The root names
+the modules — ``build_registry(builtin_tools, my_tools)`` — and the registry
+is what those modules mark, plus any tool the root configured itself (an
+instance built from a definition at startup, passed in a list). Nothing
+registers by being imported: a forgotten module is a missing name in that
+call rather than a tool that quietly vanished, and a test's registry does not
+depend on what else was imported before it. The framework bundles no tools of
+its own — see ``crucible.builtin_tools`` for the generic ones.
 """
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
+from types import ModuleType
 from typing import Any, TypeVar, cast
 
 from crucible.private_files import private_dir, write_private
 from crucible.tool_manifests import manifest_path, session_manifest_path
 from crucible.tools.base import SPEAKS_TO_USER_NOTE, UNTRUSTED_NOTE, Tool
 
-_registered: list[Tool] = []
-
 _ToolClass = TypeVar("_ToolClass", bound=type[Tool])
+
+# The mark ``@tool`` leaves on a class; what ``build_registry`` looks for in a
+# module. A dunder so a subclass does not inherit a mark it did not ask for
+# — the check reads the class's own namespace, not its MRO.
+_TOOL_MARK = "__crucible_tool__"
 
 
 def tool(cls: _ToolClass) -> _ToolClass:
-    """Register a tool class (instantiated once) into the default registry.
+    """Mark a tool class for ``build_registry`` to collect from its module.
     Returns the class as it was, so what it declares beyond the port — a
     ``describe``, say — stays visible to a caller holding it by name."""
-    _registered.append(cast(Tool, cls()))
+    setattr(cls, _TOOL_MARK, True)
     return cls
+
+
+def marked_tools(module: ModuleType) -> list[type[Tool]]:
+    """The ``@tool`` classes a module defines, in definition order — not one
+    it imported from elsewhere, so a re-export does not count twice."""
+    # The mark alone says it is a tool: ``Tool`` is a protocol with attributes,
+    # which ``issubclass`` cannot check, and a marked class promises the port.
+    return [
+        cast(type[Tool], obj) for obj in vars(module).values()
+        if isinstance(obj, type) and _TOOL_MARK in vars(obj) and obj.__module__ == module.__name__
+    ]
 
 
 class ToolRegistry:
@@ -102,9 +125,20 @@ class ToolRegistry:
         return path
 
 
-def build_registry() -> ToolRegistry:
-    """Snapshot every tool registered via @tool so far. The framework bundles no
-    tools of its own — the composition root imports the tool modules it wants
-    (``crucible.builtin_tools`` for the generic ask/form tools, plus any
-    app-specific modules) before calling this."""
-    return ToolRegistry(tuple(_registered))
+def build_registry(*sources: ModuleType | Iterable[Tool | type[Tool]]) -> ToolRegistry:
+    """The registry over what the composition root names: a module, for the
+    tools marked ``@tool`` in it; or a list of tools — each a class,
+    instantiated once here, or an instance the root configured itself. Two
+    tools with one name is a mistake in the sources, said at startup rather
+    than resolved by order."""
+    instances: list[Tool] = []
+    seen: set[str] = set()
+    for source in sources:
+        entries = marked_tools(source) if isinstance(source, ModuleType) else source
+        for entry in entries:
+            instance = entry() if isinstance(entry, type) else entry
+            if instance.name in seen:
+                raise ValueError(f"two tools are called {instance.name!r}")
+            seen.add(instance.name)
+            instances.append(instance)
+    return ToolRegistry(tuple(instances))

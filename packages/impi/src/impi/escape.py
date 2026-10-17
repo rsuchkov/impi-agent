@@ -28,20 +28,12 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-# The engine's tool modules, imported for their registrations: what they
-# register is exactly what does not exist on the host, and the registry is how
-# that list stays true when a tool is added.
-import crucible.builtin_tools  # noqa: F401
-import impi.agent_tools  # noqa: F401
-import impi.chat_tools  # noqa: F401
-import impi.skill_tools  # noqa: F401
-import impi.task_tools  # noqa: F401
 from crucible.ports.agent import AgentSpec
 from crucible.runtimes.pi.hosts.local import interactive_args
 from crucible.runtimes.pi.profiles import build_pi_profile
 from crucible.runtimes.pi.spawn import SpawnRequest
-from crucible.tools.registry import build_registry
 from impi.config import ImpiSettings
+from impi.engine_tools import engine_registry
 from impi.profiles import IMPI_ROOT, build_pi_env
 
 ESCAPE_NOTE = """\
@@ -73,7 +65,7 @@ BRIDGE_TOOLS = frozenset({"ask_user_confirm"})
 def host_tools(tools: Iterable[str]) -> tuple[str, ...]:
     """The profile's allowlist minus what only the engine could serve. pi's
     own built-ins and anything an extension of the profile adds stay."""
-    engine = set(build_registry().names()) | BRIDGE_TOOLS
+    engine = set(engine_registry().names()) | BRIDGE_TOOLS
     return tuple(name for name in tools if name not in engine)
 
 

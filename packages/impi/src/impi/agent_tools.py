@@ -2,7 +2,7 @@
 scaffold the agent profile, and record its token in the engine .env — the
 chat-side twin of `impi agent add`, sharing the same provisioning core.
 
-Registered globally (``@tool``) but named only in the bundled support agent's
+Offered by the engine's registry but named only in the bundled support agent's
 allowlist; a hard in-handler guard keeps any other caller out even if a user
 profile lists it. The confirmation flag makes the runtime ask the operator in
 chat before the tool runs.

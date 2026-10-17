@@ -38,7 +38,7 @@ from crucible.tools.base import (
     CAP_WIDGETS,
 )
 from crucible.tools.proofs import SessionProofBook
-from crucible.tools.registry import ToolRegistry, build_registry
+from crucible.tools.registry import ToolRegistry
 from crucible.tools.server import ToolServer
 
 logger = logging.getLogger(__name__)
@@ -77,12 +77,16 @@ def _gate_tools(
 
 class ToolWiring:
     def __init__(
-        self, tools: ToolSettings, *, data_dir: str, interactivity_on: bool,
-        files_on: bool = False, scheduler_on: bool = False,
+        self, tools: ToolSettings, *, registry: ToolRegistry | None = None, data_dir: str,
+        interactivity_on: bool, files_on: bool = False, scheduler_on: bool = False,
         confirmations_on: bool = False, connections_on: bool = False,
     ) -> None:
         self._tools = tools
-        self.registry = build_registry() if tools.enabled else None
+        # The tools this deployment offers, as the composition root listed them
+        # (``build_registry``). With tools off there is no registry to hold.
+        if tools.enabled and registry is None:
+            raise ValueError("ToolWiring: tools are enabled but no registry was given")
+        self.registry = registry if tools.enabled else None
         self.manifests_dir = manifests_dir(data_dir)
         self.tokens: dict[str, str] = {}  # token -> agent name (tool server gate)
         self.admins: dict[str, ChatAdmin] = {}  # agent -> its own admin client

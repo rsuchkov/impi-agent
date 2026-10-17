@@ -1,3 +1,4 @@
+import dataclasses
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1452,3 +1453,54 @@ async def test_a_persons_turn_leaves_no_engine_stamp(tmp_path: Path) -> None:
         assert (await store.list("assistant"))[0].last_engine_turn_at == ""
     finally:
         await store.close()
+
+
+async def test_a_batch_from_several_people_gets_what_they_are_jointly_entitled_to(
+    tmp_path: Path,
+) -> None:
+    """A channel turn may merge messages from several people: each is asked
+    about once, the turn gets only the tools all of them may use, and the
+    application's instructions only where every answer says the same."""
+
+    class ByAuthor:
+        def __init__(self) -> None:
+            self.asked: list[str] = []
+
+        async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement:
+            self.asked.append(msg.user_id)
+            return {
+                "u1": Entitlement(tools=("read", "jira_comment", "jira_transition"), instructions="Admin."),
+                "u2": Entitlement(tools=("jira_comment", "read"), instructions="Viewer."),
+            }[msg.user_id]
+
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    source = ByAuthor()
+    profiles = FakeConversationProfiles()
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant",
+                     entitlements=source, conversation_profiles=profiles)
+    first = _thread_msg(post="p1")
+    second = dataclasses.replace(
+        _thread_msg(post="p2"), user_id="u2", username="bob",
+        ref=ConversationRef(channel_id="ch1", conversation_id="root1", message_id="p2", thread_root_id="root1"),
+    )
+    third = _thread_msg(post="p3")  # u1 again: asked once
+    try:
+        await flow.handle_batch([first, second, third], FakeChat())
+        assert sorted(source.asked) == ["u1", "u2"]
+        (_, _, entitlement, _) = profiles.built[0]
+        assert entitlement == Entitlement(tools=("read", "jira_comment"), instructions="")
+    finally:
+        await store.close()
+
+
+def test_a_shared_entitlement_is_the_intersection_and_agreement() -> None:
+    from crucible.ports.entitlement import shared_entitlement
+
+    assert shared_entitlement([]) == Entitlement()
+    assert shared_entitlement([Entitlement(), Entitlement()]) == Entitlement()  # nobody restricts
+    assert shared_entitlement([Entitlement(tools=("a", "b")), Entitlement()]) == Entitlement(tools=("a", "b"))
+    assert shared_entitlement([Entitlement(tools=("a", "b")), Entitlement(tools=())]) == Entitlement(tools=())
+    both = shared_entitlement([Entitlement(instructions="x"), Entitlement(instructions="x")])
+    assert both.instructions == "x"
+    assert shared_entitlement([Entitlement(instructions="x"), Entitlement()]).instructions == ""

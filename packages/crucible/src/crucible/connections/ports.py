@@ -6,6 +6,7 @@ is stored, the application's rule for which account may be bound to whom, and
 where the audit trail goes.
 """
 
+from collections.abc import Mapping
 from typing import Protocol
 
 from crucible.connections.types import OAuthTokens
@@ -49,9 +50,15 @@ class Sealer(Protocol):
 class AccountPolicy(Protocol):
     """The application's rule for which provider account may be bound to whom
     — the same email, a membership. None allows it; a reason refuses it, and
-    the tokens just issued are revoked."""
+    the tokens just issued are revoked. ``facts`` is what the application
+    knew about the person when it finished the connect (the email of the
+    session that brought the code, say) — plain strings, never a secret —
+    handed through ``finish(facts=…)`` so the policy need not reach for it
+    out of band."""
 
-    async def refusal(self, owner: str, provider: str, account: ProviderAccount) -> str | None: ...
+    async def refusal(
+        self, owner: str, provider: str, account: ProviderAccount, facts: Mapping[str, str]
+    ) -> str | None: ...
 
 
 class ConnectionsAudit(Protocol):

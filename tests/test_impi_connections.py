@@ -150,13 +150,13 @@ async def test_the_accounts_email_must_be_the_chat_users(
     policy = ChatEmailPolicy(connection_providers(GITLAB), {"mattermost": chat}.get)  # type: ignore[arg-type]
     account = ProviderAccount(id="7", username="alice", email=account_email)
 
-    assert await policy.refusal("mattermost:u1", "gitlab", account) == refused
+    assert await policy.refusal("mattermost:u1", "gitlab", account, {}) == refused
     assert chat.asked == ["u1"]
 
 
 async def test_no_client_for_the_gateway_is_no_email() -> None:
     policy = ChatEmailPolicy(connection_providers(GITLAB), lambda gateway: None)
-    assert await policy.refusal("slack:U1", "gitlab", ALICE) == "your chat account shows no email to compare it with"
+    assert await policy.refusal("slack:U1", "gitlab", ALICE, {}) == "your chat account shows no email to compare it with"
 
 
 async def test_a_provider_that_does_not_match_emails_takes_any_account() -> None:
@@ -164,8 +164,8 @@ async def test_a_provider_that_does_not_match_emails_takes_any_account() -> None
     providers = connection_providers({**GITLAB, "CONNECTION_MATCH_EMAIL__GITLAB": "false"})
     policy = ChatEmailPolicy(providers, {"mattermost": chat}.get)  # type: ignore[arg-type]
 
-    assert await policy.refusal("mattermost:u1", "gitlab", ALICE) is None
-    assert await policy.refusal("mattermost:u1", "unknown", ALICE) is None
+    assert await policy.refusal("mattermost:u1", "gitlab", ALICE, {}) is None
+    assert await policy.refusal("mattermost:u1", "unknown", ALICE, {}) is None
     assert chat.asked == []  # nobody's profile read for nothing
 
 
@@ -260,7 +260,7 @@ async def test_a_built_service_acts_for_the_chat_user_of_the_agent_asking(
         await connections.callback.stop()
     # The email is read through the client of any agent on the owner's gateway.
     policy = connections.service._policy  # noqa: SLF001
-    assert policy is not None and await policy.refusal("mattermost:u9", "gitlab", ALICE) is None
+    assert policy is not None and await policy.refusal("mattermost:u9", "gitlab", ALICE, {}) is None
     assert chat.asked == ["u9"]
 
 

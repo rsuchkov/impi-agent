@@ -98,3 +98,14 @@ def test_the_line_after_a_cookie_and_the_next_header_survive() -> None:
     assert out.endswith("\nX-Request-Id: 42")
     quoted = scrub("headers={'Cookie': 'a=1; session=s3cr3t', 'Accept': 'json'}")
     assert "'Accept': 'json'" in quoted
+
+
+@pytest.mark.parametrize(("text", "gone", "kept"), [
+    ("cookie=JSESSIONID=abc; other=SECRET-TAIL", "SECRET-TAIL", "cookie="),
+    ("headers={'cookie': 'a=1; session=s3cr3t'} status=200", "s3cr3t", "status=200"),
+    ("GET /cb?authorization=Basic%20dXNlcg==&state=x", "dXNlcg", "&state=x"),
+    ("Cookie=a=1; b=SECRET\nnext line kept", "SECRET", "next line kept"),
+])
+def test_a_cookie_or_authorization_variable_goes_whole_too(text: str, gone: str, kept: str) -> None:
+    out = scrub(text)
+    assert gone not in out and kept in out and REDACTED in out

@@ -107,6 +107,12 @@ a provider allows that run there.
    which agents, the redirect URI to register, and what would keep a connect
    from working.
 
+An application with a policy of its own (`AccountPolicy`) decides by what it
+knew about the person when it finished the connect: the route that takes the
+code passes it as `finish(state, code, facts={"email": …})`, and the policy's
+`refusal(owner, provider, account, facts)` reads it there rather than from a
+context variable around the call.
+
 ## The tools
 
 | Tool | Does | Asks first |

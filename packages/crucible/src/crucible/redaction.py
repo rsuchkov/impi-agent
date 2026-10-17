@@ -51,6 +51,10 @@ BUILTIN_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"""(?i)(\b(?:(?:proxy-)?authorization|(?:set-)?cookie)\s*:\s*)[^\r\n"']+"""),
     # A bearer token on its own.
     re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+"),
+    # A cookie or an authorization value written as a variable (a repr, a
+    # query string) is one value with spaces and semicolons inside: to the end
+    # of the line, the quote that closes it, or the `&` of the next parameter.
+    re.compile(r"""(?i)(\b(?:cookie|authorization)\s*=\s*)[^\r\n"'&]+"""),
     # Variables and query parameters: TOOL_TOKEN=…, TOOL_SESSION_PROOF=…,
     # AGENTS_MM_TOKEN__SUPPORT=…, ?access_token=….
     re.compile(r"(?i)\b([a-z0-9_]*?" + _NAME_END + r"\s*=\s*)[^\s&,;]+"),

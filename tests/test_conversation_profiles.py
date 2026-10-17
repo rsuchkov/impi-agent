@@ -5,7 +5,6 @@ import dataclasses
 import json
 from pathlib import Path
 
-import crucible.builtin_tools  # noqa: F401  # registers ask_user_buttons & co.
 from crucible.config import ToolSettings
 from crucible.conversation_profiles import EntitledProfiles
 from crucible.ports.agent import AgentSpec
@@ -18,12 +17,13 @@ from crucible.runtimes.pi.profiles import (
 )
 from crucible.tool_manifests import MANIFEST_ENV
 from crucible.tools import ToolWiring
+from impi.engine_tools import engine_registry
 
 
 def _wiring(tmp_path: Path, *, enabled: bool = True) -> tuple[ToolWiring, AgentSpec]:
     wiring = ToolWiring(
         ToolSettings(enabled=enabled, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
-        data_dir=str(tmp_path), interactivity_on=True,
+        registry=engine_registry(), data_dir=str(tmp_path), interactivity_on=True,
     )
     spec = AgentSpec(
         name="assistant", display_name="A", role="r", description="d", profile_dir=tmp_path,

@@ -117,7 +117,8 @@ class Refuse:
     def __init__(self, reason: str | None) -> None:
         self.reason = reason
 
-    async def refusal(self, owner, provider, account) -> str | None:
+    async def refusal(self, owner, provider, account, facts) -> str | None:
+        self.facts = facts
         return self.reason
 
 
@@ -523,3 +524,17 @@ async def test_a_connect_refused_or_failing_to_tell_is_not_told_or_undone(caplog
         connected = await service.finish(state, code)
     assert heard == [connected] and "on_connected hook failed" in caplog.text
     assert await service.account(OWNER, "gitlab") == ALICE  # the connect stands
+
+
+async def test_what_the_application_knows_about_who_came_back_reaches_the_policy() -> None:
+    # The route that takes the code knows the person (its session's email, say);
+    # the policy decides by it without reaching for it out of band.
+    policy = Refuse(None)
+    provider = FakeProvider()
+    service = _service(provider, policy=policy)
+    state, code = provider.consent(await service.begin(OWNER, "gitlab"))
+    await service.finish(state, code, facts={"email": "alice@example.com"})
+    assert policy.facts == {"email": "alice@example.com"}
+    state, code = provider.consent(await service.begin("mattermost:u2", "gitlab"))
+    await service.finish(state, code)
+    assert policy.facts == {}  # nothing known is an empty mapping, not None

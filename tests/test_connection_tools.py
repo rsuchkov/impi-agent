@@ -13,6 +13,7 @@ from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.ports.chat.types import KIND_CHANNEL, KIND_DM
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 from crucible.tools.registry import build_registry
+from impi import connection_tools
 from impi.connection_tools import (
     MAX_RESPONSE_CHARS,
     ConnectedAccounts,
@@ -136,7 +137,7 @@ def test_the_settings_read_the_api_address_and_the_command(
 def test_the_tools_are_advertised_only_where_connections_are() -> None:
     for cls in (ConnectedAccounts, ConnectedApiRead, ConnectedApiWrite):
         assert cls.requires == frozenset({CAP_CONNECTIONS})
-        assert build_registry().get(cls.name) is not None
+        assert build_registry(connection_tools).get(cls.name) is not None
     assert ConnectedApiWrite.requires_confirmation and not ConnectedApiRead.requires_confirmation
     assert ConnectedApiRead.returns_untrusted and ConnectedApiWrite.returns_untrusted
 

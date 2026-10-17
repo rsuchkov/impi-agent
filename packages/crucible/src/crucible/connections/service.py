@@ -195,12 +195,16 @@ class OAuthConnections:
         self._audit.record(EVENT_CONNECT_START, RESULT_OK, owner=owner, provider=provider)
         return oauth.authorize_url(state=state, code_challenge=code_challenge(verifier))
 
-    async def finish(self, state: str, code: str, *, owner: str | None = None) -> Connected:
+    async def finish(
+        self, state: str, code: str, *, owner: str | None = None,
+        facts: Mapping[str, str] | None = None,
+    ) -> Connected:
         """Finish the connect ``state`` names, with the code the provider sent
         back. ``owner`` is who the application knows came back — when it knows
         (a browser that brought its session): a link started by somebody else
         is then refused. Without it the link's own owner is taken, and holding
-        the state is the proof."""
+        the state is the proof. ``facts`` is what else the application knows
+        about who came back, for its ``AccountPolicy`` to decide by."""
         link = await self._links.take_link(state_digest(state))
         if link is None or _parse(link.expires_at) <= self._clock():
             self._audit.record(EVENT_CONNECT, LINK_EXPIRED, owner=owner or "")
@@ -224,7 +228,10 @@ class OAuthConnections:
             raise
         try:
             account = await oauth.identify(tokens.access_token)
-            refusal = await self._policy.refusal(link.owner, link.provider, account) if self._policy else None
+            refusal = (
+                await self._policy.refusal(link.owner, link.provider, account, dict(facts or {}))
+                if self._policy else None
+            )
         except BaseException:
             # Issued, and about to be dropped: nobody may keep using them.
             await self._revoke_tokens(oauth, tokens)

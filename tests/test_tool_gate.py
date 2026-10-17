@@ -43,6 +43,7 @@ from crucible.tools.base import CAP_CONFIRMATION, Tool, ToolContext
 from crucible.tools.registry import ToolRegistry
 from crucible.tools.server import ToolServer
 from crucible.tools.wiring import ToolWiring, _gate_tools
+from impi.engine_tools import engine_registry
 
 AGENTS = [
     AgentInfo(name="assistant", role="r", description="", username="assistant", user_id="bot-1")
@@ -553,6 +554,7 @@ def test_arguments_cannot_forge_the_question(hostile: str) -> None:
 def _wiring(tmp_path: Path, **flags) -> ToolWiring:
     return ToolWiring(
         ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
+        registry=engine_registry(),
         data_dir=str(tmp_path), interactivity_on=True, **flags,
     )
 
@@ -758,5 +760,29 @@ async def test_a_gate_that_never_asked_says_why_and_the_model_does_not_retry(tmp
         assert status == 403
         assert told == "not asked: third write this turn without a question in between. Tell the user, and do not retry"
         assert rig.tool.ran == 0 and rig.poster.posts == []
+    finally:
+        await _close(rig)
+
+
+async def test_a_previews_verbatim_block_reaches_the_card_whole(tmp_path: Path) -> None:
+    """A tool that shows a script asks the person to read it as written: the
+    preview's block goes to the card as its block, uncut — not as a row, and
+    not trimmed the way raw arguments are."""
+    rig = await _rig(tmp_path, 8560, timeout_s=90.0)
+    script = "\n".join(f"line {i}: issue.update(x)" for i in range(400))
+    rig.tool.preview = CallPreview(
+        "run a script on IPA-7", (PreviewRow("Issue", "IPA-7"),), danger=True,
+        block_label="Script", block=script,
+    )
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        posted = await _answer(rig, ANSWER_ONCE)
+        assert await pending == 200
+        card = posted.card
+        assert card is not None
+        assert card.block == script and card.block_label == "Script"  # whole, past ARGUMENTS_LIMIT
+        assert len(script) > toolgate.ARGUMENTS_LIMIT
+        assert card.fields == (PreviewRow("Issue", "IPA-7"),)
+        assert "Script" in card_markdown(card) and "line 399" in card_markdown(card)
     finally:
         await _close(rig)

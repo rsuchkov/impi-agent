@@ -1,8 +1,8 @@
 """impi's chat-management typed tools: the multi-agent choreography surface
 (list agents, assemble channels, hand work to another agent and read its reply).
-They register additively into crucible's default tool registry via ``@tool`` and
-depend only on ports (directory, chat-admin). Importing this module runs the
-decorators, so the app imports it before building the registry."""
+Each is marked ``@tool`` and depends only on ports (directory, chat-admin); the
+engine's registry is built from this module and the other tool modules in
+``impi.engine_tools``."""
 
 import logging
 from typing import Any, ClassVar

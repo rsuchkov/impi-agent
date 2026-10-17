@@ -103,6 +103,10 @@ _ENDED = frozenset({RUN_GONE})
 # The report a watch's turn carries when the watch gave up: the scheduler's
 # own words, since the application was never able to say what happened.
 WATCH_EXPIRED_SOURCE = "scheduler"
+# How long one check of a watch may take. The ticker asks its due tasks one
+# after another, so a hook that never answers would stop every task on the
+# engine; one that is slow is asked again next period instead.
+WATCH_CHECK_TIMEOUT_S = 10.0
 
 
 class Scheduler:
@@ -356,7 +360,16 @@ class Scheduler:
         if self._watches is None:
             return WatchGone("no watch hook is wired into this engine")
         try:
-            return await self._watches.check(task.agent, task.watch_key)
+            return await asyncio.wait_for(
+                self._watches.check(task.agent, task.watch_key), WATCH_CHECK_TIMEOUT_S
+            )
+        except TimeoutError as exc:
+            self._note_error(exc)
+            logger.warning(
+                "task %s: the watch hook did not answer for %s within %.0fs; asking again next period",
+                task.id, task.watch_key, WATCH_CHECK_TIMEOUT_S,
+            )
+            return WatchPending()
         except Exception as exc:
             self._note_error(exc)
             logger.exception("task %s: the watch hook failed for %s", task.id, task.watch_key)

@@ -128,8 +128,13 @@ class ToolServer:
         # tools than its agent has an entry here (runtime session id -> its
         # tools), kept current by whoever builds the conversation's profile.
         # Checked once the session id is believed, so a process cannot step
-        # out of its conversation's set by naming another conversation.
-        self._session_allowlists: Mapping[str, frozenset[str]] = session_allowlists or {}
+        # out of its conversation's set by naming another conversation. Held
+        # by reference, like `allowlists`: the mapping is empty when the server
+        # is built and filled as conversations start, so `or {}` here would
+        # quietly swap it for one nobody writes to.
+        self._session_allowlists: Mapping[str, frozenset[str]] = (
+            session_allowlists if session_allowlists is not None else {}
+        )
         self._host = host
         self._port = port
         self._tool_configs = tool_configs or {}
