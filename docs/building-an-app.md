@@ -499,7 +499,13 @@ credential, is another user's credential.
   request it builds and your tool server stay the real ones. A tool call goes
   over HTTP with the token, the session id and the session proof the process
   was given, as the runtime's tool extension sends them, so the allowlist,
-  the proof check and the confirmation gate are all exercised.
+  the proof check and the confirmation gate are all exercised. A turn that
+  decides on what a tool answered is a coroutine with a third parameter,
+  `script(request, message, tools)`: `await tools.call(ToolCall(…))` sends
+  the call there and then and returns its `ToolOutcome` (status and body),
+  so the script can branch on it before it answers. A `ToolCall(headers=…)`
+  replaces the headers the process was given — another session's id, a proof
+  of its own making — for the test that the server turns such a call away.
   `host.opened` holds every spawn request, `host.tool_outcomes` what each
   call came back with.
 - **Acting as the person, at their own provider.** `crucible.connections`

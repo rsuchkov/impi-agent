@@ -14,12 +14,22 @@ would for the real thing.
     ))
     runtime = PiRuntime(hosts=HostRouter(host), session_proofs=proofs, ...)
 
+A turn that decides on what a tool came back with is a coroutine with a third
+parameter, the process's line to the tool server:
+
+    async def script(request, message, tools: ToolCaller) -> ScriptedTurn:
+        issue = await tools.call(ToolCall("get_issue", {"key": "X-1"}))
+        if issue.status != 200:
+            return ScriptedTurn(text="I could not read it.")
+        return ScriptedTurn(text=issue.body["result"]["summary"])
+
 ``host.opened`` holds every spawn request, ``host.tool_outcomes`` what each
 tool call came back with.
 """
 
 import asyncio
 import contextlib
+import inspect
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -33,10 +43,13 @@ from crucible.runtimes.pi.spawn import SpawnRequest
 
 @dataclass(frozen=True)
 class ToolCall:
-    """One call the scripted model makes, before it answers."""
+    """One call the scripted model makes. ``headers`` replace the ones the
+    process was given, for a call that names another session or carries a
+    proof of its own making — what the server says to it is the test."""
 
     name: str
     args: Mapping[str, Any] = field(default_factory=dict)
+    headers: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -62,8 +75,36 @@ class ToolOutcome:
     body: Mapping[str, Any]
 
 
-# (the spawn request of the process, the prompt) -> what the model does.
-TurnScript = Callable[[SpawnRequest, str], ScriptedTurn | Awaitable[ScriptedTurn]]
+class ToolCaller:
+    """The scripted process's line to the tool server: ``call`` sends one call
+    as the runtime's tool extension would — the token, the session id and the
+    session proof the process was given — reports it in the event stream and
+    returns what came back. Handed to a script that takes a third parameter,
+    so a turn can read a result before it decides what to do next."""
+
+    def __init__(self, process: "ScriptedProcess") -> None:
+        self._process = process
+
+    async def call(self, call: ToolCall) -> ToolOutcome:
+        return await self._process.call_tool(call)
+
+
+# What the model does with a prompt: from (the spawn request of the process,
+# the prompt), or from those and the tools when the script takes three.
+TurnScript = (
+    Callable[[SpawnRequest, str], ScriptedTurn | Awaitable[ScriptedTurn]]
+    | Callable[[SpawnRequest, str, ToolCaller], ScriptedTurn | Awaitable[ScriptedTurn]]
+)
+
+
+def _takes_tools(script: TurnScript) -> bool:
+    try:
+        parameters = inspect.signature(script).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(p.kind is p.VAR_POSITIONAL for p in parameters) or sum(
+        1 for p in parameters if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+    ) >= 3
 
 
 class ScriptedHost:
@@ -93,6 +134,7 @@ class ScriptedProcess:
         self._lines: asyncio.Queue[str | None] = asyncio.Queue()
         self._turn: asyncio.Task[None] | None = None
         self._closed = False
+        self._calls = 0
 
     async def send(self, line: str) -> None:
         if self._closed:
@@ -130,18 +172,16 @@ class ScriptedProcess:
         self._lines.put_nowait(None)
 
     async def _run(self, message: str) -> None:
-        turn = self._script(self._request, message)
+        self._emit({"type": "agent_start"})
+        turn = (
+            self._script(self._request, message, ToolCaller(self))  # type: ignore[call-arg]
+            if _takes_tools(self._script)
+            else self._script(self._request, message)  # type: ignore[call-arg]
+        )
         if isinstance(turn, Awaitable):
             turn = await turn
-        self._emit({"type": "agent_start"})
-        for number, call in enumerate(turn.tool_calls):
-            call_id = f"call-{number}"
-            self._emit({"type": "tool_execution_start", "toolName": call.name,
-                        "toolCallId": call_id, "args": dict(call.args)})
-            outcome = await self._call_tool(call)
-            self._outcomes.append(outcome)
-            self._emit({"type": "tool_execution_end", "toolName": call.name,
-                        "toolCallId": call_id, "isError": not 200 <= outcome.status < 300})
+        for call in turn.tool_calls:
+            await self.call_tool(call)
         if turn.error:
             self._emit(_agent_end(stop_reason="error", error=turn.error))
             self._emit({"type": "agent_settled", "aborted": False})
@@ -154,9 +194,22 @@ class ScriptedProcess:
         self._emit(_agent_end(stop_reason="stop", text=turn.text))
         self._emit({"type": "agent_settled", "aborted": False})
 
-    async def _call_tool(self, call: ToolCall) -> ToolOutcome:
+    async def call_tool(self, call: ToolCall) -> ToolOutcome:
+        """One call, reported in the event stream as the real process reports
+        it, recorded in the host's ``tool_outcomes`` and returned."""
+        call_id = f"call-{self._calls}"
+        self._calls += 1
+        self._emit({"type": "tool_execution_start", "toolName": call.name,
+                    "toolCallId": call_id, "args": dict(call.args)})
+        outcome = await self._send_call(call)
+        self._outcomes.append(outcome)
+        self._emit({"type": "tool_execution_end", "toolName": call.name,
+                    "toolCallId": call_id, "isError": not 200 <= outcome.status < 300})
+        return outcome
+
+    async def _send_call(self, call: ToolCall) -> ToolOutcome:
         """The tool extension's request (extension/index.ts), from the
-        variables this process was given."""
+        variables this process was given — or the headers the call names."""
         env = self._request.env
         url, token = env.get("TOOL_URL", ""), env.get("TOOL_TOKEN", "")
         if not url or not token:
@@ -165,6 +218,7 @@ class ScriptedProcess:
             "X-Tool-Token": token,
             "X-Runtime-Session": env.get("RUNTIME_SESSION_ID", ""),
             "X-Session-Proof": env.get(SESSION_PROOF_ENV, ""),
+            **call.headers,
         }
         try:
             async with aiohttp.ClientSession() as http:

@@ -54,6 +54,14 @@ when a release is cut, and `impi update` shows the target version's section.
   takes a fourth argument.
 - A caller's name (`HTTP_CALLER_TOKEN__<NAME>`) may not contain `:`, which is
   the conversation key's separator; settings refuse one that does.
+- **A scripted turn can read what its tools answered.** The runtime's test
+  double took a script that named every tool call up front and could not look
+  at a result. A script that takes a third parameter,
+  `script(request, message, tools)`, now calls `await tools.call(ToolCall(…))`
+  when it wants and gets the `ToolOutcome` back, so a turn branches on what a
+  tool said; and a `ToolCall(headers=…)` carries headers of the call's own —
+  another session's id, a made-up proof — for the test that the server
+  refuses it. Scripts of two parameters work as before.
 
 ## v0.25.0 — 2026-10-15
 
