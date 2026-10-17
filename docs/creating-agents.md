@@ -28,7 +28,7 @@ role: <short-role>
 description: <one line>
 runtime:
   provider: openai-codex  # OPTIONAL — omit to inherit the engine default (DEFAULT_PROVIDER)
-  model: gpt-5.5          # OPTIONAL — omit for the default; agents may run different models.
+  model: gpt-6.1-sol      # OPTIONAL — omit for the default; agents may run different models.
                           # A provider needs a model, here or in DEFAULT_MODEL
   fallback_models: [other-provider/other-model]  # optional; tried in order when the model is down
   timeout: 180            # seconds per turn

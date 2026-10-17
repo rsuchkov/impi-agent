@@ -5,6 +5,8 @@
 #   make e2e-install BROWSER=1   # also install and exercise the browser axis
 #   make e2e-install AGENTS=1    # also give each agent a container of its own
 #   make e2e-install STORE=mongo # keep the inventory in MongoDB instead of SQLite
+#   make e2e-install UPDATE_FROM=v0.24.0  # install that release, `impi update`
+#                                # to the newest tag, then assert the moved stack
 #
 # The legs that need a real model are opt-in and take their configuration from
 # outside the tree, so nothing here has to be edited to run them:
@@ -14,7 +16,8 @@
 #   E2E_LLM=1           ask the agent things and wait for it to answer
 #
 # Installs the CURRENT WORKING TREE (not a git clone, so uncommitted installer
-# changes are covered) into a temp IMPI_HOME under a dedicated compose project
+# changes are covered — except with UPDATE_FROM, which needs a clone with its
+# tags) into a temp IMPI_HOME under a dedicated compose project
 # (impi-e2e) on a non-default MM port, then asserts services, bootstrap, bots,
 # config, and the wrapper. The engine's LLM endpoint is a dummy: the engine
 # must boot and register bots without ever calling a model.
@@ -35,6 +38,13 @@ AGENTS=${AGENTS:-0}
 # Which inventory backend to install. `sqlite` is what every other run uses;
 # `mongo` adds a database container and moves the engine's state onto it.
 STORE=${STORE:-sqlite}
+# Off by default: a release to install FIRST, with the wrapper of that release
+# then updating to the newest tag of this clone. What is asserted is that the
+# stack moved: every rebuilt service recreated, one engine running, the schema
+# migrated, the version recorded. The checks after it run against the updated
+# stack. Asks for a clone rather than the working tree, so what is installed
+# is the tagged release and the update finds the tags at origin.
+UPDATE_FROM=${UPDATE_FROM:-}
 
 PASS=0
 FAIL=0
@@ -70,11 +80,19 @@ trap cleanup EXIT
 
 echo "== e2e install into $E2E_HOME (project $IMPI_PROJECT, MM port $MM_PORT) =="
 
-# 1. Stage the working tree as the "clone" (rsync keeps uncommitted changes in).
+# 1. Stage the working tree as the "clone" (rsync keeps uncommitted changes in)
+#    — or, for an update run, a real clone of this repository checked out at the
+#    release to start from: `impi update` fetches the tags from origin, which is
+#    then this working tree's own repository.
 mkdir -p "$E2E_HOME/repo"
-rsync -a --exclude .git --exclude .venv --exclude data --exclude '.*_cache' \
-    --exclude .pytest_cache --exclude node_modules "$REPO_DIR/" "$E2E_HOME/repo/"
-git -C "$E2E_HOME/repo" init -q 2>/dev/null || true
+if [ -n "$UPDATE_FROM" ]; then
+    git clone --quiet "$REPO_DIR" "$E2E_HOME/repo"
+    git -C "$E2E_HOME/repo" checkout --quiet "$UPDATE_FROM"
+else
+    rsync -a --exclude .git --exclude .venv --exclude data --exclude '.*_cache' \
+        --exclude .pytest_cache --exclude node_modules "$REPO_DIR/" "$E2E_HOME/repo/"
+    git -C "$E2E_HOME/repo" init -q 2>/dev/null || true
+fi
 
 # 2. Run the installer non-interactively.
 #
@@ -101,6 +119,82 @@ IMPI_HOME=$E2E_HOME
 # shellcheck disable=SC1091
 . "$E2E_HOME/compose.env"
 export IMPI_HOME IMPI_COMPOSE_CMD IMPI_COMPOSE_FILES
+
+# 3a. The update, when asked for: run by the wrapper the OLD release installed,
+#     because that is the wrapper a deployment updates with.
+if [ -n "$UPDATE_FROM" ]; then
+    LATEST=$(git -C "$REPO_DIR" tag -l 'v*' | sort -V | tail -n 1)
+    check "installed $UPDATE_FROM first" \
+        grep -q "^IMPI_VERSION_INSTALLED=$UPDATE_FROM\$" "$E2E_HOME/compose.env"
+    # Wait for the old engine to be up: a recreate of a container that never
+    # started would prove nothing about the one it replaced.
+    for _ in $(seq 1 30); do
+        if engine_logged "app built:"; then break; fi
+        sleep 2
+    done
+    check "the engine of $UPDATE_FROM came up" engine_logged "app built:"
+    # By the runtime's own labels: `compose ps` takes no service here with
+    # podman-compose, and the ids are what tell a recreated container from one
+    # left running.
+    RUNTIME=${IMPI_COMPOSE_CMD%% *}
+    svc_ids() { # SERVICE [all]
+        "$RUNTIME" ps ${2:+-a} -q --filter "label=com.docker.compose.project=$IMPI_PROJECT" \
+            --filter "label=com.docker.compose.service=$1"
+    }
+    declare -A ids_before=()
+    for _svc in $(build_services); do ids_before[$_svc]=$(svc_ids "$_svc"); done
+    engine_id_before=${ids_before[impi]}
+    check "impi update --yes to $LATEST" \
+        env IMPI_HOME="$E2E_HOME" "$HOME/.local/bin/impi" update --yes
+    # The release's own helpers from here on: the repo is at the new tag now.
+    # shellcheck disable=SC1091
+    . "$E2E_HOME/repo/installer/lib/compose.sh"
+    # shellcheck disable=SC1091
+    . "$E2E_HOME/compose.env"
+    check "the repo is checked out at $LATEST" \
+        test "v$(cat "$E2E_HOME/repo/VERSION")" = "$LATEST"
+    check "compose.env records $LATEST" \
+        grep -q "^IMPI_VERSION_INSTALLED=$LATEST\$" "$E2E_HOME/compose.env"
+    # Every rebuilt service is a NEW container (the v0.24.0 lesson: a rebuilt
+    # image with an unchanged definition left the old ones running), and the
+    # old engine is gone rather than running beside the new one.
+    all_recreated() {
+        local _svc _id
+        for _svc in $(build_services); do
+            _id=$(svc_ids "$_svc")
+            [ -n "$_id" ] && [ "$_id" != "${ids_before[$_svc]:-}" ] || return 1
+        done
+    }
+    check "every rebuilt service runs in a new container" all_recreated
+    one_engine() { [ "$(svc_ids impi | grep -c .)" -eq 1 ]; }
+    check "exactly one engine container runs" one_engine
+    old_engine_gone() { [ "$(svc_ids impi all | grep -c -x "$engine_id_before")" -eq 0 ]; }
+    check "the old engine container is gone" old_engine_gone
+    for _ in $(seq 1 30); do
+        if engine_logged "app built:"; then break; fi
+        sleep 2
+    done
+    check "the updated engine logs 'app built:'" engine_logged "app built:"
+    # The schema moved with the code: the columns the newer releases add are
+    # there once the engine has opened its store. SQLite only — the file is in
+    # the engine's data volume, so it is read from inside the engine.
+    if [ "$STORE" = sqlite ]; then
+        schema_migrated() {
+            compose exec -T impi python3 -c '
+import os, sqlite3, sys
+# The engine names its store file after itself (impi.STORE_NAME); a wrong path
+# here would make an empty database rather than fail, so the file must exist.
+path = "/app/data/impi.db"
+if not os.path.exists(path):
+    sys.exit(f"no store at {path}")
+db = sqlite3.connect(path)
+cols = lambda t: {r[1] for r in db.execute(f"PRAGMA table_info({t})")}
+sys.exit(0 if "last_engine_turn_at" in cols("sessions") and {"watch_key", "expires_at"} <= cols("tasks") else 1)
+'
+        }
+        check "the sqlite schema was migrated on the engine's first start" schema_migrated
+    fi
+fi
 
 ADMIN_PAT=$(grep '^TOOL_CREATE_AGENT_ADMIN_TOKEN=' "$E2E_HOME/conf/.env" | cut -d= -f2-)
 BASE="http://localhost:$MM_PORT/api/v4"
@@ -428,6 +522,52 @@ sys.exit(0 if any(os.environ["WANT"].lower() in m.lower() for m in answers) else
     ask "ping"
     answered() { waits_for "" 60; }
     check "the assistant ANSWERED a DM (not a greeting, not a fallback)" answered
+
+    # 6a. A reaction as a command. The map is per agent and read at start, so
+    #     it goes into conf/.env and the engine is restarted for it. The message
+    #     under the emoji says what the command means, so an answer proves the
+    #     word and the quote both reached the model; the engine's log line
+    #     proves it read the reaction as a command — the check that does not
+    #     depend on what the model chose to say.
+    printf 'AGENTS_REACTION_COMMANDS__ASSISTANT=eyes=echo\n' >>"$E2E_HOME/conf/.env"
+    built_before=$(engine_log_count "app built:")
+    ws_before=$(engine_log_count "Websocket authentication OK")
+    compose restart impi >/dev/null 2>&1
+    for _ in $(seq 1 45); do
+        if [ "$(engine_log_count 'app built:')" -gt "$built_before" ] \
+            && [ "$(engine_log_count 'Websocket authentication OK')" -gt "$ws_before" ]; then break; fi
+        sleep 2
+    done
+    export ME_ID
+    ask "A rule for later: when you get the command /echo, answer with exactly one word: pelican. For now reply with the single word: noted."
+    took_the_rule() { waits_for "noted" 60; }
+    check "the agent took the rule" took_the_rule
+    # The person's reaction on their own message: a bot's never counts.
+    react_to_last() { EMOJI=$1 python3 -c '
+import json, os, urllib.request
+def call(path, body=None):
+    request = urllib.request.Request(os.environ["BASE"] + path, data=body, method="POST" if body else "GET")
+    request.add_header("Authorization", "Bearer " + os.environ["ADMIN_PAT"])
+    request.add_header("Content-Type", "application/json")
+    return json.load(urllib.request.urlopen(request, timeout=10))
+posts = call("/channels/" + os.environ["CHAN"] + "/posts")["posts"].values()
+mine = sorted((p for p in posts if p["user_id"] == os.environ["ME_ID"]), key=lambda p: p["create_at"])
+call("/reactions", json.dumps({"user_id": os.environ["ME_ID"], "post_id": mine[-1]["id"],
+                               "emoji_name": os.environ["EMOJI"]}).encode())
+'; }
+    ASK_STAMP=$(python3 -c 'import time; print(int(time.time() * 1000))')
+    export ASK_STAMP
+    check "a reaction is put on the person's message" react_to_last eyes
+    read_as_command() {
+        for _ in $(seq 1 30); do
+            if engine_logged "runs /echo for assistant"; then return 0; fi
+            sleep 2
+        done
+        return 1
+    }
+    check "the engine read :eyes: as /echo for the assistant" read_as_command
+    echoed() { waits_for "pelican" 90; }
+    check "the agent answered the command the reaction ran" echoed
 
     # With a live model AND containers, the two things the dummy model cannot
     # show: a turn the engine counts as complete, and the memory of it landing in

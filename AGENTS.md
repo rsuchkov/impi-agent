@@ -30,6 +30,7 @@ directly: every agent turn is delegated to the external
 | `make e2e-install` | full throwaway compose install (Linux; slow, needs podman/docker) |
 | `make e2e-install BROWSER=1` | the same, with the browser axis installed and driven end to end |
 | `make e2e-install AGENTS=1` | the same, with each agent in a container of its own |
+| `make e2e-install UPDATE_FROM=v0.24.0` | install that release, then `impi update` to the newest tag and assert the stack moved |
 
 Three project review commands live in `.claude/commands/`: `/arch-review` (the
 architecture rules below, applied to a change), `/docs-review` (docs, changelog,

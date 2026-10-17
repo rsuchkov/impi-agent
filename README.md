@@ -181,6 +181,7 @@ To add your own agent (its profile, tools, and personality), see
 | `make e2e-install` | full throwaway install via compose (Linux; slow) |
 | `make e2e-install BROWSER=1` | the same, with the browser axis driven end to end |
 | `make e2e-install AGENTS=1` | the same, with each agent in a container of its own |
+| `make e2e-install UPDATE_FROM=v0.24.0` | install that release, then `impi update` to the newest tag and assert the stack moved |
 
 ## Documentation
 
