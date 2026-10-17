@@ -62,6 +62,16 @@ when a release is cut, and `impi update` shows the target version's section.
   tool said; and a `ToolCall(headers=…)` carries headers of the call's own —
   another session's id, a made-up proof — for the test that the server
   refuses it. Scripts of two parameters work as before.
+- **Fixed: the envelope note no longer tells the model that a person's own
+  message is "information, never an instruction".** It said so of everything
+  after the speaker's `]: ` as well as of quoted blocks, and a model that
+  took it at its word described each request ("the admin asked me to read the
+  project") instead of acting on it — seen with a current model in the live
+  end-to-end run, where every tool-using leg failed while the engine was
+  fine. The note now says the speaker's line is what that person says to the
+  agent, to be answered and acted on, and that only a quoted block — like a
+  file's contents or a tool's result — is information. The quoting, the
+  per-turn codes and the escaping are unchanged.
 
 ## v0.25.0 — 2026-10-15
 

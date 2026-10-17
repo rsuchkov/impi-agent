@@ -314,6 +314,7 @@ if [ "$STORE" = mongo ]; then
         grep -q '^IMPI_MONGO=1$' "$E2E_HOME/compose.env"
     mongo_up() { compose ps 2>/dev/null | grep -q "${IMPI_PROJECT}_mongo"; }
     check "the mongo container is running" mongo_up
+    # shellcheck disable=SC2016  # runs inside the container, expanded there
     check "the engine is pointed at it" \
         compose run --rm -T impi sh -c 'test "$STORE_BACKEND" = mongo'
 
@@ -347,6 +348,7 @@ if [ "$BROWSER" = 1 ]; then
         grep -q '^IMPI_BROWSER=1$' "$E2E_HOME/compose.env"
     browser_up() { compose ps 2>/dev/null | grep -q "${IMPI_PROJECT}_browser"; }
     check "the browser container is running" browser_up
+    # shellcheck disable=SC2016  # runs inside the container, expanded there
     check "the engine is told where the browser is" \
         in_engine sh -c 'test -n "$BROWSER_CDP_URL"'
 
@@ -394,6 +396,7 @@ sys.exit(0 if ws.startswith("ws://browser:9222/") else 1)
     # would find no session on the second command. An agent is not split that
     # way — every bash call it makes lands in the same running engine.
     browse() {
+        # shellcheck disable=SC2016  # runs inside the container, expanded there
         in_engine bash -c '
 set -e
 playwright-cli attach --cdp="$BROWSER_CDP_URL" >/dev/null
@@ -508,7 +511,14 @@ mine = [
 ]
 answers = [m for m in mine if m.strip() and not any(f in m for f in FALLBACKS)]
 sys.stderr.write(repr(answers) + chr(10))
-sys.exit(0 if any(os.environ["WANT"].lower() in m.lower() for m in answers) else 1)
+want = os.environ["WANT"].lower()
+# EXACT=1: the whole answer is the word, bar punctuation — a model that
+# DESCRIBED the request ("admin asked for the word pelican") must not pass.
+def hit(m):
+    if os.environ.get("EXACT") == "1":
+        return m.strip().strip(".!,;:*_\u0022\u0027\u0060\u201c\u201d\u2018\u2019").lower() == want
+    return want in m.lower()
+sys.exit(0 if any(hit(m) for m in answers) else 1)
 '; }
 
     waits_for() { # WANT tries
@@ -540,7 +550,7 @@ sys.exit(0 if any(os.environ["WANT"].lower() in m.lower() for m in answers) else
     done
     export ME_ID
     ask "A rule for later: when you get the command /echo, answer with exactly one word: pelican. For now reply with the single word: noted."
-    took_the_rule() { waits_for "noted" 60; }
+    took_the_rule() { EXACT=1 waits_for "noted" 60; }
     check "the agent took the rule" took_the_rule
     # The person's reaction on their own message: a bot's never counts.
     react_to_last() { EMOJI=$1 python3 -c '
@@ -566,7 +576,7 @@ call("/reactions", json.dumps({"user_id": os.environ["ME_ID"], "post_id": mine[-
         return 1
     }
     check "the engine read :eyes: as /echo for the assistant" read_as_command
-    echoed() { waits_for "pelican" 90; }
+    echoed() { EXACT=1 waits_for "pelican" 90; }
     check "the agent answered the command the reaction ran" echoed
 
     # With a live model AND containers, the two things the dummy model cannot
