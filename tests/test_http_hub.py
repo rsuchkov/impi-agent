@@ -1246,3 +1246,22 @@ async def test_an_engine_turn_without_a_scope_of_its_own_is_marked_as_the_engine
         assert seen[0].turn.attributes == {ENGINE_TURN_ATTRIBUTE: "1"}  # nobody is behind this turn
     finally:
         await hub.stop()
+
+
+async def test_a_truncated_turn_finishes_done_and_says_so() -> None:
+    async def cut(msg, chat):
+        await chat.post_reply(msg.ref, "The transitions are: To Do →")
+        await chat.post_notice(msg.ref, "That answer was cut short by the model's length limit.", code="truncated")
+        return TurnOutcome.TRUNCATED
+
+    hub, _ = _hub(8489, script=cut)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8489, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            events, final = await _drain(s, 8489, started["turnId"])
+            assert [e["type"] for e in events] == ["turn.started", "message", "notice", "turn.finished"]
+            assert events[2]["code"] == "truncated"
+            assert events[3]["outcome"] == "truncated" and final == STATUS_DONE
+    finally:
+        await hub.stop()

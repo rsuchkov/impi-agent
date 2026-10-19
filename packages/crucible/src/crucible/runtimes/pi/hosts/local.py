@@ -142,6 +142,8 @@ def _profile_args(request: SpawnRequest) -> list[str]:
         args += ["--provider", request.provider]
     if request.model:
         args += ["--model", request.model]
+    if request.thinking:
+        args += ["--thinking", request.thinking]
     # Extra system-prompt text (e.g. the gateway's response-formatting rules).
     if request.append_system_prompt:
         args += ["--append-system-prompt", request.append_system_prompt]

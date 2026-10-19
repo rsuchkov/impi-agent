@@ -23,6 +23,9 @@ class TurnOutcome(Enum):
     REPLIED = auto()  # the agent produced text and it was posted
     ACTED = auto()  # no text, but tools ran — a posted widget IS the reply
     EMPTY = auto()  # neither: the user was nudged to rephrase
+    # The answer hit the model's length limit: what came out, if anything, was
+    # posted, then a notice saying so. Not a failure of the engine's.
+    TRUNCATED = auto()
     TIMEOUT = auto()  # the runtime timed out; the fallback message was posted
     ERROR = auto()  # the runtime failed; the internal-error message was posted
     DUPLICATE = auto()  # every message in the batch had already been processed

@@ -32,6 +32,10 @@ runtime:
                           # A provider needs a model, here or in DEFAULT_MODEL
   fallback_models: [other-provider/other-model]  # optional; tried in order when the model is down
   timeout: 180            # seconds per turn
+  thinking: medium        # optional; how much the model reasons before it answers:
+                          # off | minimal | low | medium | high | xhigh | max (the runtime's levels;
+                          # omit for its default). An answer that comes back cut short, or not at
+                          # all, after long reasoning is the sign to lower it.
   tools: [read, bash]     # the single capability allowlist (see "Tool gating")
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
   env: [MYSERVICE_*]      # optional; engine environment variables its process inherits

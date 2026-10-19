@@ -241,3 +241,12 @@ def test_argv_maps_a_user_agent_and_names_the_unknown(_cli_env: Path, capsys) ->
     assert cli.main(["agent", "argv", "nobody"]) == 2
     err = capsys.readouterr().err
     assert "unknown agent 'nobody'" in err and "assistant" in err and "support" in err
+
+
+def test_the_thinking_level_crosses_to_the_terminal_like_the_model_does(tmp_path: Path) -> None:
+    import dataclasses
+
+    settings = _settings(tmp_path)
+    spec = dataclasses.replace(_spec(settings), thinking="low")
+    plan = build_plan(spec, settings, engine_owned=False, agents_path=settings.agents_path)
+    assert _flag(plan.argv, "--thinking") == "low"

@@ -348,3 +348,14 @@ def test_a_tool_entry_names_one_tool(tmp_path: Path, entry: str) -> None:
 def test_a_tool_name_with_a_dash_inside_is_a_name(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", "name: assistant\nrole: r\nruntime:\n  tools: [ask-user, read]\n")
     assert FsProfileStore(tmp_path, library=None).get("assistant").tools == ("ask-user", "read")
+
+
+def test_runtime_thinking_is_a_level_and_nothing_else(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime("  thinking: High\n"))
+    assert FsProfileStore(tmp_path, library=None).get("assistant").thinking == "high"
+    _write_agent(tmp_path, "plain", GOOD_YAML.replace("name: assistant", "name: plain"))
+    assert FsProfileStore(tmp_path, library=None).get("plain").thinking == ""  # the runtime's default
+    bad = tmp_path / "bad"
+    _write_agent(bad, "assistant", _yaml_with_runtime("  thinking: loud\n"))
+    with pytest.raises(ProfileError, match="runtime.thinking: thinking level 'loud' is not one of off, minimal"):
+        FsProfileStore(bad, library=None)

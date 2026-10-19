@@ -112,6 +112,8 @@ class SpawnRequest:
     skills: tuple[str, ...] = ()
     provider: str | None = None
     model: str | None = None
+    # The runtime's thinking level; "" = not set, the runtime's default.
+    thinking: str = ""
     append_system_prompt: str = ""
     # Env GRANTED to the process, on top of whatever the host's own environment
     # is. Explicit rather than "everything this process happens to hold": with a

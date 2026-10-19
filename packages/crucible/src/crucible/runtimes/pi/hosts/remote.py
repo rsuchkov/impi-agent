@@ -155,6 +155,7 @@ class RemoteHost:
             ],
             wire.KEY_PROVIDER: request.provider,
             wire.KEY_MODEL: request.model,
+            wire.KEY_THINKING: request.thinking,
             wire.KEY_SYSTEM_SUFFIX: request.append_system_prompt,
             wire.KEY_ENV: dict(request.env),
             wire.KEY_ENV_FILES: _read_env_files(request.env_files, request.agent),

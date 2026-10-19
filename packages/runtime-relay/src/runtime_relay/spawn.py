@@ -46,6 +46,7 @@ class Spawn:
     skills: tuple[str, ...] = ()
     provider: str | None = None
     model: str | None = None
+    thinking: str = ""
     append_system_prompt: str = ""
     env: Mapping[str, str] = field(default_factory=dict)
     # Variable name -> file content the engine shipped. Written to a scratch
@@ -76,6 +77,7 @@ def parse(payload: object, config: HostConfig) -> Spawn:
         ),
         provider=_optional_str(payload.get(wire.KEY_PROVIDER), wire.KEY_PROVIDER),
         model=_optional_str(payload.get(wire.KEY_MODEL), wire.KEY_MODEL),
+        thinking=_optional_str(payload.get(wire.KEY_THINKING), wire.KEY_THINKING) or "",
         append_system_prompt=str(payload.get(wire.KEY_SYSTEM_SUFFIX) or ""),
         env=_env(payload.get(wire.KEY_ENV), wire.KEY_ENV),
         env_files=_env(payload.get(wire.KEY_ENV_FILES), wire.KEY_ENV_FILES),
@@ -134,6 +136,8 @@ def command_args(spawn: Spawn, *, config: HostConfig, session_dir: Path | None) 
         args += ["--provider", spawn.provider]
     if spawn.model:
         args += ["--model", spawn.model]
+    if spawn.thinking:
+        args += ["--thinking", spawn.thinking]
     if spawn.append_system_prompt:
         args += ["--append-system-prompt", spawn.append_system_prompt]
     return args

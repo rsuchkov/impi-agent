@@ -77,7 +77,8 @@ Markdown as-is; rendering is the service's business.
 A `notice` is the engine speaking, not the agent — a turn that failed or
 produced nothing. Its `text` is a sentence for a person; its `code`, when
 present, is for a program: `timeout`, `busy`, `quota`, `credentials`, `context`,
-`model_unavailable`, `runtime_unavailable`, `agent_error`, `empty_answer`. Show
+`model_unavailable`, `runtime_unavailable`, `agent_error`, `empty_answer`, `truncated` (the
+answer hit the model's length limit). Show
 the text, or word the code yourself; ignore codes you do not know.
 
 ## Semantics worth knowing

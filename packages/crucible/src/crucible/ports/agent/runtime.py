@@ -55,6 +55,10 @@ class AgentResult(Protocol):
     # agent's message itself, so the silence after it is the answer. Flows use
     # this to tell that apart from a genuinely empty turn.
     tool_calls: list[str]
+    # The model hit its length limit: ``text`` is cut short, or there is none
+    # because the limit went on what came before the answer. Not an empty turn
+    # — the person is told what happened rather than asked to rephrase.
+    truncated: bool
 
 
 class AgentProfile(Protocol):

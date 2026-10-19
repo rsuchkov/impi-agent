@@ -25,6 +25,8 @@ EventCallback = Callable[[AgentEvent], Awaitable[None] | None]
 _INTERACTIVE_UI_METHODS = frozenset({"select", "confirm", "input", "editor"})
 # How often the turn-wait loop re-checks the deadline (also how fast it notices a
 # UI wait starting/ending). Small enough to be responsive, large enough to be cheap.
+# The runtime's stop reason for a run that hit the model's output limit.
+STOP_LENGTH = "length"
 _TURN_POLL_INTERVAL = 0.5
 
 
@@ -39,6 +41,10 @@ class PiResult:
     # The model that gave the answer, as provider/model — another than the
     # agent's own when the turn moved on to a fallback. "" when not reported.
     model: str = ""
+    # The run ended on the model's length limit (``stop_reason == "length"``):
+    # the text is cut short, or missing because the limit went on what came
+    # before it.
+    truncated: bool = False
 
 
 class _Turn:
@@ -421,11 +427,13 @@ class PiRpcSession:
             # said "Done, the comment is posted" and then called nothing more
             # has answered.
             text = turn.progress[-1]
+        stop_reason = _stop_reason_from_agent_end(event, abort_requested=turn.abort_requested)
         result = PiResult(
             text=text,
             tool_calls=turn.tool_calls,
-            stop_reason=_stop_reason_from_agent_end(event, abort_requested=turn.abort_requested),
+            stop_reason=stop_reason,
             model=_model_from_agent_end(event),
+            truncated=stop_reason == STOP_LENGTH,
         )
         if not turn.future.done():
             turn.future.set_result(result)

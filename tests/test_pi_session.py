@@ -826,3 +826,37 @@ async def test_silence_after_the_last_call_falls_back_to_the_last_remark() -> No
 
     assert result.text == "Done, the comment is posted."
     assert result.tool_calls == ["search"]
+
+
+def _length_reactor(transport: FakeTransport, *, text: str | None):
+    """A run the model's output limit ended: ``stopReason: length``."""
+
+    def react(command: dict) -> None:
+        if command.get("type") != "prompt":
+            return
+        transport.emit({"type": "agent_start"})
+        if text is not None:
+            transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": text}})
+        transport.emit({"type": "agent_end", "messages": [
+            {"role": "assistant", "stopReason": "length",
+             "content": [{"type": "thinking", "thinking": "let me consider every"}]},
+        ]})
+        transport.emit({"type": "agent_settled", "aborted": False})
+
+    return react
+
+
+async def test_a_run_the_length_limit_ended_is_truncated_with_or_without_text() -> None:
+    transport = FakeTransport()
+    transport._reactor = _length_reactor(transport, text="The transitions are: To Do →")
+    session = PiRpcSession(transport)
+    session.start()
+    cut = await session.prompt("hi", timeout=1.0)
+    assert cut.text == "The transitions are: To Do →" and cut.truncated and cut.stop_reason == "length"
+
+    transport = FakeTransport()
+    transport._reactor = _length_reactor(transport, text=None)  # 8k tokens of thinking, no answer
+    session = PiRpcSession(transport)
+    session.start()
+    nothing = await session.prompt("hi", timeout=1.0)
+    assert nothing.text == "" and nothing.truncated  # not an empty answer: the limit ate it

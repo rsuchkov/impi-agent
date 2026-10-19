@@ -12,6 +12,17 @@ from pathlib import Path
 
 from crucible.ports.agent.confinement import ConfinementLevel
 
+# The levels ``AgentSpec.thinking`` may name, least to most.
+THINKING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+
+
+def check_thinking_level(value: str) -> str:
+    """``value`` as a level, or ValueError naming the ones there are."""
+    level = value.strip().lower()
+    if level not in THINKING_LEVELS:
+        raise ValueError(f"thinking level {value!r} is not one of {', '.join(THINKING_LEVELS)}")
+    return level
+
 
 @dataclass(frozen=True)
 class AgentSpec:
@@ -49,3 +60,7 @@ class AgentSpec:
     # ``provider/model`` (``model_ref.check_model_ref``). The runtime skips
     # the agent's own model and repeats when it starts a process.
     fallback_models: tuple[str, ...] = ()
+    # How much the model reasons before it answers, one of ``THINKING_LEVELS``;
+    # "" = the runtime's own default. A level, not a token count: the runtime
+    # knows what each means for the model at hand.
+    thinking: str = ""

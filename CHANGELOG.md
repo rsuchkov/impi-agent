@@ -6,6 +6,18 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **An answer the model's length limit cut is said to be cut, not called
+  empty.** A run that ended on the limit (`stopReason: length` — eight
+  thousand tokens of reasoning and no room left for the answer, say) used to
+  reach the person as "I produced no answer — please try rephrasing", blaming
+  the question. `AgentResult.truncated` now carries the fact across the port;
+  the flow posts what there is and then a `truncated` notice ("That answer was
+  cut short by the model's length limit"), or the notice alone when nothing
+  came out, and the turn's outcome is `truncated` (`turn.finished.outcome`
+  on the http gateway, not a failure). The usual cause has a knob:
+  `runtime.thinking: off | minimal | low | medium | high | xhigh | max` in
+  `agent.yaml` sets how much the model reasons before it answers, on the
+  engine's host and a remote one alike, and `impi escape` passes it on too.
 - **A tool call has a caption, and the model's remarks on the way are
   progress, not the answer.** A tool may say in one line what a call is about
   (`Captioning.caption(args)`: "Reading IPA-12436"); the flow puts it on

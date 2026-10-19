@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from crucible.ports.agent import AgentSpec
+from crucible.ports.agent import AgentSpec, check_thinking_level
 from crucible.ports.agent.confinement import ConfinementLevel, check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
@@ -230,6 +230,12 @@ class FsProfileStore:
         except ValueError as exc:
             raise ProfileError(f"{manifest}: {exc} (or the deployment's default model)") from exc
         fallback_models = self._fallback_models(name, runtime, manifest)
+        thinking = ""
+        if runtime.get("thinking") is not None:
+            try:
+                thinking = check_thinking_level(str(runtime["thinking"]))
+            except ValueError as exc:
+                raise ProfileError(f"{manifest}: runtime.thinking: {exc}") from exc
 
         return AgentSpec(
             name=name,
@@ -241,6 +247,7 @@ class FsProfileStore:
             provider=provider,
             model=model,
             timeout=float(timeout),
+            thinking=thinking,
             tools=tuple(tools),
             skills=skill_paths,
             inherit=inherit,

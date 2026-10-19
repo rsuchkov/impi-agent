@@ -101,8 +101,10 @@ def test_the_command_line_is_the_same_wherever_the_agent_runs(tmp_path: Path) ->
         library,
         session_dir=tmp_path / "pi-sessions",
         extensions=(str(tmp_path / "bridge" / "index.ts"),),
+        thinking="high",
     )
     local = command_args(request, session_dir=sessions)
+    assert local[local.index("--thinking") + 1] == "high"
 
     payload = RemoteHost(url="http://x", token="t", library_root=library)._spawn_payload(
         request

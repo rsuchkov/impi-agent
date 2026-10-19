@@ -349,6 +349,7 @@ async def test_tools_allowlist_is_the_single_gate(monkeypatch) -> None:
         tools=("read", "bash", "list_agents"),
         provider="openai-codex",
         model="gpt-5.5",
+        thinking="medium",
     )
     cap = await _capture_spawn(monkeypatch, profile)
 
@@ -356,6 +357,9 @@ async def test_tools_allowlist_is_the_single_gate(monkeypatch) -> None:
     assert cap["args"][cap["args"].index("--tools") + 1] == "read,bash,list_agents"
     assert cap["args"][cap["args"].index("--provider") + 1] == "openai-codex"
     assert cap["args"][cap["args"].index("--model") + 1] == "gpt-5.5"
+    assert cap["args"][cap["args"].index("--thinking") + 1] == "medium"
+    plain = await _capture_spawn(monkeypatch, dataclasses.replace(profile, thinking=""))
+    assert "--thinking" not in plain["args"]  # unset: the runtime's own default
 
 
 async def test_declared_skills_become_no_skills_plus_skill_flags(monkeypatch) -> None:
@@ -995,6 +999,8 @@ async def test_a_restarted_process_gets_the_new_profile_and_its_own_proof() -> N
     assert spawned == [_profile(), narrow]
     assert rt._sessions["assistant--T1"].fingerprint == spawn_fingerprint(narrow)
     assert spawn_fingerprint(narrow) != spawn_fingerprint(_profile())
+    # A thinking level is baked in at spawn, so a change restarts the process.
+    assert spawn_fingerprint(dataclasses.replace(narrow, thinking="low")) != spawn_fingerprint(narrow)
     # The digest says nothing about the env it covers.
     secret = dataclasses.replace(narrow, env={"TOOL_TOKEN": "hunter2"})
     assert "hunter2" not in spawn_fingerprint(secret)

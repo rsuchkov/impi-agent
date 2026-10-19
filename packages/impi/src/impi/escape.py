@@ -130,6 +130,7 @@ def build_plan(
         skills=tuple(map_path(skill, maps) for skill in profile.skills),
         provider=profile.provider,
         model=profile.model,
+        thinking=profile.thinking,
         append_system_prompt=note,
     )
     env = {name: value for name, value in build_pi_env(settings).items() if name in _MODEL_ENV}

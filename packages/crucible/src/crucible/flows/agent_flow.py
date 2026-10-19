@@ -53,7 +53,15 @@ logger = logging.getLogger(__name__)
 
 LOADING_REACTION = "eyes"
 EMPTY_ANSWER_MESSAGE = "I thought about it but produced no answer — please try rephrasing."
+# The model ran out of room. Two sentences for the two cases, because what the
+# person just saw differs: a reply that stops mid-way, or nothing at all.
+TRUNCATED_MESSAGE = "That answer was cut short by the model's length limit."
+TRUNCATED_EMPTY_MESSAGE = (
+    "The model hit its length limit before it had answered, so there is nothing to show "
+    "— ask again, perhaps for a shorter answer."
+)
 NOTICE_EMPTY_ANSWER = "empty_answer"
+NOTICE_TRUNCATED = "truncated"
 _MAX_BACKFILL_CHARS = 6000
 _CHANNEL_BACKFILL_LIMIT = 20
 # The prompt's own structure is a handful of lines beginning with `[`: a block
@@ -381,12 +389,23 @@ class AgentFlow:
         await self._sessions.touch(
             self._agent_name, anchor.conversation_id, engine_turn=anchor.engine_started
         )
+        truncated = bool(getattr(result, "truncated", False))
         if result.text:
             # One hop past the deepest message in the batch, so any agent we
             # mention accounts for the cascade (see LoopGuard).
             hop = max(m.hop_depth for m in fresh) + 1
             await chat.post_reply(anchor.ref, result.text, hop_depth=hop)
+            if truncated:
+                # Said after the reply, so the person reads what there is first
+                # and then why it stops where it does.
+                await chat.post_notice(anchor.ref, TRUNCATED_MESSAGE, code=NOTICE_TRUNCATED)
+                return TurnOutcome.TRUNCATED
             return TurnOutcome.REPLIED
+        if truncated:
+            # Not an empty turn: the model had no room left to answer, and
+            # telling the person to rephrase would blame the question.
+            await chat.post_notice(anchor.ref, TRUNCATED_EMPTY_MESSAGE, code=NOTICE_TRUNCATED)
+            return TurnOutcome.TRUNCATED
         if result.tool_calls:
             return TurnOutcome.ACTED
         # No text AND no tool call: the turn produced nothing at all — nudge the

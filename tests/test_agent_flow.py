@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from crucible.flows.agent_flow import EMPTY_ANSWER_MESSAGE, AgentFlow
+from crucible.flows.agent_flow import (
+    EMPTY_ANSWER_MESSAGE,
+    NOTICE_TRUNCATED,
+    TRUNCATED_EMPTY_MESSAGE,
+    TRUNCATED_MESSAGE,
+    AgentFlow,
+)
 from crucible.interactions.tooltrace import ToolTrace
 from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
@@ -1541,3 +1547,29 @@ async def test_the_flow_captions_a_call_once_for_every_trace(tmp_path: Path) -> 
     started = [e for e in seen if isinstance(e, ToolStarted)]
     assert [e.caption for e in started] == ["Listing the directory", "Reading b.txt"]
     assert captions.asked == [("bash", {"command": "ls"})]  # the captioned one was not asked about
+
+
+async def test_an_answer_the_length_limit_cut_is_posted_and_then_said_to_be_cut(tmp_path: Path) -> None:
+    runtime = FakeRuntime(result=PiResult(text="The transitions are: To Do →", truncated=True))
+    flow, _ = _flow(tmp_path, runtime)
+    chat = FakeChat()
+
+    outcome = await flow.handle(_dm(), chat)
+
+    assert outcome is TurnOutcome.TRUNCATED
+    assert [text for _, text in chat.replies] == ["The transitions are: To Do →"]
+    assert [text for _, text in chat.notices] == [TRUNCATED_MESSAGE]
+    assert chat.notice_codes == [NOTICE_TRUNCATED]
+
+
+async def test_a_limit_that_ate_the_whole_answer_is_not_called_an_empty_one(tmp_path: Path) -> None:
+    runtime = FakeRuntime(result=PiResult(text="", truncated=True))
+    flow, _ = _flow(tmp_path, runtime)
+    chat = FakeChat()
+
+    outcome = await flow.handle(_dm(), chat)
+
+    assert outcome is TurnOutcome.TRUNCATED
+    assert chat.replies == []
+    assert [text for _, text in chat.notices] == [TRUNCATED_EMPTY_MESSAGE]
+    assert chat.notice_codes == [NOTICE_TRUNCATED]

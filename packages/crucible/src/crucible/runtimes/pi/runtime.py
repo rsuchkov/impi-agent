@@ -117,6 +117,7 @@ def spawn_fingerprint(profile: PiProfile) -> str:
         "append_system_prompt": profile.append_system_prompt,
         "envelope_note": profile.envelope_note,
         "fallback_models": list(profile.fallback_models),
+        "thinking": profile.thinking,
     }
     return hashlib.sha256(json.dumps(baked, sort_keys=True).encode()).hexdigest()
 
@@ -565,6 +566,7 @@ class PiRuntime:
             skills=profile.skills,
             provider=profile.provider,
             model=profile.model,
+            thinking=profile.thinking,
             append_system_prompt=_appended_system_prompt(profile),
             env=env,
             inherit=(*self._inherit, *profile.inherit),

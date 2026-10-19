@@ -31,10 +31,12 @@ from crucible.ports.agent.runtime import (
     SessionProofs,
     TurnClock,
 )
-from crucible.ports.agent.spec import AgentSpec
+from crucible.ports.agent.spec import THINKING_LEVELS, AgentSpec, check_thinking_level
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 
 __all__ = [
+    "THINKING_LEVELS",
+    "check_thinking_level",
     "TEXT_PROGRESS",
     "CallCaptions",
     "ChainedCaptions",

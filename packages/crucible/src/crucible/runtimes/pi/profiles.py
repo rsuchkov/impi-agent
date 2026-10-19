@@ -55,6 +55,8 @@ class PiProfile:
     # Models the process turns to, in order, when its own fails in a way the
     # runtime retries ("provider/model"); see extension/fallback.ts.
     fallback_models: tuple[str, ...] = ()
+    # The runtime's thinking level (``--thinking``); "" = its default.
+    thinking: str = ""
 
 
 def build_pi_profile(spec: AgentSpec) -> PiProfile:
@@ -72,6 +74,7 @@ def build_pi_profile(spec: AgentSpec) -> PiProfile:
         model=spec.model,
         inherit=spec.inherit,
         fallback_models=spec.fallback_models,
+        thinking=spec.thinking,
     )
 
 
