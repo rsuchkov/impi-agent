@@ -10,6 +10,7 @@ import contextlib
 import logging
 import secrets
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -22,10 +23,13 @@ from crucible.ports.agent import (
     AgentProfile,
     AgentRuntime,
     AgentTimeout,
+    CallCaptions,
+    EventCallback,
     PromptImage,
     RuntimeControl,
     notice_for,
 )
+from crucible.ports.agent.events import ToolStarted
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.context import ContextSource, HistorySource
 from crucible.ports.chat.flow import TurnOutcome
@@ -174,6 +178,7 @@ class AgentFlow:
         context: ContextSource | None = None,
         entitlements: EntitlementSource | None = None,
         conversation_profiles: ConversationProfiles | None = None,
+        captions: CallCaptions | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
         if (entitlements is None) != (conversation_profiles is None):
@@ -209,6 +214,9 @@ class AgentFlow:
         # every conversation runs with the agent's profile.
         self._entitlements = entitlements
         self._conversation_profiles = conversation_profiles
+        # Who captions a tool call for the person watching ("Reading X-1"):
+        # asked once per call here, so every trace reads the same line.
+        self._captions = captions
         # The code on this turn's context markers. Injectable so a test can pin
         # it; the default is fresh per prompt.
         self._envelope_tag = envelope_tag
@@ -341,7 +349,7 @@ class AgentFlow:
             async with bound:
                 result = await self._runtime.run_stateful(
                     profile, record.runtime_session_id, prompt, images=images,
-                    on_event=trace.on_event if trace is not None else None,
+                    on_event=self._observer(trace),
                 )
             interrupted = False
         except AgentTimeout as exc:
@@ -390,6 +398,22 @@ class AgentFlow:
         return TurnOutcome.EMPTY
 
     # -- internals ----------------------------------------------------------
+
+    def _observer(self, trace: ActiveTrace | None) -> EventCallback | None:
+        """The runtime's events, captioned on their way to the trace. A tool
+        call that the runtime reported without a caption gets the one the
+        deployment knows for it, so the chat widget and a journal say the same
+        thing without each asking."""
+        if trace is None:
+            return None
+        captions = self._captions
+
+        def on_event(event: AgentEvent) -> None:
+            if captions is not None and isinstance(event, ToolStarted) and not event.caption:
+                event = replace(event, caption=captions.caption(event.tool, event.args))
+            trace.on_event(event)
+
+        return on_event
 
     async def _render_prompt(
         self, msgs: list[IncomingMessage], chat: ChatClient, *, first_turn: bool,

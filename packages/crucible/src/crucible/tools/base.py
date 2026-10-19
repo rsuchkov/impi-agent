@@ -6,6 +6,7 @@ tool extension registers whatever the manifest lists, so adding a tool touches
 only Python — never the TypeScript bridge.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, runtime_checkable
@@ -236,3 +237,17 @@ class Describing(Protocol):
     """
 
     async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None: ...
+
+
+@runtime_checkable
+class Captioning(Protocol):
+    """A tool that can say in one line what a call is about, for a person
+    watching the turn — "Reading IPA-12436", "Run Groovy on omega".
+
+    Optional and structural like ``Describing``, but lighter: synchronous, from
+    the arguments alone, no context and no side effects, because it runs inside
+    the runtime's event stream where a wait holds back every event behind it.
+    The line names the thing worked on (a key, a host, a file), never the
+    arguments as such. None means no caption, and so does a failure."""
+
+    def caption(self, args: Mapping[str, Any]) -> str | None: ...

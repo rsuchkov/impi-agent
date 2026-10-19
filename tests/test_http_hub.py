@@ -19,7 +19,7 @@ from crucible.gateways.http.journal import (
     STATUS_FAILED,
     STATUS_RUNNING,
 )
-from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.agent.runtime import RuntimeStats
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.flow import TurnOutcome
@@ -233,7 +233,8 @@ async def test_the_runtimes_tool_events_reach_the_journal() -> None:
         record = SessionRecord("helper", msg.channel_id, msg.conversation_id, "dm",
                                "helper--portal-c1-abc", "t", "t")
         trace = hub.turns.begin(record, chat)  # what AgentFlow does with its tracer
-        trace.on_event(ToolStarted("call-1", "search", {"q": "x"}))
+        trace.on_event(TextProgress("Searching the docs first"))
+        trace.on_event(ToolStarted("call-1", "search", {"q": "x"}, caption="Searching for x"))
         trace.on_event(ToolFinished("call-1", "search", is_error=True))
         await trace.end()
         return TurnOutcome.ACTED
@@ -245,10 +246,11 @@ async def test_the_runtimes_tool_events_reach_the_journal() -> None:
             _, started = await _post(s, 8483, MESSAGES, {"clientMessageId": "m1", "text": "go"})
             events, _ = await _drain(s, 8483, started["turnId"])
             assert [e["type"] for e in events] == [
-                "turn.started", "tool.started", "tool.finished", "turn.finished",
+                "turn.started", "progress", "tool.started", "tool.finished", "turn.finished",
             ]
-            assert events[1] == {**events[1], "callId": "call-1", "tool": "search"}
-            assert events[2]["ok"] is False
+            assert events[1]["text"] == "Searching the docs first"
+            assert events[2] == {**events[2], "callId": "call-1", "tool": "search", "caption": "Searching for x"}
+            assert events[3]["ok"] is False
     finally:
         await hub.stop()
 

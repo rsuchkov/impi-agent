@@ -1594,3 +1594,37 @@ def test_a_module_contributes_what_it_marks_and_nothing_it_imports() -> None:
     assert "offered" in build_registry(module, chat_tools).names()
     with pytest.raises(ValueError, match="two tools are called 'offered'"):
         build_registry(module, [Offered])
+
+
+def test_a_captioning_tool_captions_its_calls_and_a_failing_or_plain_one_gives_nothing() -> None:
+    from collections.abc import Mapping
+    from typing import Any, ClassVar
+
+    from crucible.ports.agent.captions import ChainedCaptions
+    from crucible.runtimes.pi.captions import PiBuiltinCaptions
+    from crucible.tools.base import Tool, ToolContext
+    from impi.chat_tools import ListAgents, ReadChannel
+
+    class Issue(Tool):
+        name: ClassVar[str] = "read_issue"
+        description: ClassVar[str] = ""
+        parameters: ClassVar[dict[str, Any]] = {}
+
+        async def run(self, args: dict[str, Any], ctx: ToolContext) -> Any:
+            return None
+
+        def caption(self, args: Mapping[str, Any]) -> str | None:
+            return f"Reading {args['key']}"  # KeyError without a key: a failure, not a crash
+
+    reg = build_registry([Issue, ListAgents, ReadChannel])
+    assert reg.caption("read_issue", {"key": "X-1"}) == "Reading X-1"
+    assert reg.caption("read_issue", {}) == ""  # the caption failed: nothing, and the turn goes on
+    assert reg.caption("list_agents", {}) == ""  # not Captioning
+    assert reg.caption("no_such_tool", {}) == ""
+    assert reg.caption("read_channel", {"channel_id": "town-square"}) == "Reading channel town-square"
+
+    chained = ChainedCaptions(reg, PiBuiltinCaptions())
+    assert chained.caption("read_issue", {"key": "X-2"}) == "Reading X-2"
+    assert chained.caption("read", {"path": "/srv/agents/assistant/SYSTEM.md"}) == "Reading SYSTEM.md"
+    assert chained.caption("grep", {"pattern": "TODO"}) == "Searching for TODO"
+    assert chained.caption("bash", {"command": "rm -rf /"}) == ""  # the command is the argument: never shown

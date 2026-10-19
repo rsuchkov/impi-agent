@@ -32,6 +32,8 @@ from crucible.interactions.tooltrace import (
     ToolTrace,
     TraceScreen,
     TurnTrace,
+    decode_calls,
+    encode_calls,
     render_accordion,
     render_collapsed,
     render_counter,
@@ -94,6 +96,13 @@ async def store(tmp_path: Path):
 def test_the_counter_counts_and_the_button_summarises() -> None:
     assert _text(render_counter(1)) == "⚙️ Running 1 tool…"
     assert _text(render_counter(3)) == "⚙️ Running 3 tools…"
+
+
+def test_the_counter_carries_the_latest_word_on_one_bounded_line() -> None:
+    assert _text(render_counter(2, "Reading IPA-12436")) == "⚙️ Running 2 tools… · Reading IPA-12436"
+    # A remark is the model's text: no line breaks, no more than STATUS_MAX.
+    line = _text(render_counter(1, "first line\nsecond line " + "x" * 200))
+    assert "\n" not in line and len(line) < 80 + 40
 
     plain = render_collapsed(_state(), _calls(CALL_OK, CALL_OK), interrupted=False)
     assert _text(plain) == ""  # the message IS the button; nothing else shows
@@ -377,3 +386,30 @@ def test_trace_ref_hangs_the_trace_off_a_top_level_message_only() -> None:
     assert trace_ref(dm, replace(prompt, message_id="")) == trace_ref(dm, None)
     thread = replace(_record(), kind=KIND_THREAD, conversation_id="root1")
     assert trace_ref(thread, prompt).thread_root_id == "root1"  # a thread keeps it
+
+
+async def test_captions_and_remarks_show_on_the_counter_and_captions_stay_in_the_rows(store) -> None:
+    from crucible.ports.agent.events import TextProgress
+
+    chat = FakeChat()
+    trace = TurnTrace(store, chat, _record(), callback_url=CB)
+    trace.on_event(TextProgress("Looking at the ticket first"))  # before any call: no message yet
+    await asyncio.sleep(0.02)
+    assert chat.posted_cards == []
+
+    trace.on_event(ToolStarted(call_id="c0", tool="read_issue", args={"key": "X-1"}, caption="Reading X-1"))
+    await asyncio.sleep(0.02)
+    assert chat.posted_cards[0][1][0].text == "⚙️ Running 1 tool… · Reading X-1"
+    trace.on_event(TextProgress("Found it, now the comments"))
+    trace.on_event(ToolStarted(call_id="c1", tool="bash", args={"command": "ls"}))  # no caption
+    await asyncio.sleep(1.1)
+    assert chat.updated[-1][1][0].text == "⚙️ Running 2 tools… · Found it, now the comments"
+    await trace.end()
+
+    assert [c.caption for c in trace.calls] == ["Reading X-1", ""]
+    state = ScreenState(screen=TRACE_SCREEN, agent="assistant", data={"t": "x"})
+    rows = _text(render_accordion(state, trace.calls, page=0, expanded=None, interrupted=False))
+    assert "read_issue · ok · 0.0s · Reading X-1" in rows or "read_issue · unfinished · — · Reading X-1" in rows
+    # Stored and read back with the caption, and a record from before captions decodes too.
+    assert decode_calls(encode_calls(trace.calls))[0].caption == "Reading X-1"
+    assert decode_calls('[{"index": 0, "call_id": "c", "tool": "t"}]')[0].caption == ""

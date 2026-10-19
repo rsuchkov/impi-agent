@@ -52,7 +52,14 @@ from crucible.interactions import (
 from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.loopguard import LoopGuard
-from crucible.ports.agent import AgentProfile, AgentRuntime, AgentSpec, RuntimeControl
+from crucible.ports.agent import (
+    AgentProfile,
+    AgentRuntime,
+    AgentSpec,
+    CallCaptions,
+    ChainedCaptions,
+    RuntimeControl,
+)
 from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.profiles.errors import ProfileError
@@ -68,6 +75,7 @@ from crucible.runtimes.pi import (
 )
 from crucible.runtimes.pi.auth_file import configured_providers
 from crucible.runtimes.pi.auth_refresh import AuthRefresher
+from crucible.runtimes.pi.captions import PiBuiltinCaptions
 from crucible.runtimes.pi.runtime import PiRuntime
 from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
@@ -278,6 +286,7 @@ def _build_unit(
     inline_image_max_bytes: int,
     tracer: ToolTrace | HttpTurns | None,
     turns: TurnRegistry,
+    captions: CallCaptions,
 ) -> AgentUnit:
     profile = profiles.build(spec)
     flow = AgentFlow(
@@ -286,6 +295,7 @@ def _build_unit(
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
         turns=turns,
+        captions=captions,
         # A conversation the runtime has forgotten (sessions wiped, an operator's
         # reset) gets its thread replayed again instead of starting mid-air.
         control=control,
@@ -308,6 +318,7 @@ def _build_units(
     sessions: SessionStore,
     gateway_factory: GatewayFactory,
     tools: ToolWiring,
+    captions: CallCaptions,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
@@ -345,6 +356,7 @@ def _build_units(
                 # to a widget under a chat reply — there is no chat to draw it in.
                 tracer=http_turns if config.kind == "http" else tracer,
                 turns=turns,
+                captions=captions,
             )
         )
     return units
@@ -608,6 +620,9 @@ def build_app(settings: ImpiSettings) -> App:
         specs, configs, engine_names,
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools,
+        # Who captions a call for the person watching: the deployment's tools
+        # themselves, then the runtime's own built-ins.
+        captions=ChainedCaptions(*([tools.registry] if tools.registry else []), PiBuiltinCaptions()),
         profiles=profile_builder, interactions=interactions, sinks_by_agent=sinks_by_agent,
         tracer=tracer, http_turns=http_hub.turns if http_hub else None, turns=turns,
     )

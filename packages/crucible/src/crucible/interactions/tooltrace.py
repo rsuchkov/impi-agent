@@ -29,10 +29,10 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from crucible.containment import preformatted
+from crucible.containment import one_line, preformatted
 from crucible.interactions.screens import ScreenState, View, screen_action
 from crucible.interactions.service import conversation_ref
-from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import Action, Card, ConversationRef
 from crucible.store import clock
@@ -58,6 +58,8 @@ ARGS_STORED_MAX = 8000
 # How often the counter is redrawn while the turn runs. The reader loop only
 # notes events; the chat platform is spoken to at most this often.
 REDRAW_INTERVAL_S = 1.0
+# The most a caption or a progress remark gets on the counter and in a row.
+STATUS_MAX = 80
 
 CALL_OK = "ok"
 CALL_FAILED = "failed"
@@ -79,6 +81,7 @@ class Call:
     cut: int = 0
     state: str = CALL_UNFINISHED
     duration_s: float = 0.0
+    caption: str = ""  # the call's one line for a person, when whoever knows the tool gave one
 
 
 def trace_ref(record: SessionRecord, anchor: ConversationRef | None) -> ConversationRef:
@@ -126,8 +129,14 @@ def _summary(calls: list[Call], *, interrupted: bool) -> str:
     return " · ".join(parts)
 
 
-def render_counter(count: int) -> View:
-    return View.of(f"⚙️ Running {_plural(count, 'tool')}…")
+def render_counter(count: int, status: str = "") -> View:
+    """The counter, with the latest word on what the turn is doing after it:
+    a call's caption or the model's last remark on the way. ``status`` is made
+    one line of bounded length here — the remark is the model's text."""
+    line = f"⚙️ Running {_plural(count, 'tool')}…"
+    if status:
+        line += f" · {one_line(status, limit=STATUS_MAX)}"
+    return View.of(line)
 
 
 def render_collapsed(state: ScreenState, calls: list[Call], *, interrupted: bool) -> View:
@@ -159,7 +168,10 @@ def _cut(text: str, limit: int, *, total: int) -> str:
 def _row(call: Call, *, open_: bool) -> str:
     marker = "▾" if open_ else "▸"
     took = "—" if call.state == CALL_UNFINISHED else _seconds(call.duration_s)
-    return f"{marker} {call.index + 1} · {call.tool} · {call.state} · {took}"
+    row = f"{marker} {call.index + 1} · {call.tool} · {call.state} · {took}"
+    if call.caption:
+        row += f" · {one_line(call.caption, limit=STATUS_MAX)}"
+    return row
 
 
 def render_accordion(
@@ -307,6 +319,7 @@ class TurnTrace:
         self._created_at = clock.now_iso()
         self._calls: list[Call] = []
         self._open: dict[str, int] = {}  # call id -> index of the call still running
+        self._status = ""  # the latest caption or remark, for the counter
         self._post_id: str | None = None
         self._closed = False
         self._dead = False  # the first post failed; nothing further is attempted
@@ -326,10 +339,17 @@ class TurnTrace:
             cut = len(args) if len(args) > ARGS_STORED_MAX else 0
             call = Call(
                 index=len(self._calls), call_id=event.call_id, tool=event.tool,
-                args=args[:ARGS_STORED_MAX], cut=cut,
+                args=args[:ARGS_STORED_MAX], cut=cut, caption=event.caption,
             )
             self._calls.append(call)
             self._open[event.call_id] = call.index
+            if event.caption:
+                self._status = event.caption
+        elif isinstance(event, TextProgress):
+            # The model's own words on the way: shown on the counter while the
+            # turn runs, kept nowhere — the record is the calls.
+            if event.text.strip():
+                self._status = event.text
         elif isinstance(event, ToolFinished):
             index = self._open.pop(event.call_id, None)
             if index is None:
@@ -339,6 +359,8 @@ class TurnTrace:
             call.duration_s = event.duration_s
         else:
             return
+        if not self._calls:
+            return  # a remark before any call: nothing to count yet, no message
         # Only mark; never wake. The loop redraws once per interval while there
         # is something new, so a burst costs one redraw — an event that woke it
         # would cost one per event.
@@ -350,7 +372,7 @@ class TurnTrace:
         while self._dirty and not self._closed and not self._dead:
             self._dirty = False
             self._wake.clear()
-            await self._draw(render_counter(len(self._calls)))
+            await self._draw(render_counter(len(self._calls), self._status))
             if self._closed:
                 break  # end() arrived while drawing; it is waiting on us
             try:

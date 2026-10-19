@@ -769,3 +769,60 @@ async def test_a_settle_with_no_run_behind_it_is_not_an_answer() -> None:
     session.start()
     with pytest.raises(PiProcessError, match="settled without ending a run"):
         await session.prompt("hi", timeout=1.0)
+
+
+def _remark_then_tool_reactor(transport: FakeTransport, *, remark: str, tools=("search",), answer: str | None):
+    """The model writes ``remark``, calls ``tools``, then writes ``answer`` (or
+    nothing when None)."""
+
+    def _text(content: str) -> None:
+        transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_start"}})
+        transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": content}})
+
+    def react(command: dict) -> None:
+        if command.get("type") != "prompt":
+            return
+        transport.emit({"type": "agent_start"})
+        _text(remark)
+        for n, tool in enumerate(tools):
+            transport.emit({"type": "tool_execution_start", "toolCallId": f"call_{n}", "toolName": tool, "args": {}})
+            transport.emit({"type": "tool_execution_end", "toolCallId": f"call_{n}", "toolName": tool, "isError": False})
+        if answer is not None:
+            _text(answer)
+        transport.emit({"type": "agent_end", "messages": []})
+        transport.emit({"type": "agent_settled", "aborted": False})
+
+    return react
+
+
+async def test_a_remark_before_a_call_is_progress_and_the_answer_is_what_follows_the_last_call() -> None:
+    from crucible.ports.agent.events import TextProgress, ToolStarted
+
+    transport = FakeTransport()
+    transport._reactor = _remark_then_tool_reactor(
+        transport, remark="Found the workflow, now listing transitions…", answer="Here are the transitions."
+    )
+    session = PiRpcSession(transport)
+    session.start()
+    seen: list[object] = []
+
+    result = await session.prompt("hi", timeout=1.0, on_event=seen.append)
+
+    assert result.text == "Here are the transitions."  # the remark is not in the answer
+    progress = [e for e in seen if isinstance(e, TextProgress)]
+    assert [e.text for e in progress] == ["Found the workflow, now listing transitions…"]
+    # ...and it reached the listener before the call it preceded.
+    kinds = [type(e).__name__ for e in seen if isinstance(e, (TextProgress, ToolStarted))]
+    assert kinds == ["TextProgress", "ToolStarted"]
+
+
+async def test_silence_after_the_last_call_falls_back_to_the_last_remark() -> None:
+    transport = FakeTransport()
+    transport._reactor = _remark_then_tool_reactor(transport, remark="Done, the comment is posted.", answer=None)
+    session = PiRpcSession(transport)
+    session.start()
+
+    result = await session.prompt("hi", timeout=1.0)
+
+    assert result.text == "Done, the comment is posted."
+    assert result.tool_calls == ["search"]

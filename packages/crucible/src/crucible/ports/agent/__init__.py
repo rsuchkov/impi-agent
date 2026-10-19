@@ -1,5 +1,6 @@
 """Ports (Protocols) between flows and a concrete agent runtime."""
 
+from crucible.ports.agent.captions import CallCaptions, ChainedCaptions
 from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
     LLM_FALLBACK_MESSAGE,
@@ -11,8 +12,10 @@ from crucible.ports.agent.errors import (
     notice_for,
 )
 from crucible.ports.agent.events import (
+    TEXT_PROGRESS,
     TOOL_FINISHED,
     TOOL_STARTED,
+    TextProgress,
     ToolFinished,
     ToolStarted,
 )
@@ -32,6 +35,10 @@ from crucible.ports.agent.spec import AgentSpec
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 
 __all__ = [
+    "TEXT_PROGRESS",
+    "CallCaptions",
+    "ChainedCaptions",
+    "TextProgress",
     "AgentBusy",
     "AgentError",
     "AgentTimeout",

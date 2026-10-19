@@ -11,6 +11,7 @@ import asyncio
 import os
 import shutil
 import signal
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -232,6 +233,10 @@ class InstallSkill(Tool):
             danger=any(executable for _, _, executable in files),
         )
 
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        name = args.get("name") or args.get("source")
+        return f"Installing skill {name}" if isinstance(name, str) and name else "Installing a skill"
+
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         cfg = _config(ctx)
         source = str(args.get("source") or "").strip()
@@ -281,6 +286,12 @@ class AssignSkill(Tool):
         },
         "required": ["skill", "agent"],
     }
+
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        skill, agent = args.get("skill"), args.get("agent")
+        if isinstance(skill, str) and skill and isinstance(agent, str) and agent:
+            return f"Giving {agent} the skill {skill}"
+        return "Assigning a skill"
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         cfg = _config(ctx)

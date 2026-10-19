@@ -1504,3 +1504,40 @@ def test_a_shared_entitlement_is_the_intersection_and_agreement() -> None:
     both = shared_entitlement([Entitlement(instructions="x"), Entitlement(instructions="x")])
     assert both.instructions == "x"
     assert shared_entitlement([Entitlement(instructions="x"), Entitlement()]).instructions == ""
+
+
+class _Captions:
+    def __init__(self) -> None:
+        self.asked: list[tuple[str, dict]] = []
+
+    def caption(self, tool: str, args) -> str:
+        self.asked.append((tool, dict(args)))
+        return "Listing the directory" if tool == "bash" else ""
+
+
+async def test_the_flow_captions_a_call_once_for_every_trace(tmp_path: Path) -> None:
+    """A tool call the runtime reported bare gets the deployment's caption on its
+    way to the trace; one the runtime captioned itself is left alone."""
+    captioned = ToolStarted(call_id="c2", tool="read", args={"path": "/a/b.txt"}, caption="Reading b.txt")
+    runtime = _StreamingRuntime(events=(*_TOOL_EVENTS, captioned, ToolFinished(call_id="c2", tool="read")))
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    seen: list[object] = []
+
+    class _Trace:
+        def on_event(self, event):
+            seen.append(event)
+
+        async def end(self, *, interrupted=False):
+            return None
+
+    class _Tracer:
+        def begin(self, record, chat, *, anchor=None):
+            return _Trace()
+
+    captions = _Captions()
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", tracer=_Tracer(), captions=captions)
+    await flow.handle(_dm(), FakeChat())
+
+    started = [e for e in seen if isinstance(e, ToolStarted)]
+    assert [e.caption for e in started] == ["Listing the directory", "Reading b.txt"]
+    assert captions.asked == [("bash", {"command": "ls"})]  # the captioned one was not asked about

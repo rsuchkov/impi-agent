@@ -9,6 +9,7 @@ chat before the tool runs.
 """
 
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -86,6 +87,10 @@ class CreateAgent(Tool):
             title=f"create the agent {name}" if name else "create an agent",
             rows=tuple(PreviewRow(label, value) for label, value in pairs if value),
         )
+
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        name = args.get("name")
+        return f"Creating agent {name}" if isinstance(name, str) and name else "Creating an agent"
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         if ctx.agent_name != _SUPPORT_AGENT:

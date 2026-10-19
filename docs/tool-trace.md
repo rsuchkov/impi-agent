@@ -9,8 +9,15 @@ real message to hang it on (a click, a slash command, a scheduled run) keeps
 it beside the reply:
 
 ```
-⚙️ Running 2 tools…          ← while the turn runs; the count grows
+⚙️ Running 2 tools… · Reading IPA-12436     ← while the turn runs; the count grows
 ```
+
+After the count comes the latest word on what the turn is doing: the
+**caption** of the call that just began ("Reading IPA-12436"), written by the
+tool itself, or the model's last **remark on the way** — the line it wrote
+before going on to call tools ("Found the workflow, now listing transitions").
+A remark is shown here and nowhere else: the reply is what the model says after
+its last call, and the record is the calls.
 
 When the turn ends it settles into a button, and the reply follows:
 
@@ -19,14 +26,15 @@ When the turn ends it settles into a button, and the reply follows:
 ```
 
 A click redraws that same message into the list of calls. One row each — its
-number, the tool, how it ended, how long it took — and one row at a time can be
-opened to show its arguments, pretty-printed, right under it. `Close` puts the
-button back. A turn that called no tool leaves no message at all.
+number, the tool, how it ended, how long it took, its caption when it had one —
+and one row at a time can be opened to show its arguments, pretty-printed,
+right under it. `Close` puts the button back. A turn that called no tool
+leaves no message at all.
 
 ```
 ⚙️ 3 tool calls · 4.2s · 1 failed
-▸ 1 · search_docs · ok · 0.4s
-▸ 2 · read · ok · 1.1s
+▸ 1 · search_docs · ok · 0.4s · Searching for release notes
+▸ 2 · read · ok · 1.1s · Reading CHANGELOG.md
 ▾ 3 · bash · failed · 2.7s
 ```json
 {
@@ -61,6 +69,16 @@ this panel all follow the same rule: what was asked, never what came back. See
 Arguments are kept in the engine's inventory as compact JSON, cut at 8000
 characters, and shown up to 1200 with a visible mark when cut. The panel is one
 message and stays under both platforms' size limits by construction.
+
+**A caption is the tool's line, not the arguments.** A tool that implements
+`caption(args) -> str | None` (`Captioning` in `crucible.tools`) names the thing
+a call is about — a ticket key, a host, a file's name — and that line goes on
+the counter and into the row; an argument is as often a whole script or a whole
+comment as a key, and is never shown there. The runtime's own built-ins are
+captioned by the runtime driver (`read` → "Reading SYSTEM.md"; `bash` gets
+none, since its argument is the command). The model's remarks on the way are
+its own words to the person, made one line of bounded length; its reasoning
+never appears.
 
 Whoever can see the reply can open the panel. It is the same audience that
 sees the tool-gate card, and the same audience the agent's own reply addresses.

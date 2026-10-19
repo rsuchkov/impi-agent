@@ -361,10 +361,14 @@ post-loop `finalize`.
 
 **The tool trace** is the third kind of screen, and the one the engine posts on
 its own: `crucible.interactions.tooltrace`. The flow hands each turn a trace and
-feeds it the runtime's neutral tool events (`ToolStarted`/`ToolFinished`, from
-`ports/agent/events.py`); the trace draws a live counter through the agent's own
-`ChatClient`, writes the calls to the store when the turn ends, and settles the
-message into a button. It posts in the conversation's thread, or — when the
+feeds it the runtime's neutral turn events (`ToolStarted`/`ToolFinished` and
+`TextProgress`, the model's remark before its next call, from
+`ports/agent/events.py`), captioning each call once on the way
+(`ports/agent/captions.CallCaptions`: the registry asks a `Captioning` tool,
+the runtime driver answers for its built-ins) so the chat widget and an http
+journal say the same line; the trace draws a live counter through the agent's
+own `ChatClient`, writes the calls to the store when the turn ends, and settles
+the message into a button. It posts in the conversation's thread, or — when the
 conversation is not one — in a thread under the message the turn answers
 (`trace_ref`; the flow passes that message as `anchor`, none for a synthetic one). Its screen is registered but not listed — clicks route to
 it, nobody is offered it by name. See [tool-trace.md](tool-trace.md).

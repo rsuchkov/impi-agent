@@ -180,6 +180,17 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   the id would read as engine output; the id stays on the card as its `tool`
   field (drawn as a `Tool` row in a chat), for the operator and the audit. A
   tool without one is named by its id.
+- **Name what a call is about, in one line.** A tool may implement
+  `caption(args) -> str | None` (`Captioning` in `crucible.tools`): "Reading
+  IPA-12436", "Run Groovy on omega" — the thing worked on, never the arguments,
+  which are as often a whole script as a key. Synchronous and from the
+  arguments alone: it runs inside the runtime's event stream. The flow puts the
+  line on `ToolStarted.caption` once (`AgentFlow(captions=…)`, a `CallCaptions`;
+  `ChainedCaptions(registry, PiBuiltinCaptions())` adds the runtime's built-ins),
+  and every trace shows it: the chat widget's counter and rows, the http
+  journal's `tool.started.caption`. The model's remark before a call travels as
+  `TextProgress` and is shown the same way (`progress` in the journal); the
+  turn's answer is what the model says after its last call.
 - **Say what the call would do, not what the model said.** A confirmed tool
   should implement `describe(ctx, args) -> CallPreview | None` (`Describing` in
   `crucible.tools`; `CallPreview`/`PreviewRow` in `crucible.ports.chat.types`,

@@ -5,6 +5,7 @@ engine's registry is built from this module and the other tool modules in
 ``impi.engine_tools``."""
 
 import logging
+from collections.abc import Mapping
 from typing import Any, ClassVar
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -187,6 +188,10 @@ class SendMessage(Tool):
         "required": ["channel_id", "message"],
     }
 
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        channel = args.get("channel_id")
+        return f"Posting to {channel}" if isinstance(channel, str) and channel else "Posting a message"
+
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         channel_id = _require_str(args, "channel_id")
         message = _require_str(args, "message")
@@ -220,6 +225,10 @@ class ReadChannel(Tool):
         },
         "required": ["channel_id"],
     }
+
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        channel = args.get("channel_id")
+        return f"Reading channel {channel}" if isinstance(channel, str) and channel else "Reading a channel"
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         channel_id = _require_str(args, "channel_id")

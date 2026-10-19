@@ -14,14 +14,17 @@ its own — see ``crucible.builtin_tools`` for the generic ones.
 """
 
 import json
-from collections.abc import Iterable
+import logging
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any, TypeVar, cast
 
 from crucible.private_files import private_dir, write_private
 from crucible.tool_manifests import manifest_path, session_manifest_path
-from crucible.tools.base import SPEAKS_TO_USER_NOTE, UNTRUSTED_NOTE, Tool
+from crucible.tools.base import SPEAKS_TO_USER_NOTE, UNTRUSTED_NOTE, Captioning, Tool
+
+logger = logging.getLogger(__name__)
 
 _ToolClass = TypeVar("_ToolClass", bound=type[Tool])
 
@@ -59,6 +62,20 @@ class ToolRegistry:
 
     def names(self) -> list[str]:
         return sorted(self._tools)
+
+    def caption(self, tool: str, args: Mapping[str, Any]) -> str:
+        """The one-line account of a call for a person watching (``CallCaptions``):
+        the tool's own, when it is ``Captioning``; "" for a tool that is not,
+        that is unknown here, or whose caption failed — a caption must never
+        cost the turn anything."""
+        instance = self._tools.get(tool)
+        if not isinstance(instance, Captioning):
+            return ""
+        try:
+            return (instance.caption(args) or "").strip()
+        except Exception:
+            logger.warning("tool %s: caption failed", tool, exc_info=True)
+            return ""
 
     def load_configs(self, env_file: str = ".env") -> dict[str, Any]:
         """Instantiate the settings of every tool that declares one (env-bound).

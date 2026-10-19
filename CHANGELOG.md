@@ -6,7 +6,22 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A tool call has a caption, and the model's remarks on the way are
+  progress, not the answer.** A tool may say in one line what a call is about
+  (`Captioning.caption(args)`: "Reading IPA-12436"); the flow puts it on
+  `ToolStarted.caption` once, from the deployment's registry and the runtime
+  driver's captions for the runtime's built-ins (`CallCaptions`,
+  `ChainedCaptions`), and every trace shows it — the chat widget's counter
+  (`⚙️ Running 2 tools… · Reading IPA-12436`) and rows, the http journal's
+  `tool.started.caption`. The text the model writes before going on to call
+  tools ("Found the workflow, now listing transitions…") now crosses the port
+  as `TextProgress` and shows the same way (`progress {text}` in the journal);
+  the turn's answer is what the model says after its last call. A turn that
+  falls silent after its last call answers with its last remark, so nothing a
+  person used to see is lost. **Breaks:** `PiResult.text` (the `message` a
+  gateway posts) no longer carries the remarks the model made between tool
+  calls; a client that showed them as the answer now reads them from the
+  trace or the journal.
 
 ## v0.26.0 — 2026-10-17
 

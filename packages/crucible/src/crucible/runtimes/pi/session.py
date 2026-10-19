@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 
 from crucible.confinement import ProcessScope
-from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.agent.runtime import AgentEvent, PromptImage
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 from crucible.runtimes.pi import protocol
@@ -48,6 +48,10 @@ class _Turn:
         self.command_id = command_id
         self.future: asyncio.Future[PiResult] = asyncio.get_running_loop().create_future()
         self.text_parts: list[str] = []
+        # What the model said and then went on from, one remark per batch of
+        # tool calls — reported as it happens, kept so a turn that ends in
+        # silence after its last call can fall back to the last remark.
+        self.progress: list[str] = []
         self.tool_calls: list[str] = []
         # This turn's listener. Bound here, not on the session: a conversation
         # has many turns and each caller wants its own events, so a callback
@@ -332,13 +336,21 @@ class PiRpcSession:
             turn.future.set_exception(exc)
 
     async def _dispatch(self, event: PiEvent) -> None:
+        turn = self._turn
+        if turn is not None and event.type == protocol.EV_TOOL_EXECUTION_START and turn.text_parts:
+            # Text written before a call is a remark on the way, not the answer:
+            # it crosses the port as progress, ahead of the call it preceded.
+            remark = "".join(turn.text_parts).strip()
+            turn.text_parts.clear()
+            if remark:
+                turn.progress.append(remark)
+                await self._notify(TextProgress(remark))
         await self._notify(self._translate(event))
 
         if event.type == protocol.EV_EXTENSION_UI_REQUEST:
             await self._handle_ui_request(event)
             return
 
-        turn = self._turn
         if turn is None:
             return
 
@@ -389,6 +401,8 @@ class PiRpcSession:
             if not turn.future.done():
                 turn.future.set_result(PiResult(text="".join(turn.text_parts).strip(), tool_calls=turn.tool_calls))
             return
+        # The answer is what the model said after its last call; what it said
+        # before one went out as progress.
         text = "".join(turn.text_parts).strip()
         if not text:
             text = _final_text_from_agent_end(event)
@@ -401,6 +415,12 @@ class PiRpcSession:
             if error:
                 self._fail_turn(PiProcessError(f"pi LLM error: {error}"))
                 return
+        if not text and turn.progress:
+            # Silence after the last call, with remarks before it: the last
+            # remark stands as the answer rather than nothing — a model that
+            # said "Done, the comment is posted" and then called nothing more
+            # has answered.
+            text = turn.progress[-1]
         result = PiResult(
             text=text,
             tool_calls=turn.tool_calls,

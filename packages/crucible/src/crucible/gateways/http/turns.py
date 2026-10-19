@@ -18,6 +18,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from crucible.gateways.http.journal import (
+    EV_PROGRESS,
     EV_TOOL_FINISHED,
     EV_TOOL_STARTED,
     EV_TURN_FINISHED,
@@ -26,7 +27,7 @@ from crucible.gateways.http.journal import (
     STATUS_FAILED,
     TurnJournal,
 )
-from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import Action
 
@@ -79,7 +80,11 @@ class _Trace:
         if self._turn is None:
             return
         if isinstance(event, ToolStarted):
-            self._turn.journal.emit(EV_TOOL_STARTED, callId=event.call_id, tool=event.tool)
+            self._turn.journal.emit(
+                EV_TOOL_STARTED, callId=event.call_id, tool=event.tool, caption=event.caption
+            )
+        elif isinstance(event, TextProgress):
+            self._turn.journal.emit(EV_PROGRESS, text=event.text)
         elif isinstance(event, ToolFinished):
             self._turn.journal.emit(
                 EV_TOOL_FINISHED, callId=event.call_id, tool=event.tool, ok=not event.is_error

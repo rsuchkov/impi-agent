@@ -118,8 +118,9 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | type | payload | meaning |
 |---|---|---|
 | `turn.started` | `startedBy` | the turn opened: `caller` for a message you posted, `engine` for one the engine started by itself (a scheduled task, an event the application reported) |
-| `tool.started` | `callId`, `tool` | a tool began |
+| `tool.started` | `callId`, `tool`, `caption` | a tool began; `caption` is its one line for a person ("Reading IPA-12436"), written by the tool, `""` when it has none |
 | `tool.finished` | `callId`, `tool`, `ok` | it ended |
+| `progress` | `text` | what the model said on its way to the next call ("Found the workflow, now listing transitions") — a step's heading, not the answer; the answer is the `message` after the last call |
 | `message` | `messageId`, `format: "markdown"`, `text` | the agent's answer |
 | `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `model_unavailable`, `runtime_unavailable`, `agent_error`, `empty_answer` — or a flag a tool left on the turn (`session_expired`, whatever the application defines), after the answer; `text` is a sentence for a person, `code` is for you |
 | `actions` | `postId`, `text`, `actions[]` | a question with controls — what the runtime asks mid-turn (`ask_user_confirm`); the turn waits (`awaiting_input`) |
