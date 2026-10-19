@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.27.0 — 2026-10-20
+
 - **A turn that is stopped says why, and the next turn knows what it did.**
   Three changes around the turn's time limit. The limit's sentence was "the
   model is temporarily unavailable", which it is not: a timeout now says the
