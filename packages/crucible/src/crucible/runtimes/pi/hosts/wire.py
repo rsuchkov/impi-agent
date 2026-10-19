@@ -20,6 +20,8 @@ copies to each other, so the duplication cannot drift silently.
 This module is constants only. That is what makes that test possible.
 """
 
+from crucible.ports.agent.spec import THINKING_LEVELS
+
 # Bumped when a field changes meaning or becomes required. A host that answers
 # with a different number is refused rather than half-driven: a spawn that
 # quietly loses its tool allowlist is worse than one that does not happen.
@@ -51,6 +53,9 @@ KEY_SKILLS = "skills"
 KEY_PROVIDER = "provider"
 KEY_MODEL = "model"
 KEY_THINKING = "thinking"  # the runtime's thinking level; "" or absent = its default
+# The levels a spawn may name — the port's scale; the relay keeps a copy the
+# tests compare with this one.
+THINKING_LEVELS = THINKING_LEVELS
 KEY_SYSTEM_SUFFIX = "append_system_prompt"
 KEY_ENV = "env"
 KEY_ENV_FILES = "env_files"

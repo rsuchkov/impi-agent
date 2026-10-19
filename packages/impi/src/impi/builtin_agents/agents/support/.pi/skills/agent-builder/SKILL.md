@@ -41,7 +41,10 @@ runtime:
   model: gpt-6.1-sol         # optional; omit to inherit the engine default — but a
                              # provider needs a model, here or in DEFAULT_MODEL
   # fallback_models: [other-provider/other-model]   # optional; when the model is down
-  timeout: 180               # seconds per turn
+  timeout: 180               # seconds of active time per turn (waiting on a person does not count)
+  # idle_timeout: 120        # optional; seconds without a word from the model before the turn is stopped as stalled
+  # wrap_up_after: 0         # optional; active seconds after which the model is told once to round off (below timeout)
+  # thinking: medium         # optional; off | minimal | low | medium | high | xhigh | max — lower it when answers get truncated
   tools: [read, bash]        # the ONE allowlist (see "Tool gating")
   skills: [<name>, registry:<name>]   # private, and/or from the shared library
   # confinement: agent        # optional; conversation (default) | agent | off

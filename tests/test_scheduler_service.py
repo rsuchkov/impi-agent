@@ -864,3 +864,17 @@ async def test_a_watch_hook_that_never_answers_does_not_stop_the_ticker(store, m
     assert watch.next_run_at == iso(clock.now + timedelta(minutes=15))  # asked again next period
     assert "TimeoutError" in scheduler._last_error
     assert [r.agent for r in parts["dispatcher"].requests] == ["assistant"]  # the other task ran
+
+
+async def test_an_answer_the_length_limit_ended_is_still_a_run_that_worked(store) -> None:
+    # The answer was posted and the notice said why it stops there; the run is
+    # not an error, and the scheduler does not report it a second time.
+    clock = Clock()
+    await store.create_task(_task(clock))
+    sched, kw = _scheduler(store, clock, dispatcher=FakeDispatcher(TurnOutcome.TRUNCATED))
+
+    await sched.tick()
+    await _settle()
+
+    assert (await store.list_runs("tsk_1"))[0].status == RUN_OK
+    assert kw["notifier"].posts == []

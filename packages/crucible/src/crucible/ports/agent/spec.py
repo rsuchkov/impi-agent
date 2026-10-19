@@ -14,15 +14,9 @@ from crucible.ports.agent.confinement import ConfinementLevel
 
 DEFAULT_IDLE_TIMEOUT_S = 120.0
 
-# What the model is told when a turn reaches ``wrap_up_after``: a message in
-# its own conversation, read before its next call, so it rounds off instead of
-# being cut off.
-WRAP_UP_NOTE = (
-    "You are running out of time for this turn. Stop calling tools now and "
-    "answer with what is done so far and what is left to do."
-)
-
-# The levels ``AgentSpec.thinking`` may name, least to most.
+# The levels ``AgentSpec.thinking`` may name, least to most. The scale is the
+# port's; a runtime driver maps it onto its own setting (one driver's happens
+# to spell the same words).
 THINKING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
 
 

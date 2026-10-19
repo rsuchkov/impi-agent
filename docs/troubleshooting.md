@@ -48,6 +48,24 @@ in the deployment broke. The engine log has the provider's own words on the
 `pi LLM error:` line. If it persists, check the endpoint (`LLM_BASE_URL`) or the
 provider's status page, not the agent.
 
+Three more sentences the engine says about a turn, each with a notice code
+and the `agent.yaml` key behind it:
+
+- "This turn ran past its time limit and was stopped" (`timeout`) — the turn's
+  active time hit `runtime.timeout` (waiting on a person does not count). The
+  next turn's prompt is told which tool calls the stopped turn finished and
+  which was still running without a result, so the model does not repeat a
+  call that may have taken effect. `runtime.wrap_up_after` tells a long turn,
+  once, to round off before the limit.
+- "The model stopped responding in the middle of this turn, so I stopped it"
+  (`stalled`) — no text, reasoning or tool activity for `runtime.idle_timeout`
+  seconds (120 by default; not counted while a tool runs or a card is up); the
+  log says `pi reported nothing for Ns; aborting the stalled turn`. A hang,
+  not long work: raising `timeout` would not have helped.
+- "That answer hit the model's length limit" / "hit its length limit before it
+  had answered" (`truncated`) — the model's output limit went on reasoning or
+  on a long answer. Lower `runtime.thinking`, or ask for a shorter answer.
+
 An agent with `runtime.fallback_models` moves on to them before it shows that
 notice. Which model answered a turn is on its `pi turn: … model=` line in the
 engine log, and a switch is a `fallback:` line of its own — in the engine log,

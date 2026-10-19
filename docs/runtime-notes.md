@@ -130,7 +130,8 @@ holds the person's message once; the failed attempt stays in it as an answer
 with an error. The next prompt starts on the model the turn started on, and a
 new process starts on the profile's `--provider`/`--model` whatever the
 session last used. The thinking level is `pi`'s to choose on the switch: the
-model's own setting, else the configured default.
+model's own setting, else the configured default (`runtime.thinking` when the
+profile sets one).
 
 The engine logs the switch at INFO (`pi stderr: fallback: <from> failed
 (<error>); switching to <to>`), and every turn's line names the model that

@@ -372,7 +372,7 @@ class PiRuntime:
         try:
             return await session.prompt(
                 message, timeout=pi_profile.timeout, images=images, on_event=on_event,
-                    idle_timeout=pi_profile.idle_timeout, wrap_up_after=pi_profile.wrap_up_after,
+                idle_timeout=pi_profile.idle_timeout, wrap_up_after=pi_profile.wrap_up_after,
             )
         finally:
             await self._close_session(session, pi_profile.name)

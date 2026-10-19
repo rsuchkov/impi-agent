@@ -732,6 +732,8 @@ async def test_a_full_engine_does_not_blame_the_model(tmp_path: Path) -> None:
     await flow.handle(_dm(), chat)
 
     assert chat.notices == [(_dm().ref, BUSY_MESSAGE)]
+    # Nothing ran, so there is nothing the next turn has to be told.
+    assert (await store.list())[0].cut_short == ""
     await store.close()
 
 
@@ -1585,6 +1587,8 @@ async def test_a_turn_cut_short_tells_the_next_one_what_it_did_and_what_may_have
     events = (
         ToolStarted(call_id="c1", tool="read_issue", args={"key": "X-1"}, caption="Reading X-1"),
         ToolFinished(call_id="c1", tool="read_issue"),
+        ToolStarted(call_id="c0", tool="bash", args={"command": "false"}),
+        ToolFinished(call_id="c0", tool="bash", is_error=True),
         ToolStarted(call_id="c2", tool="stands_groovy", args={"script": "..."}, caption="Run Groovy on omega"),
     )
     runtime = _StreamingRuntime(events=events, error=PiTimeout("slow"))
@@ -1595,7 +1599,7 @@ async def test_a_turn_cut_short_tells_the_next_one_what_it_did_and_what_may_have
     assert chat.notices == [(_dm().ref, TIMEOUT_MESSAGE)] and chat.notice_codes == ["timeout"]
     record = (await store.list())[0]
     assert "ran past its time limit" in record.cut_short
-    assert "Tool calls that finished, whose results you saw: read_issue (Reading X-1)." in record.cut_short
+    assert "Tool calls that finished, whose results you saw: read_issue (Reading X-1), bash, failed." in record.cut_short
     assert "Still running when it was stopped, so you never saw a result: stands_groovy (Run Groovy on omega)." in record.cut_short
     assert "script" not in record.cut_short  # never the arguments
 

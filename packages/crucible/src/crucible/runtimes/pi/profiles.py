@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from crucible.ports.agent import AgentProfile, AgentSpec
+from crucible.ports.agent.spec import DEFAULT_IDLE_TIMEOUT_S
 from crucible.tool_manifests import MANIFEST_ENV
 
 
@@ -61,7 +62,7 @@ class PiProfile:
     # fingerprint: seconds without an event before the turn is called stalled
     # (0 = never), and active seconds after which the model is told to wrap up
     # (0 = never).
-    idle_timeout: float = 120.0
+    idle_timeout: float = DEFAULT_IDLE_TIMEOUT_S
     wrap_up_after: float = 0.0
 
 

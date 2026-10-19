@@ -1,7 +1,7 @@
 """CallCaptions: the one-line account of a tool call for a person watching.
 
 A turn's trace shows "Running 2 tools…"; a caption makes it "Running 2 tools… ·
-Reading IPA-12436". The caption comes from whoever knows the tool — the tool
+Reading PROJ-123". The caption comes from whoever knows the tool — the tool
 itself (``tools.base.Captioning``), or the runtime driver for the runtime's own
 built-ins — never from the model, and never as the raw arguments: an argument
 is as often a whole script as a key. The flow asks once per call and puts the

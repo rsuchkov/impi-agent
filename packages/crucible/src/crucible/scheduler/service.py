@@ -88,6 +88,9 @@ _MIN_SLEEP_S = 0.5
 _STATUS_BY_OUTCOME = {
     TurnOutcome.REPLIED: RUN_OK,
     TurnOutcome.ACTED: RUN_OK,
+    # The answer was posted, cut by the model's length limit and said so; the
+    # run did its job.
+    TurnOutcome.TRUNCATED: RUN_OK,
     TurnOutcome.EMPTY: RUN_EMPTY,
     TurnOutcome.TIMEOUT: RUN_TIMEOUT,
     TurnOutcome.ERROR: RUN_ERROR,

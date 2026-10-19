@@ -9,15 +9,17 @@ real message to hang it on (a click, a slash command, a scheduled run) keeps
 it beside the reply:
 
 ```
-⚙️ Running 2 tools… · Reading IPA-12436     ← while the turn runs; the count grows
+⚙️ Running 2 tools… · Reading PROJ-123     ← while the turn runs; the count grows
 ```
 
 After the count comes the latest word on what the turn is doing: the
-**caption** of the call that just began ("Reading IPA-12436"), written by the
+**caption** of the call that just began ("Reading PROJ-123"), written by the
 tool itself, or the model's last **remark on the way** — the line it wrote
 before going on to call tools ("Found the workflow, now listing transitions").
-A remark is shown here and nowhere else: the reply is what the model says after
-its last call, and the record is the calls.
+A remark is shown while the turn runs and not kept — the record is the calls;
+the http journal carries it as a `progress` event. The reply is what the model
+says after its last call; a turn that says nothing after its last call answers
+with its last remark.
 
 When the turn ends it settles into a button, and the reply follows:
 
@@ -58,7 +60,7 @@ is being opened. More than ten calls are paged.
 
 ## What it shows, and what it never shows
 
-**Arguments only, never results.** The engine never holds a value an agent was
+**Arguments and captions, never results.** The engine never holds a value an agent was
 granted: a secret travels by reference (`vault://name`) and is bound into a
 process the model does not read, so arguments cannot carry one. A *result*
 could — `echo $TOKEN` after a granted reference is a legal command — and this
@@ -93,9 +95,10 @@ opens minutes or a restart later. Traces older than the retention are dropped
 at startup.
 
 The live counter comes from the runtime's event stream. The runtime driver
-translates its own tool events into two neutral ones — a call started, with its
-arguments; a call finished, with its outcome and duration — and the flow feeds
-them to the trace without waiting on the chat platform: a burst of calls costs
+translates its own tool events into three neutral ones — a call started, with
+its arguments; a call finished, with its outcome and duration; the model's
+remark before its next call (`TextProgress`) — the flow captions the started
+call once (`CallCaptions`) and feeds them to the trace without waiting on the chat platform: a burst of calls costs
 one redraw a second, not one per call.
 
 ## Turning it on and off

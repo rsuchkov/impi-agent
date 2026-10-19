@@ -421,7 +421,10 @@ which is why the gateway's login identity is pushed into the flow
 **The envelope is marked, and what it quotes cannot forge the marks.** The
 prompt's own structure is a handful of lines beginning with `[`: a block of
 quoted material opens with `[context <tag>: earlier conversation]` (or `who is
-asking`, `posted since your last reply`) and closes with `[/context <tag>]`; a
+asking`, `posted since your last reply`, `the previous turn, which was cut
+short` — the engine's own account, by tool name and caption and never by
+argument or result, of a turn the time limit or a stall stopped, said once)
+and closes with `[/context <tag>]`; a
 message is `[@name · time]: text`. The tag is drawn fresh for every prompt, and
 every piece of other people's text — a message, a replayed post, an
 application's preamble, an attachment's name — goes through

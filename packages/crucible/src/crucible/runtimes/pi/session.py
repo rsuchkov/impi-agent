@@ -8,8 +8,7 @@ from dataclasses import dataclass, field
 
 from crucible.confinement import ProcessScope
 from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
-from crucible.ports.agent.runtime import AgentEvent, PromptImage
-from crucible.ports.agent.spec import WRAP_UP_NOTE
+from crucible.ports.agent.runtime import WRAP_UP_NOTE, AgentEvent, PromptImage
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 from crucible.runtimes.pi import protocol
 from crucible.runtimes.pi.errors import (
@@ -31,6 +30,7 @@ EventCallback = Callable[[AgentEvent], Awaitable[None] | None]
 _INTERACTIVE_UI_METHODS = frozenset({"select", "confirm", "input", "editor"})
 # How often the turn-wait loop re-checks the deadline (also how fast it notices a
 # UI wait starting/ending). Small enough to be responsive, large enough to be cheap.
+_TURN_POLL_INTERVAL = 0.5
 # The runtime's stop reason for a run that hit the model's output limit.
 STOP_LENGTH = "length"
 
@@ -38,7 +38,6 @@ STOP_LENGTH = "length"
 class _Stalled(Exception):
     """Raised inside ``_await_turn`` when the idle watchdog fires; becomes a
     ``PiStalled`` once the turn has been aborted."""
-_TURN_POLL_INTERVAL = 0.5
 
 
 @dataclass
@@ -53,7 +52,7 @@ class PiResult:
     # agent's own when the turn moved on to a fallback. "" when not reported.
     model: str = ""
     # The run ended on the model's length limit (``stop_reason == "length"``):
-    # the text is cut short, or missing because the limit went on what came
+    # the text stops where the limit fell, or is missing because the limit went on what came
     # before it.
     truncated: bool = False
 

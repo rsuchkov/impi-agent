@@ -25,7 +25,7 @@ TEXT_PROGRESS = "text_progress"
 class ToolStarted:
     """A tool call has begun. ``call_id`` pairs it with its ``ToolFinished``.
 
-    ``caption`` is a short line for a person watching — "Reading IPA-12436" —
+    ``caption`` is a short line for a person watching — "Reading PROJ-123" —
     written by whoever knows the tool (see ``ports.agent.captions``), never by
     the model and never the arguments themselves: an argument is a whole script
     or a whole comment as often as it is a key. A runtime leaves it empty."""

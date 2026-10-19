@@ -129,7 +129,10 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   clear the provider. One such `agent.yaml` stops the whole engine at start,
   not only that agent. The same for `runtime.tools entry '…': name each tool`
   — a `*` pattern or a `+name`/`-name` entry, which would hand out tools
-  nobody named.
+  nobody named — and for `runtime.idle_timeout must be a number of seconds, 0
+  for never`, `runtime.wrap_up_after (N) must come before runtime.timeout (M)`
+  and `runtime.thinking: thinking level '…' is not one of off, minimal, low,
+  medium, high, xhigh, max`.
 - "pi process exited unexpectedly" — the error carries the exit code and the
   last stderr lines; read them. Usual causes: a custom endpoint that is down,
   a provider/model the backend does not have, a missing `models.json`.
@@ -143,7 +146,10 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   direct message or a channel, and beside the reply after a click, a slash
   command or a scheduled run. Ask the operator to open it and paste the row
   that failed: it
-  names the tool, its arguments and how long it ran. It never shows a result,
+  names the tool, its caption when the tool wrote one ("Reading PROJ-123"),
+  its arguments and how long it ran; while the turn runs, the counter shows
+  the latest caption or the model's remark after the count — not a bug. It
+  never shows a result,
   by design (`$IMPI_ROOT/docs/tool-trace.md`), so "what did the tool return"
   still has to come from the log.
 - "I am at capacity right now" — every runtime slot (`PI_MAX_CONCURRENT_SESSIONS`,
@@ -156,6 +162,23 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
 - A confirmation card left waiting no longer ends the turn: the turn's timeout
   stops while the gate waits. A turn that times out while a card is up has some
   other cause.
+- "This turn ran past its time limit and was stopped" (notice code `timeout`)
+  — the turn's active time hit `runtime.timeout`. The next turn's prompt is told
+  which tool calls the stopped one finished and which was still running without
+  a result, so the model does not redo a call that may have taken effect
+  (`cut_short` on the conversation, said once). `runtime.wrap_up_after` makes a
+  long turn round off — the model is told once to stop calling tools and say
+  where things stand — before the limit cuts it.
+- "The model stopped responding in the middle of this turn, so I stopped it"
+  (`stalled`) — nothing came from the model for `runtime.idle_timeout` seconds
+  (120 by default; the clock does not run while a tool runs or a card is up).
+  Log line: `pi reported nothing for N.Ns; aborting the stalled turn`. A hang,
+  not long work — raising `timeout` would not help; retry, or look at the
+  provider.
+- "That answer hit the model's length limit" / "The model hit its length limit
+  before it had answered" (`truncated`) — the output limit went on reasoning
+  or on a long answer. Lower `runtime.thinking` in the agent's `agent.yaml`,
+  or ask for a shorter answer. Not an engine fault, and not an empty turn.
 - **An agent answers but remembers nothing of an old conversation** — besides
   a skipped migration (agent containers), `SESSION_RETENTION_DAYS` may have
   forgotten it at startup: the log says `forgot N conversation(s) idle for D+

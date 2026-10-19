@@ -22,6 +22,7 @@ from crucible.ports.agent.events import (
     ToolStarted,
 )
 from crucible.ports.agent.runtime import (
+    WRAP_UP_NOTE,
     AgentEvent,
     AgentProfile,
     AgentResult,
@@ -36,7 +37,6 @@ from crucible.ports.agent.runtime import (
 from crucible.ports.agent.spec import (
     DEFAULT_IDLE_TIMEOUT_S,
     THINKING_LEVELS,
-    WRAP_UP_NOTE,
     AgentSpec,
     check_thinking_level,
 )

@@ -18,6 +18,7 @@ from typing import Protocol
 from crucible.attachments import sniff_image
 from crucible.containment import one_line, quoted, speaker
 from crucible.ports.agent import (
+    AgentBusy,
     AgentError,
     AgentEvent,
     AgentProfile,
@@ -56,7 +57,7 @@ LOADING_REACTION = "eyes"
 EMPTY_ANSWER_MESSAGE = "I thought about it but produced no answer — please try rephrasing."
 # The model ran out of room. Two sentences for the two cases, because what the
 # person just saw differs: a reply that stops mid-way, or nothing at all.
-TRUNCATED_MESSAGE = "That answer was cut short by the model's length limit."
+TRUNCATED_MESSAGE = "That answer hit the model's length limit and stops where it does."
 TRUNCATED_EMPTY_MESSAGE = (
     "The model hit its length limit before it had answered, so there is nothing to show "
     "— ask again, perhaps for a shorter answer."
@@ -158,7 +159,7 @@ class _TurnLog:
         self._calls: list[tuple[str, str, str]] = []  # (tool, caption, state)
         self._open: dict[str, int] = {}
 
-    def note(self, event: AgentEvent) -> None:
+    def record(self, event: AgentEvent) -> None:
         if isinstance(event, ToolStarted):
             self._open[event.call_id] = len(self._calls)
             self._calls.append((event.tool, event.caption, "running"))
@@ -417,6 +418,13 @@ class AgentFlow:
                     on_event=self._observer(trace, log),
                 )
             interrupted = False
+        except AgentBusy as exc:
+            # Nothing ran: the engine was full. Said as such, and nothing for
+            # the next turn to be told — there was no turn.
+            logger.warning("agent turn could not start for %s: %s", record.runtime_session_id, exc)
+            code, text = notice_for(exc)
+            await chat.post_notice(anchor.ref, text, code=code)
+            return TurnOutcome.TIMEOUT
         except AgentTimeout as exc:
             logger.warning(
                 "agent turn timed out for %s: %s", record.runtime_session_id, exc
@@ -452,7 +460,7 @@ class AgentFlow:
         await self._sessions.touch(
             self._agent_name, anchor.conversation_id, engine_turn=anchor.engine_started
         )
-        truncated = bool(getattr(result, "truncated", False))
+        truncated = result.truncated
         if result.text:
             # One hop past the deepest message in the batch, so any agent we
             # mention accounts for the cascade (see LoopGuard).
@@ -492,7 +500,7 @@ class AgentFlow:
         def on_event(event: AgentEvent) -> None:
             if captions is not None and isinstance(event, ToolStarted) and not event.caption:
                 event = replace(event, caption=captions.caption(event.tool, event.args))
-            log.note(event)
+            log.record(event)
             if trace is not None:
                 trace.on_event(event)
 

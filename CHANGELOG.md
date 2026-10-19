@@ -28,25 +28,28 @@ when a release is cut, and `impi update` shows the target version's section.
   its place); a `SessionStore` of your own needs `set_cut_short(agent,
   conversation_id, note)`; the sqlite schema gains `sessions.cut_short`
   (migrated on open).
-- **An answer the model's length limit cut is said to be cut, not called
+- **An answer the model's length limit ended is said to be, not called
   empty.** A run that ended on the limit (`stopReason: length` — eight
   thousand tokens of reasoning and no room left for the answer, say) used to
   reach the person as "I produced no answer — please try rephrasing", blaming
   the question. `AgentResult.truncated` now carries the fact across the port;
-  the flow posts what there is and then a `truncated` notice ("That answer was
-  cut short by the model's length limit"), or the notice alone when nothing
+  the flow posts what there is and then a `truncated` notice ("That answer hit
+  the model's length limit and stops where it does"), or the notice alone when nothing
   came out, and the turn's outcome is `truncated` (`turn.finished.outcome`
-  on the http gateway, not a failure). The usual cause has a knob:
+  on the http gateway, not a failure; a scheduled turn records it as `ok`). The
+  usual cause has a knob:
   `runtime.thinking: off | minimal | low | medium | high | xhigh | max` in
   `agent.yaml` sets how much the model reasons before it answers, on the
   engine's host and a remote one alike, and `impi escape` passes it on too.
+  **Breaks:** a runtime of your own must give its `AgentResult` a `truncated`
+  field.
 - **A tool call has a caption, and the model's remarks on the way are
   progress, not the answer.** A tool may say in one line what a call is about
-  (`Captioning.caption(args)`: "Reading IPA-12436"); the flow puts it on
+  (`Captioning.caption(args)`: "Reading PROJ-123"); the flow puts it on
   `ToolStarted.caption` once, from the deployment's registry and the runtime
   driver's captions for the runtime's built-ins (`CallCaptions`,
   `ChainedCaptions`), and every trace shows it — the chat widget's counter
-  (`⚙️ Running 2 tools… · Reading IPA-12436`) and rows, the http journal's
+  (`⚙️ Running 2 tools… · Reading PROJ-123`) and rows, the http journal's
   `tool.started.caption`. The text the model writes before going on to call
   tools ("Found the workflow, now listing transitions…") now crosses the port
   as `TextProgress` and shows the same way (`progress {text}` in the journal);

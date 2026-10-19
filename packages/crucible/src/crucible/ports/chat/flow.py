@@ -26,7 +26,7 @@ class TurnOutcome(Enum):
     # The answer hit the model's length limit: what came out, if anything, was
     # posted, then a notice saying so. Not a failure of the engine's.
     TRUNCATED = auto()
-    TIMEOUT = auto()  # the runtime timed out; the fallback message was posted
+    TIMEOUT = auto()  # the turn ran past its limit, stalled, or the engine was full; a notice said which
     ERROR = auto()  # the runtime failed; the internal-error message was posted
     DUPLICATE = auto()  # every message in the batch had already been processed
 

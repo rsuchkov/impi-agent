@@ -2,10 +2,12 @@
 or in a thread under the message the turn answers (``trace_ref``).
 
 Three states of one message. While the turn runs it is a counter — ``Running
-3 tools…`` — so a pause reads as work rather than silence. When the turn ends it
-becomes a button, ``Running 3 tools →``. A click redraws it into a list of the
-calls, one row each, where one row at a time can be opened to show its
-arguments; ``Close`` puts the button back. No tool calls, no message at all.
+3 tools… · Reading PROJ-123`` — with the latest word after it (a call's caption,
+or the model's remark before its next call), so a pause reads as work rather
+than silence. When the turn ends it becomes a button, ``Running 3 tools →``. A
+click redraws it into a list of the calls, one row each with its caption,
+where one row at a time can be opened to show its arguments; ``Close`` puts
+the button back. No tool calls, no message at all.
 
 It is a screen: the engine posts it, the engine answers every click, no model is
 involved. What a click carries is a token and a view position — the calls
@@ -59,7 +61,7 @@ ARGS_STORED_MAX = 8000
 # notes events; the chat platform is spoken to at most this often.
 REDRAW_INTERVAL_S = 1.0
 # The most a caption or a progress remark gets on the counter and in a row.
-STATUS_MAX = 80
+LATEST_MAX = 80
 
 CALL_OK = "ok"
 CALL_FAILED = "failed"
@@ -129,13 +131,13 @@ def _summary(calls: list[Call], *, interrupted: bool) -> str:
     return " · ".join(parts)
 
 
-def render_counter(count: int, status: str = "") -> View:
+def render_counter(count: int, latest: str = "") -> View:
     """The counter, with the latest word on what the turn is doing after it:
-    a call's caption or the model's last remark on the way. ``status`` is made
+    a call's caption or the model's last remark on the way. ``latest`` is made
     one line of bounded length here — the remark is the model's text."""
     line = f"⚙️ Running {_plural(count, 'tool')}…"
-    if status:
-        line += f" · {one_line(status, limit=STATUS_MAX)}"
+    if latest:
+        line += f" · {one_line(latest, limit=LATEST_MAX)}"
     return View.of(line)
 
 
@@ -170,7 +172,7 @@ def _row(call: Call, *, open_: bool) -> str:
     took = "—" if call.state == CALL_UNFINISHED else _seconds(call.duration_s)
     row = f"{marker} {call.index + 1} · {call.tool} · {call.state} · {took}"
     if call.caption:
-        row += f" · {one_line(call.caption, limit=STATUS_MAX)}"
+        row += f" · {one_line(call.caption, limit=LATEST_MAX)}"
     return row
 
 
@@ -319,7 +321,7 @@ class TurnTrace:
         self._created_at = clock.now_iso()
         self._calls: list[Call] = []
         self._open: dict[str, int] = {}  # call id -> index of the call still running
-        self._status = ""  # the latest caption or remark, for the counter
+        self._latest = ""  # the latest caption or remark, for the counter
         self._post_id: str | None = None
         self._closed = False
         self._dead = False  # the first post failed; nothing further is attempted
@@ -344,12 +346,12 @@ class TurnTrace:
             self._calls.append(call)
             self._open[event.call_id] = call.index
             if event.caption:
-                self._status = event.caption
+                self._latest = event.caption
         elif isinstance(event, TextProgress):
             # The model's own words on the way: shown on the counter while the
             # turn runs, kept nowhere — the record is the calls.
             if event.text.strip():
-                self._status = event.text
+                self._latest = event.text
         elif isinstance(event, ToolFinished):
             index = self._open.pop(event.call_id, None)
             if index is None:
@@ -372,7 +374,7 @@ class TurnTrace:
         while self._dirty and not self._closed and not self._dead:
             self._dirty = False
             self._wake.clear()
-            await self._draw(render_counter(len(self._calls), self._status))
+            await self._draw(render_counter(len(self._calls), self._latest))
             if self._closed:
                 break  # end() arrived while drawing; it is waiting on us
             try:

@@ -93,7 +93,10 @@ runtime:
   model: gpt-6.1-sol       # OPTIONAL — omit to inherit DEFAULT_MODEL; a provider
                            # needs a model, here or in DEFAULT_MODEL
   fallback_models: [ ... ] # OPTIONAL — provider/model, tried in order when the model is down
-  timeout: 180
+  timeout: 180             # seconds of active time per turn (waiting on a person does not count)
+  idle_timeout: 120        # OPTIONAL — seconds without a word from the model before the turn is stopped as stalled; 0 = never
+  wrap_up_after: 0         # OPTIONAL — active seconds after which the model is told once to round off; 0 = never, must be below timeout
+  thinking: medium         # OPTIONAL — off | minimal | low | medium | high | xhigh | max; omit for the runtime's default
   tools: [ ... ]           # the single capability allowlist (see below) — tool
                            # names only: no *, no +name/-name
   skills: [ ... ]          # private names, or registry:<name> from the library

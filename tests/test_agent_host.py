@@ -786,3 +786,15 @@ def test_the_host_never_lets_a_confined_process_write_the_credential(tmp_path: P
     written = [path for option, path in rules if option in ("--writable", "--writable-file")]
     assert not any(path.startswith(str(agent_dir)) for path in written)
     assert ("--readable", str(agent_dir)) in rules and ("--mkdir-only", str(agent_dir)) in rules
+
+
+def test_the_relay_refuses_a_thinking_level_that_is_not_one(tmp_path: Path) -> None:
+    profile, library = _dirs(tmp_path)
+    config = _host_config(tmp_path, profile, library)
+    payload = {
+        engine_wire.KEY_VERSION: engine_wire.PROTOCOL_VERSION,
+        engine_wire.KEY_AGENT: "assistant",
+        engine_wire.KEY_THINKING: "loud",
+    }
+    with pytest.raises(SpawnRejected, match="thinking: 'loud' is not one of off, minimal"):
+        host_parse(payload, config)

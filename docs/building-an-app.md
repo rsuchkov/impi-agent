@@ -182,7 +182,7 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   tool without one is named by its id.
 - **Name what a call is about, in one line.** A tool may implement
   `caption(args) -> str | None` (`Captioning` in `crucible.tools`): "Reading
-  IPA-12436", "Run Groovy on omega" — the thing worked on, never the arguments,
+  PROJ-123", "Run the script on <host>" — the thing worked on, never the arguments,
   which are as often a whole script as a key. Synchronous and from the
   arguments alone: it runs inside the runtime's event stream. The flow puts the
   line on `ToolStarted.caption` once (`AgentFlow(captions=…)`, a `CallCaptions`;

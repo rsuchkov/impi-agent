@@ -102,9 +102,9 @@ about those; everything else it reports itself:
 
 | The run says | What happened |
 |---|---|
-| `ok` | the agent answered (or posted a widget — that IS the answer) |
+| `ok` | the agent answered (or posted a widget — that IS the answer); an answer the model's length limit ended counts, the notice said so |
 | `empty` | the turn produced neither text nor an action |
-| `timeout` | the runtime ran out of time; you got the usual fallback message |
+| `timeout` | the turn ran past its time limit, the model stalled, or the engine was full; the conversation got a notice saying which |
 | `error` | the runtime failed |
 | `deadline` | it outlived `SCHEDULER_RUN_DEADLINE_S`; the turn may still finish |
 | `interrupted` | the engine stopped mid-run — reported after it comes back |

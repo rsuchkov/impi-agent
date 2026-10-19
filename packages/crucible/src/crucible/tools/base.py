@@ -242,7 +242,7 @@ class Describing(Protocol):
 @runtime_checkable
 class Captioning(Protocol):
     """A tool that can say in one line what a call is about, for a person
-    watching the turn — "Reading IPA-12436", "Run Groovy on omega".
+    watching the turn — "Reading PROJ-123", "Run the script on <host>".
 
     Optional and structural like ``Describing``, but lighter: synchronous, from
     the arguments alone, no context and no side effects, because it runs inside

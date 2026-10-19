@@ -77,7 +77,7 @@ def parse(payload: object, config: HostConfig) -> Spawn:
         ),
         provider=_optional_str(payload.get(wire.KEY_PROVIDER), wire.KEY_PROVIDER),
         model=_optional_str(payload.get(wire.KEY_MODEL), wire.KEY_MODEL),
-        thinking=_optional_str(payload.get(wire.KEY_THINKING), wire.KEY_THINKING) or "",
+        thinking=_thinking(payload.get(wire.KEY_THINKING)),
         append_system_prompt=str(payload.get(wire.KEY_SYSTEM_SUFFIX) or ""),
         env=_env(payload.get(wire.KEY_ENV), wire.KEY_ENV),
         env_files=_env(payload.get(wire.KEY_ENV_FILES), wire.KEY_ENV_FILES),
@@ -167,6 +167,15 @@ def _strings(raw: object, field_name: str) -> tuple[str, ...]:
     if any(not isinstance(value, str) for value in values):
         raise SpawnRejected(f"{field_name} must be a list of strings")
     return tuple(str(value) for value in values)
+
+
+def _thinking(raw: object) -> str:
+    """The thinking level, or "" for none; a value that is not a level is
+    refused here as the engine's loader refuses it there."""
+    value = _optional_str(raw, wire.KEY_THINKING) or ""
+    if value and value not in wire.THINKING_LEVELS:
+        raise SpawnRejected(f"{wire.KEY_THINKING}: {value!r} is not one of {', '.join(wire.THINKING_LEVELS)}")
+    return value
 
 
 def _optional_str(raw: object, field_name: str) -> str | None:

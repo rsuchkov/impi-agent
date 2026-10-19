@@ -49,6 +49,8 @@ KEY_SKILLS = "skills"
 KEY_PROVIDER = "provider"
 KEY_MODEL = "model"
 KEY_THINKING = "thinking"  # the runtime's thinking level; "" or absent = its default
+# The levels a spawn may name; a copy of the engine's, compared by its tests.
+THINKING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
 KEY_SYSTEM_SUFFIX = "append_system_prompt"
 KEY_ENV = "env"
 KEY_ENV_FILES = "env_files"

@@ -55,7 +55,7 @@ class AgentResult(Protocol):
     # agent's message itself, so the silence after it is the answer. Flows use
     # this to tell that apart from a genuinely empty turn.
     tool_calls: list[str]
-    # The model hit its length limit: ``text`` is cut short, or there is none
+    # The model hit its length limit: ``text`` stops where the limit fell, or there is none
     # because the limit went on what came before the answer. Not an empty turn
     # — the person is told what happened rather than asked to rephrase.
     truncated: bool
@@ -67,6 +67,16 @@ class AgentProfile(Protocol):
     A flow holds one and passes it to the runtime untouched; it never inspects
     the contents (which are runtime-specific, e.g. a config dir + model).
     """
+
+
+# What a runtime tells the model when a turn reaches the profile's
+# ``wrap_up_after``: a message in the model's own conversation, read before its
+# next call, so the turn rounds off instead of being cut off. One text for every
+# runtime, so an agent behaves the same whichever runs it.
+WRAP_UP_NOTE = (
+    "You are running out of time for this turn. Stop calling tools now and "
+    "answer with what is done so far and what is left to do."
+)
 
 
 class AgentRuntime(Protocol):

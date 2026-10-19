@@ -912,7 +912,7 @@ async def test_a_process_that_says_nothing_is_stalled_unless_a_tool_is_running()
 
 
 async def test_a_long_turn_is_told_once_to_wrap_up_and_the_answer_it_then_gives_is_the_result() -> None:
-    from crucible.ports.agent.spec import WRAP_UP_NOTE
+    from crucible.ports.agent.runtime import WRAP_UP_NOTE
 
     def react(command: dict) -> None:
         if command.get("type") == "prompt":
