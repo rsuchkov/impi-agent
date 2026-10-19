@@ -3,9 +3,11 @@
 from crucible.ports.agent.captions import CallCaptions, ChainedCaptions
 from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
-    LLM_FALLBACK_MESSAGE,
+    STALLED_MESSAGE,
+    TIMEOUT_MESSAGE,
     AgentBusy,
     AgentError,
+    AgentStalled,
     AgentTimeout,
     AgentUnavailable,
     message_for,
@@ -31,11 +33,19 @@ from crucible.ports.agent.runtime import (
     SessionProofs,
     TurnClock,
 )
-from crucible.ports.agent.spec import THINKING_LEVELS, AgentSpec, check_thinking_level
+from crucible.ports.agent.spec import (
+    DEFAULT_IDLE_TIMEOUT_S,
+    THINKING_LEVELS,
+    WRAP_UP_NOTE,
+    AgentSpec,
+    check_thinking_level,
+)
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 
 __all__ = [
+    "DEFAULT_IDLE_TIMEOUT_S",
     "THINKING_LEVELS",
+    "WRAP_UP_NOTE",
     "check_thinking_level",
     "TEXT_PROGRESS",
     "CallCaptions",
@@ -57,7 +67,9 @@ __all__ = [
     "TOOL_STARTED",
     "ToolFinished",
     "ToolStarted",
-    "LLM_FALLBACK_MESSAGE",
+    "STALLED_MESSAGE",
+    "TIMEOUT_MESSAGE",
+    "AgentStalled",
     "INTERNAL_ERROR_MESSAGE",
     "PromptImage",
     "RuntimeControl",

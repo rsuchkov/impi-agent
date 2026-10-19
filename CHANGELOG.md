@@ -6,6 +6,26 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A turn that is stopped says why, and the next turn knows what it did.**
+  Three changes around the turn's time limit. The limit's sentence was "the
+  model is temporarily unavailable", which it is not: a timeout now says the
+  turn ran past its time limit and was stopped. A turn in which the model
+  stops responding — no text, no reasoning, no tool activity for
+  `runtime.idle_timeout` seconds (120 by default; not counted while a tool runs
+  or a person is being waited on) — is stopped as **stalled**, with its own
+  notice code, instead of running out the whole limit. And when a turn is
+  stopped either way, the engine remembers what it saw of it — the tool calls
+  that finished and the one still running, by name and caption — and puts that
+  in the next turn's prompt as a quoted block, once
+  (`SessionRecord.cut_short`): the runtime's own memory keeps the calls but
+  not the result of the one in flight, and that is the call that may have
+  taken effect. `runtime.wrap_up_after` (off by default) tells the model, once,
+  at that many active seconds, to stop calling tools and say where things
+  stand, so a long turn rounds off before the limit cuts it. **Breaks:**
+  `LLM_FALLBACK_MESSAGE` is gone (`TIMEOUT_MESSAGE` and `STALLED_MESSAGE` take
+  its place); a `SessionStore` of your own needs `set_cut_short(agent,
+  conversation_id, note)`; the sqlite schema gains `sessions.cut_short`
+  (migrated on open).
 - **An answer the model's length limit cut is said to be cut, not called
   empty.** A run that ended on the limit (`stopReason: length` — eight
   thousand tokens of reasoning and no room left for the answer, say) used to

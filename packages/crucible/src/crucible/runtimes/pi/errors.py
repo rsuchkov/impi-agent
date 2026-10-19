@@ -6,6 +6,7 @@ These subclass the runtime-agnostic ``crucible.ports.agent`` errors so flows can
 from crucible.ports.agent.errors import (
     AgentBusy,
     AgentError,
+    AgentStalled,
     AgentTimeout,
     AgentUnavailable,
 )
@@ -25,6 +26,11 @@ class PiProcessError(PiError):
 
 class PiTimeout(PiError, AgentTimeout):
     """A prompt did not produce a final result within the allotted time."""
+
+
+class PiStalled(PiTimeout, AgentStalled):
+    """The process reported nothing for the turn's idle limit while no tool ran
+    and nobody was waited on: a hang, not long work."""
 
 
 class PiBusy(PiTimeout, AgentBusy):

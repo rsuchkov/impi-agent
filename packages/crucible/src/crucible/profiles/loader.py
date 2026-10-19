@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from crucible.ports.agent import AgentSpec, check_thinking_level
+from crucible.ports.agent import DEFAULT_IDLE_TIMEOUT_S, AgentSpec, check_thinking_level
 from crucible.ports.agent.confinement import ConfinementLevel, check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
@@ -230,6 +230,16 @@ class FsProfileStore:
         except ValueError as exc:
             raise ProfileError(f"{manifest}: {exc} (or the deployment's default model)") from exc
         fallback_models = self._fallback_models(name, runtime, manifest)
+        idle_timeout = runtime.get("idle_timeout", DEFAULT_IDLE_TIMEOUT_S)
+        if not isinstance(idle_timeout, (int, float)) or idle_timeout < 0:
+            raise ProfileError(f"{manifest}: runtime.idle_timeout must be a number of seconds, 0 for never")
+        wrap_up_after = runtime.get("wrap_up_after", 0)
+        if not isinstance(wrap_up_after, (int, float)) or wrap_up_after < 0:
+            raise ProfileError(f"{manifest}: runtime.wrap_up_after must be a number of seconds, 0 for never")
+        if wrap_up_after and wrap_up_after >= timeout:
+            raise ProfileError(
+                f"{manifest}: runtime.wrap_up_after ({wrap_up_after}) must come before runtime.timeout ({timeout})"
+            )
         thinking = ""
         if runtime.get("thinking") is not None:
             try:
@@ -247,6 +257,8 @@ class FsProfileStore:
             provider=provider,
             model=model,
             timeout=float(timeout),
+            idle_timeout=float(idle_timeout),
+            wrap_up_after=float(wrap_up_after),
             thinking=thinking,
             tools=tuple(tools),
             skills=skill_paths,

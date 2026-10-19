@@ -12,6 +12,15 @@ from pathlib import Path
 
 from crucible.ports.agent.confinement import ConfinementLevel
 
+DEFAULT_IDLE_TIMEOUT_S = 120.0
+
+# What the model is told when a turn reaches ``wrap_up_after``: a follow-up in
+# its own conversation, so it rounds off instead of being cut off.
+WRAP_UP_NOTE = (
+    "You are running out of time for this turn. Stop calling tools now and "
+    "answer with what is done so far and what is left to do."
+)
+
 # The levels ``AgentSpec.thinking`` may name, least to most.
 THINKING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
 
@@ -64,3 +73,11 @@ class AgentSpec:
     # "" = the runtime's own default. A level, not a token count: the runtime
     # knows what each means for the model at hand.
     thinking: str = ""
+    # How long a turn may go without a sign of life from the runtime — no text,
+    # no reasoning, no tool activity — before it is called stalled and stopped;
+    # not counted while a tool runs or a person is being waited on. 0 = never.
+    idle_timeout: float = DEFAULT_IDLE_TIMEOUT_S
+    # Active seconds after which the model is told, once, to stop calling tools
+    # and say what is done and what is left (``WRAP_UP_NOTE``); the hard
+    # ``timeout`` stays as the ceiling. 0 = never.
+    wrap_up_after: float = 0.0

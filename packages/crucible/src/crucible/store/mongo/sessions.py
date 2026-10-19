@@ -98,6 +98,12 @@ class MongoSessionStore(MongoTaskMixin, MongoApprovalMixin, MongoTraceMixin, Mon
             {"agent": agent, "conversation_id": conversation_id}, {"$set": changes}
         )
 
+    async def set_cut_short(self, agent: str, conversation_id: str, note: str) -> None:
+        db = await self._ready()
+        await db[SESSIONS].update_one(
+            {"agent": agent, "conversation_id": conversation_id}, {"$set": {"cut_short": note}}
+        )
+
     async def list(self, agent: str | None = None) -> list[SessionRecord]:
         db = await self._ready()
         query = {"agent": agent} if agent is not None else {}

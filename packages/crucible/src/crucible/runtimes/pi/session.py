@@ -9,9 +9,15 @@ from dataclasses import dataclass, field
 from crucible.confinement import ProcessScope
 from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.agent.runtime import AgentEvent, PromptImage
+from crucible.ports.agent.spec import WRAP_UP_NOTE
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 from crucible.runtimes.pi import protocol
-from crucible.runtimes.pi.errors import PiProcessError, PiProtocolError, PiTimeout
+from crucible.runtimes.pi.errors import (
+    PiProcessError,
+    PiProtocolError,
+    PiStalled,
+    PiTimeout,
+)
 from crucible.runtimes.pi.protocol import PiEvent
 from crucible.runtimes.pi.transport import PiTransport
 
@@ -27,6 +33,11 @@ _INTERACTIVE_UI_METHODS = frozenset({"select", "confirm", "input", "editor"})
 # UI wait starting/ending). Small enough to be responsive, large enough to be cheap.
 # The runtime's stop reason for a run that hit the model's output limit.
 STOP_LENGTH = "length"
+
+
+class _Stalled(Exception):
+    """Raised inside ``_await_turn`` when the idle watchdog fires; becomes a
+    ``PiStalled`` once the turn has been aborted."""
 _TURN_POLL_INTERVAL = 0.5
 
 
@@ -76,6 +87,11 @@ class _Turn:
         # runtime may still recover an overflowed context or retry a
         # compaction, and that run's end is the one that answers.
         self.last_agent_end: PiEvent | None = None
+        # The last moment the process said anything for this turn, by the
+        # loop's clock — what the idle watchdog measures from.
+        self.last_event_at = asyncio.get_running_loop().time()
+        # The wrap-up note goes once; after it the turn runs out on its own.
+        self.wrapped_up = False
 
 
 class PiRpcSession:
@@ -157,20 +173,22 @@ class PiRpcSession:
 
     async def prompt(
         self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
-        on_event: EventCallback | None = None,
+        on_event: EventCallback | None = None, idle_timeout: float = 0.0,
+        wrap_up_after: float = 0.0,
     ) -> PiResult:
         return await self._run_turn(
             protocol.encode_prompt, message, timeout=timeout, images=images,
-            on_event=on_event,
+            on_event=on_event, idle_timeout=idle_timeout, wrap_up_after=wrap_up_after,
         )
 
     async def follow_up(
         self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
-        on_event: EventCallback | None = None,
+        on_event: EventCallback | None = None, idle_timeout: float = 0.0,
+        wrap_up_after: float = 0.0,
     ) -> PiResult:
         return await self._run_turn(
             protocol.encode_follow_up, message, timeout=timeout, images=images,
-            on_event=on_event,
+            on_event=on_event, idle_timeout=idle_timeout, wrap_up_after=wrap_up_after,
         )
 
     async def abort(self) -> None:
@@ -221,6 +239,8 @@ class PiRpcSession:
         timeout: float,
         images: Sequence[PromptImage] = (),
         on_event: EventCallback | None = None,
+        idle_timeout: float = 0.0,
+        wrap_up_after: float = 0.0,
     ) -> PiResult:
         if self._closed:
             raise PiProcessError("Session is closed")
@@ -248,7 +268,9 @@ class PiRpcSession:
             await self._transport.send(
                 encoder(message, command_id=command_id, images=images)
             )
-            result = await self._await_turn(turn, timeout=timeout)
+            result = await self._await_turn(
+                turn, timeout=timeout, idle_timeout=idle_timeout, wrap_up_after=wrap_up_after
+            )
             result.duration_s = asyncio.get_running_loop().time() - started
             return result
         except asyncio.TimeoutError:
@@ -256,23 +278,47 @@ class PiRpcSession:
             self._poisoned = True
             await self._safe_abort()
             raise PiTimeout(f"pi did not finish within {timeout:.0f}s") from None
+        except _Stalled:
+            logger.warning("pi reported nothing for %.1fs; aborting the stalled turn", idle_timeout)
+            self._poisoned = True
+            await self._safe_abort()
+            raise PiStalled(f"pi reported nothing for {idle_timeout:.0f}s") from None
         finally:
             self._turn = None
 
-    async def _await_turn(self, turn: _Turn, *, timeout: float) -> PiResult:
+    async def _await_turn(
+        self, turn: _Turn, *, timeout: float, idle_timeout: float = 0.0, wrap_up_after: float = 0.0
+    ) -> PiResult:
         """Await the turn result, PAUSING the timeout while a human is answering a
         UI request (``_ui_wait_started`` set). Polls so it notices a UI wait
         starting or ending; a genuinely stuck turn still times out on active time
-        (wall-clock minus time spent waiting on people)."""
+        (wall-clock minus time spent waiting on people).
+
+        Two more clocks run beside the ceiling. The idle watchdog: a process
+        that has said nothing for ``idle_timeout`` — no text, no reasoning, no
+        tool activity — while no tool is running and nobody is waited on has
+        hung, and the turn is stopped as stalled rather than left to run out
+        the ceiling. The wrap-up: at ``wrap_up_after`` active seconds the model
+        is told once, by a follow-up in its own conversation, to stop calling
+        tools and say where things stand, so a long-working turn rounds off
+        instead of being cut off."""
         loop = asyncio.get_running_loop()
         started = loop.time()
         while True:
             if turn.future.done():
                 return turn.future.result()
             if self._ui_wait_started is None:
-                active = (loop.time() - started) - self._ui_wait_total
+                now = loop.time()
+                active = (now - started) - self._ui_wait_total
                 if active >= timeout:
                     raise asyncio.TimeoutError
+                if idle_timeout and not turn.tool_started and now - turn.last_event_at >= idle_timeout:
+                    raise _Stalled
+                if wrap_up_after and not turn.wrapped_up and active >= wrap_up_after:
+                    turn.wrapped_up = True
+                    await self._transport.send(
+                        protocol.encode_follow_up(WRAP_UP_NOTE, command_id=protocol.new_command_id())
+                    )
             try:
                 return await asyncio.wait_for(
                     asyncio.shield(turn.future), timeout=_TURN_POLL_INTERVAL
@@ -343,6 +389,8 @@ class PiRpcSession:
 
     async def _dispatch(self, event: PiEvent) -> None:
         turn = self._turn
+        if turn is not None:
+            turn.last_event_at = asyncio.get_running_loop().time()
         if turn is not None and event.type == protocol.EV_TOOL_EXECUTION_START and turn.text_parts:
             # Text written before a call is a remark on the way, not the answer:
             # it crosses the port as progress, ahead of the call it preceded.

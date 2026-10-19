@@ -336,7 +336,8 @@ class PiRuntime:
                 # the agent is running; sent to an idle agent it never starts a
                 # turn and hangs until timeout.)
                 result = await managed.session.prompt(
-                    message, timeout=pi_profile.timeout, images=images, on_event=on_event
+                    message, timeout=pi_profile.timeout, images=images, on_event=on_event,
+                    idle_timeout=pi_profile.idle_timeout, wrap_up_after=pi_profile.wrap_up_after,
                 )
             except (PiTimeout, PiProcessError):
                 # A dead/stuck/poisoned session can't be reused; drop it so the
@@ -370,7 +371,8 @@ class PiRuntime:
         session = await self._create_session(pi_profile, session_id=None, cwd=None)
         try:
             return await session.prompt(
-                message, timeout=pi_profile.timeout, images=images, on_event=on_event
+                message, timeout=pi_profile.timeout, images=images, on_event=on_event,
+                    idle_timeout=pi_profile.idle_timeout, wrap_up_after=pi_profile.wrap_up_after,
             )
         finally:
             await self._close_session(session, pi_profile.name)

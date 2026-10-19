@@ -18,6 +18,14 @@ class AgentTimeout(AgentError):
     """A turn did not produce a final result within the allotted time."""
 
 
+class AgentStalled(AgentTimeout):
+    """The runtime stopped reporting anything mid-turn — no text, no reasoning,
+    no tool activity — for longer than the turn's idle limit, while no tool was
+    running and nobody was being waited on. Told apart from the time limit
+    because a stall is a model or a process that hung, not a turn that worked
+    long."""
+
+
 class AgentBusy(AgentTimeout):
     """No capacity to start a turn — every slot is taken. A timeout in the sense
     the caller cares about (nothing ran, try later), but nothing is wrong with
@@ -29,8 +37,15 @@ class AgentUnavailable(AgentError):
     fault, not a model one: the fix is bringing something back up."""
 
 
-# Fallback texts surfaced to the user when the runtime fails or has nothing.
-LLM_FALLBACK_MESSAGE = "Sorry, the model is temporarily unavailable — please try again in a minute."
+# Texts surfaced to the user when the runtime fails or has nothing.
+TIMEOUT_MESSAGE = (
+    "This turn ran past its time limit and was stopped. What it had done by then "
+    "is kept; ask me to go on."
+)
+STALLED_MESSAGE = (
+    "The model stopped responding in the middle of this turn, so I stopped it. "
+    "Ask again."
+)
 INTERNAL_ERROR_MESSAGE = "Sorry, something broke on my side. Please try again later."
 QUOTA_MESSAGE = (
     "The model refused this turn: the usage limit for this deployment is spent. "
@@ -102,6 +117,7 @@ NOTICE_QUOTA = "quota"
 NOTICE_CREDENTIALS = "credentials"
 NOTICE_CONTEXT = "context"
 NOTICE_TIMEOUT = "timeout"
+NOTICE_STALLED = "stalled"
 NOTICE_MODEL_UNAVAILABLE = "model_unavailable"
 NOTICE_AGENT_ERROR = "agent_error"
 
@@ -128,8 +144,10 @@ def notice_for(error: Exception) -> tuple[str, str]:
         return NOTICE_CONTEXT, CONTEXT_MESSAGE
     if _MODEL_UNAVAILABLE.search(text):
         return NOTICE_MODEL_UNAVAILABLE, MODEL_UNAVAILABLE_MESSAGE
+    if isinstance(error, AgentStalled):
+        return NOTICE_STALLED, STALLED_MESSAGE
     if isinstance(error, AgentTimeout):
-        return NOTICE_TIMEOUT, LLM_FALLBACK_MESSAGE
+        return NOTICE_TIMEOUT, TIMEOUT_MESSAGE
     return NOTICE_AGENT_ERROR, INTERNAL_ERROR_MESSAGE
 
 

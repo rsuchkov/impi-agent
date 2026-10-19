@@ -68,6 +68,11 @@ class SessionRecord:
     # a program polls to learn which of a person's conversations moved while
     # nobody was looking.
     last_engine_turn_at: str = ""
+    # What the engine knows about the last turn here that was cut short (a time
+    # limit, a stall): which tools had finished and which was still running, in
+    # a sentence for the model. Put into the next turn's prompt and cleared;
+    # "" when the last turn ended on its own.
+    cut_short: str = ""
 
 
 @dataclass(frozen=True)
@@ -646,6 +651,11 @@ class SessionStore(Protocol):
     ) -> None:
         """A turn ended here: refresh ``last_active`` (and the last user when
         given); ``engine_turn`` also stamps ``last_engine_turn_at``."""
+        ...
+
+    async def set_cut_short(self, agent: str, conversation_id: str, note: str) -> None:
+        """Remember — or with "" forget — what the engine knows about a turn here
+        that was cut short, for the next turn's prompt."""
         ...
 
     async def list(self, agent: str | None = None) -> list[SessionRecord]: ...

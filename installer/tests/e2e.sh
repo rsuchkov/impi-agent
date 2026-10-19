@@ -500,7 +500,7 @@ urllib.request.urlopen(request, timeout=10).read()
     # text, which is what it posts when the turn failed.
     said() { WANT=${1:-} python3 -c '
 import json, os, sys, urllib.request
-FALLBACKS = ("temporarily unavailable", "broke on my side")
+FALLBACKS = ("temporarily unavailable", "broke on my side", "ran past its time limit", "stopped responding")
 request = urllib.request.Request(os.environ["BASE"] + "/channels/" + os.environ["CHAN"] + "/posts")
 request.add_header("Authorization", "Bearer " + os.environ["ADMIN_PAT"])
 posts = json.load(urllib.request.urlopen(request, timeout=10))["posts"].values()

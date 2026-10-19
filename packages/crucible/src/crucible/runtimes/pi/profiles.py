@@ -57,6 +57,12 @@ class PiProfile:
     fallback_models: tuple[str, ...] = ()
     # The runtime's thinking level (``--thinking``); "" = its default.
     thinking: str = ""
+    # Read per turn like ``timeout``, so neither is part of the spawn
+    # fingerprint: seconds without an event before the turn is called stalled
+    # (0 = never), and active seconds after which the model is told to wrap up
+    # (0 = never).
+    idle_timeout: float = 120.0
+    wrap_up_after: float = 0.0
 
 
 def build_pi_profile(spec: AgentSpec) -> PiProfile:
@@ -75,6 +81,8 @@ def build_pi_profile(spec: AgentSpec) -> PiProfile:
         inherit=spec.inherit,
         fallback_models=spec.fallback_models,
         thinking=spec.thinking,
+        idle_timeout=spec.idle_timeout,
+        wrap_up_after=spec.wrap_up_after,
     )
 
 

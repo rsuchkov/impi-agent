@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_active TEXT NOT NULL,
   last_user_id TEXT NOT NULL DEFAULT '',  -- who last triggered a turn here
   last_engine_turn_at TEXT NOT NULL DEFAULT '',  -- when the engine last started one itself
+  cut_short TEXT NOT NULL DEFAULT '',  -- what the engine knows about a turn here that was cut short
   UNIQUE (agent, conversation_id)
 );
 -- agent registry snapshot (synced from profiles) + processed-post dedup:
@@ -84,7 +85,7 @@ _FORM_COLUMNS = (
 # Order matches SessionRecord's fields (SessionRecord(*row)).
 _COLUMNS = (
     "agent, channel_id, conversation_id, kind, runtime_session_id, "
-    "created_at, last_active, last_user_id, last_engine_turn_at"
+    "created_at, last_active, last_user_id, last_engine_turn_at, cut_short"
 )
 
 
@@ -161,6 +162,8 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, Co
             self._conn.execute(
                 "ALTER TABLE sessions ADD COLUMN last_engine_turn_at TEXT NOT NULL DEFAULT ''"
             )
+        if "cut_short" not in cols:
+            self._conn.execute("ALTER TABLE sessions ADD COLUMN cut_short TEXT NOT NULL DEFAULT ''")
         seen = {row[1] for row in self._conn.execute("PRAGMA table_info(processed_posts)")}
         if "seen_at" not in seen:
             # Rows from before the column have no date; the first prune takes
@@ -194,6 +197,9 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, Co
         self, agent: str, conversation_id: str, user_id: str = "", *, engine_turn: bool = False
     ) -> None:
         await asyncio.to_thread(self.touch_sync, agent, conversation_id, user_id, engine_turn=engine_turn)
+
+    async def set_cut_short(self, agent: str, conversation_id: str, note: str) -> None:
+        await asyncio.to_thread(self.set_cut_short_sync, agent, conversation_id, note)
 
     async def list(self, agent: str | None = None) -> list[SessionRecord]:
         return await asyncio.to_thread(self.list_sync, agent)
@@ -247,9 +253,9 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, Co
         runtime_session_id = derive_runtime_session_id(agent, conversation_id)
         with self._lock:
             cursor = self._conn.execute(
-                f"INSERT INTO sessions ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                f"INSERT INTO sessions ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (agent, conversation_id) DO NOTHING",
-                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now, user_id, ""),
+                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now, user_id, "", ""),
             )
             created = cursor.rowcount == 1
             # Refresh the last user on an existing row too, so a tool called
@@ -284,6 +290,14 @@ class SqliteSessionStore(TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, Co
             self._conn.execute(
                 f"UPDATE sessions SET {', '.join(changes)} WHERE agent = ? AND conversation_id = ?",
                 (*values, agent, conversation_id),
+            )
+            self._conn.commit()
+
+    def set_cut_short_sync(self, agent: str, conversation_id: str, note: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE sessions SET cut_short = ? WHERE agent = ? AND conversation_id = ?",
+                (note, agent, conversation_id),
             )
             self._conn.commit()
 

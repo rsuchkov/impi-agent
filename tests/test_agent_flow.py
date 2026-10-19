@@ -15,7 +15,8 @@ from crucible.flows.agent_flow import (
 from crucible.interactions.tooltrace import ToolTrace
 from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
-    LLM_FALLBACK_MESSAGE,
+    STALLED_MESSAGE,
+    TIMEOUT_MESSAGE,
 )
 from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.ports.chat.flow import TurnOutcome
@@ -32,7 +33,7 @@ from crucible.ports.chat.types import (
 )
 from crucible.ports.entitlement import Entitlement
 from crucible.ports.turn import TurnScope
-from crucible.runtimes.pi.errors import PiProcessError, PiTimeout
+from crucible.runtimes.pi.errors import PiProcessError, PiStalled, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.session import PiResult
 from crucible.store.sqlite import SqliteSessionStore
@@ -238,7 +239,7 @@ async def test_timeout_posts_fallback_and_removes_reaction(tmp_path: Path) -> No
 
     await flow.handle(_dm(), chat)
 
-    assert chat.notices == [(_dm().ref, LLM_FALLBACK_MESSAGE)]
+    assert chat.notices == [(_dm().ref, TIMEOUT_MESSAGE)]
     assert chat.replies == []
     assert chat.reactions == [("+eyes", "p1"), ("-eyes", "p1")]
     await store.close()
@@ -861,14 +862,16 @@ async def test_a_turn_that_dies_mid_tool_still_settles_its_widget(tmp_path: Path
     assert "Running 1 tool · interrupted →" in labels
 
 
-async def test_a_flow_without_a_tracer_listens_to_nothing(tmp_path: Path) -> None:
+async def test_a_flow_without_a_tracer_posts_no_widget_but_still_listens(tmp_path: Path) -> None:
+    # It listens for its own sake: what a turn's tools did is what it tells
+    # the next turn when this one is cut short (see the cut-short tests).
     runtime = _StreamingRuntime(events=_TOOL_EVENTS)
     flow, _ = _flow(tmp_path, runtime)
     chat = _OrderedChat()
 
     await flow.handle(_dm(), chat)
 
-    assert runtime.listeners == [None]
+    assert runtime.listeners and runtime.listeners[0] is not None
     assert chat.posted_cards == []
 
 
@@ -1573,3 +1576,45 @@ async def test_a_limit_that_ate_the_whole_answer_is_not_called_an_empty_one(tmp_
     assert chat.replies == []
     assert [text for _, text in chat.notices] == [TRUNCATED_EMPTY_MESSAGE]
     assert chat.notice_codes == [NOTICE_TRUNCATED]
+
+
+async def test_a_turn_cut_short_tells_the_next_one_what_it_did_and_what_may_have_acted(tmp_path: Path) -> None:
+    """The runtime's own memory keeps the calls but not the result of the one in
+    flight, and that is the one that may have taken effect: the engine says so
+    in the next prompt, once, from what it saw of the turn."""
+    events = (
+        ToolStarted(call_id="c1", tool="read_issue", args={"key": "X-1"}, caption="Reading X-1"),
+        ToolFinished(call_id="c1", tool="read_issue"),
+        ToolStarted(call_id="c2", tool="stands_groovy", args={"script": "..."}, caption="Run Groovy on omega"),
+    )
+    runtime = _StreamingRuntime(events=events, error=PiTimeout("slow"))
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+
+    assert await flow.handle(_dm(), chat) is TurnOutcome.TIMEOUT
+    assert chat.notices == [(_dm().ref, TIMEOUT_MESSAGE)] and chat.notice_codes == ["timeout"]
+    record = (await store.list())[0]
+    assert "ran past its time limit" in record.cut_short
+    assert "Tool calls that finished, whose results you saw: read_issue (Reading X-1)." in record.cut_short
+    assert "Still running when it was stopped, so you never saw a result: stands_groovy (Run Groovy on omega)." in record.cut_short
+    assert "script" not in record.cut_short  # never the arguments
+
+    runtime._error = None  # the next turn goes through
+    await flow.handle(_dm2("go on", "p2"), chat)
+    prompt = runtime.calls[1][1]
+    assert "the previous turn, which was cut short]" in prompt and "stands_groovy" in prompt
+    assert prompt.index("cut short") < prompt.index("[@roman")  # ahead of the request
+    assert (await store.list())[0].cut_short == ""  # said once
+    await flow.handle(_dm2("and then", "p3"), chat)
+    assert "cut short" not in runtime.calls[2][1]
+
+
+async def test_a_stalled_turn_is_called_stalled_not_timed_out(tmp_path: Path) -> None:
+    runtime = _StreamingRuntime(events=(), error=PiStalled("nothing for 120s"))
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+
+    assert await flow.handle(_dm(), chat) is TurnOutcome.TIMEOUT
+    assert chat.notices == [(_dm().ref, STALLED_MESSAGE)] and chat.notice_codes == ["stalled"]
+    note = (await store.list())[0].cut_short
+    assert "the model stopped responding" in note and "It had called no tool." in note

@@ -359,3 +359,20 @@ def test_runtime_thinking_is_a_level_and_nothing_else(tmp_path: Path) -> None:
     _write_agent(bad, "assistant", _yaml_with_runtime("  thinking: loud\n"))
     with pytest.raises(ProfileError, match="runtime.thinking: thinking level 'loud' is not one of off, minimal"):
         FsProfileStore(bad, library=None)
+
+
+def test_runtime_idle_timeout_and_wrap_up_after_are_read_and_checked(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime("  timeout: 300\n  idle_timeout: 45\n  wrap_up_after: 240\n"))
+    spec = FsProfileStore(tmp_path, library=None).get("assistant")
+    assert (spec.timeout, spec.idle_timeout, spec.wrap_up_after) == (300.0, 45.0, 240.0)
+    _write_agent(tmp_path, "plain", GOOD_YAML.replace("name: assistant", "name: plain"))
+    plain = FsProfileStore(tmp_path, library=None).get("plain")
+    assert (plain.idle_timeout, plain.wrap_up_after) == (120.0, 0.0)  # the watchdog on, the wrap-up off
+    late = tmp_path / "late"
+    _write_agent(late, "assistant", _yaml_with_runtime("  timeout: 100\n  wrap_up_after: 100\n"))
+    with pytest.raises(ProfileError, match="runtime.wrap_up_after \\(100\\) must come before runtime.timeout \\(100\\)"):
+        FsProfileStore(late, library=None)
+    bad = tmp_path / "bad"
+    _write_agent(bad, "assistant", _yaml_with_runtime("  idle_timeout: -1\n"))
+    with pytest.raises(ProfileError, match="runtime.idle_timeout must be a number of seconds, 0 for never"):
+        FsProfileStore(bad, library=None)

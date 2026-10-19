@@ -31,7 +31,13 @@ runtime:
   model: gpt-6.1-sol      # OPTIONAL — omit for the default; agents may run different models.
                           # A provider needs a model, here or in DEFAULT_MODEL
   fallback_models: [other-provider/other-model]  # optional; tried in order when the model is down
-  timeout: 180            # seconds per turn
+  timeout: 180            # seconds per turn (active time: waiting on a person does not count)
+  idle_timeout: 120       # optional; seconds without a sign of life from the model — no text,
+                          # no reasoning, no tool activity — before the turn is called stalled and
+                          # stopped; not counted while a tool runs. 0 = never
+  wrap_up_after: 0        # optional; active seconds after which the model is told, once, to stop
+                          # calling tools and say what is done and what is left — so a long turn
+                          # rounds off before `timeout` cuts it. 0 = never; must be below timeout
   thinking: medium        # optional; how much the model reasons before it answers:
                           # off | minimal | low | medium | high | xhigh | max (the runtime's levels;
                           # omit for its default). An answer that comes back cut short, or not at

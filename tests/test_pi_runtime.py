@@ -41,11 +41,12 @@ class FakeSession:
 
     async def prompt(
         self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
-        on_event: object = None,
+        on_event: object = None, idle_timeout: float = 0.0, wrap_up_after: float = 0.0,
     ) -> PiResult:
         self.calls.append(("prompt", message))
         self.images = list(images)
         self.callbacks.append(on_event)
+        self.limits = (timeout, idle_timeout, wrap_up_after)
         if self._prompt_error is not None:
             raise self._prompt_error
         return self._result
@@ -172,7 +173,7 @@ async def test_per_session_lock_serializes_turns() -> None:
     class SlowSession(FakeSession):
         async def prompt(
             self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
-            on_event: object = None,
+            on_event: object = None, idle_timeout: float = 0.0, wrap_up_after: float = 0.0,
         ) -> PiResult:
             order.append(f"start:{message}")
             await asyncio.sleep(0.02)
@@ -1004,3 +1005,15 @@ async def test_a_restarted_process_gets_the_new_profile_and_its_own_proof() -> N
     # The digest says nothing about the env it covers.
     secret = dataclasses.replace(narrow, env={"TOOL_TOKEN": "hunter2"})
     assert "hunter2" not in spawn_fingerprint(secret)
+
+
+async def test_the_turns_limits_come_from_the_profile() -> None:
+    session = FakeSession()
+
+    async def factory(profile, session_id, cwd=None):
+        return session
+
+    rt = PiRuntime(session_factory=cast(SessionFactory, factory))
+    profile = dataclasses.replace(_profile(), timeout=300.0, idle_timeout=45.0, wrap_up_after=240.0)
+    await rt.run_stateful(profile, "assistant--T1", "a")
+    assert session.limits == (300.0, 45.0, 240.0)

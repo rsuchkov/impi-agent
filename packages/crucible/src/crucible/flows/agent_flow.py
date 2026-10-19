@@ -22,6 +22,7 @@ from crucible.ports.agent import (
     AgentEvent,
     AgentProfile,
     AgentRuntime,
+    AgentStalled,
     AgentTimeout,
     CallCaptions,
     EventCallback,
@@ -29,7 +30,7 @@ from crucible.ports.agent import (
     RuntimeControl,
     notice_for,
 )
-from crucible.ports.agent.events import ToolStarted
+from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.context import ContextSource, HistorySource
 from crucible.ports.chat.flow import TurnOutcome
@@ -86,6 +87,10 @@ _LABEL_EVENT = "event reported by {source}"
 # addressed (in a channel it only runs when mentioned, so those messages never
 # reached it as a turn).
 _LABEL_CATCH_UP = "posted since your last reply"
+# The engine's own account of the turn before this one when it was cut short:
+# which tool calls finished and which never answered, so the model does not
+# repeat a call whose effect it never saw.
+_LABEL_CUT_SHORT = "the previous turn, which was cut short"
 # Attached files are named in the prompt, always: even when a picture also
 # travels to the runtime as an image, the agent needs the path to work with it.
 _ATTACHMENT_MARKER = "[attached]"
@@ -142,6 +147,52 @@ def _parse_iso(value: str) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+class _TurnLog:
+    """What one turn's tool calls came to, from the runtime's events: enough to
+    tell the next turn what happened when this one was cut short. Captions and
+    names only — never arguments, never results."""
+
+    def __init__(self) -> None:
+        self._calls: list[tuple[str, str, str]] = []  # (tool, caption, state)
+        self._open: dict[str, int] = {}
+
+    def note(self, event: AgentEvent) -> None:
+        if isinstance(event, ToolStarted):
+            self._open[event.call_id] = len(self._calls)
+            self._calls.append((event.tool, event.caption, "running"))
+        elif isinstance(event, ToolFinished):
+            index = self._open.pop(event.call_id, None)
+            if index is not None:
+                tool, caption, _ = self._calls[index]
+                self._calls[index] = (tool, caption, "failed" if event.is_error else "ok")
+
+    def cut_short_note(self, error: Exception) -> str:
+        """One paragraph for the model, in the envelope's quoted block."""
+        why = (
+            "the model stopped responding" if isinstance(error, AgentStalled)
+            else "it ran past its time limit"
+        )
+        lines = [f"The turn before this one was stopped by the engine: {why}."]
+        done = [self._name(c) for c in self._calls if c[2] != "running"]
+        running = [self._name(c) for c in self._calls if c[2] == "running"]
+        if not self._calls:
+            lines.append("It had called no tool.")
+        if done:
+            lines.append(f"Tool calls that finished, whose results you saw: {', '.join(done)}.")
+        if running:
+            lines.append(
+                f"Still running when it was stopped, so you never saw a result: {', '.join(running)}. "
+                "Such a call may have taken effect anyway — check before doing it again."
+            )
+        return " ".join(lines)
+
+    @staticmethod
+    def _name(call: tuple[str, str, str]) -> str:
+        tool, caption, state = call
+        name = f"{tool} ({caption})" if caption else tool
+        return f"{name}, failed" if state == "failed" else name
 
 
 class ActiveTrace(Protocol):
@@ -328,7 +379,12 @@ class AgentFlow:
         # runs after the turn, and get_or_create doesn't refresh it) — exactly the
         # cursor for "what was said while we weren't addressed".
         since = None if first_turn else _parse_iso(record.last_active)
-        prompt = await self._render_prompt(fresh, chat, first_turn=first_turn, since=since)
+        prompt = await self._render_prompt(
+            fresh, chat, first_turn=first_turn, since=since, cut_short=record.cut_short
+        )
+        if record.cut_short:
+            # Said once: the next turn after this one starts clean.
+            await self._sessions.set_cut_short(self._agent_name, anchor.conversation_id, "")
         images = await self._inline_images(fresh)
         profile = await self._turn_profile(fresh, record)
 
@@ -353,16 +409,23 @@ class AgentFlow:
             else contextlib.nullcontext()
         )
         interrupted = True  # until the runtime hands back a result
+        log = _TurnLog()
         try:
             async with bound:
                 result = await self._runtime.run_stateful(
                     profile, record.runtime_session_id, prompt, images=images,
-                    on_event=self._observer(trace),
+                    on_event=self._observer(trace, log),
                 )
             interrupted = False
         except AgentTimeout as exc:
             logger.warning(
                 "agent turn timed out for %s: %s", record.runtime_session_id, exc
+            )
+            # The next turn is told what this one did before it was stopped:
+            # the runtime's own memory may hold the calls but not the result
+            # of the one in flight, and that is the one that may have acted.
+            await self._sessions.set_cut_short(
+                self._agent_name, anchor.conversation_id, log.cut_short_note(exc)
             )
             code, text = notice_for(exc)
             await chat.post_notice(anchor.ref, text, code=code)
@@ -418,25 +481,26 @@ class AgentFlow:
 
     # -- internals ----------------------------------------------------------
 
-    def _observer(self, trace: ActiveTrace | None) -> EventCallback | None:
-        """The runtime's events, captioned on their way to the trace. A tool
-        call that the runtime reported without a caption gets the one the
-        deployment knows for it, so the chat widget and a journal say the same
-        thing without each asking."""
-        if trace is None:
-            return None
+    def _observer(self, trace: ActiveTrace | None, log: _TurnLog) -> EventCallback:
+        """The runtime's events, captioned on their way to the trace and noted
+        in the turn's own log. A tool call that the runtime reported without a
+        caption gets the one the deployment knows for it, so the chat widget
+        and a journal say the same thing without each asking; the log is what
+        the flow tells the next turn when this one is cut short."""
         captions = self._captions
 
         def on_event(event: AgentEvent) -> None:
             if captions is not None and isinstance(event, ToolStarted) and not event.caption:
                 event = replace(event, caption=captions.caption(event.tool, event.args))
-            trace.on_event(event)
+            log.note(event)
+            if trace is not None:
+                trace.on_event(event)
 
         return on_event
 
     async def _render_prompt(
         self, msgs: list[IncomingMessage], chat: ChatClient, *, first_turn: bool,
-        since: datetime | None = None,
+        since: datetime | None = None, cut_short: str = "",
     ) -> str:
         """Envelope: who is speaking (+ replayed history).
 
@@ -469,6 +533,8 @@ class AgentFlow:
             if transcript:
                 label = _LABEL_FIRST_TURN if first_turn else _LABEL_CATCH_UP
                 parts.append(f"{_context_open(tag, label)}\n{transcript}\n{_context_close(tag)}")
+        if cut_short:
+            parts.append(f"{_context_open(tag, _LABEL_CUT_SHORT)}\n{quoted(cut_short)}\n{_context_close(tag)}")
         for m in msgs:
             author = f"@{speaker(m.username)}" if m.username else speaker(m.user_id)
             when = f" · {_format_time(m.timestamp)}" if m.timestamp else ""

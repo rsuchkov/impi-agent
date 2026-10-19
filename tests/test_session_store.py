@@ -205,3 +205,12 @@ async def test_an_engine_turn_is_stamped_on_the_conversation_and_listed_since(
     since = [r.conversation_id for r in await store.recent_engine_turns("assistant", "2026-10-15T10:00:00+00:00")]
     assert since == ["portal:c2"]  # the other agent's and the untouched one are not listed
     assert await store.recent_engine_turns("assistant", "2026-10-15T10:06:00+00:00") == []
+
+
+async def test_a_cut_short_note_is_kept_until_it_is_cleared(store: Store) -> None:
+    await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD)
+    assert (await store.list())[0].cut_short == ""
+    await store.set_cut_short("assistant", "root1", "The turn before this one was stopped.")
+    assert (await store.list())[0].cut_short == "The turn before this one was stopped."
+    await store.set_cut_short("assistant", "root1", "")
+    assert (await store.list())[0].cut_short == ""

@@ -860,3 +860,76 @@ async def test_a_run_the_length_limit_ended_is_truncated_with_or_without_text() 
     session.start()
     nothing = await session.prompt("hi", timeout=1.0)
     assert nothing.text == "" and nothing.truncated  # not an empty answer: the limit ate it
+
+
+async def test_a_process_that_says_nothing_is_stalled_unless_a_tool_is_running() -> None:
+    from crucible.runtimes.pi.errors import PiStalled
+
+    def quiet(transport: FakeTransport, *, tool: bool):
+        def react(command: dict) -> None:
+            if command.get("type") != "prompt":
+                return
+            transport.emit({"type": "agent_start"})
+            if tool:
+                transport.emit({"type": "tool_execution_start", "toolCallId": "c0", "toolName": "bash", "args": {}})
+        return react
+
+    transport = FakeTransport()
+    transport._reactor = quiet(transport, tool=False)
+    session = PiRpcSession(transport)
+    session.start()
+    with pytest.raises(PiStalled, match="reported nothing"):
+        await session.prompt("hi", timeout=5.0, idle_timeout=0.1)  # long before the 5 s ceiling
+    assert "abort" in transport.sent_types()
+
+    # A tool in flight is work the process waits on, not silence of its own:
+    # the stall clock does not run, and only the ceiling ends the turn.
+    transport = FakeTransport()
+    transport._reactor = quiet(transport, tool=True)
+    session = PiRpcSession(transport)
+    session.start()
+    with pytest.raises(PiTimeout) as ended:
+        await session.prompt("hi", timeout=0.7, idle_timeout=0.1)
+    assert not isinstance(ended.value, PiStalled)  # the ceiling, not the watchdog
+
+    # And a process that keeps talking — deltas of text or reasoning — is at
+    # work, however long it takes: every event resets the stall clock.
+    transport = FakeTransport()
+
+    async def keep_talking() -> None:
+        transport.emit({"type": "agent_start"})
+        for _ in range(12):
+            await asyncio.sleep(0.05)
+            transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_delta", "delta": "…"}})
+        transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": "done"}})
+        transport.emit({"type": "agent_end", "messages": []})
+        transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = lambda command: (asyncio.ensure_future(keep_talking()) if command.get("type") == "prompt" else None)
+    session = PiRpcSession(transport)
+    session.start()
+    assert (await session.prompt("hi", timeout=5.0, idle_timeout=0.2)).text == "done"
+
+
+async def test_a_long_turn_is_told_once_to_wrap_up_and_the_answer_it_then_gives_is_the_result() -> None:
+    from crucible.ports.agent.spec import WRAP_UP_NOTE
+
+    def react(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport.emit({"type": "agent_start"})
+            # ...and then it works in silence that is not a stall: deltas keep coming.
+        if command.get("type") == "follow_up":
+            assert command["message"] == WRAP_UP_NOTE
+            transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": "Done so far: A. Left: B."}})
+            transport.emit({"type": "agent_end", "messages": []})
+            transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport = FakeTransport()
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+
+    result = await session.prompt("hi", timeout=5.0, wrap_up_after=0.1)
+
+    assert result.text == "Done so far: A. Left: B."
+    assert transport.sent_types().count("follow_up") == 1
