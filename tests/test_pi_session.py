@@ -918,7 +918,7 @@ async def test_a_long_turn_is_told_once_to_wrap_up_and_the_answer_it_then_gives_
         if command.get("type") == "prompt":
             transport.emit({"type": "agent_start"})
             # ...and then it works in silence that is not a stall: deltas keep coming.
-        if command.get("type") == "follow_up":
+        if command.get("type") == "steer":  # read before the next model call, not after the run
             assert command["message"] == WRAP_UP_NOTE
             transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": "Done so far: A. Left: B."}})
             transport.emit({"type": "agent_end", "messages": []})
@@ -932,4 +932,4 @@ async def test_a_long_turn_is_told_once_to_wrap_up_and_the_answer_it_then_gives_
     result = await session.prompt("hi", timeout=5.0, wrap_up_after=0.1)
 
     assert result.text == "Done so far: A. Left: B."
-    assert transport.sent_types().count("follow_up") == 1
+    assert transport.sent_types().count("steer") == 1

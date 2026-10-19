@@ -21,7 +21,9 @@ when a release is cut, and `impi update` shows the target version's section.
   not the result of the one in flight, and that is the call that may have
   taken effect. `runtime.wrap_up_after` (off by default) tells the model, once,
   at that many active seconds, to stop calling tools and say where things
-  stand, so a long turn rounds off before the limit cuts it. **Breaks:**
+  stand — a steering message it reads before its next call, not a follow-up
+  that waits for the run to end — so a long turn rounds off before the limit
+  cuts it. **Breaks:**
   `LLM_FALLBACK_MESSAGE` is gone (`TIMEOUT_MESSAGE` and `STALLED_MESSAGE` take
   its place); a `SessionStore` of your own needs `set_cut_short(agent,
   conversation_id, note)`; the sqlite schema gains `sessions.cut_short`

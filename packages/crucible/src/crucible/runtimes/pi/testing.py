@@ -142,10 +142,10 @@ class ScriptedProcess:
         command = json.loads(line)
         kind = command.get("type")
         # A prompt starts a run; a follow-up is queued behind it.
-        disposition = {"prompt": "started", "follow_up": "queued"}.get(str(kind))
+        disposition = {"prompt": "started", "follow_up": "queued", "steer": "queued"}.get(str(kind))
         started = {"data": {"disposition": disposition}} if disposition else {}
         self._emit({"type": "response", "id": command.get("id"), "command": kind, "success": True, **started})
-        if kind in ("prompt", "follow_up"):
+        if kind in ("prompt", "follow_up", "steer"):
             # In the background, as the real process does: the turn's clock
             # and a gate's wait for a person run while it works.
             self._turn = asyncio.ensure_future(self._run(str(command.get("message", ""))))

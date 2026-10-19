@@ -299,9 +299,9 @@ class PiRpcSession:
         tool activity — while no tool is running and nobody is waited on has
         hung, and the turn is stopped as stalled rather than left to run out
         the ceiling. The wrap-up: at ``wrap_up_after`` active seconds the model
-        is told once, by a follow-up in its own conversation, to stop calling
-        tools and say where things stand, so a long-working turn rounds off
-        instead of being cut off."""
+        is told once, by a steering message read before its next call, to stop
+        calling tools and say where things stand, so a long-working turn rounds
+        off instead of being cut off."""
         loop = asyncio.get_running_loop()
         started = loop.time()
         while True:
@@ -316,8 +316,11 @@ class PiRpcSession:
                     raise _Stalled
                 if wrap_up_after and not turn.wrapped_up and active >= wrap_up_after:
                     turn.wrapped_up = True
+                    # Steered, not followed up: a follow-up waits for the agent to
+                    # stop, which is exactly too late; a steer is read after the
+                    # current calls and before the next model call.
                     await self._transport.send(
-                        protocol.encode_follow_up(WRAP_UP_NOTE, command_id=protocol.new_command_id())
+                        protocol.encode_steer(WRAP_UP_NOTE, command_id=protocol.new_command_id())
                     )
             try:
                 return await asyncio.wait_for(

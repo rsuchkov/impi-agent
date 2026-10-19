@@ -23,6 +23,9 @@ from crucible.runtimes.pi.errors import PiProtocolError
 # --- Command types (bot -> pi, written to stdin) ---------------------------
 CMD_PROMPT = "prompt"
 CMD_FOLLOW_UP = "follow_up"
+# Delivered after the current assistant turn's tool calls, before the next
+# model call — unlike a follow-up, which waits until the agent stops.
+CMD_STEER = "steer"
 CMD_ABORT = "abort"
 
 # --- Event/response types (pi -> bot, read from stdout) --------------------
@@ -87,6 +90,12 @@ def encode_prompt(
     if images:
         command["images"] = _images_field(images)
     return _encode(command)
+
+
+def encode_steer(message: str, *, command_id: str) -> str:
+    """A steering message: what the engine says to a model mid-turn and wants
+    read before its next call, not after the run (that is a follow-up)."""
+    return _encode({"id": command_id, "type": CMD_STEER, "message": message})
 
 
 def encode_follow_up(
