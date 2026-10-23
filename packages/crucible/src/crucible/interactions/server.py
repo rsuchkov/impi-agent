@@ -211,7 +211,7 @@ class InteractionsServer:
         # leaves nothing behind. Whatever raised the request rewrites its own
         # card once it has the answer, so nothing is replaced from here.
         if cb.approval:
-            outcome = self._dispatcher.resolve_approval(
+            outcome = await self._dispatcher.resolve_approval(
                 cb.approval, cb.value, cb.user_id
             )
             if outcome is ApprovalOutcome.NOT_ALLOWED:
@@ -241,7 +241,7 @@ class InteractionsServer:
         # the confirmation a tool declares): resolve the Future the paused turn
         # is waiting on. Must come before the fire-and-forget path, which uses a
         # different token store.
-        if self._dispatcher.resolve_pending(cb.token, cb.value):
+        if await self._dispatcher.resolve_pending(cb.token, cb.value):
             return web.json_response(self._codec.reply_replace(f"{_CHOSE_PREFIX}{cb.value}"))
 
         result = await self._dispatcher.consume_action(

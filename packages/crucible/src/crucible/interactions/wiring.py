@@ -29,6 +29,7 @@ from crucible.interactions.service import InteractionService
 from crucible.interactions.toolgate import ToolGate
 from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.chat.types import IncomingMessage
+from crucible.ports.replica import ClickForwarder, Replica
 from crucible.store.base import Store
 
 
@@ -53,6 +54,8 @@ class InteractionWiring:
         approvals: PendingApprovals | None = None,
         tool_max_grant_s: int = 900,
         tool_approvers: tuple[str, ...] = (),
+        replica: Replica | None = None,
+        clicks: ClickForwarder | None = None,
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
         # service need its InteractionStore + FormStore facets too.
@@ -71,9 +74,14 @@ class InteractionWiring:
         self.pending_ui = PendingUiRequests()
         # Blocking UI bridge: a runtime mid-turn confirm/select becomes a widget the
         # turn waits on. Feeds the runtime.
+        # Several replicas: every question asked here carries this replica's
+        # id in its token, so a click that lands elsewhere is handed back; and
+        # a click here on another replica's question goes to it.
+        replica_id = replica.id if replica is not None else ""
         self.ui_bridge = WidgetUiBridge(
             presence, sessions, self.pending_ui,
             callback_url=integrations.interact_url, timeout=integrations.ui_timeout,
+            replica_id=replica_id,
         )
         # Transport-neutral dispatch: resolves a blocking mid-turn request or feeds a
         # click back as a synthetic message. Shared by the HTTP receiver and every
@@ -86,6 +94,7 @@ class InteractionWiring:
             # and the clicks that answer them.
             approvals=approvals,
             callback_url=integrations.interact_url,
+            replica=replica, replicas=sessions if replica is not None else None, clicks=clicks,
         )
         # One service for widgets (ask) and forms (open_form). The one concrete store
         # backs all three store facets.
@@ -105,6 +114,7 @@ class InteractionWiring:
                 timeout_s=integrations.ui_timeout,
                 max_grant_s=tool_max_grant_s,
                 approvers=frozenset(tool_approvers),
+                replica_id=replica_id,
             )
         # The HTTP receiver is only for gateways that deliver callbacks over HTTP
         # (Mattermost); socket gateways (Slack) drive the same dispatcher over their

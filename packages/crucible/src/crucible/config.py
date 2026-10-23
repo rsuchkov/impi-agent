@@ -247,6 +247,20 @@ class Settings(BaseSettings):
     # keep the orchestrator's grace period above this.
     http_drain_s: float = 20.0
 
+    # Several engine processes on one store (pods behind a balancer): each one a
+    # replica with an address the others reach it at, and one secret they share
+    # for what they hand each other over the http hub's port — a turn for a
+    # conversation another replica owns, a click on a card it posted. Both set =
+    # conversations have owners and are forwarded; either empty = one process,
+    # nothing is forwarded (two replicas then each serve what reaches them, and
+    # a card answers only where it was posted).
+    replica_url: str = ""  # e.g. http://10.0.3.7:8428 — this pod, the hub's port
+    replica_token: str = ""
+
+    @property
+    def replicated(self) -> bool:
+        return bool(self.replica_url.strip() and self.replica_token.strip())
+
     # Which chat gateway an agent runs on ("mattermost" | "slack" | "ws" | "http"). The
     # default for all agents; override per agent with AGENTS_GATEWAY__<AGENT>.
     gateway: str = "mattermost"

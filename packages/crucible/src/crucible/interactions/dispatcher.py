@@ -37,6 +37,14 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     QuotedMessage,
 )
+from crucible.ports.replica import (
+    ClickForwarder,
+    ClickKind,
+    ForwardedClick,
+    Replica,
+    Replicas,
+    replica_of,
+)
 from crucible.store.base import FormRecord, FormStore, InteractionStore
 
 logger = logging.getLogger(__name__)
@@ -87,6 +95,9 @@ class InteractionDispatcher:
         approvals: PendingApprovals | None = None,
         handlers: FormHandlers | None = None,
         callback_url: str = "",
+        replica: Replica | None = None,
+        replicas: Replicas | None = None,
+        clicks: ClickForwarder | None = None,
     ) -> None:
         self._interactions = interactions
         self._presence = presence
@@ -102,8 +113,14 @@ class InteractionDispatcher:
         # conversation, which is what a tool wants).
         self._handlers = handlers
         self._callback_url = callback_url
+        # This replica, the registry of the others and the way to reach one:
+        # a click on a question another replica asked (its id is in the token)
+        # is handed to it. All three None = one process, every question here.
+        self._replica = replica
+        self._replicas = replicas
+        self._clicks = clicks
 
-    def resolve_approval(self, token: str, value: str, user_id: str) -> ApprovalOutcome:
+    async def resolve_approval(self, token: str, value: str, user_id: str) -> ApprovalOutcome:
         """A click answering a request for authorization — a credential, a
         gated tool call.
 
@@ -115,13 +132,42 @@ class InteractionDispatcher:
         """
         if not token or self._approvals is None:
             return ApprovalOutcome.NOT_MINE
-        return self._approvals.resolve(token, value, user_id)
+        outcome = self._approvals.resolve(token, value, user_id)
+        if outcome is ApprovalOutcome.NOT_MINE:
+            forwarded = await self._forward(ClickKind.APPROVAL, token, value, user_id)
+            if forwarded is not None:
+                return ApprovalOutcome[forwarded.name]
+        return outcome
 
-    def resolve_pending(self, token: str, value: str) -> bool:
+    async def resolve_pending(self, token: str, value: str) -> bool:
         """A blocking mid-turn confirm/select: resolve the Future the paused turn
         is waiting on so it continues in place. False when ``token`` is not a live
         blocking request (the caller then tries the fire-and-forget path)."""
-        return bool(token) and self._pending.resolve(token, value)
+        if not token:
+            return False
+        if self._pending.resolve(token, value):
+            return True
+        forwarded = await self._forward(ClickKind.PENDING, token, value, "")
+        return forwarded is ForwardedClick.RESOLVED
+
+    async def _forward(
+        self, kind: ClickKind, token: str, value: str, user_id: str
+    ) -> ForwardedClick | None:
+        """What the replica that asked did with the click — None when the token
+        is nobody else's (untagged, our own, or its replica is gone)."""
+        if self._replica is None or self._replicas is None or self._clicks is None:
+            return None
+        minted_by = replica_of(token)
+        if not minted_by or minted_by == self._replica.id:
+            return None
+        url = await self._replicas.replica_url(minted_by)
+        if not url:
+            return None
+        try:
+            return await self._clicks.forward_click(url, kind, token, value, user_id)
+        except Exception:
+            logger.warning("click for replica %s at %s could not be forwarded", minted_by, url, exc_info=True)
+            return None
 
     async def load_form(self, form_token: str) -> FormOpen | None:
         """Look up a pending form by its token so the transport can open the modal

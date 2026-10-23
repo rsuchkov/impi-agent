@@ -147,6 +147,8 @@ One per subject, named the way the SQLite tables are:
 | `tool_traces` | one turn's tool calls, for the widget under its reply — arguments and outcomes, never results |
 | `connections` | people's accounts connected at an OAuth provider: the tokens sealed (unreadable without the sealing key), whose and which account readable; one per person and provider |
 | `connection_links` | connects started and not yet finished — single use, gone after ten minutes (a TTL index) |
+| `leases` | what runs in one process at a time: a gateway's connection (`gateway:<kind>:<agent>`), a replica's liveness (`replica:<id>`, the holder its address) |
+| `conversation_owners` | which replica serves which conversation; an owner whose `replica:` lease lapsed is replaced |
 
 The indexes are created on first use and are load-bearing rather than an
 optimisation: they are what makes a claimed occurrence unable to fire twice,

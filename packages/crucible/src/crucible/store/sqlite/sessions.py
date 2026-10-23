@@ -26,6 +26,7 @@ from crucible.store.base import (
 from crucible.store.sqlite.approvals import ApprovalStoreMixin
 from crucible.store.sqlite.connections import ConnectionStoreMixin
 from crucible.store.sqlite.leases import LeaseStoreMixin
+from crucible.store.sqlite.replicas import ReplicaStoreMixin
 from crucible.store.sqlite.tasks import TaskStoreMixin
 from crucible.store.sqlite.traces import TraceStoreMixin
 
@@ -96,7 +97,8 @@ _COLUMNS = (
 
 
 class SqliteSessionStore(
-    TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, ConnectionStoreMixin, LeaseStoreMixin
+    TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, ConnectionStoreMixin, LeaseStoreMixin,
+    ReplicaStoreMixin,
 ):
     def __init__(self, db_path: str | Path) -> None:
         path = Path(db_path)
@@ -123,6 +125,7 @@ class SqliteSessionStore(
             self._create_trace_tables()  # one turn's tool calls, for the widget
             self._create_connection_tables()  # people's connected accounts
             self._create_lease_table()  # what must run in exactly one process
+            self._create_replica_table()  # which replica serves which conversation
             self._create_app_tables()  # whatever the application keeps here too
             self._migrate()
             self._conn.commit()

@@ -11,6 +11,7 @@ journal.py — one turn's event log, read by cursor
 turns.py   — the turns in flight (busy, idempotency, retention) + the flow's tracer
 client.py  — ChatClient over the journal (one per agent)
 hub.py     — the aiohttp server shared by every agent on the gateway
+internal.py — the replicas' routes on the hub (a forwarded turn, a forwarded click) and their client
 gateway.py — per-agent lifecycle shim (identity + park-until-stop)
 """
 
@@ -24,6 +25,7 @@ from crucible.gateways.http.auth import (
 from crucible.gateways.http.client import HttpChatClient
 from crucible.gateways.http.gateway import HttpGateway
 from crucible.gateways.http.hub import HttpHub, ReadinessProbe
+from crucible.gateways.http.internal import ForwardFailed, HubForwarder, InternalRoutes
 from crucible.gateways.http.turns import HttpTurns
 
 # No formatting hint: replies carry Markdown as-is; rendering is the client's.
@@ -34,10 +36,13 @@ __all__ = [
     "Caller",
     "CallerAuthenticator",
     "CallerRefused",
+    "ForwardFailed",
     "HttpChatClient",
     "HttpGateway",
     "HttpHub",
     "HttpTurns",
+    "HubForwarder",
+    "InternalRoutes",
     "ReadinessProbe",
     "Refusal",
     "TokenCallers",

@@ -32,6 +32,7 @@ from crucible.interactions import (
 )
 from crucible.interactions.pending_ui import CONFIRM_YES, PendingUiRequests
 from crucible.ports.chat.types import ACTION_SELECT
+from crucible.ports.replica import ClickKind, ForwardedClick, Replica
 from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.presence import presence_of
 
@@ -123,21 +124,75 @@ def test_a_slack_click_that_is_not_an_approval_decodes_as_none() -> None:
 # -- the dispatcher ------------------------------------------------------------
 
 
-def _dispatcher(store, approvals: PendingApprovals | None) -> InteractionDispatcher:
+def _dispatcher(store, approvals: PendingApprovals | None, **replicated) -> InteractionDispatcher:
     return InteractionDispatcher(
         store,
         presence_of(object()),  # type: ignore[arg-type]  # structural test double
         PendingUiRequests(),
         store,
         approvals=approvals,
+        **replicated,
     )
+
+
+class _Replicas:
+    def __init__(self, urls: dict[str, str]) -> None:
+        self.urls = urls
+
+    async def claim_conversation(self, agent, conversation, replica, *, take=False):
+        raise AssertionError("not asked by a click")
+
+    async def replica_url(self, replica):
+        return self.urls.get(replica)
+
+
+class _Clicks:
+    def __init__(self, answer: ForwardedClick) -> None:
+        self.answer = answer
+        self.sent: list[tuple] = []
+
+    async def forward_click(self, url, kind, token, value, user_id):
+        self.sent.append((url, kind, token, value, user_id))
+        return self.answer
+
+
+async def test_a_click_on_another_replicas_question_is_handed_to_that_replica(tmp_path: Path) -> None:
+    """The token names the replica that minted it; nothing waits for it here,
+    so the click goes where the question is — and its answer comes back as if
+    the question had been here. A token of our own, or of a replica that is
+    gone, is answered here: retired."""
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    clicks = _Clicks(ForwardedClick.RESOLVED)
+    dispatcher = _dispatcher(
+        store, PendingApprovals(),
+        replica=Replica("a1", "http://pod-a:8428"),
+        replicas=_Replicas({"a1": "http://pod-a:8428", "b2": "http://pod-b:8428"}), clicks=clicks,
+    )
+    try:
+        assert await dispatcher.resolve_approval("b2.tok", ANSWER_ONCE, APPROVER) is ApprovalOutcome.RESOLVED
+        assert clicks.sent == [("http://pod-b:8428", ClickKind.APPROVAL, "b2.tok", ANSWER_ONCE, APPROVER)]
+        clicks.answer = ForwardedClick.NOT_ALLOWED
+        assert await dispatcher.resolve_approval("b2.tok", ANSWER_ONCE, STRANGER) is ApprovalOutcome.NOT_ALLOWED
+        clicks.answer = ForwardedClick.RESOLVED
+        assert await dispatcher.resolve_pending("b2.tok2", "yes") is True
+        assert clicks.sent[-1] == ("http://pod-b:8428", ClickKind.PENDING, "b2.tok2", "yes", "")
+        clicks.answer = ForwardedClick.NOT_MINE
+        assert await dispatcher.resolve_pending("b2.tok3", "yes") is False
+        sent = len(clicks.sent)
+        # Our own token nobody waits for, an untagged one, a gone replica's: not forwarded.
+        assert await dispatcher.resolve_approval("a1.tok", ANSWER_ONCE, APPROVER) is ApprovalOutcome.NOT_MINE
+        assert await dispatcher.resolve_approval("tok", ANSWER_ONCE, APPROVER) is ApprovalOutcome.NOT_MINE
+        assert await dispatcher.resolve_pending("c3.tok", "yes") is False
+        assert len(clicks.sent) == sent
+    finally:
+        await store.close()
 
 
 async def test_without_a_broker_an_approval_click_is_nobody_s(tmp_path: Path) -> None:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     try:
         dispatcher = _dispatcher(store, None)
-        assert dispatcher.resolve_approval("tok-1", ANSWER_ONCE, APPROVER) is ApprovalOutcome.NOT_MINE
+        assert await dispatcher.resolve_approval("tok-1", ANSWER_ONCE, APPROVER) is ApprovalOutcome.NOT_MINE
     finally:
         await store.close()
 
@@ -152,10 +207,10 @@ async def test_the_dispatcher_forwards_to_the_registry(tmp_path: Path) -> None:
             scopes=("github-token",), approvers=frozenset({APPROVER}),
         )
         assert (
-            dispatcher.resolve_approval("tok-1", ANSWER_DENY, STRANGER) is ApprovalOutcome.NOT_ALLOWED
+            await dispatcher.resolve_approval("tok-1", ANSWER_DENY, STRANGER) is ApprovalOutcome.NOT_ALLOWED
         )
         assert not future.done()
-        assert dispatcher.resolve_approval("tok-1", ANSWER_DENY, APPROVER) is ApprovalOutcome.RESOLVED
+        assert await dispatcher.resolve_approval("tok-1", ANSWER_DENY, APPROVER) is ApprovalOutcome.RESOLVED
         assert (await future).allowed is False
     finally:
         await store.close()

@@ -232,6 +232,17 @@ through them as an exception and becomes a response only in the envelope, so
 code after `await handler(request)` in your middleware sees successes only —
 catch `Refusal` there if an error response needs your header too.
 
+## Several pods
+
+The hub also carries two routes of the engine's own, `POST /v1/internal/turns`
+and `POST /v1/internal/clicks`, under `REPLICA_TOKEN` (see
+[configuration.md](configuration.md), "Several engine processes"): what one
+engine process hands another — a turn for a conversation the other owns, a
+click on a card the other posted. They answer only that token; a caller's
+token is refused there. A caller's own turns are never forwarded: the pod a
+balancer pins a user to is where their conversation runs, and the conversation
+moves there when it was elsewhere.
+
 ## Draining a pod
 
 Before a pod stops, `hub.drain()` makes it refuse new messages (`503

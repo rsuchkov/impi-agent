@@ -585,7 +585,9 @@ class HttpHub:
                 raise Refusal(422, "validation", "`value` is not one of the control's options")
         context: Mapping[str, Any] = action.context
         if context.get(APPROVAL_KEY):
-            outcome = self._dispatcher.resolve_approval(str(context[APPROVAL_KEY]), value, caller.user_id)
+            outcome = await self._dispatcher.resolve_approval(
+                str(context[APPROVAL_KEY]), value, caller.user_id
+            )
             if outcome is ApprovalOutcome.NOT_MINE:
                 self._retire(turn, post_id, "These controls are no longer active.")
             return web.json_response({"outcome": outcome.name.lower()})
@@ -603,7 +605,7 @@ class HttpHub:
         # not advertised on this gateway, so a token nobody waits on is a card
         # that has already been answered or withdrawn.
         token = str(context.get("token", ""))
-        if not self._dispatcher.resolve_pending(token, value):
+        if not await self._dispatcher.resolve_pending(token, value):
             self._retire(turn, post_id, "These controls are no longer active.")
             raise Refusal(404, "not_found", "nothing is waiting for this answer any more")
         self._retire(turn, post_id, f"You chose: {value}" if value else "Answered.")

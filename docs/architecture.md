@@ -385,6 +385,18 @@ lease in the store (`ports/lease.py`, `gateways/leased.py`): one engine process
 holds it and renews it, the others wait and take over when it lapses. The
 http and ws gateways are servers behind a balancer and need none.
 
+**A conversation has an owner among the replicas** (`ports/replica.py`,
+`flows/owned.py`, `replicas.py`, `gateways/http/internal.py`): the process whose
+runtime holds its memory and whose questions it waits on. Each replica holds the
+lease `replica:<id>` with its address while it runs; the store keeps which
+replica owns which conversation (`claim_conversation`, compare-and-swap, an
+owner whose lease lapsed is replaced). Before a turn, `OwnedFlow` claims the
+batch's conversation: another live replica's, the batch goes to it over the
+hub's internal routes under one shared secret and the outcome comes back; a
+message a balancer or a socket pinned here takes the conversation over. A click
+token names the replica that minted it, and a click on another replica's
+question is handed to that replica by the dispatcher.
+
 **The tool trace** is the third kind of screen, and the one the engine posts on
 its own: `crucible.interactions.tooltrace`. The flow hands each turn a trace and
 feeds it the runtime's neutral turn events (`ToolStarted`/`ToolFinished` and

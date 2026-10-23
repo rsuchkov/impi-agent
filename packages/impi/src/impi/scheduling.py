@@ -84,6 +84,9 @@ class SinkTurnDispatcher:
             # (ENGINE_TURN_ATTRIBUTE), the same for every dispatcher.
             turn=TurnScope(turn_id=request.message_id),
         )
+        # Marked with the gateway it goes through, so the flow that owns the
+        # conversation elsewhere is handed it the way a person's message is.
+        message.gateway = gateway
         return await sink.submit_tracked(message, target.chat_for(gateway))
 
     async def _where(self, request: TurnRequest, target: AgentSink) -> tuple[str, GatewayAddress]:

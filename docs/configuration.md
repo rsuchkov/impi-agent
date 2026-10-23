@@ -135,6 +135,28 @@ Callers are dynamic keys (register with `impi http add-caller`):
 (`X-User-Id`, `X-Username`); a deployment that needs the caller to prove it
 writes its own authenticator on the library.
 
+## Several engine processes (replicas)
+
+Two or more engines on one store — pods behind a balancer. Each process is a
+replica with an address the others reach it at, and all share one secret for
+what they hand each other over the http hub's port: a turn for a conversation
+another replica owns (the one whose runtime remembers it), a click on a card
+another replica posted. The hub runs for these routes even with no http agent.
+Both set = conversations have owners and are forwarded; either empty = one
+process, nothing is forwarded (two replicas then each serve whatever reaches
+them, and a card can be answered only where it was posted).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `REPLICA_URL` | `""` | this process's address on the hub's port, as the other replicas reach it (`http://10.0.3.7:8428`; in Kubernetes the pod IP from the downward API) |
+| `REPLICA_TOKEN` | `""` | the secret every replica presents on the internal routes; one value for the whole deployment |
+
+A message through a gateway whose connection one replica holds (Mattermost,
+Slack) is forwarded to the owner; one through the http or ws gateway is served
+where it arrived — a balancer pinned the caller there, a socket is open there —
+and the conversation moves with it, the owner's older memory caught up from the
+application's history on the next turn.
+
 ## Agents
 
 | Variable | Default | Purpose |
@@ -223,7 +245,7 @@ See [tasks.md](tasks.md) for what a task is and how a missed run is handled.
 | `RUNTIME_CONFINEMENT` | `conversation` | how far an agent's runtime process is confined with Landlock: `conversation`, `agent` or `off`. A confined process reads its profile and the skill library and writes only its own files, memory and scratch space (`TMPDIR`, `HOME`); everything else — the engine's configuration, other agents, other processes' environments — is out of its reach. At `conversation` "its own" is one conversation's: a process sees neither another conversation's memory and attachments nor its process. At `agent` an agent's conversations share them. At `conversation` a conversation's scratch space is cleared a day after its last process ended, and a scheduled run's when its process ends. Per agent: `runtime.confinement` in `agent.yaml` or `AGENTS_CONFINEMENT__<AGENT>`. The bundled `support` agent is `off` by default. A kernel without Landlock runs every process unconfined, with a warning at startup. |
 | `AGENTS_CONFINEMENT__<AGENT>` | — | that agent's confinement level, overriding its profile |
 | `RUNTIME_EXTENSIONS` | `""` | which `AGENTS_PATH/_extensions/<name>/index.ts` load into every agent's runtime (CSV of directory names). Nothing loads for merely being present: the directory is writable by any agent with `write`, and an extension is code in every agent's process. The engine logs what is present but not named; `impi doctor` lists both; with agent containers, `impi agent sync` passes the names to each host |
-| `RUNTIME_ENV`, `RUNTIME_ENV__<AXIS>` | `""` | names (CSV) of the engine's own environment variables every agent's process inherits beside the base set (`PATH`, `HOME`, locale, proxies, certificate bundles, `PI_*`). Each compose overlay that puts a variable into the engine's environment for the agents declares it under its own `RUNTIME_ENV__` key (`RUNTIME_ENV__BROWSER=BROWSER_CDP_URL`, `RUNTIME_ENV__SECRETS=SECRET_BROKER_*`); nothing else the engine holds reaches a process. A family is `PREFIX_*` with a literal prefix of three characters or more, and may not cover the engine's own (`AGENTS_`, `MATTERMOST_`, `SLACK_`, `TOOL_`, `INTEGRATIONS_`, `HTTP_CALLER_`, `WS_SERVICE_`, `COMMAND_TOKENS`, `DB_`, `LLM_`) — the engine refuses to start on one that does. The value must be in the engine's process environment (compose `environment:`, a `compose.d/` drop-in) — a line in `conf/.env` does not reach an agent. The bundled `support` agent inherits everything. Every process also gets `PI_OFFLINE=1`: no version check, no download of `rg`/`fd`, no install of a package `settings.json` names |
+| `RUNTIME_ENV`, `RUNTIME_ENV__<AXIS>` | `""` | names (CSV) of the engine's own environment variables every agent's process inherits beside the base set (`PATH`, `HOME`, locale, proxies, certificate bundles, `PI_*`). Each compose overlay that puts a variable into the engine's environment for the agents declares it under its own `RUNTIME_ENV__` key (`RUNTIME_ENV__BROWSER=BROWSER_CDP_URL`, `RUNTIME_ENV__SECRETS=SECRET_BROKER_*`); nothing else the engine holds reaches a process. A family is `PREFIX_*` with a literal prefix of three characters or more, and may not cover the engine's own (`AGENTS_`, `MATTERMOST_`, `SLACK_`, `TOOL_`, `INTEGRATIONS_`, `HTTP_CALLER_`, `WS_SERVICE_`, `COMMAND_TOKENS`, `DB_`, `LLM_`, `REPLICA_`) — the engine refuses to start on one that does. The value must be in the engine's process environment (compose `environment:`, a `compose.d/` drop-in) — a line in `conf/.env` does not reach an agent. The bundled `support` agent inherits everything. Every process also gets `PI_OFFLINE=1`: no version check, no download of `rg`/`fd`, no install of a package `settings.json` names |
 | `PI_SESSION_DIR` | `""` | `pi` session storage; default `{DATA_DIR}/pi-sessions` (a directory per agent, one per conversation in it) |
 | `PI_TIMEOUT` | `180` | per-turn timeout (s) when `agent.yaml` omits `runtime.timeout` |
 | `PI_MAX_CONCURRENT_SESSIONS` | `4` | max concurrent `pi` subprocesses |

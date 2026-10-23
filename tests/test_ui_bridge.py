@@ -3,7 +3,7 @@
 import asyncio
 from pathlib import Path
 
-from crucible.interactions.pending_ui import PendingUiRequests
+from crucible.interactions.pending_ui import CONFIRM_YES, PendingUiRequests
 from crucible.interactions.ui_bridge import WidgetUiBridge
 from crucible.ports.agent.ui import UiRequest
 from crucible.ports.chat.types import KIND_DM, Action, ConversationRef
@@ -37,10 +37,27 @@ class FakePoster:
         pass
 
 
-def _bridge(store, poster, pending, *, timeout: float = 5.0) -> WidgetUiBridge:
+def _bridge(store, poster, pending, *, timeout: float = 5.0, replica_id: str = "") -> WidgetUiBridge:
     return WidgetUiBridge(
-        presence_of(poster), store, pending, callback_url="http://x/interact", timeout=timeout
+        presence_of(poster), store, pending, callback_url="http://x/interact", timeout=timeout,
+        replica_id=replica_id,
     )
+
+
+async def test_a_token_minted_on_a_replica_names_it(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster, pending = FakePoster(), PendingUiRequests()
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        bridge = _bridge(store, poster, pending, replica_id="a1")
+        req = UiRequest(request_id="r1", method="confirm", title="Send email?", message="to Bob")
+        task = asyncio.ensure_future(bridge.request(rec.runtime_session_id, req))
+        await _wait_until(lambda: len(poster.posted) >= 1)
+        token = poster.posted[0][2][0].context["token"]
+        assert token.startswith("a1.") and pending.resolve(token, CONFIRM_YES)
+        await task
+    finally:
+        await store.close()
 
 
 async def test_confirm_posts_two_buttons_and_resolves_on_click(tmp_path: Path) -> None:

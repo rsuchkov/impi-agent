@@ -543,6 +543,31 @@ credential, is another user's credential.
   (`HistorySource`), as a rescheduled pod does; a card waiting on the old
   holder expires with it. `impi` wraps its Mattermost and Slack gateways this
   way; on one process with sqlite the lease is always its own.
+- **Several engine processes, one conversation.** Beyond the connection, two
+  things are one process's and not the store's: the runtime's memory of a
+  conversation (its session files) and the questions a turn is waiting on (a
+  card's token lives where the card was posted). So a conversation has an
+  **owner** (`ports.replica`): the replica whose runtime holds it. Give each
+  process a `Replica(id, url)` — a random id, its own address on the http hub's
+  port — and wrap each agent's flow in `OwnedFlow(flow, store, replica,
+  forwarder, agent=…, forwarded={"mattermost", "slack"})` (`crucible.flows`):
+  before a turn it claims the conversation in the store (`claim_conversation`,
+  compare-and-swap); free, lapsed or its own, the flow runs here; another live
+  replica's, the batch goes to that replica's hub (`HubForwarder`, over
+  `InternalRoutes` mounted on its `HttpHub(routes=…)`) and the turn's outcome
+  comes back. A message through a gateway that only this process can answer
+  from — a request a balancer pinned here, a websocket open here — is not in
+  `forwarded`: it takes the conversation over, and the owner's memory being
+  older than the conversation is what the catch-up above covers. A replica is
+  alive while its `ReplicaHeartbeat` (`crucible.replicas`) renews the lease
+  `replica:<id>` with its address; stopping releases it, so a clean shutdown
+  hands its conversations over at once. Clicks follow the same idea: every
+  token the gate and the widget bridge mint carries the replica's id in front
+  (`tag_token`), and the dispatcher, finding nothing waiting for a token
+  another replica minted, hands the click to that replica (`ClickForwarder`)
+  and answers with what it did. One shared secret guards the internal routes,
+  on the hub's own port. `impi` turns all of this on with `REPLICA_URL` and
+  `REPLICA_TOKEN`; with either unset nothing is owned or forwarded.
 - **Testing without a model.** `crucible.runtimes.pi.testing.ScriptedHost`
   replaces the runtime's process and nothing else. Hand it to the runtime as
   `PiRuntime(hosts=HostRouter(ScriptedHost(script)), …)`, where

@@ -34,6 +34,7 @@ TRACES = "tool_traces"
 CONNECTIONS = "connections"
 CONNECTION_LINKS = "connection_links"
 LEASES = "leases"
+CONVERSATION_OWNERS = "conversation_owners"
 
 # The heartbeat is one document by construction: a reader asks for THE beat,
 # so there is nothing to choose between.

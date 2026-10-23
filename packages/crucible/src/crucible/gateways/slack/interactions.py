@@ -139,7 +139,7 @@ class SlackInteractions:
             # The broker rewrites its own card once it has the answer, so the
             # buttons are stripped from here only when the click landed on a
             # request that no longer exists.
-            outcome = self._dispatcher.resolve_approval(approval, value, user_id)
+            outcome = await self._dispatcher.resolve_approval(approval, value, user_id)
             if outcome is ApprovalOutcome.NOT_MINE:
                 await self._strip_buttons(body, BUTTONS_RETIRED_TEXT)
             elif outcome is ApprovalOutcome.NOT_ALLOWED:
@@ -167,7 +167,7 @@ class SlackInteractions:
         # A blocking mid-turn request: ask_user_confirm, or the confirmation
         # gate in front of a tool call. Addressed to the conversation, so any
         # click that carries the token answers it.
-        if not self._dispatcher.resolve_pending(token, value):
+        if not await self._dispatcher.resolve_pending(token, value):
             # Slack names the element that fired, so a picker's id is resolvable.
             await self._dispatcher.consume_action(
                 token, value, user_id, pick=picked_kind(actions[0])

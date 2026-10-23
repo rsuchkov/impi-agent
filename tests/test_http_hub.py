@@ -57,11 +57,11 @@ class FakeDispatcher:
         self.approval_outcome = ApprovalOutcome.RESOLVED
         self.resolves = True
 
-    def resolve_approval(self, token, value, user_id):
+    async def resolve_approval(self, token, value, user_id):
         self.approvals.append((token, value, user_id))
         return self.approval_outcome
 
-    def resolve_pending(self, token, value) -> bool:
+    async def resolve_pending(self, token, value) -> bool:
         self.pending.append((token, value))
         return self.resolves
 

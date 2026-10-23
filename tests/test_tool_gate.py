@@ -190,6 +190,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         timeout_s=over.pop("timeout_s", 5.0),
         max_grant_s=over.pop("max_grant_s", 900),
         approvers=frozenset(over.pop("approvers", ())),
+        replica_id=over.pop("replica_id", ""),
     )
     dangerous, plain = Dangerous(), Harmless()
     clock = FakeClock()
@@ -828,6 +829,17 @@ async def test_the_card_is_posted_in_every_gateway_and_the_first_answer_closes_t
         assert rig.approvals.resolve(token, ANSWER_DENY, CLICKER) is ApprovalOutcome.NOT_MINE  # 2nd click
         assert [u.card.headline for u in rig.poster.updated] == [u.card.headline for u in slack.updated]
         assert "Allowed once" in slack.updated[0].card.headline
+    finally:
+        await _close(rig)
+
+
+async def test_a_cards_token_names_the_replica_that_asked(tmp_path: Path) -> None:
+    rig = await _rig(tmp_path, 8563, replica_id="a1")
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        card = await _answer(rig, ANSWER_ONCE)
+        assert await pending == 200
+        assert str(card.actions[0].context[APPROVAL_KEY]).startswith("a1.")
     finally:
         await _close(rig)
 

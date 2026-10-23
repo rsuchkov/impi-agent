@@ -380,6 +380,50 @@ async def test_no_interactivity_means_no_tool_trace(tmp_path: Path) -> None:
         await _closed(app)
 
 
+async def test_a_replica_owns_its_conversations_and_carries_the_internal_routes(tmp_path: Path) -> None:
+    """REPLICA_URL + REPLICA_TOKEN: the http hub runs (there is no http agent)
+    for the replicas' own routes, every flow is served through ownership, the
+    tokens the gate mints name this replica, and a heartbeat says it is alive."""
+    from crucible.flows.owned import OwnedFlow
+    from crucible.gateways.http.internal import CLICKS_PATH, TURNS_PATH
+    from crucible.ports.replica import REPLICA_LEASE_PREFIX
+
+    settings = _settings(tmp_path).model_copy(
+        update={"replica_url": "http://10.0.0.5:8428/", "replica_token": "shared"}
+    )
+    app = build_app(settings)
+    try:
+        assert app.heartbeat is not None and app.forwarder is not None
+        assert app.http_hub is not None and app.ws_hub is None
+        assert {r.path for r in app.http_hub._routes} == {TURNS_PATH, CLICKS_PATH}
+        unit = app.units[0]
+        coalescer = app.sinks_by_agent["assistant"].sink
+        assert isinstance(coalescer, MessageCoalescer)
+        served = coalescer._flow
+        assert isinstance(served, OwnedFlow) and served._flow is unit.flow
+        assert served._replica.url == "http://10.0.0.5:8428"  # no trailing slash
+        assert served._forwarded == {"mattermost", "slack"}
+        gate = app.integrations._dispatcher._replica if app.integrations else None  # type: ignore[union-attr]
+        assert gate is served._replica
+        await app.heartbeat.beat()
+        assert await app.sessions.replica_url(served._replica.id) == "http://10.0.0.5:8428"  # type: ignore[attr-defined]
+        assert len(served._replica.id) == 8
+        await app.sessions.release_lease(REPLICA_LEASE_PREFIX + served._replica.id, served._replica.url)  # type: ignore[attr-defined]
+    finally:
+        await app.forwarder.aclose()  # type: ignore[union-attr]
+        await app.sessions.close()
+
+
+async def test_one_token_without_the_other_is_not_a_replica(tmp_path: Path) -> None:
+    app = build_app(_settings(tmp_path).model_copy(update={"replica_token": "shared"}))
+    try:
+        assert app.heartbeat is None and app.forwarder is None and app.http_hub is None
+        coalescer = app.sinks_by_agent["assistant"].sink
+        assert isinstance(coalescer, MessageCoalescer) and coalescer._flow is app.units[0].flow
+    finally:
+        await app.sessions.close()
+
+
 async def test_build_app_puts_an_agent_on_the_http_hub(tmp_path: Path, monkeypatch) -> None:
     # gateway=http + a registered caller -> the agent is served by the http hub:
     # its tool activity goes to the caller's journal, not to a chat widget.
@@ -939,9 +983,10 @@ async def test_an_engine_turn_goes_to_the_default_gateway_or_where_the_conversat
         await dispatcher.run_turn(request)
         msg = flow.turns[-1][0][0]
         assert flow.turns[-1][1] is slack and (msg.ref.channel_id, msg.ref.thread_root_id) == ("C9", "1700.1")
+        assert msg.gateway == "slack"  # the message says so too, for a flow that forwards it
         # Live on both: the default wins, however recently Slack spoke.
         await store.set_gateway_address("assistant", "task-7", "mattermost", GatewayAddress("ch1", "task-7", "dm"))
         await dispatcher.run_turn(request)
-        assert flow.turns[-1][1] is mm
+        assert flow.turns[-1][1] is mm and flow.turns[-1][0][0].gateway == "mattermost"
     finally:
         await store.close()

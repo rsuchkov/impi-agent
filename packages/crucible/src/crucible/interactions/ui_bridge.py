@@ -23,6 +23,7 @@ from crucible.ports.chat.types import (
     Action,
     Choice,
 )
+from crucible.ports.replica import tag_token
 from crucible.store.base import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -44,12 +45,14 @@ class WidgetUiBridge:
         *,
         callback_url: str,
         timeout: float = 90.0,
+        replica_id: str = "",
     ) -> None:
         self._presence = presence
         self._sessions = sessions
         self._pending = pending
         self._callback_url = callback_url
         self._timeout = timeout
+        self._replica_id = replica_id  # in front of every token minted here
 
     async def request(self, runtime_session_id: str, req: UiRequest) -> UiOutcome:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
@@ -58,7 +61,7 @@ class WidgetUiBridge:
             logger.warning("ui bridge: no session/poster for %s", runtime_session_id)
             return UiOutcome(cancelled=True)
 
-        token = secrets.token_hex(16)
+        token = tag_token(self._replica_id, secrets.token_hex(16))
         actions = self._build_actions(req, token)
         if actions is None:
             # A method we don't render as buttons (free-text input/editor): decline

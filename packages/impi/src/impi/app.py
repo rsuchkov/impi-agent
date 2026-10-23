@@ -16,6 +16,7 @@ import dataclasses
 import logging
 import os
 import random
+import secrets
 import signal
 import socket
 from collections.abc import Awaitable, Callable, Sequence
@@ -34,13 +35,21 @@ from crucible.conversation_files import (
 )
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
+from crucible.flows.owned import OwnedFlow
 from crucible.gateways import (
     GatewayConfig,
     GatewayFactory,
     GatewayHandle,
     LeasedGateway,
 )
-from crucible.gateways.http import HttpChatClient, HttpHub, HttpTurns, TokenCallers
+from crucible.gateways.http import (
+    HttpChatClient,
+    HttpHub,
+    HttpTurns,
+    HubForwarder,
+    InternalRoutes,
+    TokenCallers,
+)
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.gateways.ws import WsHub
 from crucible.interactions import (
@@ -62,11 +71,14 @@ from crucible.ports.agent import (
     ChainedCaptions,
     RuntimeControl,
 )
+from crucible.ports.chat.flow import Flow
 from crucible.ports.lease import Lease
+from crucible.ports.replica import Replica, Replicas
 from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.profiles.errors import ProfileError
 from crucible.reloader import ProfileReloader
+from crucible.replicas import ReplicaHeartbeat
 from crucible.runtime_storage import prepare_runtime_storage
 from crucible.runtimes.pi import (
     EXTENSION_PATH,
@@ -232,6 +244,10 @@ class App:
     # map (agent -> its sink and chat clients), for whoever operates the app.
     tools: ToolWiring | None = None
     sinks_by_agent: dict[str, AgentSink] = dataclasses.field(default_factory=dict)
+    # This replica among the others sharing the store, when there are others:
+    # its heartbeat (alive while it beats) and its client for their hubs.
+    heartbeat: ReplicaHeartbeat | None = None
+    forwarder: HubForwarder | None = None
 
 
 def _engine_version() -> str:
@@ -326,6 +342,9 @@ def _build_unit(
     tracer: ToolTrace | HttpTurns | _TracerByChat | None,
     turns: TurnRegistry,
     captions: CallCaptions,
+    replica: Replica | None = None,
+    replicas: Replicas | None = None,
+    forwarder: HubForwarder | None = None,
 ) -> AgentUnit:
     profile = profiles.build(spec)
     flow = AgentFlow(
@@ -339,7 +358,15 @@ def _build_unit(
         # reset) gets its thread replayed again instead of starting mid-air.
         control=control,
     )
-    coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name), agent=spec.name)
+    served: Flow = flow
+    if replica is not None and replicas is not None and forwarder is not None:
+        # A conversation runs where it lives: another replica's, alive, gets
+        # the batch over its hub; a message through a gateway nothing else can
+        # answer from takes the conversation here.
+        served = OwnedFlow(
+            flow, replicas, replica, forwarder, agent=spec.name, forwarded=CONNECTION_GATEWAYS,
+        )
+    coalescer = MessageCoalescer(served, on_arrival=interactions.on_arrival_for(spec.name), agent=spec.name)
     # Record the agent's live presence in the app-owned registry; interactions read
     # it lazily through MappingPresence. One sink, a chat client per gateway, the
     # first gateway the default.
@@ -373,6 +400,9 @@ def _build_units(
     turns: TurnRegistry,
     leases: Lease,
     instance: str,
+    replica: Replica | None = None,
+    replicas: Replicas | None = None,
+    forwarder: HubForwarder | None = None,
 ) -> list[AgentUnit]:
     units: list[AgentUnit] = []
     for spec in specs:
@@ -417,6 +447,7 @@ def _build_units(
             ),
             turns=turns,
             captions=captions,
+            replica=replica, replicas=replicas, forwarder=forwarder,
         )
         for kind in handles:
             if kind in CONNECTION_GATEWAYS:
@@ -524,6 +555,14 @@ def build_app(settings: ImpiSettings) -> App:
     # because the click that answers one arrives through the interaction
     # receiver, while the things that raise one are assembled further down.
     approvals = PendingApprovals() if settings.integrations.enabled else None
+    # This process among the replicas sharing the store, when it is one of
+    # several: a random id (in front of every click token it mints), its
+    # address for the others, and the client that reaches theirs.
+    replica: Replica | None = None
+    forwarder: HubForwarder | None = None
+    if settings.replicated:
+        replica = Replica(id=secrets.token_hex(4), url=settings.replica_url.strip().rstrip("/"))
+        forwarder = HubForwarder(settings.replica_token.strip())
     interactions = InteractionWiring(
         settings.integrations, sessions, presence,
         codec=MattermostCallbackCodec(), needs_receiver=receiver_needed,
@@ -535,6 +574,7 @@ def build_app(settings: ImpiSettings) -> App:
         approvals=approvals,
         tool_max_grant_s=settings.tools.max_grant_s,
         tool_approvers=settings.tools.approvers,
+        replica=replica, clicks=forwarder,
     )
     redraw_on_connect.dispatcher = interactions.dispatcher
 
@@ -651,14 +691,25 @@ def build_app(settings: ImpiSettings) -> App:
         )
     # The http hub likewise: a request/turn API for programs that cannot hold a
     # socket; callers authenticate with their own tokens (HTTP_CALLER_TOKEN__*).
+    # It also carries the replicas' own routes, so it runs whenever this is one
+    # of several even with no http agent.
     http_hub: HttpHub | None = None
-    if any(cfg.kind == "http" for cfgs in configs.values() for cfg in cfgs):
+    http_agents = any(cfg.kind == "http" for cfgs in configs.values() for cfg in cfgs)
+    if http_agents or replica is not None:
         http_callers = settings.http_callers()
-        if not http_callers:
+        if http_agents and not http_callers:
             logger.warning(
                 "http agents configured but no callers "
                 "(set HTTP_CALLER_TOKEN__<NAME>) — nothing can reach the hub"
             )
+        internal = (
+            InternalRoutes(
+                settings.replica_token.strip(), presence,
+                dispatcher=interactions.dispatcher, attachments=attachments,
+            )
+            if replica is not None
+            else None
+        )
         http_hub = HttpHub(
             settings.http_host, settings.http_port, TokenCallers(http_callers),
             directory=registry, attachments=attachments,
@@ -667,6 +718,7 @@ def build_app(settings: ImpiSettings) -> App:
             # `startedSince`: which of a person's conversations the engine
             # started a turn in — a scheduled task, an event — from the inventory.
             engine_turns=engine_turns_lookup(sessions),
+            routes=internal.routes if internal is not None else (),
         )
     # What belongs to one turn (a credential a caller sent along), bound by the
     # flow for the turn and read by the tool server. One registry for the app.
@@ -697,6 +749,7 @@ def build_app(settings: ImpiSettings) -> App:
         captions=ChainedCaptions(*([tools.registry] if tools.registry else []), PiBuiltinCaptions()),
         profiles=profile_builder, interactions=interactions, sinks_by_agent=sinks_by_agent,
         tracer=tracer, http_turns=http_hub.turns if http_hub else None, turns=turns,
+        replica=replica, replicas=sessions, forwarder=forwarder,
     )
     if not units:
         raise RuntimeError("No agents with a gateway token — nothing to run")
@@ -803,6 +856,8 @@ def build_app(settings: ImpiSettings) -> App:
         f"on:{settings.http_port}" if http_hub else "off",
         f"on:{settings.scheduler.tick_s:.0f}s" if scheduler else "off",
     )
+    if replica is not None:
+        logger.info("replica %s at %s: conversations are owned and forwarded", replica.id, replica.url)
     return App(
         settings=settings,
         runtime=runtime,
@@ -822,6 +877,8 @@ def build_app(settings: ImpiSettings) -> App:
         agent_user_ids=agent_user_ids,
         tools=tools,
         sinks_by_agent=sinks_by_agent,
+        heartbeat=ReplicaHeartbeat(sessions, replica) if replica is not None else None,
+        forwarder=forwarder,
     )
 
 
@@ -882,6 +939,9 @@ async def run(settings: ImpiSettings) -> None:
         await app.http_hub.start()
     if app.connections is not None:
         await app.connections.callback.start()
+    if app.heartbeat is not None:
+        # Alive before anything reaches us: a forwarded turn finds our lease.
+        await app.heartbeat.beat()
     try:
         identities = {}
         for unit in app.units:
@@ -921,8 +981,16 @@ async def run(settings: ImpiSettings) -> None:
             loops.append(_supervise("scheduler", app.scheduler.run))
         if app.auth_refresher is not None:
             loops.append(_supervise("runtime login refresh", app.auth_refresher.run))
+        if app.heartbeat is not None:
+            loops.append(_supervise("replica heartbeat", app.heartbeat.run))
         await asyncio.gather(*loops)
     finally:
+        if app.heartbeat is not None:
+            # Its loop was cancelled with us and let the lease go: the others
+            # take our conversations from here on. Stopped so it never beats again.
+            app.heartbeat.stop()
+        if app.forwarder is not None:
+            await app.forwarder.aclose()
         if app.scheduler is not None:
             # Before the gateways: a run still in flight needs somewhere to post
             # its outcome, and wants its row closed rather than reclaimed later.

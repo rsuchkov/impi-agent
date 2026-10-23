@@ -56,6 +56,7 @@ from crucible.ports.chat.types import (
     ApprovalCard,
     CallPreview,
 )
+from crucible.ports.replica import tag_token
 from crucible.store.base import (
     DECISION_ABANDONED,
     DECISION_APPROVED_GRANT,
@@ -101,6 +102,7 @@ class ToolGate:
         timeout_s: float = 90.0,
         max_grant_s: int = 900,
         approvers: frozenset[str] = frozenset(),
+        replica_id: str = "",
     ) -> None:
         self._presence = presence
         self._sessions = sessions
@@ -108,6 +110,7 @@ class ToolGate:
         self._approvals = approvals
         self._callback_url = callback_url
         self._timeout = timeout_s
+        self._replica_id = replica_id  # in front of every token minted here
         # Shorter than a secret's ceiling by default: "let it use bash for a
         # while" is a broader permission than one named credential.
         self._max_grant_s = max_grant_s
@@ -191,7 +194,9 @@ class ToolGate:
             logger.warning("tool gate: nowhere to ask about %s for %s", tool, agent)
             return None
 
-        token = tokens.token_hex(16)
+        # Tagged with this replica's id: a click that lands on another replica
+        # is handed back here.
+        token = tag_token(self._replica_id, tokens.token_hex(16))
         # The record's last user is whoever's message this turn answers (the
         # newest of a merged burst; a scheduled turn's creator). A record that
         # never had a user leaves the set empty: anyone in the conversation.

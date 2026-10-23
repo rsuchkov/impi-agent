@@ -33,6 +33,24 @@ when a release is cut, and `impi update` shows the target version's section.
   `set_gateway_address` and `touch(gateway=)`, and `SessionRecord`
   `gateways`/`last_gateway` (sqlite migrated on open); `RuntimeControl` gains
   `memory_updated_at`.
+- **Several engine processes serve one conversation as one.** With
+  `REPLICA_URL` and `REPLICA_TOKEN` set on every process, a conversation has an
+  owner — the replica whose runtime remembers it — recorded in the store
+  (`conversation_owners`; a replica is alive while its heartbeat renews the
+  lease `replica:<id>`). A message that reaches another replica through
+  Mattermost or Slack is forwarded to the owner over the http hub's own routes
+  (`/v1/internal/turns`, under the shared token) and the turn's outcome comes
+  back; a message through the http or ws gateway is served where it arrived
+  and takes the conversation over. Every click token names the replica that
+  minted it, and a click on a card another replica posted is handed to that
+  replica (`/v1/internal/clicks`) — so a card mirrored into Slack from a
+  Mattermost-holding pod is answered where it was asked. An owner that stops
+  answering is taken over, with the catch-up above filling the gap. The hub now
+  runs for these routes whenever the engine is a replica, with or without http
+  agents. **Breaks:** `GatewayDispatcher.resolve_approval` and
+  `resolve_pending` are coroutines (the question may be in another replica);
+  `InteractionDispatcher`, `ToolGate`, `WidgetUiBridge` and `InteractionWiring`
+  take the replica; the `REPLICA_` family is reserved from `RUNTIME_ENV`.
 - **The confirmation card is drawn from one layout on every chat, and shows
   what a person approves whole.** The preview's `title` is the heading
   ("Add a comment to PROJ-123"), the engine's sentence only when there is

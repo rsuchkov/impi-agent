@@ -21,13 +21,14 @@ class FormOpen(Protocol):
 
 
 class GatewayDispatcher(Protocol):
-    def resolve_approval(self, token: str, value: str, user_id: str) -> ApprovalOutcome:
+    async def resolve_approval(self, token: str, value: str, user_id: str) -> ApprovalOutcome:
         """Answer a request for authorization. Unlike every other click, this
         one may be addressed to particular people, so the result says whether
-        the click was allowed to decide as well as whether it was recognized."""
+        the click was allowed to decide as well as whether it was recognized.
+        A coroutine: the question may be waiting in another replica."""
         ...
 
-    def resolve_pending(self, token: str, value: str) -> bool: ...
+    async def resolve_pending(self, token: str, value: str) -> bool: ...
     async def consume_action(
         self, token: str, value: str, user_id: str, *, pick: str = ""
     ) -> object: ...

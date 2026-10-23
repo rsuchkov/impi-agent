@@ -18,6 +18,7 @@ from typing import Protocol
 
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.lease import Lease
+from crucible.ports.replica import Replicas
 
 # Which implementation holds the inventory. A closed set, like the run statuses
 # below: the name comes from configuration a person typed, so an unknown one has
@@ -664,6 +665,12 @@ class LeaseStore(Lease, Protocol):
     across every process that shares the store."""
 
 
+class ReplicaStore(Replicas, Protocol):
+    """Which replica owns which conversation (``ports.replica.Replicas``). A
+    replica is alive while it holds the lease ``replica:<id>``, whose holder is
+    its address — so the registry is answered from the leases too."""
+
+
 class ConnectionLinkStore(Protocol):
     """Connects in progress."""
 
@@ -757,6 +764,7 @@ class Store(
     ConnectionStore,
     ConnectionLinkStore,
     LeaseStore,
+    ReplicaStore,
     Protocol,
 ):
     """Every question the inventory answers, in one type.

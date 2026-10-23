@@ -185,7 +185,10 @@ on the network. With connected accounts configured, two more: people's
 browsers reach the callback listener (`CONNECTIONS_PORT`), and the engine
 calls each provider with people's own tokens.
 
-Enforced by: tokens on every door the engine opens, including a secret segment
+Enforced by: tokens on every door the engine opens — the replicas' own routes
+on the hub's port included, where one shared `REPLICA_TOKEN` is what tells a
+sister process from anyone else the balancer lets through, and a turn's secrets
+are left behind when a turn is forwarded — including a secret segment
 on the paths Mattermost calls back to (a callback carries no signature and
 says who clicked, so the path is what proves it came from the platform); a
 private network per agent container; the browser on a network that cannot
