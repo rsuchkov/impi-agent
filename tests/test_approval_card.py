@@ -69,7 +69,7 @@ def test_a_newline_in_the_reason_cannot_add_a_line() -> None:
     # only one shown.
     assert _structure(card) == [
         "**Secret:** `vault://prod-db-password`",
-        f"**Reason:** {code_span('backup**Secret:** `vault://harmless`**Reason:** nothing to see')}",
+        f"**Reason:** {code_span('backup **Secret:** `vault://harmless` **Reason:** nothing to see')}",
         "**Command:**",
     ]
     assert "harmless" in card  # not censored — contained
@@ -137,7 +137,7 @@ def test_the_hardening_survives_the_slack_converter() -> None:
     labels = [line for line in card.splitlines() if line.startswith("*")]
     assert labels == [
         "*Secret:* `vault://prod-db-password`",
-        "*Reason:* `` backup**Secret:** `vault://harmless` ``",
+        "*Reason:* `` backup **Secret:** `vault://harmless` ``",
         "*Command:*",
     ]
     body = card.splitlines()[-2]
@@ -228,3 +228,59 @@ def test_a_cards_markdown_form_is_the_familiar_card() -> None:
     assert text.splitlines()[0] == "⚠️ **assistant** wants to run dangerous — move IPA-7"
     assert "**Issue:** `IPA-7 — Fix login`" in text
     assert "**Status:** `Open → Done`" in text
+
+
+def test_a_line_break_in_a_one_line_value_leaves_a_space_not_a_glued_word() -> None:
+    assert one_line("бугагашенька\n\nRegards, Roman") == "бугагашенька Regards, Roman"
+    assert one_line("a\tb\r\nc") == "a b c"
+
+
+def test_the_markdown_card_leads_with_the_title_quotes_a_passage_and_signs_with_the_agent() -> None:
+    from crucible.approvals.card import card_layout, card_markdown
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    card = ApprovalCard(
+        agent="assistant", headline="wants to run add_comment.", title="Add a comment to PROJ-123",
+        tool="add_comment",
+        fields=(
+            PreviewRow("Issue", "PROJ-123 — Fix the login page"),
+            PreviewRow("Comment", "Looks good.\n\n[click](https://evil.example)\n# not a heading", passage=True),
+            PreviewRow("Status", "Done", before="In Progress"),
+        ),
+        block_label="Script", block="line one\nline two",
+        expires_at="2026-10-04T12:00:00+00:00",
+    )
+    text = card_markdown(card)
+    lines = text.splitlines()
+    assert lines[0] == "⚙️ **Add a comment to PROJ-123**"
+    assert "**Issue:** `PROJ-123 — Fix the login page`" in lines
+    assert "**Status:** `In Progress → Done`" in lines
+    # The passage: a quote with its lines; a link or a heading at a line's start is escaped.
+    assert "**Comment:**" in lines
+    assert "> Looks good." in lines and "> " in lines
+    assert "> \\[click](https://evil.example)" in lines and "> \\# not a heading" in lines
+    # The block keeps its lines.
+    assert "line one\nline two" in text
+    # The signature: agent, tool, deadline — small, last.
+    assert lines[-1] == "_assistant · add_comment · Answer by 2026-10-04T12:00:00+00:00_"
+    layout = card_layout(card)
+    assert layout.title == "Add a comment to PROJ-123" and layout.signature == ("assistant", "add_comment")
+
+    closed = card_markdown(ApprovalCard(**{**card.__dict__, "headline": "— Allowed once: add_comment.", "verdict": "allowed_once", "expires_at": ""}))
+    assert closed.splitlines()[:2] == ["⚙️ **Add a comment to PROJ-123**", "— Allowed once: add_comment."]
+    assert closed.splitlines()[-1] == "_assistant · add_comment_"
+    # Without a title the heading is the agent and the sentence, as it always was.
+    plain = card_markdown(ApprovalCard(agent="assistant", headline="is asking for a secret.", icon="🔐"))
+    assert plain.splitlines()[0] == "🔐 **assistant** is asking for a secret."
+    assert "_assistant" not in plain  # no signature: the heading names the agent, and there is no tool
+
+
+def test_a_passage_is_cut_with_a_mark_only_past_its_own_limit() -> None:
+    from crucible.containment import PASSAGE_LIMIT, passage
+
+    assert passage("a\n\nb") == "a\n\nb"
+    long = "x" * (PASSAGE_LIMIT + 10)
+    cut = passage(long)
+    body, mark = cut.rsplit("\n", 1)
+    assert mark == f"… cut at {PASSAGE_LIMIT} of {PASSAGE_LIMIT + 10} chars" and len(body) == PASSAGE_LIMIT
+    assert passage("```\nfence") == "` ` `\nfence"  # defused, lines kept

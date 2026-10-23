@@ -369,7 +369,7 @@ def test_converting_is_not_done_twice_on_the_same_string() -> None:
     assert markdown_to_mrkdwn(once) == "_omni_"  # exactly what must not happen
 
 
-def test_a_confirmation_card_becomes_native_fields_with_hardened_values() -> None:
+def test_a_confirmation_card_becomes_native_blocks_from_the_shared_layout() -> None:
     from crucible.gateways.slack.rendering import build_confirmation_blocks
     from crucible.ports.chat.types import ApprovalCard, PreviewRow
 
@@ -382,25 +382,72 @@ def test_a_confirmation_card_becomes_native_fields_with_hardened_values() -> Non
     allow = Action(id="once", label="Allow once", value="once", context={"approval": "ap-1"})
     blocks = build_confirmation_blocks(card, [allow])
 
-    assert blocks[0]["text"]["text"] == "🔐 *assistant* is asking for a secret."
+    # No title: the agent and the engine's sentence are the heading, as plain text.
+    assert blocks[0] == {"type": "header", "text": {"type": "plain_text", "text": "🔐 assistant is asking for a secret."}}
     fields = blocks[1]["fields"]
-    assert fields[0]["text"] == "*Secret*\n`github-token`"
-    assert "\n" not in fields[1]["text"].split("\n", 1)[1]  # the reason cannot add a line
-    assert "`pushrelease *now*`" in fields[1]["text"]  # the line break is gone, not turned into a gap
-    assert blocks[2]["text"]["text"].startswith("*Command*\n```")
-    assert blocks[3]["type"] == "context" and "2026-10-04" in blocks[3]["elements"][0]["text"]
+    assert fields[0]["text"] == "*Secret:* github-token"  # plain, not inline code
+    assert fields[1]["text"] == "*Reason:* push release *now*"  # a line break is a space, not a glue
+    assert blocks[2]["text"]["text"] == "*Command*\n```\ngh release create v1\n```"
+    assert blocks[3]["type"] == "context"
+    assert blocks[3]["elements"][0]["text"].startswith("Answer by <!date^1791115200")  # the agent is in the heading already
     assert blocks[4]["type"] == "actions"
 
-    # Answered: the same card without the buttons, and without a deadline that
-    # no longer applies — nothing is left to click.
-    verdict = build_confirmation_blocks(card, [])
-    assert [b["type"] for b in verdict] == ["section", "section", "section"]
+    # Answered: the verdict is the heading (the engine rewrote the sentence), no
+    # buttons, no deadline — and nothing left to sign with.
+    closed = build_confirmation_blocks(
+        ApprovalCard(**{**card.__dict__, "headline": "— Allowed once: github-token.", "verdict": "allowed_once", "expires_at": ""}), []
+    )
+    assert closed[0]["text"]["text"] == "🔐 assistant — Allowed once: github-token."
+    assert [b["type"] for b in closed] == ["header", "section", "section"]
+
+
+def test_a_titled_card_leads_with_the_title_and_shows_a_passage_whole() -> None:
+    from crucible.gateways.slack.rendering import build_confirmation_blocks
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    card = ApprovalCard(
+        agent="jira-assistant-slack", headline="wants to run add_comment.", title="Add a comment to PROJ-123",
+        tool="add_comment",
+        fields=(
+            PreviewRow("Issue", "PROJ-123 — Fix the login page"),
+            PreviewRow("Comment", "Looks good.\n\nRegards, <Roman> & team", passage=True),
+        ),
+        expires_at="2026-10-04T12:00:00+00:00",
+    )
+    blocks = build_confirmation_blocks(card, [Action(id="once", label="Allow once", value="once")])
+    assert blocks[0] == {"type": "header", "text": {"type": "plain_text", "text": "⚙️ Add a comment to PROJ-123"}}
+    assert blocks[1]["fields"] == [{"type": "mrkdwn", "text": "*Issue:* PROJ-123 — Fix the login page"}]
+    # The passage: whole, its lines kept as a quote, mrkdwn escaped.
+    assert blocks[2]["text"]["text"] == "*Comment*\n> Looks good.\n> \n> Regards, &lt;Roman&gt; &amp; team"
+    # The tool's id is a signature, not a fact.
+    assert blocks[3]["elements"][0]["text"].startswith("jira-assistant-slack · add_comment · Answer by")
+
+
+def test_a_long_passage_or_block_goes_on_in_further_sections_each_fenced() -> None:
+    from crucible.gateways.slack.rendering import (
+        _SECTION_MAX,
+        build_confirmation_blocks,
+    )
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    script = "\n".join(f"line {n}: " + "x" * 90 for n in range(100))  # ~10k chars
+    card = ApprovalCard(
+        agent="a", headline="h", fields=(PreviewRow("Body", script, passage=True),),
+        block_label="Script", block=script,
+    )
+    blocks = build_confirmation_blocks(card, [])
+    passages = [b for b in blocks if b["type"] == "section" and "text" in b and b["text"]["text"].startswith(("*Body*", "> "))]
+    fenced = [b for b in blocks if b["type"] == "section" and "text" in b and "```" in b["text"]["text"]]
+    assert len(passages) >= 3 and all(len(b["text"]["text"]) <= _SECTION_MAX for b in passages)
+    assert len(fenced) >= 3 and all(b["text"]["text"].rstrip().endswith("```") for b in fenced)
+    assert all(b["text"]["text"].lstrip("*Script*\n").startswith("```") for b in fenced)
+    assert any("cut at 8000 of" in b["text"]["text"] for b in blocks)  # containment's own mark
 
 
 def test_slack_card_values_cannot_mention_link_or_break_their_code_span() -> None:
-    """mrkdwn reads `<…>` as a link or a mention and `&` as an entity even
-    inside a code span, and knows no fence longer than one backtick — so the
-    values are escaped for it, not only contained."""
+    """mrkdwn reads `<…>` as a link or a mention and `&` as an entity — so the
+    values are escaped for it, not only contained; a block's backticks are
+    defused so it cannot close its own fence."""
     from crucible.gateways.slack.rendering import build_confirmation_blocks
     from crucible.ports.chat.types import ApprovalCard, PreviewRow
 
@@ -411,13 +458,22 @@ def test_slack_card_values_cannot_mention_link_or_break_their_code_span() -> Non
             PreviewRow("Reason", "has a ` backtick"),
             PreviewRow("Assignee", "", before="alice"),  # a change to nothing
         ),
-        block_label="Arguments", block='{"url": "<https://evil.example>"}',
+        block_label="Arguments", block='{"url": "<https://evil.example>"}\n```\nnot a fence',
         expires_at="2026-10-04T12:00:00+00:00",
     )
     blocks = build_confirmation_blocks(card, [Action(id="once", label="Allow once", value="once")])
     fields = blocks[1]["fields"]
-    assert fields[0]["text"] == "*Action*\n`&lt;!channel&gt; see &lt;https://evil.example|jira&gt; &amp; co`"
-    assert fields[1]["text"] == "*Reason*\n`has a ˋ backtick`"  # one fence, kept inline
-    assert fields[2]["text"] == "*Assignee*\n`alice` → "
-    assert "&lt;https://evil.example&gt;" in blocks[2]["text"]["text"]
-    assert blocks[3]["elements"][0]["text"].startswith("Answer by <!date^1791115200^{date_short_pretty} at {time}|2026-10-04T12:00:00+00:00>")
+    assert fields[0]["text"] == "*Action:* &lt;!channel&gt; see &lt;https://evil.example|jira&gt; &amp; co"
+    assert fields[1]["text"] == "*Reason:* has a ` backtick"
+    assert fields[2]["text"] == "*Assignee:* alice → "
+    hostile = build_confirmation_blocks(
+        ApprovalCard(agent="a", headline="h", title="<!channel> *bold* <https://evil.example|x>"), []
+    )
+    assert hostile[0]["text"] == {"type": "plain_text", "text": "⚙️ <!channel> *bold* <https://evil.example|x>"}  # literal
+    body = blocks[2]["text"]["text"]
+    assert "&lt;https://evil.example&gt;" in body
+    assert body.count("```") == 2  # the fence is ours; the one inside was defused to ` ` `
+    # No title: the heading names the agent, so only the deadline signs the card.
+    assert blocks[3]["elements"][0]["text"] == "Answer by <!date^1791115200^{date_short_pretty} at {time}|2026-10-04T12:00:00+00:00>"
+
+

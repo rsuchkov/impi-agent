@@ -6,6 +6,20 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The confirmation card is drawn from one layout on every chat, and shows
+  what a person approves whole.** The preview's `title` is the heading
+  ("Add a comment to PROJ-123"), the engine's sentence only when there is
+  none; the agent's name and the tool's id go small to the bottom with the
+  deadline. A row the tool marks `PreviewRow(passage=True)` — a comment, a
+  description — is shown whole, with its lines, as a quote (Slack in sections
+  of 3000, cut with a mark past 8000), instead of as a fact cut at 200
+  characters. On Slack the facts are plain text with a bold label, not inline
+  code that reads as an error; on Mattermost they stay code spans, which a
+  Markdown link in a value cannot escape. Three fixes underneath, on every
+  channel: `one_line` keeps a space where a line broke (a two-paragraph
+  comment no longer reads as one glued word), the verbatim block keeps its
+  lines (`preformatted`, not `code_block`), and the http `confirmation`
+  event's `fields[]` carry `passage`.
 - **A gateway that must run in one process runs under a lease.** A bot's
   websocket or Slack's Socket Mode is a connection the platform pushes events
   into, choosing among the open ones by itself — two engine replicas would

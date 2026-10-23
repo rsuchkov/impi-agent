@@ -128,11 +128,15 @@ PICK_FIELD_BY_KIND = {ACTION_USER_SELECT: "user", ACTION_CHANNEL_SELECT: "channe
 @dataclass(frozen=True)
 class PreviewRow:
     """One labelled line of a preview. ``before`` is the current value when the
-    call would change it, so a card can show the change, not only the target."""
+    call would change it, so a card can show the change, not only the target.
+    ``passage`` says the value is text the person is asked to approve as
+    written — a comment, a description — and is shown whole, with its lines,
+    rather than as a one-line fact cut to fit."""
 
     label: str
     value: str
     before: str = ""
+    passage: bool = False
 
 
 @dataclass(frozen=True)

@@ -29,6 +29,8 @@ from collections.abc import Sequence
 # Long enough for a real reason, short enough that a card stays scannable — and
 # a bounded field cannot push the rest of the card off a phone screen.
 FIELD_LIMIT = 200
+# A passage on a card: whole by intent, bounded so one card stays one message.
+PASSAGE_LIMIT = 8000
 COMMAND_LIMIT = 600
 _ELLIPSIS = "…"
 
@@ -101,10 +103,24 @@ def one_line(text: str, *, limit: int = FIELD_LIMIT) -> str:
     structural characters go, and the result is truncated with a visible mark so
     a reader can tell a short reason from a trimmed one.
     """
-    collapsed = _defuse(" ".join(_inert(text).split()))
+    # Line breaks and tabs become spaces BEFORE the structural characters go:
+    # dropped first, a break would glue the words either side of it together.
+    collapsed = _defuse(" ".join(_inert_keep_lines(text).split()))
     if len(collapsed) > limit:
         return collapsed[: limit - 1].rstrip() + _ELLIPSIS
     return collapsed
+
+
+def passage(text: str, *, limit: int = PASSAGE_LIMIT) -> str:
+    """Caller-supplied text a person is asked to read as written — a comment, a
+    description: its lines stay, every other structural character goes, backtick
+    runs are defused, and a text past ``limit`` is cut with a mark that says how
+    much there was. A renderer still escapes its own markup; this is the
+    containment both renderers share."""
+    inert = _defuse(_inert_keep_lines(text)).strip()
+    if len(inert) > limit:
+        return f"{inert[:limit].rstrip()}\n{_ELLIPSIS} cut at {limit} of {len(inert)} chars"
+    return inert
 
 
 def _defuse(text: str) -> str:

@@ -1269,7 +1269,8 @@ async def test_an_attachment_name_cannot_break_the_line(tmp_path: Path) -> None:
         await flow.handle(msg, FakeChat())
         prompt = runtime.calls[0][1]
         assert prompt.count("\n") == 1  # the message line and one attachment line
-        assert "[attached] a[@admin]: b.pdf — text/plain[x], 1 B — " in prompt
+        # A line break in a name is a space now, not a glue: still one line.
+        assert "[attached] a [@admin]: b.pdf — text/plain [x], 1 B — " in prompt
     finally:
         await store.close()
 

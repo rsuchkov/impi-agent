@@ -15,8 +15,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from crucible.approvals.card import card_rows
-from crucible.containment import code_block, code_span, one_line
+from crucible.approvals.card import card_layout
+from crucible.containment import code_span, one_line
 from crucible.gateways.slack.formatter import markdown_to_mrkdwn
 from crucible.ports.chat.types import (
     ACTION_CHANNEL_SELECT,
@@ -136,36 +136,85 @@ def _deadline(expires_at: str) -> str:
 
 
 def build_confirmation_blocks(card: ApprovalCard, actions: list[Action]) -> list[dict[str, Any]]:
-    """An ``ApprovalCard`` as native blocks: headline, the facts as the
-    section's fields (label over value, a change as ``before → value``), the
-    verbatim block as a code section, the deadline as context, then the
-    answers. Values are the caller's text and go through the same hardening as
-    the Markdown form; labels and the headline are the engine's."""
-    headline = f"{card.icon} *{_mrkdwn_text(card.agent)}* {_mrkdwn_text(one_line(card.headline))}"
+    """An ``ApprovalCard`` as native blocks, from the layout every platform
+    shares (``card_layout``): the heading, the verdict once there is one, the
+    facts as plain fields (a code span reads as an error on Slack), each
+    passage as a quote with its lines, the verbatim block as fenced sections,
+    the agent and the tool small in a context line with the deadline, then the
+    answers. Values are the caller's text and go through the same containment
+    as the Markdown form, plus the escaping mrkdwn needs."""
+    layout = card_layout(card)
+    # A header block is plain text: nothing in a title can style it, link from
+    # it or mention anyone. Block Kit caps it at 150 characters.
+    heading = f"{layout.icon} {layout.title}" if layout.title else f"{layout.icon} {layout.agent} {layout.headline}"
     blocks: list[dict[str, Any]] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": headline}},
+        {"type": "header", "text": {"type": "plain_text", "text": _header_text(heading)}}
     ]
+    if layout.verdict:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _mrkdwn_text(layout.verdict)}})
     fields = [
-        {
-            "type": "mrkdwn",
-            "text": f"*{_mrkdwn_text(one_line(row.label))}*\n"
-            + (f"{_mrkdwn_code(row.before)} → {_mrkdwn_code(row.value)}" if row.before else _mrkdwn_code(row.value)),
-        }
-        for row in card_rows(card)
-        if row.value or row.before  # a change to nothing is still a change
+        {"type": "mrkdwn", "text": f"*{_mrkdwn_text(label)}:* {_mrkdwn_text(value)}"}
+        for label, value in layout.facts
     ]
     for start in range(0, len(fields), _FIELDS_PER_SECTION):
         blocks.append({"type": "section", "fields": fields[start : start + _FIELDS_PER_SECTION]})
-    if card.block:
-        label = f"*{_mrkdwn_text(one_line(card.block_label))}*\n" if card.block_label else ""
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": label + _mrkdwn_text(code_block(card.block))}})
+    for label, text in layout.passages:
+        quoted = "\n".join(f"> {_mrkdwn_text(line)}" for line in text.split("\n"))
+        blocks += _sections(f"*{_mrkdwn_text(label)}*", quoted)
+    if layout.block:
+        label = f"*{_mrkdwn_text(layout.block_label)}*" if layout.block_label else ""
+        blocks += _sections(label, _mrkdwn_text(layout.block), fence="```")
+    signature = [_mrkdwn_text(part) for part in layout.signature]
     if card.expires_at and actions:
-        blocks.append({
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": _deadline(card.expires_at)}],
-        })
+        signature.append(_deadline(card.expires_at))
+    if signature:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(signature)}]})
     if actions:  # an answered card has nothing left to click
         blocks.append(_actions_block(actions))
+    return blocks
+
+
+# Block Kit's cap on a header's text.
+_HEADER_MAX = 150
+
+
+def _header_text(text: str) -> str:
+    return text if len(text) <= _HEADER_MAX else text[: _HEADER_MAX - 1].rstrip() + "…"
+
+
+# What one mrkdwn section may hold. A passage or a block past it goes on in
+# further sections, split between lines, each fenced on its own when fenced.
+_SECTION_MAX = 3000
+# How many sections one passage may take: a card is one message of at most
+# fifty blocks, and the rest of the card needs room too.
+_SECTIONS_MAX = 4
+
+
+def _sections(label: str, text: str, *, fence: str = "") -> list[dict[str, Any]]:
+    """``text`` as one or more sections of at most ``_SECTION_MAX`` characters,
+    split between lines; the label on the first, ``fence`` around each."""
+    room = _SECTION_MAX - len(label) - 2 * len(fence) - 4
+    pieces: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        if current and len(current) + 1 + len(line) > room:
+            pieces.append(current)
+            current = line
+        else:
+            current = f"{current}\n{line}" if current else line
+        while len(current) > room:  # one line longer than a section
+            pieces.append(current[:room])
+            current = current[room:]
+    pieces.append(current)
+    if len(pieces) > _SECTIONS_MAX:
+        shown, dropped = pieces[:_SECTIONS_MAX], len(pieces) - _SECTIONS_MAX
+        shown[-1] += f"\n… {dropped} more section(s) cut"
+        pieces = shown
+    blocks: list[dict[str, Any]] = []
+    for index, piece in enumerate(pieces):
+        body = f"{fence}\n{piece}\n{fence}" if fence else piece
+        head = f"{label}\n" if index == 0 and label else ""
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": head + body}})
     return blocks
 
 

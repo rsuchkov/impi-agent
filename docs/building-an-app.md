@@ -202,7 +202,13 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   account, and the model reads text other people wrote. `danger=True` puts a
   warning on the card; `block_label`/`block` carry a verbatim piece the person
   must read as written — a script, a command line — and reach the card whole,
-  never cut the way raw arguments are. A `describe` that raises is logged and
+  with their lines, never cut the way raw arguments are. A row whose value is
+  text the person approves as written — a comment, a description — says so
+  with `PreviewRow(..., passage=True)`: it is shown whole, its lines kept, as a
+  quote, instead of as a one-line fact cut to fit. Every chat draws the card
+  from one layout (`crucible.approvals.card_layout`): the preview's `title` as
+  the heading, the facts, the passages, the block, and the agent's name with
+  the tool's id small at the bottom. A `describe` that raises is logged and
   the card falls back to the arguments, so a preview can never block the
   decision. The gate
   puts the request on the wire as data — `ChatClient.post_confirmation(ref,

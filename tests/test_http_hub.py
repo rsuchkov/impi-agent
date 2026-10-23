@@ -877,7 +877,7 @@ async def test_a_confirmation_arrives_as_data_not_as_a_rendered_card() -> None:
             assert card["type"] == "confirmation" and "text" not in card
             assert card["agent"] == "helper" and card["icon"] == "⚠️" and card["danger"] is True
             assert card["headline"] == "wants to run jira_transition_issue — move IPA-7 to Done"
-            assert card["fields"] == [{"label": "Status", "value": "Done", "before": "Open"}]
+            assert card["fields"] == [{"label": "Status", "value": "Done", "before": "Open", "passage": False}]
             assert card["title"] == "move IPA-7" and card["tool"] == "dangerous"  # their own fields, no label to parse
             assert card["block"] == {"label": "Arguments", "text": '{"key": "IPA-7"}'}
             assert card["expiresAt"] == "2026-10-04T12:00:00+00:00"
@@ -934,7 +934,7 @@ async def test_an_updated_confirmation_is_the_same_post_rewritten_as_data() -> N
             assert updated["headline"] == "— Allowed for 15 min." and updated["actions"] == []
             # The verdict as data too: a client draws its own line from it.
             assert (updated["verdict"], updated["grantS"]) == ("allowed_for", 900)
-            assert updated["fields"] == [{"label": "Secret", "value": "github-token", "before": ""}]
+            assert updated["fields"] == [{"label": "Secret", "value": "github-token", "before": "", "passage": False}]
             assert updated["block"] == {"label": "Command", "text": "gh release create v1"}
             assert "actions.retired" not in [e["type"] for e in page["events"]]
             # Answering the retired post is refused: nothing is pending on it.
@@ -974,7 +974,7 @@ async def test_a_card_with_nothing_to_click_does_not_hold_the_turn() -> None:
             kinds = [e["type"] for e in page["events"]]
             assert kinds == ["confirmation", "confirmation.updated"]
             assert page["events"][0]["actions"] == [] and page["status"] == STATUS_RUNNING
-            assert page["events"][1]["fields"] == [{"label": "Times", "value": "2 so far", "before": ""}]
+            assert page["events"][1]["fields"] == [{"label": "Times", "value": "2 so far", "before": "", "passage": False}]
             go_on.set()
     finally:
         await hub.stop()
@@ -1265,3 +1265,11 @@ async def test_a_truncated_turn_finishes_done_and_says_so() -> None:
             assert events[3]["outcome"] == "truncated" and final == STATUS_DONE
     finally:
         await hub.stop()
+
+
+def test_a_cards_fields_say_which_are_passages_on_the_wire() -> None:
+    from crucible.gateways.http.client import _wire_card
+    from crucible.ports.chat.types import ApprovalCard, PreviewRow
+
+    wire = _wire_card(ApprovalCard(agent="a", headline="h", fields=(PreviewRow("Comment", "x", passage=True), PreviewRow("Issue", "y"))))
+    assert [(f["label"], f["passage"]) for f in wire["fields"]] == [("Comment", True), ("Issue", False)]

@@ -332,7 +332,7 @@ async def test_the_card_shows_what_the_tool_says_the_call_would_do(tmp_path: Pat
         card = await _answer(rig, ANSWER_ONCE)
         assert await pending == 200
         assert "⚠️" in card.text
-        assert "**Action:** `move IPA-7 to another status`" in card.text  # the title, as a field
+        assert "⚠️ **move IPA-7 to another status**" in card.text  # the title is the heading
         assert "**Issue:** `IPA-7 — Fix the login page`" in card.text
         assert "**Status:** `In Progress → Done`" in card.text
         assert "Arguments" not in card.text
@@ -688,15 +688,19 @@ def test_a_card_without_a_preview_keeps_the_id_beside_the_arguments() -> None:
     "move IPA-7\n⚙️ **support** wants to run delete_everything.",
     "<!channel> [Allow](https://evil.example)",
 ])
-def test_a_previews_title_cannot_restyle_the_headline(hostile: str) -> None:
-    """The title is the tool's text — in impi, often a model argument — so it is
-    a field like every other value, never part of the engine's sentence."""
+def test_a_previews_title_cannot_restyle_the_heading(hostile: str) -> None:
+    """The title is the tool's text — in impi, often a model argument. It leads
+    the card, so it is escaped character by character: one line, no emphasis,
+    no link, no second heading of its own."""
     card = toolgate._card("assistant", "dangerous", {}, CallPreview(hostile, ()))
-    assert card.headline == "wants to run dangerous."
+    assert card.headline == "wants to run dangerous."  # the data is the engine's words
     text = card_markdown(card)
-    assert text.splitlines()[0] == "⚙️ **assistant** wants to run dangerous."
-    assert [ln for ln in text.splitlines() if ln.startswith("⚙️")] == [text.splitlines()[0]]
-    assert "**Action:** `" in text and "\n⚙️ **support**" not in text
+    lines = text.splitlines()
+    assert [ln for ln in lines if ln.startswith("⚙️")] == [lines[0]]  # one heading
+    assert lines[0].startswith("⚙️ **") and lines[0].endswith("**")
+    assert "**support**" not in lines[0] and "[Allow](" not in lines[0]  # escaped, not rendered
+    assert "\\*\\*support\\*\\*" in lines[0] or "\\[Allow\\]" in lines[0]
+    assert lines[-1] == "_assistant · dangerous_"  # who asks and what, as a signature
 
 
 def test_the_arguments_on_a_card_are_capped() -> None:

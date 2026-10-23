@@ -5,9 +5,11 @@ engine's; every value in it is made inert on the way in by ``crucible.containmen
 where the hardening and its rationale live.
 """
 
+import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 
-from crucible.containment import code_block, code_span, one_line
+from crucible.containment import code_span, one_line, passage, preformatted
 from crucible.ports.chat.types import ApprovalCard, PreviewRow
 
 # How a card's ``title`` and ``tool`` read when a channel draws them as rows:
@@ -30,7 +32,7 @@ def render_card(
     lines += [f"**{label}:** {code_span(value)}" for label, value in fields if value]
     if block:
         lines.append(f"**{one_line(block_label)}:**" if block_label else "")
-        lines.append(code_block(block))
+        lines.append(preformatted(block))
     return "\n".join(lines)
 
 
@@ -49,16 +51,128 @@ def card_rows(card: ApprovalCard) -> tuple[PreviewRow, ...]:
     return tuple(rows)
 
 
+# The most a verbatim block gets on a card: whole by intent (K19), bounded so the
+# card stays one message on the platform with the smaller cap.
+BLOCK_LIMIT = 15000
+
+
+@dataclass(frozen=True)
+class CardLayout:
+    """How a chat draws an ``ApprovalCard``, decided once for every platform.
+    With a ``title`` from the preview it is the heading and the engine's
+    headline shows only once the question is over, as the verdict; without one
+    the heading is the agent and the engine's headline, as it always was. The
+    agent's name signs the card small at the bottom when the heading does not
+    carry it; the tool's id signs it always. Every value here is the caller's
+    content made inert — one line, or a passage with its lines — and a renderer
+    adds its own markup escaping and nothing else."""
+
+    icon: str
+    agent: str
+    title: str  # "" when the preview gave none
+    headline: str  # the engine's words — the question, or the verdict once answered
+    facts: tuple[tuple[str, str], ...]  # (label, one-line value; a change as before → value)
+    passages: tuple[tuple[str, str], ...]  # (label, text with its lines)
+    block_label: str
+    block: str  # with its lines, defused; "" for none
+    tool: str
+    expires_at: str
+
+    @property
+    def verdict(self) -> str:
+        """The engine's words to show under a title once the question is over."""
+        return self.headline if self.title and self.closed else ""
+
+    @property
+    def signature(self) -> tuple[str, ...]:
+        """What signs the card small at the bottom: the agent when the heading
+        does not name it, and the tool's id."""
+        parts = [self.agent] if self.title else []
+        if self.tool:
+            parts.append(self.tool)
+        return tuple(parts)
+
+    closed: bool = False
+
+
+def card_layout(card: ApprovalCard) -> CardLayout:
+    facts: list[tuple[str, str]] = []
+    passages: list[tuple[str, str]] = []
+    for row in card.fields:
+        label = one_line(row.label)
+        if row.passage:
+            if row.before:
+                passages.append((f"{label} (before)", passage(row.before)))
+            if row.value:
+                passages.append((label, passage(row.value)))
+            continue
+        if not (row.value or row.before):
+            continue  # nothing to show; a change to nothing still is one
+        value = f"{one_line(row.before)} → {one_line(row.value)}" if row.before else one_line(row.value)
+        facts.append((label, value))
+    return CardLayout(
+        icon=card.icon,
+        agent=one_line(card.agent),
+        title=one_line(card.title),
+        headline=one_line(card.headline),
+        facts=tuple(facts),
+        passages=tuple(passages),
+        block_label=one_line(card.block_label),
+        block=passage(card.block, limit=BLOCK_LIMIT) if card.block else "",
+        tool=one_line(card.tool),
+        expires_at=one_line(card.expires_at),
+        closed=bool(card.verdict),
+    )
+
+
+_MARKDOWN_SPECIALS = re.compile(r"([\\`*_\[\]#>!|~<])")
+
+
+def plain_markdown(text: str) -> str:
+    """One line of caller text as Markdown shows it literally: every character
+    Markdown could read as structure — emphasis, a link, a heading, a fence,
+    raw HTML — is escaped with a backslash. For a heading, which cannot be a
+    code span and must still be the caller's words."""
+    return _MARKDOWN_SPECIALS.sub(r"\\\1", text)
+
+
+def _quote(text: str) -> str:
+    """A passage as a Markdown quote: one ``> `` per line, with what could read
+    as Markdown structure at a line's start escaped — a link, an image, a
+    heading, a list, a fence — so the quote stays a quote."""
+    lines = []
+    for line in text.split("\n"):
+        stripped = line.lstrip()
+        if stripped[:1] in ("[", "!", "#", "<", "-", "*", "+", "`", ">", "|") or stripped[:2] == "1.":
+            line = line[: len(line) - len(stripped)] + "\\" + stripped
+        lines.append(f"> {line}")
+    return "\n".join(lines)
+
+
 def card_markdown(card: ApprovalCard) -> str:
     """An ``ApprovalCard`` as Markdown — what a chat platform shows, and the
-    text form any channel may fall back to. The agent's name and the engine's
-    headline are structure; every field value and the block are content."""
-    headline = f"{card.icon} **{card.agent}** {one_line(card.headline)}"
-    fields = [
-        (one_line(row.label), f"{row.before} → {row.value}" if row.before else row.value)
-        for row in card_rows(card)
-    ]
-    text = render_card(headline, fields, block_label=card.block_label, block=card.block)
-    if card.expires_at:
-        text += f"\n\n_Answer by {one_line(card.expires_at)}_"
-    return text
+    text form any channel may fall back to. Facts stay in code spans: Markdown
+    would turn a value's ``[text](url)`` into a link on the card a person
+    decides from; a title in the heading is escaped character by character
+    instead; a passage is a quote, its lines kept and their starts escaped."""
+    layout = card_layout(card)
+    if layout.title:
+        lines = [f"{layout.icon} **{plain_markdown(layout.title)}**"]
+        if layout.verdict:
+            lines.append(layout.verdict)
+    else:
+        lines = [f"{layout.icon} **{layout.agent}** {layout.headline}"]
+    lines.append("")
+    lines += [f"**{label}:** {code_span(value)}" for label, value in layout.facts]
+    for label, text in layout.passages:
+        lines += [f"**{label}:**", _quote(text)]
+    if layout.block:
+        if layout.block_label:
+            lines.append(f"**{layout.block_label}:**")
+        lines.append(preformatted(layout.block))
+    signature = list(layout.signature)
+    if layout.expires_at:
+        signature.append(f"Answer by {layout.expires_at}")
+    if signature:
+        lines += ["", f"_{' · '.join(signature)}_"]
+    return "\n".join(lines)

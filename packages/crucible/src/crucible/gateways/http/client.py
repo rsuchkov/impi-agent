@@ -46,7 +46,10 @@ def _wire_card(card: ApprovalCard) -> dict:
         "headline": card.headline,
         "title": card.title,
         "tool": card.tool,
-        "fields": [{"label": r.label, "value": r.value, "before": r.before} for r in card.fields],
+        "fields": [
+            {"label": r.label, "value": r.value, "before": r.before, "passage": r.passage}
+            for r in card.fields
+        ],
         "block": {"label": card.block_label, "text": card.block} if card.block else None,
         "danger": card.danger,
         "expiresAt": card.expires_at,

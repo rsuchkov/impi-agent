@@ -236,7 +236,8 @@ async def test_the_verdict_rewrites_the_slack_card_as_fields_without_buttons(sta
     update = stand.web.last("chat_update")
     assert update["channel"] == DM and update["ts"] == "1.1"
     assert update["text"].startswith("🔐 *assistant* — Allowed for 15 min.")
-    assert update["blocks"][1]["fields"] == [{"type": "mrkdwn", "text": "*Secret*\n`vault://github-token`"}]
+    assert update["blocks"][0] == {"type": "header", "text": {"type": "plain_text", "text": "🔐 assistant — Allowed for 15 min."}}
+    assert update["blocks"][1]["fields"] == [{"type": "mrkdwn", "text": "*Secret:* vault://github-token"}]
     assert "gh release create v1" in update["blocks"][2]["text"]["text"]
     assert not [b for b in update["blocks"] if b["type"] == "actions"]
 
