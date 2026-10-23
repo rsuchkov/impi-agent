@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.28.0 — 2026-10-24
+
 - **One agent, several gateways.** `AGENTS_GATEWAY__<AGENT>=mattermost,slack`
   (or `GATEWAY`, as a CSV) reaches the same agent through both: one profile,
   one flow, one runtime session per conversation, a reply through the gateway
