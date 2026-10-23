@@ -13,6 +13,7 @@ agree on the key.
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 
@@ -175,6 +176,14 @@ class RuntimeControl(Protocol):
         the runtime keeps it. False only when the runtime KNOWS the memory is
         gone; memory it cannot see (kept elsewhere) counts as remembered, so a
         caller may act on False without second-guessing it."""
+        ...
+
+    def memory_updated_at(self, agent: str, session_id: str) -> datetime | None:
+        """When this process's memory of the conversation last changed, or None
+        when it cannot say (no memory here, or memory kept elsewhere). A
+        conversation that went on in another process meanwhile is older here
+        than the store knows it to be: the difference is what the next turn is
+        told."""
         ...
 
     async def reset(self, agent: str, session_id: str) -> None:

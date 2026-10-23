@@ -1,8 +1,10 @@
 import asyncio
 import contextlib
 import dataclasses
+import os
 import re
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -581,6 +583,18 @@ async def test_has_memory_sees_a_live_session_or_a_file_on_disk(tmp_path: Path) 
     assert rt.has_memory("other", "assistant--c1") is False  # another agent's directory
 
 
+def test_memory_updated_at_is_the_session_files_own_time(tmp_path: Path) -> None:
+    rt = _runtime_with([], session_dir=str(tmp_path))
+    assert rt.memory_updated_at("assistant", "assistant--c1") is None  # nothing remembered here
+    path = _memory_file(tmp_path, "assistant", "assistant--c1")
+    os.utime(path, (1_700_000_000, 1_700_000_000))
+    assert rt.memory_updated_at("assistant", "assistant--c1") == datetime.fromtimestamp(
+        1_700_000_000, tz=timezone.utc
+    )
+    assert rt.memory_updated_at("other", "assistant--c1") is None  # another agent's directory
+    assert _runtime_with([]).memory_updated_at("assistant", "assistant--c1") is None  # no session dir
+
+
 def test_memory_kept_side_by_side_moves_into_a_directory_per_conversation(tmp_path: Path) -> None:
     agent = tmp_path / "assistant"
     agent.mkdir()
@@ -624,6 +638,10 @@ async def test_memory_the_runtime_cannot_see_counts_as_remembered(tmp_path: Path
     rt = _runtime_with([], session_dir=str(tmp_path), hosts=hosts)
     assert rt.has_memory("remote", "remote--c1") is True
     assert rt.has_memory("assistant", "assistant--c1") is False  # ours, and nothing there
+    # ...and the memory's age is unknown for the same reasons, even with a file
+    # under that name here (another agent's leftovers are not its memory).
+    _memory_file(tmp_path, "remote", "remote--c1")
+    assert rt.memory_updated_at("remote", "remote--c1") is None
 
 
 async def test_reset_ends_the_process_frees_its_slot_and_deletes_the_memory(

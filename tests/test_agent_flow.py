@@ -1002,13 +1002,17 @@ async def test_a_flag_with_no_sentence_is_reported_as_itself_even_on_a_failed_tu
 class FakeControl:
     """A runtime's memory as the flow asks about it."""
 
-    def __init__(self, *, remembers: bool) -> None:
+    def __init__(self, *, remembers: bool, memory_at: datetime | None = None) -> None:
         self.remembers = remembers
+        self.memory_at = memory_at
         self.asked: list[tuple[str, str]] = []
 
     def has_memory(self, agent: str, session_id: str) -> bool:
         self.asked.append((agent, session_id))
         return self.remembers
+
+    def memory_updated_at(self, agent: str, session_id: str) -> datetime | None:
+        return self.memory_at
 
     async def reset(self, agent: str, session_id: str) -> None:
         pass
@@ -1096,6 +1100,50 @@ async def test_a_dm_the_runtime_remembers_is_not_replayed(tmp_path: Path) -> Non
         await flow.handle(_dm2("second", "p2"), chat)
         assert runtime.calls[1][1] == "[@roman]: second"
         assert len(history.asked) == 1  # the first turn only
+    finally:
+        await store.close()
+
+
+async def test_a_conversation_that_went_on_in_another_process_is_caught_up_from_the_applications_history(
+    tmp_path: Path,
+) -> None:
+    """Two processes serve one agent; the conversation's last turns ran on the
+    other one. This process's memory of it is older than the store's cursor, so
+    the turn is told what was said since the memory ends — the agent's own
+    words from over there included, since the memory here has none of them."""
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    control, history = FakeControl(remembers=True), FakeHistory([])
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=control,
+                     history=history, envelope_tag=lambda: "t1")
+    flow.add_identity("bot")
+    chat = FakeChat()
+    try:
+        await flow.handle(_dm2("first", "p1"), chat)
+        now = datetime.now(timezone.utc)
+        control.memory_at = now - timedelta(hours=1)  # the memory here ends an hour ago
+        history.snippets = [
+            PostSnippet(message_id="h0", username="roman", text="long ago",
+                        timestamp=now - timedelta(hours=2)),
+            PostSnippet(message_id="h1", username="roman", text="said over there",
+                        timestamp=now - timedelta(minutes=30)),
+            PostSnippet(message_id="h2", username="assistant", text="answered over there",
+                        user_id="bot", timestamp=now - timedelta(minutes=29)),
+            PostSnippet(message_id="p2", username="roman", text="and now here", timestamp=now),
+        ]
+        await flow.handle(_dm2("and now here", "p2"), chat)
+        prompt = runtime.calls[1][1]
+        assert prompt.startswith("[context t1: posted since your last reply]\n")
+        assert "long ago" not in prompt  # the memory here has that
+        assert "UTC]: said over there" in prompt and "[@roman · " in prompt
+        assert "UTC]: answered over there" in prompt  # its own words, said elsewhere
+        assert prompt.count("and now here") == 1
+        assert prompt.endswith("[@roman]: and now here")
+
+        control.memory_at = now + timedelta(seconds=1)  # the memory is current again
+        await flow.handle(_dm2("third", "p3"), chat)
+        assert runtime.calls[2][1] == "[@roman]: third"
+        assert len(history.asked) == 2  # the first turn and the stale one
     finally:
         await store.close()
 

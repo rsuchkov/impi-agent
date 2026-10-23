@@ -28,6 +28,7 @@ import secrets
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from crucible.confinement import landlock_abi
@@ -278,6 +279,18 @@ class PiRuntime:
 
     def _files_of(self, agent: str, session_id: str) -> list[Path]:
         return session_files(Path(self._session_dir), agent, safe_session_id(session_id))
+
+    def memory_updated_at(self, agent: str, session_id: str) -> datetime | None:
+        """The newest write to the conversation's memory on this disk — the
+        session file's own time, no bookkeeping of ours. None for memory not
+        here to read (a remote agent, the runtime's own directory, none yet)."""
+        if not self._session_dir or agent in self._hosts.remote_agents:
+            return None
+        files = self._files_of(agent, session_id)
+        if not files:
+            return None
+        newest = max(path.stat().st_mtime for path in files)
+        return datetime.fromtimestamp(newest, tz=timezone.utc)
 
     # -- public API (TurnClock) ---------------------------------------------
 

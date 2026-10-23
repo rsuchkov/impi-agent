@@ -15,7 +15,14 @@ when a release is cut, and `impi update` shows the target version's section.
   conversation is the application's to say (`ConversationKey`, the platform's
   own id by default). The first gateway listed is the agent's default: a turn
   the engine starts goes there when the conversation is live there, else where
-  it last spoke. A tool call is served within the gateway the conversation is
+  it last spoke. A tool's confirmation card is posted in every gateway the
+  conversation is live in, one question under one token: the first answer,
+  from whichever copy, settles it, a later click anywhere finds no question,
+  and every copy is rewritten with the verdict. A process whose runtime memory
+  of a conversation is older than the store's record of it — the last turns
+  ran elsewhere — is told what was said since from the application's
+  `HistorySource` (`RuntimeControl.memory_updated_at`, pi's session-file
+  time). A tool call is served within the gateway the conversation is
   in (`not available through this gateway` for a channel-admin tool asked for
   from Slack), with that gateway's admin client. **Breaks:** `AgentSink(sink,
   gateways, default)` replaces `AgentSink(sink, chat)`; `AgentPresence.poster`
@@ -24,7 +31,8 @@ when a release is cut, and `impi update` shows the target version's section.
   `ToolWiring.enroll(..., gateway=)` once per gateway, with `gateway_admins`
   and `gateway_caps` beside `admins`/`caps`; `SessionStore` gains
   `set_gateway_address` and `touch(gateway=)`, and `SessionRecord`
-  `gateways`/`last_gateway` (sqlite migrated on open).
+  `gateways`/`last_gateway` (sqlite migrated on open); `RuntimeControl` gains
+  `memory_updated_at`.
 - **The confirmation card is drawn from one layout on every chat, and shows
   what a person approves whole.** The preview's `title` is the heading
   ("Add a comment to PROJ-123"), the engine's sentence only when there is

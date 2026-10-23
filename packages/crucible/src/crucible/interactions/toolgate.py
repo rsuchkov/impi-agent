@@ -49,6 +49,7 @@ from crucible.approvals import (
 )
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.service import conversation_ref
+from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import (
     VERDICT_EXPIRED,
     VERDICT_WITHDRAWN,
@@ -68,6 +69,7 @@ from crucible.store.base import (
     ApprovalGrant,
     ApprovalStore,
     SessionStore,
+    gateway_addresses,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,10 +177,17 @@ class ToolGate:
         display_name: str,
     ) -> Approval | None:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        # Asked where the conversation last spoke: the gateway the turn came
-        # through, in the conversation's address there.
-        poster = self._presence.poster(agent, record.last_gateway) if record else None
-        if record is None or poster is None:
+        # Asked in every gateway the conversation is live in, each at the
+        # conversation's address there — the person answers wherever they are
+        # looking, and the first answer closes every copy. A conversation known
+        # in no gateway yet is asked where it last spoke.
+        posters: list[tuple[str, ChatClient]] = []
+        if record is not None:
+            for gateway in sorted(gateway_addresses(record)) or [record.last_gateway]:
+                poster = self._presence.poster(agent, gateway)
+                if poster is not None:
+                    posters.append((gateway, poster))
+        if record is None or not posters:
             logger.warning("tool gate: nowhere to ask about %s for %s", tool, agent)
             return None
 
@@ -197,36 +206,43 @@ class ToolGate:
         ).isoformat(timespec="seconds")
         card = _card(agent, tool, args, preview, display_name=display_name, expires_at=expires_at)
         named = _named(tool, display_name)
-        try:
-            post_id = await poster.post_confirmation(
-                conversation_ref(record, record.last_gateway),
-                card,
-                approval_actions(token, offers=windows(ceiling_s=self._max_grant_s)),
-                callback_url=self._callback_url,
-            )
-        except Exception:
+        actions = approval_actions(token, offers=windows(ceiling_s=self._max_grant_s))
+        copies: list[tuple[ChatClient, str]] = []  # (poster, post id) of every copy posted
+        for gateway, poster in posters:
+            try:
+                post_id = await poster.post_confirmation(
+                    conversation_ref(record, gateway), card, actions, callback_url=self._callback_url
+                )
+            except Exception:
+                logger.warning(
+                    "tool gate: could not post the question on %s", gateway or "-", exc_info=True
+                )
+                continue
+            copies.append((poster, post_id))
+        if not copies:
             self._approvals.discard(token)
-            logger.warning("tool gate: could not post the question", exc_info=True)
             return None
 
         try:
             answer = await asyncio.wait_for(future, timeout=self._timeout)
         except TimeoutError:
             self._approvals.discard(token)
-            await self._rewrite(
-                poster, post_id, _closed(card, _EXPIRED.format(tool=named), VERDICT_EXPIRED)
+            await self._rewrite_all(
+                copies, _closed(card, _EXPIRED.format(tool=named), VERDICT_EXPIRED)
             )
             return Approval(allowed=False, timed_out=True)
         except asyncio.CancelledError:
             # Retire the card first: a click after this must find no question.
             self._approvals.discard(token)
-            await self._rewrite(
-                poster, post_id, _closed(card, _ABANDONED.format(tool=named), VERDICT_WITHDRAWN)
+            await self._rewrite_all(
+                copies, _closed(card, _ABANDONED.format(tool=named), VERDICT_WITHDRAWN)
             )
             raise
         verdict, words = verdict_of(answer)
         headline = _ANSWERED.format(words=words, tool=named)
-        await self._rewrite(poster, post_id, _closed(card, headline, verdict, answer.grant_s))
+        # The first answer is the answer: the token went with it (a second click
+        # anywhere finds no question), and every copy now says the verdict.
+        await self._rewrite_all(copies, _closed(card, headline, verdict, answer.grant_s))
         return answer
 
     async def _open_window(self, agent: str, tool: str, scope: str, answer: Approval) -> str:
@@ -270,6 +286,10 @@ class ToolGate:
             )
         )
         logger.info("tool %s for %s: %s", scope, agent, decision)
+
+    async def _rewrite_all(self, copies: list[tuple[ChatClient, str]], card: ApprovalCard) -> None:
+        for poster, post_id in copies:
+            await self._rewrite(poster, post_id, card)
 
     @staticmethod
     async def _rewrite(poster, post_id: str, card: ApprovalCard) -> None:

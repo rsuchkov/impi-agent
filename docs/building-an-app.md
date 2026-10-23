@@ -237,6 +237,8 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   `RuntimeControl` (`crucible.ports.agent`): `has_memory(agent, session_id)`
   says whether the conversation would resume or start over — the runtime
   answers from its own files, so an application never has to know their layout;
+  `memory_updated_at(agent, session_id)` says when that memory last changed
+  here (the session file's own time), or `None` when it cannot say;
   `reset(agent, session_id)` ends the process (its slot is free at once) and
   deletes the memory; `cancel(session_id)` interrupts the turn in flight and
   keeps the session for the next one — the turn returns with what it had, or
@@ -312,10 +314,14 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   so for those the flow asks the application: `AgentFlow(..., history=…)`, a
   `HistorySource` (`crucible.ports.chat`) whose `recent(agent, msg)` returns the
   earlier messages as `PostSnippet`s, oldest first, from the transcript you
-  keep (keyed, say, by the `turn_id` the hub gave each turn). It is asked only
-  when the platform had nothing, and only on a turn the runtime starts from
-  nothing — the first turn of a new conversation included, since the
-  conversation may be older than the engine's record of it. The runtime's own
+  keep (keyed, say, by the `turn_id` the hub gave each turn). It is asked when
+  the platform had nothing on a turn the runtime starts from nothing — the
+  first turn of a new conversation included, since the conversation may be
+  older than the engine's record of it — and on a turn whose memory here is
+  **older than the conversation**: `memory_updated_at` behind the store's
+  cursor means the last turns ran in another process (through another gateway,
+  or on another replica), and the turn is told what was said since the memory
+  ends, the agent's own replies from over there included. The runtime's own
   earlier replies belong in it too: it has none of them.
   `AgentFlow(..., context=…)`, a `ContextSource`, is the other half — who is
   asking (`preamble(agent, msg)`: the person's role, the system they are signed

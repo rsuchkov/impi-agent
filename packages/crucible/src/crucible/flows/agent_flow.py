@@ -401,10 +401,26 @@ class AgentFlow:
         )
         # On a later turn, last_active is still the PREVIOUS turn's end (touch()
         # runs after the turn, and get_or_create doesn't refresh it) — exactly the
-        # cursor for "what was said while we weren't addressed".
+        # cursor for "what was said while we weren't addressed". Unless this
+        # process's memory of the conversation is older than that: the
+        # conversation went on elsewhere (another process ran turns of it), and
+        # the catch-up starts where the memory here ends. Only a memory older
+        # than the cursor is stale; otherwise it has every turn, and the
+        # catch-up is the platform's alone.
         since = None if first_turn else _parse_iso(record.last_active)
+        memory_at = (
+            self._control.memory_updated_at(self._agent_name, record.runtime_session_id)
+            if self._control is not None and not first_turn
+            else None
+        )
+        stale = since is not None and memory_at is not None and memory_at < since
+        if not stale:
+            memory_at = None
+        else:
+            since = memory_at
         prompt = await self._render_prompt(
-            fresh, chat, first_turn=first_turn, since=since, cut_short=record.cut_short
+            fresh, chat, first_turn=first_turn, since=since, cut_short=record.cut_short,
+            memory_at=memory_at,
         )
         if record.cut_short:
             # Said once: the next turn after this one starts clean.
@@ -532,7 +548,7 @@ class AgentFlow:
 
     async def _render_prompt(
         self, msgs: list[IncomingMessage], chat: ChatClient, *, first_turn: bool,
-        since: datetime | None = None, cut_short: str = "",
+        since: datetime | None = None, cut_short: str = "", memory_at: datetime | None = None,
     ) -> str:
         """Envelope: who is speaking (+ replayed history).
 
@@ -555,11 +571,17 @@ class AgentFlow:
             if preamble:
                 parts.append(f"{_context_open(tag, _LABEL_PREAMBLE)}\n{quoted(preamble)}\n{_context_close(tag)}")
         snippets = await self._backfill_snippets(anchor, chat)
-        if first_turn and not snippets and self._history is not None:
-            # The platform had nothing to give back; the application may.
-            snippets = await self._history.recent(self._agent_name, anchor)
+        if self._history is not None and (first_turn and not snippets or memory_at is not None):
+            # The platform had nothing to give back — or this process's memory of
+            # the conversation is older than the conversation (``memory_at``: it
+            # went on in another process, maybe through another gateway), and
+            # the application's own record holds what the platform cannot hand
+            # back. Only what is newer than that memory is kept below.
+            seen = {s.message_id for s in snippets}
+            recent = await self._history.recent(self._agent_name, anchor)
+            snippets += [s for s in recent if s.message_id not in seen]
         if not first_turn:
-            snippets = self._since(snippets, since)
+            snippets = self._since(snippets, since, memory_at=memory_at)
         if snippets:
             transcript = self._render_transcript(snippets, exclude=batch_ids)
             if transcript:
@@ -647,11 +669,19 @@ class AgentFlow:
             )
         return []
 
-    def _since(self, snippets: list[PostSnippet], since: datetime | None) -> list[PostSnippet]:
-        """Catch-up filter: only messages posted after our last reply, and not our
-        own (those are already in the runtime session). A snippet without a
-        timestamp can't be placed in time, so it is left out rather than replayed
-        on every turn."""
+    def _since(
+        self,
+        snippets: list[PostSnippet],
+        since: datetime | None,
+        *,
+        memory_at: datetime | None = None,
+    ) -> list[PostSnippet]:
+        """Catch-up filter: only messages posted after ``since``, and not our own
+        — those are already in the runtime session — unless they are newer than
+        this process's memory of the conversation (``memory_at``): then they
+        were said elsewhere, and the memory here does not have them. A snippet
+        without a timestamp can't be placed in time, so it is left out rather
+        than replayed on every turn."""
         if since is None:
             return []
         return [
@@ -659,7 +689,10 @@ class AgentFlow:
             for s in snippets
             if s.timestamp is not None
             and s.timestamp > since
-            and s.user_id not in self._own_user_ids
+            and (
+                s.user_id not in self._own_user_ids
+                or (memory_at is not None and s.timestamp > memory_at)
+            )
         ]
 
     @staticmethod

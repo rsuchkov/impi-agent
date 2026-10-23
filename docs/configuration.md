@@ -87,8 +87,10 @@ conversation, a reply through the gateway the message came in by. The first
 in the list is the agent's **default gateway** — where a turn the engine
 starts by itself (a scheduled task, a reported event) goes, when the
 conversation is live there (or nowhere yet); otherwise it goes where the
-conversation last spoke. A gateway whose tokens are missing is left out with
-a logged reason; the agent runs on the rest. What a tool call may do is
+conversation last spoke. A tool's confirmation card is posted in every
+gateway the conversation is live in; the first answer, from whichever copy,
+settles it and every copy shows the verdict. A gateway whose tokens are
+missing is left out with a logged reason; the agent runs on the rest. What a tool call may do is
 decided per call by the gateway the conversation is in: a channel-admin tool
 asked for from Slack, which has no channel administration, is refused with
 `not available through this gateway` even though the agent has the tool

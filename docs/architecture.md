@@ -367,10 +367,17 @@ address on each gateway and which one spoke last (`SessionRecord.gateways`,
 fills (`ports/chat/keying.ConversationKey`; the platform's own id by default),
 and the flow and the coalescer key by the same answer. The presence an agent
 has (`AgentSink`) carries one chat client per gateway and a default; whatever
-posts for an agent outside a turn — a card, a widget, a file, a turn the
-engine starts — asks for the conversation's gateway. A tool call is served
-within the capabilities of the gateway the conversation is in (`ToolServer`,
-`gateway_caps`).
+posts for an agent outside a turn — a widget, a file, a turn the engine
+starts — asks for the conversation's gateway. A tool's confirmation card is
+posted in every gateway the conversation is live in, one question under one
+token: the first answer, from whichever copy, settles it, a later click finds
+no question, and every copy is rewritten with the verdict. A tool call is
+served within the capabilities of the gateway the conversation is in
+(`ToolServer`, `gateway_caps`). A process whose runtime memory of a
+conversation is older than the store's record of it (`RuntimeControl.
+memory_updated_at`; the conversation went on in another process) is told what
+was said since from the application's `HistorySource`, its own replies from
+over there included.
 
 **A gateway that must run once** — a bot's websocket, Slack's Socket Mode, where
 the platform picks which open connection gets an event — runs under a named

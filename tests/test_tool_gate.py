@@ -797,6 +797,41 @@ async def test_a_previews_verbatim_block_reaches_the_card_whole(tmp_path: Path) 
         await _close(rig)
 
 
+async def test_the_card_is_posted_in_every_gateway_and_the_first_answer_closes_them_all(
+    tmp_path: Path,
+) -> None:
+    """A conversation live in two gateways is asked in both; whichever copy is
+    answered first settles it — the other click finds no question — and both
+    copies then show the verdict."""
+    from crucible.approvals.pending import ApprovalOutcome
+    from crucible.ports.chat.types import KIND_THREAD
+    from crucible.store.base import GatewayAddress
+
+    slack = FakePoster()
+    rig = await _rig(tmp_path, 8562, by_gateway={"slack": slack})
+    try:
+        await rig.store.set_gateway_address(
+            "assistant", "dm1", "mattermost", GatewayAddress("dm1", "dm1", KIND_DM)
+        )
+        await rig.store.set_gateway_address(
+            "assistant", "dm1", "slack", GatewayAddress("C9", "1700.1", KIND_THREAD)
+        )
+        await rig.store.touch("assistant", "dm1", gateway="mattermost")
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        card = await _answer(rig, ANSWER_ONCE)  # answered on the Mattermost copy
+        assert await pending == 200
+        assert len(slack.posts) == 1 and len(rig.poster.posts) == 1
+        ref = slack.posts[0].ref
+        assert ref is not None and (ref.channel_id, ref.thread_root_id) == ("C9", "1700.1")
+        token = str(slack.posts[0].actions[0].context[APPROVAL_KEY])
+        assert token == str(card.actions[0].context[APPROVAL_KEY])  # one question, two copies
+        assert rig.approvals.resolve(token, ANSWER_DENY, CLICKER) is ApprovalOutcome.NOT_MINE  # 2nd click
+        assert [u.card.headline for u in rig.poster.updated] == [u.card.headline for u in slack.updated]
+        assert "Allowed once" in slack.updated[0].card.headline
+    finally:
+        await _close(rig)
+
+
 async def test_the_card_is_posted_where_the_conversation_last_spoke(tmp_path: Path) -> None:
     """An agent reached through two gateways asks on the one the turn came
     through, at the conversation's address there — not on its default."""
