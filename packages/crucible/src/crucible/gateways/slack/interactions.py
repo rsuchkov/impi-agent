@@ -29,6 +29,7 @@ from crucible.gateways.slack.rendering import (
 )
 from crucible.interactions.results import ActionResult
 from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.gateway import GATEWAY_SLACK
 from crucible.ports.chat.types import (
     AGENT_UNAVAILABLE_TEXT,
     BUTTONS_RETIRED_TEXT,
@@ -200,7 +201,7 @@ class SlackInteractions:
             return
         self._dispatcher.invoke_command(
             self._agent,
-            gateway="slack",
+            gateway=GATEWAY_SLACK,
             channel_id=channel_id,
             conversation_id=conversation_id,
             kind=kind,
@@ -235,7 +236,7 @@ class SlackInteractions:
         text = f"/{command} {body.get('text', '')}".strip()
         result = self._dispatcher.invoke_command(
             self._agent,
-            gateway="slack",
+            gateway=GATEWAY_SLACK,
             channel_id=channel_id,
             conversation_id=channel_id,
             kind=kind,

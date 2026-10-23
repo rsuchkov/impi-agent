@@ -118,10 +118,15 @@ whole environment — so what works from your shell says nothing about what work
 in theirs. "Permission denied" in an agent, and how to widen it narrowly, is in
 `engine-diagnostics`; the boundary itself is `$IMPI_ROOT/docs/security.md`.
 
-An agent runs on one gateway: `mattermost`, `slack`, `ws` (a WebSocket hub for
-the operator's own programs) or `http` (a request/turn API for programs that
-cannot hold a socket — a browser panel behind a server). Kinds mix freely in one
-engine.
+An agent is reached through one or more gateways: `mattermost`, `slack`, `ws` (a
+WebSocket hub for the operator's own programs) or `http` (a request/turn API for
+programs that cannot hold a socket — a browser panel behind a server).
+`AGENTS_GATEWAY__<NAME>=mattermost,slack` is one agent on both: one profile, one
+memory per conversation, a reply through the gateway the message came in by;
+the first listed is the default, where a turn the engine starts by itself goes.
+Kinds mix freely in one engine. Several engine processes on one store (pods)
+each hold what must run once under a lease, own the conversations their runtime
+remembers and forward the rest to each other (`REPLICA_URL`, `REPLICA_TOKEN`).
 
 ## Tool gating (important)
 

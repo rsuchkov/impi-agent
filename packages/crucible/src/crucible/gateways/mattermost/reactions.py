@@ -23,6 +23,7 @@ from crucible.gateways.reactions import (
 )
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.gateway import GATEWAY_MATTERMOST
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class MattermostReactions:
             )
         self._dispatcher.invoke_command(
             self._agent,
-            gateway="mattermost",
+            gateway=GATEWAY_MATTERMOST,
             channel_id=channel_id,
             conversation_id=conversation_id,
             kind=kind,

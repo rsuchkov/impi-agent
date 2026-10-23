@@ -34,7 +34,7 @@ from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink, TrackedSink
-from crucible.ports.chat.gateway import Gateway
+from crucible.ports.chat.gateway import GATEWAY_KINDS, Gateway
 from crucible.tools.base import CAP_EPHEMERAL, CAP_FORMS, CAP_WIDGETS
 
 logger = logging.getLogger(__name__)
@@ -128,8 +128,8 @@ class GatewayFactory:
         builder = self._builders.get(config.kind)
         if builder is None:
             logger.warning(
-                "agent %s: unknown gateway %r (use 'mattermost', 'slack', 'ws' or 'http') — skipping",
-                agent, config.kind,
+                "agent %s: unknown gateway %r (one of %s) — skipping",
+                agent, config.kind, ", ".join(GATEWAY_KINDS),
             )
             return None
         return builder(agent, config)

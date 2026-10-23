@@ -57,7 +57,9 @@ class TurnDispatcher(Protocol):
     async def run_turn(self, request: TurnRequest) -> TurnOutcome: ...
 
 
-def requested_message(request: TurnRequest, ref: ConversationRef, *, turn: TurnScope) -> IncomingMessage:
+def requested_message(
+    request: TurnRequest, ref: ConversationRef, *, turn: TurnScope, gateway: str = ""
+) -> IncomingMessage:
     """The message a dispatcher hands the agent's sink for a request: addressed
     to the agent by definition and not typed by a human — the two flags a
     command sets — marked as the engine's own turn, and carrying the event.
@@ -65,7 +67,8 @@ def requested_message(request: TurnRequest, ref: ConversationRef, *, turn: TurnS
     comes through with the dispatcher's turn id and fresh flags, since a flag
     a tool leaves must not outlive the turn it was left in. A request with no
     scope of its own gets the dispatcher's, marked ``ENGINE_TURN_ATTRIBUTE``:
-    the promise ``TurnRequest.turn`` makes, kept here for every dispatcher."""
+    the promise ``TurnRequest.turn`` makes, kept here for every dispatcher.
+    ``gateway`` is the one the dispatcher sends it through, when it knows."""
     if request.turn is not None:
         scope = replace(request.turn, turn_id=turn.turn_id, flags=set())
     else:
@@ -81,4 +84,5 @@ def requested_message(request: TurnRequest, ref: ConversationRef, *, turn: TurnS
         engine_started=True,
         event=request.event,
         turn=scope,
+        gateway=gateway,
     )

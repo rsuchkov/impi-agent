@@ -190,7 +190,7 @@ text for a channel — that is the adapter's call.
 
 The `GatewayFactory` that builds these lives in `crucible.gateways`; it takes a
 neutral `GatewayConfig` (which transport, which tokens). `impi` only resolves that
-config from its own settings (`impi/gateways.py` — `resolve_gateway`), so the
+config from its own settings (`impi/gateways.py` — `resolve_gateways`), so the
 composition root never branches on transport inline.
 
 ## Tools
@@ -386,7 +386,7 @@ holds it and renews it, the others wait and take over when it lapses. The
 http and ws gateways are servers behind a balancer and need none.
 
 **A conversation has an owner among the replicas** (`ports/replica.py`,
-`flows/owned.py`, `replicas.py`, `gateways/http/internal.py`): the process whose
+`flows/owned.py`, `replica_heartbeat.py`, `gateways/http/internal.py`): the process whose
 runtime holds its memory and whose questions it waits on. Each replica holds the
 lease `replica:<id>` with its address while it runs; the store keeps which
 replica owns which conversation (`claim_conversation`, compare-and-swap, an
@@ -417,7 +417,7 @@ it, nobody is offered it by name. See [tool-trace.md](tool-trace.md).
 assembles everything from an `ImpiSettings`: it loads agent profiles (user agents +
 the bundled engine agents, merged), builds the session store, the interaction
 plumbing, the `PiRuntime`, the registry, the tool wiring, and the gateway factory;
-then it builds one `AgentUnit` per agent (`GatewayHandle` → `AgentFlow` →
+then it builds one `AgentUnit` per agent (one `GatewayHandle` per gateway → one `AgentFlow` →
 `MessageCoalescer`), the tool-server, and the reloader. `run(settings)` starts the
 tool-server, then the interactions receiver, then N supervised gateway loops
 (each isolated so one flaky agent can't take the engine down), and installs the
@@ -453,8 +453,10 @@ only what was posted since the agent's last reply (the session's `last_active` i
 the cursor). The second case matters because in a channel the agent runs only when
 mentioned — anything said in between never reached it as a turn. The agent's own
 posts are left out of that catch-up (they are already in its runtime session),
-which is why the gateway's login identity is pushed into the flow
-(`AgentFlow.set_identity`). Both transcripts are budgeted by character count.
+which is why each gateway's login identity is pushed into the flow
+(`AgentFlow.add_identity`) — unless this process's memory is older than the
+conversation (it went on in another replica), when the agent's own replies made
+there are replayed too. Both transcripts are budgeted by character count.
 
 **The envelope is marked, and what it quotes cannot forge the marks.** The
 prompt's own structure is a handful of lines beginning with `[`: a block of

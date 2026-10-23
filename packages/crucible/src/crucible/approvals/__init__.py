@@ -14,6 +14,7 @@ from crucible.approvals.card import (
     card_layout,
     card_markdown,
     card_rows,
+    plain_markdown,
     render_card,
 )
 from crucible.approvals.controls import (
@@ -49,6 +50,7 @@ __all__ = [
     "approval_actions",
     "CardLayout",
     "card_layout",
+    "plain_markdown",
     "card_markdown",
     "card_rows",
     "decide",

@@ -1,6 +1,7 @@
 """A gateway that runs only where its lease is held."""
 
 import asyncio
+import contextlib
 
 from crucible.gateways import LeasedGateway
 from crucible.ports.chat.gateway import AgentIdentity
@@ -90,3 +91,29 @@ async def test_a_gateway_that_returns_releases_the_lease_and_the_wrapper_returns
     await asyncio.wait_for(task, 1)
     assert lease.released == [("g", "me:1")] and not leased.held
     assert await leased.login() == AgentIdentity(user_id="u", username="bot")
+
+
+async def test_a_cancelled_holder_ends_its_renewal_before_stop_releases() -> None:
+    """Shutdown cancels the run loop; a renewal left running would race the
+    release and take the lease back for a process that is gone."""
+    lease, gateway = _Lease(), _Gateway()
+    renewals: list[str] = []
+    waiting = asyncio.Event()
+
+    async def sleep(_: float) -> None:
+        renewals.append("sleep")
+        waiting.set()
+        await asyncio.Event().wait()  # a renewal mid-sleep when the shutdown comes
+
+    leased = LeasedGateway(gateway, lease, name="gateway:slack:a", owner="pod-a", sleep=sleep)
+    task = asyncio.create_task(leased.run())
+    await waiting.wait()
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    assert leased.held is True  # until stop() says otherwise
+    asked_before = len(lease.asked)
+    await leased.stop()
+    assert lease.holder is None and leased.held is False
+    await asyncio.sleep(0)
+    assert len(lease.asked) == asked_before  # nothing renewed after the release

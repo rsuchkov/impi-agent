@@ -32,7 +32,8 @@ when a release is cut, and `impi update` shows the target version's section.
   and `gateway_caps` beside `admins`/`caps`; `SessionStore` gains
   `set_gateway_address` and `touch(gateway=)`, and `SessionRecord`
   `gateways`/`last_gateway` (sqlite migrated on open); `RuntimeControl` gains
-  `memory_updated_at`.
+  `memory_updated_at`; `AgentFlow.set_identity` is `add_identity`, called once
+  per gateway; `FormRecord` gains `gateway` (sqlite migrated on open).
 - **Several engine processes serve one conversation as one.** With
   `REPLICA_URL` and `REPLICA_TOKEN` set on every process, a conversation has an
   owner — the replica whose runtime remembers it — recorded in the store
@@ -51,18 +52,25 @@ when a release is cut, and `impi update` shows the target version's section.
   `resolve_pending` are coroutines (the question may be in another replica);
   `InteractionDispatcher`, `ToolGate`, `WidgetUiBridge` and `InteractionWiring`
   take the replica; the `REPLICA_` family is reserved from `RUNTIME_ENV`.
+- **Fixed: a leased gateway stopped at shutdown no longer renews its lease
+  behind the release.** The renewal task outlived the cancelled run loop and
+  could take the lease back after `stop` had let it go, so the next process
+  waited a whole lease (30 s) for a connection nobody held. The run loop now
+  ends both of its tasks when it is cancelled, the renewal first.
 - **The confirmation card is drawn from one layout on every chat, and shows
   what a person approves whole.** The preview's `title` is the heading
   ("Add a comment to PROJ-123"), the engine's sentence only when there is
   none; the agent's name and the tool's id go small to the bottom with the
   deadline. A row the tool marks `PreviewRow(passage=True)` — a comment, a
-  description — is shown whole, with its lines, as a quote (Slack in sections
-  of 3000, cut with a mark past 8000), instead of as a fact cut at 200
+  description — is shown whole, with its lines, as a quote (cut with a mark
+  past 8000 characters; on Slack in sections of 3000), instead of as a fact cut at 200
   characters. On Slack the facts are plain text with a bold label, not inline
   code that reads as an error; on Mattermost they stay code spans, which a
   Markdown link in a value cannot escape. Three fixes underneath, on every
   channel: `one_line` keeps a space where a line broke (a two-paragraph
-  comment no longer reads as one glued word), the verbatim block keeps its
+  comment no longer reads as one glued word), a title or a passage carries no
+  live link, image or `@mention` on Mattermost (every line is escaped, an `@`
+  made inert), the verbatim block keeps its
   lines (`preformatted`, not `code_block`), and the http `confirmation`
   event's `fields[]` carry `passage`.
 - **A gateway that must run in one process runs under a lease.** A bot's
@@ -70,13 +78,16 @@ when a release is cut, and `impi update` shows the target version's section.
   into, choosing among the open ones by itself — two engine replicas would
   split every conversation between two runtime memories. `LeasedGateway`
   (`crucible.gateways`) runs such a gateway only while this process holds a
-  named lease in the store (`ports.lease.Lease`, implemented by the sqlite and
+  named lease in the store (`ports.lease.Leases`, implemented by the sqlite and
   MongoDB stores with compare-and-swap; 30 s, renewed every 10 s), closes the
   connection when the lease is lost and takes over when the holder lapses.
   `impi` wraps its Mattermost and Slack gateways; one process on sqlite
-  always holds its own lease, so nothing changes there. `SessionStore`
-  implementations of your own gain `acquire_lease`/`release_lease` through
-  the `Store` composite.
+  always holds its own lease — except after a crash, when the connection
+  comes back once the dead process's lease lapsed (up to 30 s; a clean stop
+  releases it at once). `SessionStore` implementations of your own gain
+  `acquire_lease`/`release_lease` (`LeaseStore`) and
+  `claim_conversation`/`replica_url` (`ReplicaStore`) through the `Store`
+  composite.
 
 ## v0.27.0 — 2026-10-20
 

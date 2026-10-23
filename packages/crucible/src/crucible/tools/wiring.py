@@ -92,7 +92,7 @@ class ToolWiring:
         self.admins: dict[str, ChatAdmin] = {}  # agent -> its default gateway's admin client
         # The same, by gateway: what a call may do depends on the gateway the
         # conversation is in, not on the best of the agent's gateways.
-        self.gateway_admins: dict[str, dict[str, ChatAdmin]] = {}
+        self.gateway_admins: dict[str, dict[str, ChatAdmin | None]] = {}
         self.gateway_caps: dict[str, dict[str, frozenset[str]]] = {}
         self._token_of: dict[str, str] = {}  # agent -> its one tool token
         self.allowlists: dict[str, frozenset[str]] = {}  # agent -> tools it may call
@@ -151,7 +151,10 @@ class ToolWiring:
             self.tokens[token] = spec.name
         if admin is not None:
             self.admins.setdefault(spec.name, admin)
-            self.gateway_admins.setdefault(spec.name, {})[gateway] = admin
+        # The gateway's own admin client, None when it has none: a conversation
+        # on Slack gets no channel administration even though Mattermost's is
+        # in the same process.
+        self.gateway_admins.setdefault(spec.name, {})[gateway] = admin
         # base (widgets/forms) + chat-admin if this gateway has an admin client +
         # whatever extra capabilities its kind advertises (e.g. ephemeral)...
         # minus what the gateway cannot honour however the deployment is set
@@ -167,7 +170,7 @@ class ToolWiring:
         advertised, dropped = _gate_tools(self.registry, spec.tools, self.caps[spec.name])
         for name, missing in dropped.items():
             logger.info(
-                "agent %s: tool %r not advertised — no gateway of its has %s",
+                "agent %s: tool %r not advertised — none of its gateways has %s",
                 spec.name, name, ", ".join(sorted(missing)),
             )
         self.allowlists[spec.name] = frozenset(advertised)

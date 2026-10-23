@@ -126,24 +126,31 @@ def card_layout(card: ApprovalCard) -> CardLayout:
 
 
 _MARKDOWN_SPECIALS = re.compile(r"([\\`*_\[\]#>!|~<])")
+# A mention a chat platform would act on (`@channel`, `@here`, a person): the
+# `@` is followed by a zero-width space, which reads the same and pings nobody.
+_MENTION = re.compile(r"@(?=\w)")
+_UNPINGED_AT = "@\u200b"
 
 
 def plain_markdown(text: str) -> str:
-    """One line of caller text as Markdown shows it literally: every character
-    Markdown could read as structure — emphasis, a link, a heading, a fence,
-    raw HTML — is escaped with a backslash. For a heading, which cannot be a
-    code span and must still be the caller's words."""
-    return _MARKDOWN_SPECIALS.sub(r"\\\1", text)
+    """Caller text as Markdown shows it literally: every character Markdown
+    could read as structure — emphasis, a link, an image, a heading, a fence,
+    raw HTML — is escaped with a backslash, and a mention is made inert. For a
+    heading or a passage, which cannot be code spans and must still be the
+    caller's words."""
+    return _MENTION.sub(_UNPINGED_AT, _MARKDOWN_SPECIALS.sub(r"\\\1", text))
 
 
 def _quote(text: str) -> str:
-    """A passage as a Markdown quote: one ``> `` per line, with what could read
-    as Markdown structure at a line's start escaped — a link, an image, a
-    heading, a list, a fence — so the quote stays a quote."""
+    """A passage as a Markdown quote: one ``> `` per line, every line shown
+    literally (``plain_markdown``) and what could still read as a list at a
+    line's start escaped too — so the quote stays a quote and carries no link,
+    image or mention a person could be led by."""
     lines = []
     for line in text.split("\n"):
+        line = plain_markdown(line)
         stripped = line.lstrip()
-        if stripped[:1] in ("[", "!", "#", "<", "-", "*", "+", "`", ">", "|") or stripped[:2] == "1.":
+        if stripped[:1] in ("-", "+") or stripped[:2] == "1.":
             line = line[: len(line) - len(stripped)] + "\\" + stripped
         lines.append(f"> {line}")
     return "\n".join(lines)

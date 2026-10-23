@@ -284,3 +284,11 @@ def test_a_callers_name_may_not_carry_the_conversation_keys_separator(monkeypatc
     settings = _settings(dotenv_path=str(env))
     with pytest.raises(ValueError, match="must not contain ':'"):
         settings.http_callers()
+
+
+def test_a_replica_url_is_normalised_and_must_be_an_http_address() -> None:
+    assert _settings(replica_url=" http://10.0.3.7:8428/ ").replica_url == "http://10.0.3.7:8428"
+    assert _settings(replica_url="http://10.0.3.7:8428", replica_token="s").replicated is True
+    assert _settings(replica_url="http://10.0.3.7:8428").replicated is False  # no token
+    with pytest.raises(ValidationError, match="REPLICA_URL"):
+        _settings(replica_url="10.0.3.7:8428")

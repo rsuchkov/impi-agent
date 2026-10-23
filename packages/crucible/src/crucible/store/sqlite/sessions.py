@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS pending_forms (
   spec TEXT NOT NULL,
   created_at TEXT NOT NULL,
   post_id TEXT NOT NULL DEFAULT '',
-  handler TEXT NOT NULL DEFAULT ''
+  handler TEXT NOT NULL DEFAULT '',
+  gateway TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -86,7 +87,7 @@ _INTERACTION_COLUMNS = (
     "interaction_id, token, agent, channel_id, conversation_id, kind, created_at, gateway"
 )
 _FORM_COLUMNS = (
-    "token, agent, channel_id, conversation_id, kind, spec, created_at, post_id, handler"
+    "token, agent, channel_id, conversation_id, kind, spec, created_at, post_id, handler, gateway"
 )
 
 # Order matches SessionRecord's fields (SessionRecord(*row)).
@@ -199,6 +200,10 @@ class SqliteSessionStore(
             # keeps behaving exactly as it did.
             self._conn.execute(
                 "ALTER TABLE pending_forms ADD COLUMN handler TEXT NOT NULL DEFAULT ''"
+            )
+        if "gateway" not in form_cols:
+            self._conn.execute(
+                "ALTER TABLE pending_forms ADD COLUMN gateway TEXT NOT NULL DEFAULT ''"
             )
 
     # -- async facade (SessionStore port) ------------------------------------
@@ -417,9 +422,9 @@ class SqliteSessionStore(
         with self._lock:
             self._conn.execute(
                 f"INSERT INTO pending_forms ({_FORM_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (r.token, r.agent, r.channel_id, r.conversation_id, r.kind, r.spec,
-                 r.created_at, r.post_id, r.handler),
+                 r.created_at, r.post_id, r.handler, r.gateway),
             )
             self._conn.commit()
 

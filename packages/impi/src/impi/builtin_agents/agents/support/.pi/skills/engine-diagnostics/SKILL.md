@@ -5,7 +5,7 @@ description: Work out why something in the engine is not working — an agent th
 
 # Diagnosing the engine
 
-Work from evidence, not from a guess. Most reports fall into one of five layers,
+Work from evidence, not from a guess. Most reports fall into one of a few layers,
 and each has a cheap check that tells you which one you are in.
 
 Reference: `$IMPI_ROOT/docs/troubleshooting.md`.
@@ -57,8 +57,9 @@ An agent is skipped at startup, with a log line, when:
 
 - **no token** — `AGENTS_MM_TOKEN__<NAME>`, or the Slack pair, or the unsuffixed
   `MATTERMOST_TOKEN`/`SLACK_*` for the default agent (`AGENT_NAME`);
-- its gateway is `slack` (often because the global `GATEWAY` is) but it has no
-  Slack tokens;
+- none of its gateways has tokens — a gateway without them (`slack` because
+  the global `GATEWAY` is, with no Slack tokens) is left out with a logged
+  reason and the agent runs on the rest; it is skipped only when none is left;
 - `AGENTS_ENABLED` is set and does not list it.
 
 A **new** agent needs a restart; agents are enumerated once at startup. Profile
@@ -273,14 +274,14 @@ And from the session check:
   a restart, or something in the agent's container calling the tool server by
   hand. Not a configuration problem.
 - `not available in this conversation` — the agent has the tool, but the
-- `not available through this gateway` (403) — the agent has the tool through
-  another of its gateways (`AGENTS_GATEWAY__<AGENT>=mattermost,slack`), but the
-  conversation is in one without the capability it needs: a channel-admin tool
-  asked for from Slack. Not a bug; the same call from the other gateway works.
   application entitled this conversation to fewer of them (its process was
   started with a manifest listing only those), and the model called one it
   read about elsewhere. Not a configuration problem: the application decides
   per conversation; the log line names the conversation and the agent.
+- `not available through this gateway` (403) — the agent has the tool through
+  another of its gateways (`AGENTS_GATEWAY__<AGENT>=mattermost,slack`), but the
+  conversation is in one without the capability it needs: a channel-admin tool
+  asked for from Slack. Not a bug; the same call from the other gateway works.
 
 ### What `impi health` may add
 
@@ -342,7 +343,38 @@ table (token mismatch, unresolvable default, no live presence, nothing at all).
 `impi task status` and `impi task runs <task>` answer this precisely — the
 **scheduled-tasks** skill has the verdicts and the per-status table.
 
-## 6. Reporting back
+## 6. Several engine processes (replicas)
+
+Two or more engines on one store — pods behind a balancer. What the log says:
+
+- `lease gateway:<kind>:<agent> taken by <host>:<pid>` — this process holds
+  that platform connection (Mattermost websocket, Slack Socket Mode); the others
+  wait and take over when it lapses (30 s). One holder at a time is by design.
+- `replica <id> at <url>: conversations are owned and forwarded` — `REPLICA_URL`
+  and `REPLICA_TOKEN` are set. Without both, nothing is owned or forwarded:
+  each process serves what reaches it, with its own memory of the conversation,
+  and a card can be answered only where it was posted. One without the other
+  logs `REPLICA_URL and REPLICA_TOKEN must both be set` at startup.
+- `conversation … owned by replica <id>; N message(s) forwarded to <url>` and,
+  on the other side, `replica: N forwarded message(s) for <agent> taken` — a
+  turn ran on the process whose runtime remembers the conversation.
+- `owner <id> at <url> did not take the turn; serving it here` — the owner's
+  hub did not answer though its heartbeat lives: a network problem between the
+  pods, or `REPLICA_URL` naming an address the others cannot reach (a
+  `localhost`, a service name that balances instead of pointing at the pod).
+  The turn still ran, here, and the conversation moved.
+- `replica <id>: another process holds our lease` — two processes drew the same
+  id, or one was started twice with one store; restart one.
+
+Symptoms: a card's buttons "no longer active" right after a click, on a
+deployment with several pods — the click reached a pod that does not hold the
+question and could not forward it (`REPLICA_*` unset, or the owner gone). An
+agent that "forgot" the middle of a conversation — its owner changed (a pod
+died, or the message came through `http`/`ws`, which are served where they
+arrive) and the new owner caught up from the application's history; what the
+platform cannot hand back (tool calls) is not in that history.
+
+## 7. Reporting back
 
 - Name the layer and the evidence: "the agent isn't running — no
   `AGENTS_MM_TOKEN__X` in the config", not "it seems the token may be missing".

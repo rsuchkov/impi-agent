@@ -23,7 +23,8 @@ for your UI.
    HTTP_CALLER_TOKEN__MY_APP=<secret>
    HTTP_CALLER_AGENTS__MY_APP=helper,scribe   # optional; unset = all http agents
    ```
-3. Restart the engine. The hub starts only when some agent runs on `http`,
+3. Restart the engine. The hub starts when some agent runs on `http` (or the
+   engine is a replica — `REPLICA_URL`, `REPLICA_TOKEN`),
    listening on `HTTP_HOST:HTTP_PORT` (default `0.0.0.0:8428`; 8427 is the agent containers' relay). Like the ws
    hub's port it is not published by the compose files; publish it (or front it
    with your proxy) where your program can reach it.

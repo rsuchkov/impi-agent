@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from crucible.ports.chat.directory import AgentInfo
-from crucible.ports.lease import Lease
+from crucible.ports.lease import Leases
 from crucible.ports.replica import Replicas
 
 # Which implementation holds the inventory. A closed set, like the run statuses
@@ -170,6 +170,9 @@ class FormRecord:
     # let the values fall through into a conversation, and for some forms that
     # is exactly the thing that must not happen.
     handler: str = ""
+    # Which gateway the button was posted through; the submission and the
+    # retired button go back the same way. "" for records written before.
+    gateway: str = ""
 
 
 class FormStore(Protocol):
@@ -660,8 +663,8 @@ class ConnectionStore(Protocol):
         ...
 
 
-class LeaseStore(Lease, Protocol):
-    """The store's leases (``ports.lease.Lease``): named, one holder at a time
+class LeaseStore(Leases, Protocol):
+    """The store's leases (``ports.lease.Leases``): named, one holder at a time
     across every process that shares the store."""
 
 

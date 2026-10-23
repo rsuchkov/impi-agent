@@ -159,7 +159,7 @@ mounted and reloads as usual.
 - `AGENTS_SKILLS__<NAME>` (CSV) — replaces an agent's whole skill list without
   editing `agent.yaml` (empty = no skills; unset = the agent.yaml list). While it
   is set, `assign_skill` changes won't show up.
-- `AGENTS_GATEWAY__<NAME>` — that agent's gateway.
+- `AGENTS_GATEWAY__<NAME>` — that agent's gateway, or several as a CSV (`mattermost,slack`; the first is the default, where engine-started turns go).
 - `runtime.env` in `agent.yaml` / `AGENTS_ENV__<NAME>` — engine environment
   variables that agent's process inherits (names, or a family like
   `MYSERVICE_*`); nothing else beyond a base set reaches it. A skill that reads

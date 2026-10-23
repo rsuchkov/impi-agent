@@ -60,7 +60,21 @@ class OwnedFlow:
         owner = await self._replicas.claim_conversation(
             self._agent, conversation, self._replica.id, take=take
         )
-        if owner.replica != self._replica.id and owner.url:
+        if owner.replica != self._replica.id and not owner.url:
+            # Another replica's, and no address to send to: serving it beside
+            # them would split the conversation, so it moves here.
+            logger.warning(
+                "conversation %s of %s: owner %s cannot be reached; taking it over",
+                conversation, self._agent, owner.replica,
+            )
+            owner = await self._replicas.claim_conversation(
+                self._agent, conversation, self._replica.id, take=True
+            )
+        if owner.replica != self._replica.id:
+            logger.info(
+                "conversation %s of %s: owned by replica %s; %d message(s) forwarded to %s",
+                conversation, self._agent, owner.replica, len(msgs), owner.url,
+            )
             try:
                 return await self._forwarder.forward_turn(owner.url, self._agent, msgs)
             except Exception:

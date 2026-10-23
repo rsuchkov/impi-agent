@@ -122,7 +122,8 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
         profile = build_pi_profile(spec)  # + apply tools.profile_env(spec) / the prompt hint
         flow = AgentFlow(runtime, profile, sessions, agent_name=spec.name)
         coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
-        sinks_by_agent[spec.name] = AgentSink(sink=coalescer, chat=handle.chat)  # record presence
+        kind = configs[spec.name].kind
+        sinks_by_agent[spec.name] = AgentSink(sink=coalescer, gateways={kind: handle.chat}, default=kind)
         units.append((spec, handle.create_gateway(coalescer)))
 
     tool_server = tools.build_server(
@@ -533,7 +534,7 @@ credential, is another user's credential.
   runtime memories. Wrap such a gateway in `LeasedGateway(gateway, store,
   name="gateway:slack:<agent>", owner="<host>:<pid>")` (`crucible.gateways`):
   it runs the gateway only while it holds the named lease in the store
-  (`ports.lease.Lease`, implemented by the sqlite and MongoDB stores,
+  (`ports.lease.Leases`, implemented by the sqlite and MongoDB stores,
   compare-and-swap), renews it every 10 s for 30 s, closes the connection when
   the lease is lost and queues up again; a replica that stops renewing — a
   crash, a rollout — is replaced within one lease. Sending needs no connection
@@ -559,7 +560,7 @@ credential, is another user's credential.
   from — a request a balancer pinned here, a websocket open here — is not in
   `forwarded`: it takes the conversation over, and the owner's memory being
   older than the conversation is what the catch-up above covers. A replica is
-  alive while its `ReplicaHeartbeat` (`crucible.replicas`) renews the lease
+  alive while its `ReplicaHeartbeat` (`crucible.replica_heartbeat`) renews the lease
   `replica:<id>` with its address; stopping releases it, so a clean shutdown
   hands its conversations over at once. Clicks follow the same idea: every
   token the gate and the widget bridge mint carries the replica's id in front

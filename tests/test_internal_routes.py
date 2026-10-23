@@ -148,3 +148,9 @@ async def test_the_internal_routes_refuse_a_stranger_and_an_unknown_agent(tmp_pa
         await right.aclose()
         await hub.stop()
         await asyncio.sleep(0)
+
+
+def test_a_forwarded_clicks_outcomes_are_the_approval_outcomes() -> None:
+    """The port may not import the approvals leaf, so the two enums are kept in
+    step here: the dispatcher converts one into the other by name."""
+    assert {m.name for m in ForwardedClick} == {m.name for m in ApprovalOutcome}

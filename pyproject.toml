@@ -155,7 +155,12 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Entitlements and engine-started turns are ports — vocabulary over the other ports, no concrete layer"
 type = "forbidden"
-source_modules = ["crucible.ports.entitlement", "crucible.ports.engine_turn"]
+source_modules = [
+    "crucible.ports.entitlement",
+    "crucible.ports.engine_turn",
+    "crucible.ports.lease",
+    "crucible.ports.replica",
+]
 forbidden_modules = [
     "crucible.runtimes",
     "crucible.gateways",
@@ -164,6 +169,21 @@ forbidden_modules = [
     "crucible.interactions",
     "crucible.store",
     "crucible.attachments",
+    "crucible.profiles",
+    "crucible.scheduler",
+]
+
+[[tool.importlinter.contracts]]
+name = "A replica's heartbeat is a port consumer — no runtime, gateway, flow or store machinery"
+type = "forbidden"
+source_modules = ["crucible.replica_heartbeat"]
+forbidden_modules = [
+    "crucible.runtimes",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.tools",
+    "crucible.interactions",
+    "crucible.store",
     "crucible.profiles",
     "crucible.scheduler",
 ]

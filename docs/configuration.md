@@ -118,8 +118,8 @@ Client services are dynamic keys (register with `impi ws add-service`):
 
 A request/turn HTTP API for programs that cannot hold a socket open — a browser
 behind someone else's server, a caller spread over several nodes; see
-[http-gateway.md](http-gateway.md). Started only when some agent has
-`AGENTS_GATEWAY__<AGENT>=http`.
+[http-gateway.md](http-gateway.md). Started when some agent has
+`AGENTS_GATEWAY__<AGENT>=http`, or the engine is a replica (below).
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -150,6 +150,12 @@ them, and a card can be answered only where it was posted).
 |---|---|---|
 | `REPLICA_URL` | `""` | this process's address on the hub's port, as the other replicas reach it (`http://10.0.3.7:8428`; in Kubernetes the pod IP from the downward API) |
 | `REPLICA_TOKEN` | `""` | the secret every replica presents on the internal routes; one value for the whole deployment |
+
+The replicas share one configuration apart from `REPLICA_URL`: the same
+`INTEGRATIONS_SECRET` and `INTEGRATIONS_PUBLIC_URL` above all, since a card one
+replica posts is clicked through whichever replica the callback address reaches,
+and that replica answers 403 to a secret that is not its own. A deployment that
+mounts one `.env` on every pod has this by construction.
 
 A message through a gateway whose connection one replica holds (Mattermost,
 Slack) is forwarded to the owner; one through the http or ws gateway is served
@@ -187,7 +193,7 @@ as defaults — set only the ones you need.
 | `AGENTS_MM_TOKEN__<AGENT>` | that agent's Mattermost bot token |
 | `AGENTS_SLACK_BOT_TOKEN__<AGENT>` | that agent's Slack bot token |
 | `AGENTS_SLACK_APP_TOKEN__<AGENT>` | that agent's Slack app-level token |
-| `AGENTS_GATEWAY__<AGENT>` | that agent's gateway (`mattermost` \| `slack` \| `ws` \| `http`) |
+| `AGENTS_GATEWAY__<AGENT>` | that agent's gateway (`mattermost` \| `slack` \| `ws` \| `http`), or several as a CSV (`mattermost,slack`); the first is its default |
 | `AGENTS_SKILLS__<AGENT>` | override that agent's skills (CSV of names; empty = none; unset = its `agent.yaml`) |
 | `AGENTS_ENV__<AGENT>` | override the engine environment variables that agent's process inherits (CSV of names, `*` allowed; empty = none beyond the base set; unset = its `agent.yaml` `runtime.env`) |
 | `AGENTS_FALLBACK_MODELS__<AGENT>` | override that agent's fallback models (CSV of `provider/model`; empty = none; unset = its `agent.yaml`, else `DEFAULT_FALLBACK_MODELS`) |

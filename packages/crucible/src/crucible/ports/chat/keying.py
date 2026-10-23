@@ -24,7 +24,7 @@ class ConversationKey(Protocol):
 
 class PlatformKey:
     """The platform's own conversation id is the key — one gateway, one id per
-    conversation. What every deployment had before gateways could be several."""
+    conversation. The default."""
 
     def key(self, agent: str, msg: IncomingMessage) -> str:
         return msg.conversation_id

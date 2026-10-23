@@ -389,7 +389,7 @@ async def test_a_replica_owns_its_conversations_and_carries_the_internal_routes(
     from crucible.ports.replica import REPLICA_LEASE_PREFIX
 
     settings = _settings(tmp_path).model_copy(
-        update={"replica_url": "http://10.0.0.5:8428/", "replica_token": "shared"}
+        update={"replica_url": "http://10.0.0.5:8428", "replica_token": "shared"}  # model_copy skips validation
     )
     app = build_app(settings)
     try:
@@ -401,7 +401,7 @@ async def test_a_replica_owns_its_conversations_and_carries_the_internal_routes(
         assert isinstance(coalescer, MessageCoalescer)
         served = coalescer._flow
         assert isinstance(served, OwnedFlow) and served._flow is unit.flow
-        assert served._replica.url == "http://10.0.0.5:8428"  # no trailing slash
+        assert served._replica.url == "http://10.0.0.5:8428"
         assert served._forwarded == {"mattermost", "slack"}
         gate = app.integrations._dispatcher._replica if app.integrations else None  # type: ignore[union-attr]
         assert gate is served._replica
@@ -414,10 +414,11 @@ async def test_a_replica_owns_its_conversations_and_carries_the_internal_routes(
         await app.sessions.close()
 
 
-async def test_one_token_without_the_other_is_not_a_replica(tmp_path: Path) -> None:
+async def test_one_token_without_the_other_is_not_a_replica(tmp_path: Path, caplog) -> None:
     app = build_app(_settings(tmp_path).model_copy(update={"replica_token": "shared"}))
     try:
         assert app.heartbeat is None and app.forwarder is None and app.http_hub is None
+        assert "REPLICA_URL and REPLICA_TOKEN must both be set" in caplog.text  # the operator is told
         coalescer = app.sinks_by_agent["assistant"].sink
         assert isinstance(coalescer, MessageCoalescer) and coalescer._flow is app.units[0].flow
     finally:
@@ -938,7 +939,7 @@ async def test_a_capability_one_gateway_lacks_is_still_advertised_and_checked_pe
         assert kept == ("create_channel",)
         _, dropped = _gate_tools(engine_tool_registry(), ("create_channel",), caps["http"])
         assert dropped == {"create_channel": frozenset({CAP_CHAT_ADMIN})}
-        assert "http" not in app.tools.gateway_admins["assistant"]  # no admin client over http
+        assert app.tools.gateway_admins["assistant"]["http"] is None  # over http there is no admin client
         assert isinstance(unit.flow._tracer, _TracerByChat)  # the journal for http turns, the widget for chat
         assert app.http_hub is not None and app.http_hub.serves("assistant")
     finally:

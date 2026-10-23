@@ -331,3 +331,35 @@ async def test_a_click_comes_back_through_the_gateway_the_widget_was_posted_on(t
     finally:
         await server.stop()
         await store.close()
+
+
+async def test_a_widget_and_a_form_go_through_the_gateway_the_conversation_last_spoke_on(tmp_path: Path) -> None:
+    """An agent on two gateways posts a widget where the conversation is — not
+    on its default — and a form's submission comes back the same way."""
+    from crucible.ports.chat.types import Form, FormField
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    mattermost, slack = FakePoster(), FakePoster()
+    svc = InteractionService(
+        presence_of(mattermost, gateways={"slack": slack}), store, store, store, callback_url="http://x/interact"
+    )
+    spy = SinkSpy()
+    dispatcher = InteractionDispatcher(
+        store, presence_of(mattermost, sink=spy, gateways={"slack": slack}), PendingUiRequests(), store  # type: ignore[arg-type]
+    )
+    try:
+        rec, _ = await store.get_or_create("assistant", "C9", "1700.1", KIND_THREAD)
+        await store.touch("assistant", "1700.1", gateway="slack")
+        assert await svc.ask("assistant", rec.runtime_session_id, "Choose", ["Yes", "No"])
+        assert len(slack.posted) == 1 and mattermost.posted == []
+        form = Form(title="Ticket", fields=(FormField(name="summary", label="Summary"),))
+        assert await svc.open_form("assistant", rec.runtime_session_id, form)
+        assert len(slack.posted) == 2 and mattermost.posted == []
+        token = slack.posted[1][2][0].context["form"]
+        record = await store.get_form(token)
+        assert record is not None and record.gateway == "slack"
+        assert await dispatcher.submit_form(token, {"summary": "done"}, False, "uid-roman")
+        assert spy.chats[-1] is slack and spy.submitted[-1].gateway == "slack"
+        assert slack.retracted  # the button retired on Slack, where it was
+    finally:
+        await store.close()

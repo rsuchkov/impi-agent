@@ -63,7 +63,8 @@ It does not make the deployment stateless. The agents still keep their memory in
 files, so a pod that can be moved needs those files to follow it — a volume that
 survives, mounted where the runtime writes. Turning this on and deleting the
 agents' volumes gives you an engine that remembers every task and no
-conversation.
+conversation — unless the application hands the history back
+(`HistorySource`), which restores what was said, not what tools did.
 
 ## Turning it on
 

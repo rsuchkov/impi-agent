@@ -1653,6 +1653,12 @@ async def test_a_call_is_served_within_the_gateway_the_conversation_is_in() -> N
         async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
             return {"admin": getattr(ctx.chat_admin, "name", None)}
 
+    class _SeesAdmin(_NeedsAdmin):
+        """Needs nothing — and still gets only its own gateway's admin client."""
+
+        name: ClassVar[str] = "sees_admin"
+        requires: ClassVar[frozenset[str]] = frozenset()
+
     conversations = {
         "assistant--in-slack": SessionConversation("C1", "u1", kind="dm", gateway="slack", gateways=("slack",)),
         "assistant--in-mm": SessionConversation("ch1", "u1", kind="dm", gateway="mattermost", gateways=("mattermost",)),
@@ -1663,13 +1669,13 @@ async def test_a_call_is_served_within_the_gateway_the_conversation_is_in() -> N
 
     mm_admin = _Admin("mm")
     server = ToolServer(
-        build_registry([_NeedsAdmin]),
+        build_registry([_NeedsAdmin, _SeesAdmin]),
         directory=FakeDirectory(AGENTS),
         admins={"assistant": mm_admin},  # type: ignore[arg-type]
-        gateway_admins={"assistant": {"mattermost": mm_admin}},  # type: ignore[arg-type]
+        gateway_admins={"assistant": {"mattermost": mm_admin, "slack": None}},  # type: ignore[arg-type]
         gateway_caps={"assistant": {"mattermost": frozenset({CAP_CHAT_ADMIN}), "slack": frozenset()}},
         tokens={"tok": "assistant"},
-        allowlists={"assistant": frozenset({"needs_admin"})},  # advertised: one gateway can serve it
+        allowlists={"assistant": frozenset({"needs_admin", "sees_admin"})},  # advertised: one gateway can serve it
         port=8471,
         conversation_resolver=resolver,
     )
@@ -1688,5 +1694,11 @@ async def test_a_call_is_served_within_the_gateway_the_conversation_is_in() -> N
             ) as resp:
                 assert resp.status == 200
                 assert (await resp.json())["result"] == {"admin": "mm"}  # that gateway's admin client
+            async with s.post(
+                "http://127.0.0.1:8471/tool/sees_admin", json={},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--in-slack"},
+            ) as resp:
+                # Slack has no admin client: a tool there sees none, not Mattermost's.
+                assert resp.status == 200 and (await resp.json())["result"] == {"admin": None}
     finally:
         await server.stop()

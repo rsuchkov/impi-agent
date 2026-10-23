@@ -14,7 +14,7 @@ then the new owner's memory is older than the conversation, and the flow's
 catch-up (``RuntimeControl.memory_updated_at``) tells it what it missed.
 
 A replica says it is alive by holding the lease ``replica:<id>`` with its own
-address as the holder (``ports.lease.Lease``), renewed by its heartbeat; a
+address as the holder (``ports.lease.Leases``), renewed by its heartbeat; a
 conversation's owner is alive while that lease is. The store implements the
 registry (``store.base.ReplicaStore``); the forwarding is the http gateway's
 (``gateways.http.internal``). A token this replica mints for a click carries

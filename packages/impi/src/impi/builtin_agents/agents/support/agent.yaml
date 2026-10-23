@@ -12,7 +12,7 @@ runtime:
   # own default), so a public checkout runs on whatever backend is configured.
   timeout: 240
   # This is the ONE allowlist — built-ins are enabled only by naming them here,
-  # and a typed tool is dropped if the gateway lacks the capability it needs.
+  # and a typed tool is dropped if none of its gateways has the capability it needs.
   tools:
     # pi's file tools, used on the agents dir by absolute path.
     - read

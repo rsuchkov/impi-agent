@@ -94,9 +94,12 @@ no tools at all**. Two rules to remember:
 
 - **Skills need `read` + `bash`** to function (the agent reads `SKILL.md` and runs
   its scripts via `bash`).
-- A typed tool is **dropped** (and logged) if the agent's gateway/config doesn't
-  provide a capability it requires — e.g. widget tools when interactivity is
-  disabled, or `send_ephemeral` on a gateway that can't post ephemeral messages.
+- A typed tool is **dropped** (and logged) if none of the agent's gateways or
+  its config provides a capability it requires — e.g. widget tools when
+  interactivity is disabled, or `send_ephemeral` on a gateway that can't post
+  ephemeral messages. An agent on several gateways keeps a tool one of them can
+  serve; a call from a gateway without the capability is refused with
+  `not available through this gateway`.
   Capabilities per gateway: Mattermost and Slack provide channel administration
   and ephemeral messages; the ws and http gateways provide neither. Widgets
   depend on interactivity being enabled; on ws they degrade to text, and the
@@ -267,7 +270,9 @@ settings.
 ## Choosing a gateway
 
 By default an agent runs on `GATEWAY` (Mattermost). Override per agent with
-`AGENTS_GATEWAY__<AGENT>=slack`, `=ws` or `=http`. A Slack agent needs Slack
+`AGENTS_GATEWAY__<AGENT>=slack`, `=ws` or `=http` — or several at once,
+`=mattermost,slack` (the first is the default; see
+[configuration.md](configuration.md), *One agent, several gateways*). A Slack agent needs Slack
 tokens instead of a Mattermost token (see [configuration.md](configuration.md));
 the engine appends Slack formatting rules to that agent's system prompt
 automatically. A `ws` agent talks to your own programs over the engine's

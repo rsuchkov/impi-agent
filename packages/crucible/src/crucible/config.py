@@ -257,9 +257,17 @@ class Settings(BaseSettings):
     replica_url: str = ""  # e.g. http://10.0.3.7:8428 — this pod, the hub's port
     replica_token: str = ""
 
+    @field_validator("replica_url")
+    @classmethod
+    def _replica_url_is_an_http_address(cls, value: str) -> str:
+        url = value.strip().rstrip("/")
+        if url and not url.startswith(("http://", "https://")):
+            raise ValueError(f"REPLICA_URL: {value!r} is not an http(s) address of this engine")
+        return url
+
     @property
     def replicated(self) -> bool:
-        return bool(self.replica_url.strip() and self.replica_token.strip())
+        return bool(self.replica_url and self.replica_token.strip())
 
     # Which chat gateway an agent runs on ("mattermost" | "slack" | "ws" | "http"). The
     # default for all agents; override per agent with AGENTS_GATEWAY__<AGENT>.

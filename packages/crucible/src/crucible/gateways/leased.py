@@ -6,7 +6,7 @@ connections by its own choice, not by the person it concerns. Two engine
 replicas each holding such a connection would split one conversation's
 messages between two processes, each with its own runtime memory and its own
 waiting cards. So the connection is opened only by the replica that holds the
-gateway's lease (``ports.lease.Lease``, which the store implements): the others wait, and take over when the
+gateway's lease (``ports.lease.Leases``, which the store implements): the others wait, and take over when the
 holder stops renewing — a crash, a rollout. Sending needs no connection and
 works from every replica, so answers, cards and widgets are posted from
 wherever the turn runs.
@@ -20,7 +20,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from crucible.ports.chat.gateway import AgentIdentity, Gateway
-from crucible.ports.lease import Lease
+from crucible.ports.lease import Leases
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ LEASE_RENEW_S = 10.0
 
 class LeasedGateway:
     def __init__(
-        self, gateway: Gateway, leases: Lease, *, name: str, owner: str,
+        self, gateway: Gateway, leases: Leases, *, name: str, owner: str,
         ttl_s: float = LEASE_TTL_S, renew_s: float = LEASE_RENEW_S,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -64,7 +64,16 @@ class LeasedGateway:
             logger.info("lease %s taken by %s: the gateway runs here", self._name, self._owner)
             running = asyncio.ensure_future(self.gateway.run())
             keeping = asyncio.ensure_future(self._keep())
-            done, _ = await asyncio.wait({running, keeping}, return_when=asyncio.FIRST_COMPLETED)
+            try:
+                done, _ = await asyncio.wait({running, keeping}, return_when=asyncio.FIRST_COMPLETED)
+            except asyncio.CancelledError:
+                # Shutdown. Both tasks end here, the renewal first of all: one
+                # still in flight when ``stop`` releases the lease would take
+                # it again, and the next process would wait a whole ttl for it.
+                running.cancel()
+                keeping.cancel()
+                await asyncio.gather(running, keeping, return_exceptions=True)
+                raise
             self.held = False
             if running in done:
                 keeping.cancel()

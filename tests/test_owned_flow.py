@@ -102,3 +102,12 @@ async def test_an_owner_that_does_not_answer_is_taken_over_with_the_turn_served_
     assert len(forwarder.sent) == 1 and len(flow.batches) == 1
     assert replicas.claims[-1] == ("assistant", "C1", "a1", True)
     assert replicas.owner == ConversationOwner("a1")
+
+
+async def test_an_owner_with_no_address_is_taken_over_rather_than_served_beside() -> None:
+    flow, forwarder = _Flow(), _Forwarder()
+    replicas = _Replicas(ConversationOwner("b2", ""))
+    owned = _owned(flow, replicas, forwarder)
+    assert await owned.handle_batch([_msg()], FakeChat()) is TurnOutcome.REPLIED
+    assert replicas.claims[-1] == ("assistant", "C1", "a1", True)
+    assert replicas.owner == ConversationOwner("a1") and forwarder.sent == []

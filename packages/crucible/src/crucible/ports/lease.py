@@ -11,7 +11,7 @@ implements it (``store.base.LeaseStore``); a consumer depends only on this.
 from typing import Protocol
 
 
-class Lease(Protocol):
+class Leases(Protocol):
     async def acquire_lease(self, name: str, owner: str, *, ttl_s: float) -> bool:
         """True when ``owner`` now holds ``name`` — taken free or lapsed, or
         renewed when it was theirs already. False when another holder has it."""

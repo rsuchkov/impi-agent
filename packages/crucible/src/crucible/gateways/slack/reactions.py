@@ -30,6 +30,7 @@ from crucible.gateways.slack.events import (
 )
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.gateway import GATEWAY_SLACK
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ class SlackReactions:
             )
         self._dispatcher.invoke_command(
             self._agent,
-            gateway="slack",
+            gateway=GATEWAY_SLACK,
             channel_id=reaction.channel_id,
             conversation_id=conversation_id,
             kind=kind,

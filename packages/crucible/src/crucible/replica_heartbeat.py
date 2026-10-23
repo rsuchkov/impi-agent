@@ -12,7 +12,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from crucible.ports.lease import Lease
+from crucible.ports.lease import Leases
 from crucible.ports.replica import REPLICA_LEASE_PREFIX, Replica
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ REPLICA_RENEW_S = 10.0
 
 class ReplicaHeartbeat:
     def __init__(
-        self, leases: Lease, replica: Replica, *,
+        self, leases: Leases, replica: Replica, *,
         ttl_s: float = REPLICA_TTL_S, renew_s: float = REPLICA_RENEW_S,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:

@@ -3,7 +3,7 @@
 import asyncio
 
 from crucible.ports.replica import Replica
-from crucible.replicas import ReplicaHeartbeat
+from crucible.replica_heartbeat import ReplicaHeartbeat
 
 
 class _Leases:

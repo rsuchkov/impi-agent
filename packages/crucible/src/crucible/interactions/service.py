@@ -106,7 +106,7 @@ class InteractionService:
         style: str = "buttons",
     ) -> bool:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        poster = self._presence.poster(agent)
+        poster = self._presence.poster(agent, record.last_gateway) if record else None
         if record is None or poster is None:
             logger.warning("widget ask: no session/poster for %s / %s", agent, runtime_session_id)
             return False
@@ -149,7 +149,7 @@ class InteractionService:
 
     async def open_form(self, agent: str, runtime_session_id: str, form: Form) -> bool:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        poster = self._presence.poster(agent)
+        poster = self._presence.poster(agent, record.last_gateway) if record else None
         if record is None or poster is None:
             logger.warning("form open: no session/poster for %s / %s", agent, runtime_session_id)
             return False
@@ -176,6 +176,7 @@ class InteractionService:
                 spec=form_to_json(form),
                 created_at=_now(),
                 post_id=post_id,
+                gateway=record.last_gateway,
             )
         )
         return True
@@ -197,7 +198,7 @@ class InteractionService:
         screen opens in (a tool posting one provider's Connect, say)."""
         screen = self._screens.get(name) if self._screens else None
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        poster = self._presence.poster(agent)
+        poster = self._presence.poster(agent, record.last_gateway) if record else None
         if screen is None or record is None or poster is None:
             return False
         ref = self._ref(record, record.last_gateway)

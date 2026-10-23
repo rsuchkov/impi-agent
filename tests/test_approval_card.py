@@ -244,7 +244,7 @@ def test_the_markdown_card_leads_with_the_title_quotes_a_passage_and_signs_with_
         tool="add_comment",
         fields=(
             PreviewRow("Issue", "PROJ-123 — Fix the login page"),
-            PreviewRow("Comment", "Looks good.\n\n[click](https://evil.example)\n# not a heading", passage=True),
+            PreviewRow("Comment", "Looks good, see [click](https://evil.example) ![x](https://t/x.png) @channel\n\n[click](https://evil.example)\n# not a heading\n- not a list", passage=True),
             PreviewRow("Status", "Done", before="In Progress"),
         ),
         block_label="Script", block="line one\nline two",
@@ -253,12 +253,17 @@ def test_the_markdown_card_leads_with_the_title_quotes_a_passage_and_signs_with_
     text = card_markdown(card)
     lines = text.splitlines()
     assert lines[0] == "⚙️ **Add a comment to PROJ-123**"
+    pinged = card_markdown(ApprovalCard(agent="assistant", headline="x", title="Tell @here about [it](https://x)", tool="t"))
+    assert pinged.splitlines()[0] == "⚙️ **Tell @\u200bhere about \\[it\\](https://x)**"
     assert "**Issue:** `PROJ-123 — Fix the login page`" in lines
     assert "**Status:** `In Progress → Done`" in lines
-    # The passage: a quote with its lines; a link or a heading at a line's start is escaped.
+    # The passage: a quote with its lines, every line literal — no link, image,
+    # heading, list or mention a person could be led by, wherever it sits.
     assert "**Comment:**" in lines
-    assert "> Looks good." in lines and "> " in lines
-    assert "> \\[click](https://evil.example)" in lines and "> \\# not a heading" in lines
+    assert "> Looks good, see \\[click\\](https://evil.example) \\!\\[x\\](https://t/x.png) @\u200bchannel" in lines
+    assert "> " in lines
+    assert "> \\[click\\](https://evil.example)" in lines and "> \\# not a heading" in lines
+    assert "> \\- not a list" in lines
     # The block keeps its lines.
     assert "line one\nline two" in text
     # The signature: agent, tool, deadline — small, last.

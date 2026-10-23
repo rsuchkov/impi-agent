@@ -234,6 +234,7 @@ class InternalRoutes:
                 saved = await self._attachments.save_many(agent, str(data["ref"]["conversation_id"]), files)
             msg = message_from_wire(data, saved)
             waits.append(sink.sink.submit_tracked(msg, sink.chat_for(msg.gateway)))
+        logger.info("replica: %d forwarded message(s) for %s taken", len(waits), agent)
         outcomes: list[TurnOutcome] = list(await asyncio.gather(*waits))
         return web.json_response({"outcome": outcomes[-1].name})
 

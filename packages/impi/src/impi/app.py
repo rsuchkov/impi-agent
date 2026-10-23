@@ -72,13 +72,19 @@ from crucible.ports.agent import (
     RuntimeControl,
 )
 from crucible.ports.chat.flow import Flow
-from crucible.ports.lease import Lease
+from crucible.ports.chat.gateway import (
+    GATEWAY_HTTP,
+    GATEWAY_MATTERMOST,
+    GATEWAY_SLACK,
+    GATEWAY_WS,
+)
+from crucible.ports.lease import Leases
 from crucible.ports.replica import Replica, Replicas
 from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.profiles.errors import ProfileError
 from crucible.reloader import ProfileReloader
-from crucible.replicas import ReplicaHeartbeat
+from crucible.replica_heartbeat import ReplicaHeartbeat
 from crucible.runtime_storage import prepare_runtime_storage
 from crucible.runtimes.pi import (
     EXTENSION_PATH,
@@ -299,7 +305,7 @@ class ProfileBuilder:
 # Gateway kinds that hold a connection the platform pushes events into (a bot's
 # websocket, Socket Mode) — the ones that must run in one process at a time. The
 # http and ws gateways are servers behind whatever balances them; nothing to lease.
-CONNECTION_GATEWAYS = frozenset({"mattermost", "slack"})
+CONNECTION_GATEWAYS = frozenset({GATEWAY_MATTERMOST, GATEWAY_SLACK})
 
 
 class _TracerByChat:
@@ -398,7 +404,7 @@ def _build_units(
     tracer: ToolTrace | None,
     http_turns: HttpTurns | None,
     turns: TurnRegistry,
-    leases: Lease,
+    leases: Leases,
     instance: str,
     replica: Replica | None = None,
     replicas: Replicas | None = None,
@@ -441,8 +447,8 @@ def _build_units(
             # chat turn's to a widget under the reply — chosen per turn by the
             # chat the message came with.
             tracer=(
-                http_turns if set(handles) == {"http"}
-                else _TracerByChat(http_turns, tracer) if "http" in handles
+                http_turns if set(handles) == {GATEWAY_HTTP}
+                else _TracerByChat(http_turns, tracer) if GATEWAY_HTTP in handles
                 else tracer
             ),
             turns=turns,
@@ -561,8 +567,12 @@ def build_app(settings: ImpiSettings) -> App:
     replica: Replica | None = None
     forwarder: HubForwarder | None = None
     if settings.replicated:
-        replica = Replica(id=secrets.token_hex(4), url=settings.replica_url.strip().rstrip("/"))
+        replica = Replica(id=secrets.token_hex(4), url=settings.replica_url)
         forwarder = HubForwarder(settings.replica_token.strip())
+    elif settings.replica_url or settings.replica_token.strip():
+        logger.warning(
+            "REPLICA_URL and REPLICA_TOKEN must both be set; conversations are not owned or forwarded"
+        )
     interactions = InteractionWiring(
         settings.integrations, sessions, presence,
         codec=MattermostCallbackCodec(), needs_receiver=receiver_needed,
@@ -678,7 +688,7 @@ def build_app(settings: ImpiSettings) -> App:
     # The ws hub exists only when some agent lives on the "ws" gateway; client
     # services authenticate against it with their own tokens (WS_SERVICE_TOKEN__*).
     ws_hub: WsHub | None = None
-    if any(cfg.kind == "ws" for cfgs in configs.values() for cfg in cfgs):
+    if any(cfg.kind == GATEWAY_WS for cfgs in configs.values() for cfg in cfgs):
         ws_services = settings.ws_services()
         if not ws_services:
             logger.warning(
@@ -694,7 +704,7 @@ def build_app(settings: ImpiSettings) -> App:
     # It also carries the replicas' own routes, so it runs whenever this is one
     # of several even with no http agent.
     http_hub: HttpHub | None = None
-    http_agents = any(cfg.kind == "http" for cfgs in configs.values() for cfg in cfgs)
+    http_agents = any(cfg.kind == GATEWAY_HTTP for cfgs in configs.values() for cfg in cfgs)
     if http_agents or replica is not None:
         http_callers = settings.http_callers()
         if http_agents and not http_callers:

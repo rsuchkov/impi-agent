@@ -367,6 +367,7 @@ class InteractionDispatcher:
         target = self._presence.sink(record.agent)
         if target is None:
             return False
+        chat = target.chat_for(record.gateway)  # the form came back through the gateway it was posted on
         thread_root = record.conversation_id if record.kind == KIND_THREAD else ""
         msg = IncomingMessage(
             ref=ConversationRef(
@@ -375,14 +376,15 @@ class InteractionDispatcher:
                 message_id=f"form-{state[:12]}",
                 thread_root_id=thread_root,
             ),
-            text=await _render_submission(record, submission, target.chat),
+            text=await _render_submission(record, submission, chat),
             user_id=user_id,
             kind=record.kind,
+            gateway=record.gateway,
             synthetic=True,
         )
-        target.sink.submit(msg, target.chat)
+        target.sink.submit(msg, chat)
         logger.info("form %s submitted: %d field(s)", state[:8], len(submission))
-        await self._retire_button(record, target.chat)
+        await self._retire_button(record, chat)
         return True
 
     async def _handle_form(
