@@ -835,7 +835,7 @@ async def run(settings: ImpiSettings) -> None:
             app.agent_user_ids[unit.spec.name] = identity.user_id
             # The gateway is the only authority on who we are on the platform;
             # the flow needs it to keep our own posts out of replayed history.
-            unit.flow.set_identity(identity.user_id)
+            unit.flow.add_identity(identity.user_id)
         await app.registry.sync([unit.spec for unit in app.units], identities)
         # SIGHUP → hot-reload agent profiles (`make reload`). Deliberate and
         # human-triggered: the operator reviews/updates the agents directory first,

@@ -88,6 +88,7 @@ class SlackReactions:
             )
         self._dispatcher.invoke_command(
             self._agent,
+            gateway="slack",
             channel_id=reaction.channel_id,
             conversation_id=conversation_id,
             kind=kind,

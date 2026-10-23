@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import Flow, TurnOutcome
+from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,14 @@ logger = logging.getLogger(__name__)
 
 class MessageCoalescer:
     def __init__(
-        self, flow: Flow, *, on_arrival: Callable[[IncomingMessage], object] | None = None
+        self, flow: Flow, *, on_arrival: Callable[[IncomingMessage], object] | None = None,
+        agent: str = "", keying: ConversationKey | None = None,
     ) -> None:
         self._flow = flow
+        # What makes two messages one conversation — the same answer the flow
+        # keeps its session by, so a burst from two gateways is one batch.
+        self._agent = agent
+        self._keying: ConversationKey = keying or PlatformKey()
         # Fired synchronously when a real (non-synthetic) message arrives, BEFORE
         # it queues — used to cancel an outstanding blocking UI request so a paused
         # turn unblocks (the user typed instead of clicking). Kept a plain callback
@@ -39,7 +45,7 @@ class MessageCoalescer:
     def submit(self, msg: IncomingMessage, chat: ChatClient) -> None:
         if self._on_arrival is not None and not msg.synthetic:
             self._on_arrival(msg)
-        conv = msg.conversation_id
+        conv = self._keying.key(self._agent, msg)
         self._pending.setdefault(conv, []).append(msg)
         if conv not in self._workers:
             self._workers[conv] = asyncio.create_task(self._run(conv, chat))

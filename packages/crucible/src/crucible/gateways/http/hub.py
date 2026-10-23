@@ -41,6 +41,7 @@ from crucible.interactions.screens import SCREEN_KEY, STATE_KEY
 from crucible.ports.agent.runtime import RuntimeControl
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import TrackedSink, TurnOutcome
+from crucible.ports.chat.gateway import GATEWAY_HTTP
 from crucible.ports.chat.types import (
     ACTION_BUTTON,
     KIND_DM,
@@ -469,6 +470,7 @@ class HttpHub:
             kind=KIND_DM,
             is_dm=True,
             mentioned=True,
+            gateway=GATEWAY_HTTP,
             # When the hub accepted it: the speaker line's time is how the
             # model knows what "now" is.
             timestamp=datetime.now(timezone.utc),

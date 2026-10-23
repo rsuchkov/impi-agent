@@ -230,6 +230,7 @@ async def test_a_waiting_poll_is_capped_whatever_the_client_asks() -> None:
 
 async def test_the_runtimes_tool_events_reach_the_journal() -> None:
     async def tools(msg, chat):
+        assert msg.gateway == "http"  # the hub stamps what it made
         record = SessionRecord("helper", msg.channel_id, msg.conversation_id, "dm",
                                "helper--portal-c1-abc", "t", "t")
         trace = hub.turns.begin(record, chat)  # what AgentFlow does with its tracer

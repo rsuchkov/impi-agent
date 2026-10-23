@@ -38,6 +38,7 @@ from crucible.store.base import (
     InteractionRecord,
     InteractionStore,
     SessionStore,
+    gateway_addresses,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,14 +58,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def conversation_ref(record) -> ConversationRef:
+def conversation_ref(record, gateway: str = "") -> ConversationRef:
     """Where to post for a session record: inside its thread when it has one.
-    Shared with the file service, which addresses the same conversation."""
-    thread_root = record.conversation_id if record.kind == KIND_THREAD else ""
+    Shared with the file service, which addresses the same conversation. With
+    ``gateway``, the conversation's address on that gateway — the platform's
+    own ids, which differ from the record's when the conversation is keyed
+    across gateways; the record's own fields when none is known for it."""
+    address = gateway_addresses(record).get(gateway) if gateway else None
+    channel_id = address.channel_id if address else record.channel_id
+    conversation_id = address.conversation_id if address else record.conversation_id
+    kind = address.kind if address else record.kind
+    thread_root = conversation_id if kind == KIND_THREAD else ""
     return ConversationRef(
-        channel_id=record.channel_id,
-        conversation_id=record.conversation_id,
-        message_id=record.conversation_id,
+        channel_id=channel_id,
+        conversation_id=conversation_id,
+        message_id=conversation_id,
         thread_root_id=thread_root,
     )
 
@@ -115,6 +123,7 @@ class InteractionService:
                 conversation_id=record.conversation_id,
                 kind=record.kind,
                 created_at=_now(),
+                gateway=record.last_gateway,
             )
         )
         ctx: dict[str, str] = {"interaction_id": interaction_id, "token": token}

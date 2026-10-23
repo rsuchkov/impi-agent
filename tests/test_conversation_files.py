@@ -59,3 +59,27 @@ async def test_the_lookup_says_what_kind_of_conversation_it_is(tmp_path: Path) -
         assert found is not None and found.kind == KIND_DM
     finally:
         await store.close()
+
+
+async def test_a_conversation_is_addressed_on_the_gateway_asked_for(tmp_path: Path) -> None:
+    from crucible.conversation_files import conversation_lookup
+    from crucible.interactions.service import conversation_ref
+    from crucible.ports.chat.types import KIND_THREAD
+    from crucible.store.base import GatewayAddress
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        record, _ = await store.get_or_create("assistant", "portal:u1", "task-7", KIND_DM, user_id="u1")
+        await store.set_gateway_address("assistant", "task-7", "slack", GatewayAddress("C1", "1700.1", KIND_THREAD))
+        await store.touch("assistant", "task-7", gateway="slack")
+        record = (await store.list())[0]
+        on_slack = conversation_ref(record, "slack")
+        assert (on_slack.channel_id, on_slack.conversation_id, on_slack.thread_root_id) == ("C1", "1700.1", "1700.1")
+        # A gateway the record has no address for, or none asked: the record's own fields, as before.
+        plain = conversation_ref(record)
+        assert (plain.channel_id, plain.conversation_id, plain.thread_root_id) == ("portal:u1", "task-7", "")
+        assert conversation_ref(record, "mattermost") == plain
+        found = await conversation_lookup(None, store)("assistant", record.runtime_session_id)
+        assert found is not None and (found.gateway, found.gateways) == ("slack", ("slack",))
+    finally:
+        await store.close()

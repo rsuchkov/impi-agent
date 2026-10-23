@@ -89,3 +89,8 @@ def test_should_respond_rule() -> None:
     assert at is not None and should_respond(at) is True
     bot = event_to_incoming(_msg(user="", bot_id="BX", subtype="bot_message", channel_type="im"), OWN)
     assert bot is not None and should_respond(bot) is False  # bots never via base rule
+
+
+def test_a_slack_message_says_it_came_through_slack() -> None:
+    msg = event_to_incoming(_msg(channel_type="im"), OWN)
+    assert msg is not None and msg.gateway == "slack"

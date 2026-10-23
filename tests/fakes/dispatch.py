@@ -29,6 +29,7 @@ class FakeDispatcher:
     ) -> None:
         self.calls: list = []
         self.quoted: list = []  # what each invoked command pointed at
+        self.gateways: list[str] = []  # which gateway each command came through
         self.picks: list[str] = []  # the pick kind of each consumed action
         self._form = form
         self._pending_ok = pending_ok
@@ -65,10 +66,12 @@ class FakeDispatcher:
         self.calls.append(("submit_form", state, submission, cancelled, user_id))
 
     def invoke_command(
-        self, agent, *, channel_id, conversation_id, kind, text, user_id, username="", quoted=None
+        self, agent, *, channel_id, conversation_id, kind, text, user_id, username="", quoted=None,
+        gateway: str = "",
     ):
         self.calls.append(
             ("invoke_command", agent, channel_id, conversation_id, kind, text, user_id, username)
         )
         self.quoted.append(quoted)
+        self.gateways.append(gateway)
         return self._command_result

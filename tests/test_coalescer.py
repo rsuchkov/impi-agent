@@ -163,3 +163,26 @@ async def test_shutdown_cancels_a_waiter_instead_of_stranding_it() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await pending
+
+
+async def test_two_gateways_messages_of_one_conversation_queue_behind_one_turn() -> None:
+    """Keyed by the application, a Slack thread and a panel dialog about one
+    task are one conversation: a message from the second gateway waits for
+    the turn the first one started, while another task runs beside it."""
+
+    class _Key:
+        def key(self, agent, msg):
+            return msg.conversation_id.split(":")[-1]
+
+    flow = SlowFlow()
+    co = MessageCoalescer(flow, agent="assistant", keying=_Key())
+    chat = FakeChat()
+    co.submit(_msg("p1", conv="slack:task-7"), chat)
+    await asyncio.sleep(0)
+    co.submit(_msg("p2", conv="portal:task-7"), chat)  # same task: waits for p1's turn
+    co.submit(_msg("p3", conv="portal:task-8"), chat)  # another task: runs now
+    await asyncio.sleep(0.05)
+    assert flow.batches == [["p1"], ["p3"]]
+    flow.release()
+    await asyncio.sleep(0.05)
+    assert flow.batches == [["p1"], ["p3"], ["p2"]]

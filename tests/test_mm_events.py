@@ -205,3 +205,8 @@ def test_files_without_metadata_come_back_bare_for_the_caller_to_describe() -> N
 
 def test_a_post_without_files_has_none() -> None:
     assert parse_files(_frame()) == ()
+
+
+def test_a_mattermost_post_says_it_came_through_mattermost() -> None:
+    msg = parse_posted(_frame(), "")
+    assert msg is not None and msg.gateway == "mattermost"

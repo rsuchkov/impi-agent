@@ -104,3 +104,8 @@ def test_a_malformed_file_entry_is_named_by_the_validator() -> None:
 def test_undecodable_bytes_raise_rather_than_reaching_an_agent() -> None:
     with pytest.raises(ValueError, match="base64"):
         frame_files(_file_frame(files=[{"name": "a.png", "data": "not base64!"}]))
+
+
+def test_a_ws_frame_says_it_came_through_ws() -> None:
+    msg = frame_to_incoming("s", {"agent": "a", "conversation_id": "c", "text": "t"})
+    assert msg.gateway == "ws"

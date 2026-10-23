@@ -322,3 +322,39 @@ async def test_migration_adds_cut_short_to_old_db(tmp_path: Path) -> None:
         assert noted is not None and noted.cut_short == "stopped"
     finally:
         await store.close()
+
+
+async def test_migration_adds_the_gateway_columns_to_old_db(tmp_path: Path) -> None:
+    db = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        "CREATE TABLE sessions (id INTEGER PRIMARY KEY, agent TEXT NOT NULL, "
+        "channel_id TEXT NOT NULL, conversation_id TEXT NOT NULL, kind TEXT NOT NULL, "
+        "runtime_session_id TEXT NOT NULL, created_at TEXT NOT NULL, last_active TEXT NOT NULL, "
+        "last_user_id TEXT NOT NULL DEFAULT '', last_engine_turn_at TEXT NOT NULL DEFAULT '', "
+        "cut_short TEXT NOT NULL DEFAULT '', UNIQUE (agent, conversation_id));"
+        "CREATE TABLE pending_interactions (interaction_id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE, "
+        "agent TEXT NOT NULL, channel_id TEXT NOT NULL, conversation_id TEXT NOT NULL, kind TEXT NOT NULL, "
+        "created_at TEXT NOT NULL);"
+        "INSERT INTO sessions (agent, channel_id, conversation_id, kind, runtime_session_id, "
+        "created_at, last_active) VALUES "
+        "('assistant','ch1','root1','thread','assistant--root1','2020-01-01','2020-01-01');"
+        "INSERT INTO pending_interactions VALUES ('i1', 't1', 'assistant', 'ch1', 'root1', 'thread', '2020-01-01');"
+    )
+    conn.commit()
+    conn.close()
+
+    store = SqliteSessionStore(db)
+    try:
+        rec = await store.get_by_runtime_session("assistant--root1")
+        assert rec is not None and rec.gateways == "" and rec.last_gateway == ""
+        from crucible.store.base import GatewayAddress
+
+        await store.set_gateway_address("assistant", "root1", "mattermost", GatewayAddress("ch1", "root1", "thread"))
+        await store.touch("assistant", "root1", gateway="mattermost")
+        moved = await store.get_by_runtime_session("assistant--root1")
+        assert moved is not None and moved.last_gateway == "mattermost" and "mattermost" in moved.gateways
+        taken = await store.take_interaction("t1")
+        assert taken is not None and taken.gateway == ""
+    finally:
+        await store.close()

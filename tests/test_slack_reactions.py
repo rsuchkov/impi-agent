@@ -173,6 +173,7 @@ async def test_a_mapped_reaction_in_a_thread_runs_the_command_on_the_thread_and_
     await reactions.handle_reaction(_reaction())
     call = dispatcher.calls[0]
     assert call[0] == "invoke_command" and call[1] == "assistant"
+    assert dispatcher.gateways[-1] == "slack"
     assert call[2] == "C0BC51KQWTX"
     assert call[3] == "1782309611.465749" and call[4] == "thread"  # the thread root
     # The command word alone is the reactor's; the message is somebody else's,

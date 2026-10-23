@@ -21,6 +21,11 @@ class SessionConversation:
     user_id: str  # who spoke last ("" when nobody has)
     files_dir: Path | None = None  # what people sent in it is kept here; may not exist yet
     kind: str = ""  # KIND_DM, KIND_THREAD, KIND_CHANNEL; "" when not known
+    # The gateway the conversation last spoke through, and every gateway it is
+    # live in — what a tool's call may do depends on the first; where a card
+    # goes, on the second.
+    gateway: str = ""
+    gateways: tuple[str, ...] = ()
 
 
 # (agent, runtime session id) -> its conversation, or None.

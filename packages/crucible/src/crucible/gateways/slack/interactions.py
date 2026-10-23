@@ -200,6 +200,7 @@ class SlackInteractions:
             return
         self._dispatcher.invoke_command(
             self._agent,
+            gateway="slack",
             channel_id=channel_id,
             conversation_id=conversation_id,
             kind=kind,
@@ -234,6 +235,7 @@ class SlackInteractions:
         text = f"/{command} {body.get('text', '')}".strip()
         result = self._dispatcher.invoke_command(
             self._agent,
+            gateway="slack",
             channel_id=channel_id,
             conversation_id=channel_id,
             kind=kind,

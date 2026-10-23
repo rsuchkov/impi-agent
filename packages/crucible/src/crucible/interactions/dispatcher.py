@@ -147,6 +147,7 @@ class InteractionDispatcher:
             user_id=user_id,
             kind=record.kind,
             synthetic=True,  # engine-generated from a click, not typed by a human
+            gateway=record.gateway,
         )
         target.sink.submit(msg, target.chat)
         logger.info("interaction %s resolved: %r by %s", record.interaction_id, value, user_id)
@@ -163,6 +164,7 @@ class InteractionDispatcher:
         user_id: str,
         username: str = "",
         quoted: QuotedMessage | None = None,
+        gateway: str = "",
     ) -> ActionResult:
         """A slash command, a message shortcut, a reaction: run it as an
         ordinary turn of the agent, in the conversation it was invoked from —
@@ -193,6 +195,7 @@ class InteractionDispatcher:
             mentioned=True,  # the command WAS addressed to this agent
             synthetic=True,  # engine-generated from a command, not typed
             quoted=quoted,
+            gateway=gateway,
         )
         target.sink.submit(msg, target.chat)
         # What was typed is the person's, and a log is kept: the fact of the

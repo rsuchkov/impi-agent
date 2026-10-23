@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, NamedTuple
 
 from crucible.gateways.reactions import Reaction, emoji_name
+from crucible.ports.chat.gateway import GATEWAY_MATTERMOST
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_DM,
@@ -147,6 +148,7 @@ def parse_posted(frame: dict[str, Any], own_user_id: str) -> IncomingMessage | N
         mentioned=mentioned,
         is_from_bot=is_from_bot,
         hop_depth=hop_depth,
+        gateway=GATEWAY_MATTERMOST,
         raw=frame,
     )
 

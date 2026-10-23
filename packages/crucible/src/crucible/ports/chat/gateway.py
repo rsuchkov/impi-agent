@@ -14,6 +14,17 @@ class AgentIdentity:
     username: str
 
 
+# The kinds of gateway an agent may be reached through — the names the
+# configuration uses, and what ``IncomingMessage.gateway`` says a message came
+# through. One agent may have several: a person reaches the same agent, the same
+# conversation, from whichever of them they are in.
+GATEWAY_MATTERMOST = "mattermost"
+GATEWAY_SLACK = "slack"
+GATEWAY_WS = "ws"
+GATEWAY_HTTP = "http"
+GATEWAY_KINDS = (GATEWAY_MATTERMOST, GATEWAY_SLACK, GATEWAY_WS, GATEWAY_HTTP)
+
+
 class Gateway(Protocol):
     """Lifecycle: login() once, then run() until stop()."""
 

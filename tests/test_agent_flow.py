@@ -389,7 +389,7 @@ async def test_later_turn_backfills_messages_posted_since_last_reply(tmp_path: P
 async def test_catch_up_skips_the_agents_own_posts(tmp_path: Path) -> None:
     runtime = FakeRuntime()
     flow, store = _flow(tmp_path, runtime)
-    flow.set_identity("uid-bot")  # learned at gateway login
+    flow.add_identity("uid-bot")  # learned at gateway login
     chat = FakeChat()
     chat.thread_posts["root1"] = []
 
@@ -1623,3 +1623,69 @@ async def test_a_stalled_turn_is_called_stalled_not_timed_out(tmp_path: Path) ->
     assert chat.notices == [(_dm().ref, STALLED_MESSAGE)] and chat.notice_codes == ["stalled"]
     note = (await store.list())[0].cut_short
     assert "the model stopped responding" in note and "It had called no tool." in note
+
+
+class _TaskKey:
+    """The application's own keying: a thread in chat and a dialog in the panel
+    about one task are one conversation."""
+
+    def key(self, agent: str, msg) -> str:
+        return msg.ref.conversation_id.split(":")[-1]  # "slack:task-7" / "portal:task-7" -> task-7
+
+
+async def test_messages_from_two_gateways_run_one_session_when_the_application_keys_them_together(tmp_path: Path) -> None:
+    from crucible.ports.chat.types import KIND_THREAD
+    from crucible.store.base import GatewayAddress, gateway_addresses
+
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", keying=_TaskKey())
+    chat = FakeChat()
+    slack = IncomingMessage(
+        ref=ConversationRef(channel_id="C1", conversation_id="slack:task-7", message_id="1700.1", thread_root_id="slack:task-7"),
+        text="from slack", user_id="u1", username="roman", kind=KIND_THREAD, gateway="slack",
+    )
+    portal = IncomingMessage(
+        ref=ConversationRef(channel_id="portal:u1", conversation_id="portal:task-7", message_id="m-2"),
+        text="from the panel", user_id="u1", username="roman", kind=KIND_DM, is_dm=True, gateway="http",
+    )
+    await flow.handle(slack, chat)
+    await flow.handle(portal, chat)
+
+    # One record, one runtime session, two addresses, the last gateway remembered.
+    records = await store.list()
+    assert len(records) == 1 and records[0].conversation_id == "task-7"
+    assert {sid for sid, _ in runtime.calls} == {records[0].runtime_session_id}
+    assert gateway_addresses(records[0]) == {
+        "slack": GatewayAddress("C1", "slack:task-7", KIND_THREAD),
+        "http": GatewayAddress("portal:u1", "portal:task-7", KIND_DM),
+    }
+    assert records[0].last_gateway == "http"
+    await store.close()
+
+
+async def test_the_platforms_own_id_is_the_key_unless_the_application_says_otherwise(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    await flow.handle(_dm(), FakeChat())
+    record = (await store.list())[0]
+    assert record.conversation_id == "dm1" and record.last_gateway == ""  # an engine-made message names no gateway
+    assert record.gateways == ""
+    await store.close()
+
+
+async def test_the_agents_own_posts_on_every_gateway_stay_out_of_the_catch_up(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    flow, store = _flow(tmp_path, runtime)
+    flow.add_identity("bot-mm")
+    flow.add_identity("bot-slack")
+    flow.add_identity("")  # a gateway that reported none adds nothing
+    since = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    later = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    snippets = [
+        PostSnippet(message_id="a", username="assistant", text="mine on MM", timestamp=later, user_id="bot-mm"),
+        PostSnippet(message_id="b", username="assistant", text="mine on Slack", timestamp=later, user_id="bot-slack"),
+        PostSnippet(message_id="c", username="roman", text="theirs", timestamp=later, user_id="u1"),
+    ]
+    assert [s.text for s in flow._since(snippets, since)] == ["theirs"]
+    await store.close()

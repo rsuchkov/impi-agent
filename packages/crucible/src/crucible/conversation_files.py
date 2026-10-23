@@ -20,7 +20,7 @@ from crucible.ports.conversation import (
     EngineTurnsSince,
     SessionConversation,
 )
-from crucible.store.base import SessionStore
+from crucible.store.base import SessionStore, gateway_addresses
 
 
 def conversation_lookup(attachments: AttachmentStore | None, sessions: SessionStore) -> ConversationResolver:
@@ -33,7 +33,10 @@ def conversation_lookup(attachments: AttachmentStore | None, sessions: SessionSt
         if record is None or record.agent != agent:
             return None
         files_dir = attachments.conversation_dir(agent, record.conversation_id) if attachments else None
-        return SessionConversation(record.channel_id, record.last_user_id, files_dir, record.kind)
+        return SessionConversation(
+            record.channel_id, record.last_user_id, files_dir, record.kind,
+            gateway=record.last_gateway, gateways=tuple(sorted(gateway_addresses(record))),
+        )
 
     return conversation
 

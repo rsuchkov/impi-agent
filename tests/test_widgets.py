@@ -117,6 +117,7 @@ async def test_click_feeds_choice_back_into_conversation(tmp_path: Path) -> None
     server, spy, _pending = await _integrations(8471, store)
     try:
         rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        await store.touch("assistant", "dm1", gateway="mattermost")  # the conversation last spoke there
         await svc.ask("assistant", rec.runtime_session_id, "Choose", ["Yes", "No"])
         token = poster.posted[0][2][0].context["token"]
 
@@ -133,6 +134,7 @@ async def test_click_feeds_choice_back_into_conversation(tmp_path: Path) -> None
         assert len(spy.submitted) == 1
         assert spy.submitted[0].text == "Yes"
         assert spy.submitted[0].conversation_id == "dm1"
+        assert spy.submitted[0].gateway == "mattermost"  # the click comes back through the widget's gateway
     finally:
         await server.stop()
         await store.close()

@@ -53,6 +53,7 @@ class GatewayDispatcher(Protocol):
         user_id: str,
         username: str = "",
         quoted: QuotedMessage | None = None,
+        gateway: str = "",
     ) -> object:
         """Run a command (slash command, message shortcut, reaction) as a turn
         of ``agent`` in the conversation it was invoked from; ``quoted`` is the

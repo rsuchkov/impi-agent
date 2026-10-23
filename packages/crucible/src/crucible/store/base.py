@@ -11,6 +11,7 @@ agreement so the two never drift.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -74,6 +75,45 @@ class SessionRecord:
     # a sentence for the model. Put into the next turn's prompt and cleared;
     # "" when the last turn ended on its own.
     cut_short: str = ""
+    # Which gateways this conversation is live in, and how to address it there:
+    # JSON ``{gateway: {"channel_id", "conversation_id", "kind"}}`` (see
+    # ``gateway_addresses``); the platform's own ids, which differ from this
+    # record's key when the application keys a conversation across gateways.
+    gateways: str = ""
+    # The gateway the last message came through: where a reply or a card goes
+    # when nothing says otherwise.
+    last_gateway: str = ""
+
+
+@dataclass(frozen=True)
+class GatewayAddress:
+    """Where a conversation is on one gateway: the platform's own ids."""
+
+    channel_id: str
+    conversation_id: str
+    kind: str
+
+
+def gateway_addresses(record: "SessionRecord") -> dict[str, GatewayAddress]:
+    """The gateways a conversation is live in, by name, from the record."""
+    if not record.gateways:
+        return {}
+    try:
+        raw = json.loads(record.gateways)
+    except json.JSONDecodeError:
+        return {}
+    return {
+        name: GatewayAddress(str(a.get("channel_id", "")), str(a.get("conversation_id", "")), str(a.get("kind", "")))
+        for name, a in raw.items() if isinstance(a, dict)
+    }
+
+
+def with_gateway_address(record: "SessionRecord", gateway: str, address: GatewayAddress) -> str:
+    """The record's ``gateways`` JSON with ``gateway`` set to ``address``."""
+    current = {name: {"channel_id": a.channel_id, "conversation_id": a.conversation_id, "kind": a.kind}
+               for name, a in gateway_addresses(record).items()}
+    current[gateway] = {"channel_id": address.channel_id, "conversation_id": address.conversation_id, "kind": address.kind}
+    return json.dumps(current, ensure_ascii=False, sort_keys=True)
 
 
 @dataclass(frozen=True)
@@ -88,6 +128,9 @@ class InteractionRecord:
     conversation_id: str
     kind: str
     created_at: str
+    # The gateway the widget was posted through: a click on it comes back as a
+    # message through that gateway.
+    gateway: str = ""
 
 
 class InteractionStore(Protocol):
@@ -653,10 +696,19 @@ class SessionStore(Protocol):
         ...
 
     async def touch(
-        self, agent: str, conversation_id: str, user_id: str = "", *, engine_turn: bool = False
+        self, agent: str, conversation_id: str, user_id: str = "", *,
+        engine_turn: bool = False, gateway: str = "",
     ) -> None:
         """A turn ended here: refresh ``last_active`` (and the last user when
-        given); ``engine_turn`` also stamps ``last_engine_turn_at``."""
+        given); ``engine_turn`` also stamps ``last_engine_turn_at``; ``gateway``
+        says which gateway the turn's message came through (``last_gateway``)."""
+        ...
+
+    async def set_gateway_address(
+        self, agent: str, conversation_id: str, gateway: str, address: GatewayAddress
+    ) -> None:
+        """Remember how this conversation is addressed on ``gateway`` — the
+        platform's own ids — so a card or a reply can reach it there."""
         ...
 
     async def set_cut_short(self, agent: str, conversation_id: str, note: str) -> None:

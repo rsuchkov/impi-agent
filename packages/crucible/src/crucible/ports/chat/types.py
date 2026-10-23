@@ -326,6 +326,10 @@ class IncomingMessage:
     is_dm: bool = False
     mentioned: bool = False  # explicitly mentions the agent
     is_from_bot: bool = False
+    # Which gateway delivered it (``ports.chat.gateway.GATEWAY_*``): the one the
+    # reply goes back through, and the one the conversation is now live in. ""
+    # when the engine made the message itself and nobody reached in.
+    gateway: str = ""
     hop_depth: int = 0  # agent-to-agent hops since the last human (human = 0)
     # Files the sender attached, already downloaded to local disk by the adapter.
     attachments: tuple[Attachment, ...] = ()

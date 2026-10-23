@@ -129,6 +129,7 @@ async def test_a_reaction_on_a_reply_runs_the_command_on_its_thread_and_quotes_t
     await _reactions(dispatcher, driver).handle_reaction(_reaction())
     call = dispatcher.calls[0]
     assert call[0] == "invoke_command" and call[1] == "assistant"
+    assert dispatcher.gateways[-1] == "mattermost"  # the command runs as a message through this gateway
     assert call[2] == "ch1" and call[3] == "root1" and call[4] == "thread"
     assert call[5] == "/done"  # the word is the reactor's; the post is the author's
     assert call[6] == HUMAN and call[7] == "roman"

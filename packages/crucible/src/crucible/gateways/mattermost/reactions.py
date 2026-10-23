@@ -82,6 +82,7 @@ class MattermostReactions:
             )
         self._dispatcher.invoke_command(
             self._agent,
+            gateway="mattermost",
             channel_id=channel_id,
             conversation_id=conversation_id,
             kind=kind,

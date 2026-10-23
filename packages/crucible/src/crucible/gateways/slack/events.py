@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, NamedTuple
 
 from crucible.gateways.reactions import Reaction, emoji_name
+from crucible.ports.chat.gateway import GATEWAY_SLACK
 from crucible.ports.chat.types import (
     KIND_DM,
     KIND_THREAD,
@@ -106,6 +107,7 @@ def event_to_incoming(
         is_dm=is_dm,
         mentioned=mentioned,
         is_from_bot=is_from_bot,
+        gateway=GATEWAY_SLACK,
         raw=event,
     )
 

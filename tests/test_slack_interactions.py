@@ -224,6 +224,7 @@ async def test_shortcut_in_thread_invokes_command_on_the_thread() -> None:
     _interactions(dispatcher).handle_shortcut(SHORTCUT_IN_THREAD)
     call = dispatcher.calls[0]
     assert call[0] == "invoke_command" and call[1] == "assistant"
+    assert dispatcher.gateways[-1] == "slack"
     assert call[2] == "C0BC51KQWTX"  # channel
     assert call[3] == "1782309611.465749"  # conversation = the thread root
     assert call[4] == "thread"

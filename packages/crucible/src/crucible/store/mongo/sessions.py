@@ -18,9 +18,11 @@ from crucible.ports.chat.directory import AgentInfo
 from crucible.store import clock
 from crucible.store.base import (
     FormRecord,
+    GatewayAddress,
     InteractionRecord,
     SessionRecord,
     derive_runtime_session_id,
+    with_gateway_address,
 )
 from crucible.store.mongo.approvals import MongoApprovalMixin
 from crucible.store.mongo.base import (
@@ -88,7 +90,8 @@ class MongoSessionStore(
         return from_doc(SessionRecord, doc), created
 
     async def touch(
-        self, agent: str, conversation_id: str, user_id: str = "", *, engine_turn: bool = False
+        self, agent: str, conversation_id: str, user_id: str = "", *,
+        engine_turn: bool = False, gateway: str = "",
     ) -> None:
         db = await self._ready()
         now = clock.now_iso()
@@ -97,9 +100,22 @@ class MongoSessionStore(
             changes["last_user_id"] = user_id
         if engine_turn:
             changes["last_engine_turn_at"] = now
+        if gateway:
+            changes["last_gateway"] = gateway
         await db[SESSIONS].update_one(
             {"agent": agent, "conversation_id": conversation_id}, {"$set": changes}
         )
+
+    async def set_gateway_address(
+        self, agent: str, conversation_id: str, gateway: str, address: GatewayAddress
+    ) -> None:
+        db = await self._ready()
+        key = {"agent": agent, "conversation_id": conversation_id}
+        doc = await db[SESSIONS].find_one(key)
+        if doc is None:
+            return
+        record = from_doc(SessionRecord, doc)
+        await db[SESSIONS].update_one(key, {"$set": {"gateways": with_gateway_address(record, gateway, address)}})
 
     async def set_cut_short(self, agent: str, conversation_id: str, note: str) -> None:
         db = await self._ready()

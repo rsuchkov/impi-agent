@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from crucible.attachments import IncomingFile
+from crucible.ports.chat.gateway import GATEWAY_WS
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_DM,
@@ -120,6 +121,7 @@ def frame_to_incoming(service: str, data: dict) -> IncomingMessage:
         # The service forwarded this message specifically to this agent — that
         # IS the mention; there is no channel chatter to stay silent in.
         mentioned=True,
+        gateway=GATEWAY_WS,
         # When the engine got it: the speaker line's time is how the model
         # knows what "now" is.
         timestamp=datetime.now(timezone.utc),

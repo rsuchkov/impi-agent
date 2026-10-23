@@ -17,9 +17,11 @@ from crucible.private_files import private_file
 from crucible.store import clock
 from crucible.store.base import (
     FormRecord,
+    GatewayAddress,
     InteractionRecord,
     SessionRecord,
     derive_runtime_session_id,
+    with_gateway_address,
 )
 from crucible.store.sqlite.approvals import ApprovalStoreMixin
 from crucible.store.sqlite.connections import ConnectionStoreMixin
@@ -40,6 +42,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_user_id TEXT NOT NULL DEFAULT '',  -- who last triggered a turn here
   last_engine_turn_at TEXT NOT NULL DEFAULT '',  -- when the engine last started one itself
   cut_short TEXT NOT NULL DEFAULT '',  -- what the engine knows about a turn here that was cut short
+  gateways TEXT NOT NULL DEFAULT '',   -- JSON {gateway: address}: where this conversation is live
+  last_gateway TEXT NOT NULL DEFAULT '',  -- the gateway the last message came through
   UNIQUE (agent, conversation_id)
 );
 -- agent registry snapshot (synced from profiles) + processed-post dedup:
@@ -61,7 +65,8 @@ CREATE TABLE IF NOT EXISTS pending_interactions (
   channel_id TEXT NOT NULL,
   conversation_id TEXT NOT NULL,
   kind TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  gateway TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS pending_forms (
   token TEXT PRIMARY KEY,
@@ -77,7 +82,7 @@ CREATE TABLE IF NOT EXISTS pending_forms (
 """
 
 _INTERACTION_COLUMNS = (
-    "interaction_id, token, agent, channel_id, conversation_id, kind, created_at"
+    "interaction_id, token, agent, channel_id, conversation_id, kind, created_at, gateway"
 )
 _FORM_COLUMNS = (
     "token, agent, channel_id, conversation_id, kind, spec, created_at, post_id, handler"
@@ -86,7 +91,7 @@ _FORM_COLUMNS = (
 # Order matches SessionRecord's fields (SessionRecord(*row)).
 _COLUMNS = (
     "agent, channel_id, conversation_id, kind, runtime_session_id, "
-    "created_at, last_active, last_user_id, last_engine_turn_at, cut_short"
+    "created_at, last_active, last_user_id, last_engine_turn_at, cut_short, gateways, last_gateway"
 )
 
 
@@ -168,6 +173,12 @@ class SqliteSessionStore(
             )
         if "cut_short" not in cols:
             self._conn.execute("ALTER TABLE sessions ADD COLUMN cut_short TEXT NOT NULL DEFAULT ''")
+        for column in ("gateways", "last_gateway"):
+            if column not in cols:
+                self._conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+        interactions = {row[1] for row in self._conn.execute("PRAGMA table_info(pending_interactions)")}
+        if "gateway" not in interactions:
+            self._conn.execute("ALTER TABLE pending_interactions ADD COLUMN gateway TEXT NOT NULL DEFAULT ''")
         seen = {row[1] for row in self._conn.execute("PRAGMA table_info(processed_posts)")}
         if "seen_at" not in seen:
             # Rows from before the column have no date; the first prune takes
@@ -198,9 +209,17 @@ class SqliteSessionStore(
         )
 
     async def touch(
-        self, agent: str, conversation_id: str, user_id: str = "", *, engine_turn: bool = False
+        self, agent: str, conversation_id: str, user_id: str = "", *,
+        engine_turn: bool = False, gateway: str = "",
     ) -> None:
-        await asyncio.to_thread(self.touch_sync, agent, conversation_id, user_id, engine_turn=engine_turn)
+        await asyncio.to_thread(
+            self.touch_sync, agent, conversation_id, user_id, engine_turn=engine_turn, gateway=gateway
+        )
+
+    async def set_gateway_address(
+        self, agent: str, conversation_id: str, gateway: str, address: GatewayAddress
+    ) -> None:
+        await asyncio.to_thread(self.set_gateway_address_sync, agent, conversation_id, gateway, address)
 
     async def set_cut_short(self, agent: str, conversation_id: str, note: str) -> None:
         await asyncio.to_thread(self.set_cut_short_sync, agent, conversation_id, note)
@@ -257,9 +276,9 @@ class SqliteSessionStore(
         runtime_session_id = derive_runtime_session_id(agent, conversation_id)
         with self._lock:
             cursor = self._conn.execute(
-                f"INSERT INTO sessions ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                f"INSERT INTO sessions ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (agent, conversation_id) DO NOTHING",
-                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now, user_id, "", ""),
+                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now, user_id, "", "", "", ""),
             )
             created = cursor.rowcount == 1
             # Refresh the last user on an existing row too, so a tool called
@@ -279,7 +298,8 @@ class SqliteSessionStore(
         return SessionRecord(*row), created
 
     def touch_sync(
-        self, agent: str, conversation_id: str, user_id: str = "", *, engine_turn: bool = False
+        self, agent: str, conversation_id: str, user_id: str = "", *,
+        engine_turn: bool = False, gateway: str = "",
     ) -> None:
         now = clock.now_iso()
         changes = ["last_active = ?"]
@@ -290,10 +310,29 @@ class SqliteSessionStore(
         if engine_turn:
             changes.append("last_engine_turn_at = ?")
             values.append(now)
+        if gateway:
+            changes.append("last_gateway = ?")
+            values.append(gateway)
         with self._lock:
             self._conn.execute(
                 f"UPDATE sessions SET {', '.join(changes)} WHERE agent = ? AND conversation_id = ?",
                 (*values, agent, conversation_id),
+            )
+            self._conn.commit()
+
+    def set_gateway_address_sync(
+        self, agent: str, conversation_id: str, gateway: str, address: GatewayAddress
+    ) -> None:
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT {_COLUMNS} FROM sessions WHERE agent = ? AND conversation_id = ?",
+                (agent, conversation_id),
+            ).fetchone()
+            if row is None:
+                return
+            self._conn.execute(
+                "UPDATE sessions SET gateways = ? WHERE agent = ? AND conversation_id = ?",
+                (with_gateway_address(SessionRecord(*row), gateway, address), agent, conversation_id),
             )
             self._conn.commit()
 
@@ -352,8 +391,8 @@ class SqliteSessionStore(
         with self._lock:
             self._conn.execute(
                 f"INSERT INTO pending_interactions ({_INTERACTION_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (r.interaction_id, r.token, r.agent, r.channel_id, r.conversation_id, r.kind, r.created_at),
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (r.interaction_id, r.token, r.agent, r.channel_id, r.conversation_id, r.kind, r.created_at, r.gateway),
             )
             self._conn.commit()
 

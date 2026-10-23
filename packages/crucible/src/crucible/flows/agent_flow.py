@@ -35,6 +35,7 @@ from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.context import ContextSource, HistorySource
 from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_THREAD,
@@ -49,7 +50,13 @@ from crucible.ports.entitlement import (
     shared_entitlement,
 )
 from crucible.ports.turn import TurnBinding
-from crucible.store.base import SessionRecord, SessionStore
+from crucible.store.base import (
+    GatewayAddress,
+    SessionRecord,
+    SessionStore,
+    gateway_addresses,
+    with_gateway_address,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +246,7 @@ class AgentFlow:
         entitlements: EntitlementSource | None = None,
         conversation_profiles: ConversationProfiles | None = None,
         captions: CallCaptions | None = None,
+        keying: ConversationKey | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
         if (entitlements is None) != (conversation_profiles is None):
@@ -277,18 +285,24 @@ class AgentFlow:
         # Who captions a tool call for the person watching ("Reading X-1"):
         # asked once per call here, so every trace reads the same line.
         self._captions = captions
+        # Which conversation a message belongs to — the key its session is kept
+        # under. The platform's own id unless the application keys conversations
+        # across gateways.
+        self._keying: ConversationKey = keying or PlatformKey()
         # The code on this turn's context markers. Injectable so a test can pin
         # it; the default is fresh per prompt.
         self._envelope_tag = envelope_tag
-        self._own_user_id = ""
+        self._own_user_ids: set[str] = set()
         self._inline_image_max_bytes = inline_image_max_bytes
         self._max_inline_images = max_inline_images
 
-    def set_identity(self, user_id: str) -> None:
-        """This agent's own platform user id, learned at gateway login. Used to
-        keep the agent's own posts out of replayed history (they are already in
-        its runtime session). Unset = no filtering."""
-        self._own_user_id = user_id
+    def add_identity(self, user_id: str) -> None:
+        """This agent's own user id on one gateway, learned at that gateway's
+        login — one per gateway the agent is reached through. Used to keep the
+        agent's own posts out of replayed history (they are already in its
+        runtime session). None added = no filtering."""
+        if user_id:
+            self._own_user_ids.add(user_id)
 
     @property
     def profile(self) -> AgentProfile:
@@ -346,10 +360,19 @@ class AgentFlow:
             return TurnOutcome.DUPLICATE
         anchor = fresh[-1]
 
+        key = self._keying.key(self._agent_name, anchor)
         record, created = await self._sessions.get_or_create(
-            self._agent_name, anchor.channel_id, anchor.conversation_id, anchor.kind,
-            user_id=anchor.user_id,
+            self._agent_name, anchor.channel_id, key, anchor.kind, user_id=anchor.user_id,
         )
+        if anchor.gateway:
+            # How this conversation is addressed on the gateway the message came
+            # through: the platform's ids, kept so a card or an engine-started
+            # turn can reach it there — written once per gateway, and again
+            # when the address moved.
+            address = GatewayAddress(anchor.channel_id, anchor.conversation_id, anchor.kind)
+            if gateway_addresses(record).get(anchor.gateway) != address:
+                await self._sessions.set_gateway_address(self._agent_name, key, anchor.gateway, address)
+                record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         outcome = await self._turn(fresh, anchor, record, created, chat)
         if anchor.turn is not None and anchor.turn.flags:
             # After the answer or the failure notice: a tool's note about the turn
@@ -458,7 +481,8 @@ class AgentFlow:
                 await trace.end(interrupted=interrupted)
 
         await self._sessions.touch(
-            self._agent_name, anchor.conversation_id, engine_turn=anchor.engine_started
+            self._agent_name, record.conversation_id, engine_turn=anchor.engine_started,
+            gateway=anchor.gateway,
         )
         truncated = result.truncated
         if result.text:
@@ -635,7 +659,7 @@ class AgentFlow:
             for s in snippets
             if s.timestamp is not None
             and s.timestamp > since
-            and not (self._own_user_id and s.user_id == self._own_user_id)
+            and s.user_id not in self._own_user_ids
         ]
 
     @staticmethod
