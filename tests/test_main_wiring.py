@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from crucible.flows.coalescer import MessageCoalescer
+from crucible.gateways import LeasedGateway
 from crucible.gateways.mattermost import MattermostChatClient, MattermostGateway
 from crucible.process_scopes import AgentProcessScopes
 from crucible.runtimes.pi.profiles import PiProfile
@@ -52,11 +53,15 @@ def test_build_app_wires_the_graph(tmp_path: Path) -> None:
     assert unit.flow._agent_name == "assistant"
     assert isinstance(unit.flow._profile, PiProfile)
     assert unit.flow._profile.model == "gpt-5.5"
-    assert isinstance(unit.gateway, MattermostGateway)
-    assert isinstance(unit.gateway._sink, MessageCoalescer)
-    assert unit.gateway._sink._flow is unit.flow
-    assert isinstance(unit.gateway._chat, MattermostChatClient)
-    assert unit.gateway._directory is app.registry
+    # A bot's websocket is a connection the platform pushes into: it runs
+    # under the store's lease, in one engine process at a time.
+    assert isinstance(unit.gateway, LeasedGateway)
+    gateway = unit.gateway.gateway
+    assert isinstance(gateway, MattermostGateway)
+    assert isinstance(gateway._sink, MessageCoalescer)
+    assert gateway._sink._flow is unit.flow
+    assert isinstance(gateway._chat, MattermostChatClient)
+    assert gateway._directory is app.registry
     assert (tmp_path / "data" / "impi.db").exists()
     assert isinstance(app.sessions, SqliteSessionStore)
     assert app.tool_server is not None  # tools enabled by default
@@ -116,7 +121,8 @@ async def test_build_app_picks_slack_gateway_when_configured(tmp_path: Path) -> 
     try:
         from crucible.gateways.slack import PROMPT_HINT, SlackGateway
 
-        assert isinstance(app.units[0].gateway, SlackGateway)
+        assert isinstance(app.units[0].gateway, LeasedGateway)
+        assert isinstance(app.units[0].gateway.gateway, SlackGateway)
         profile = app.units[0].flow._profile
         assert isinstance(profile, PiProfile)
         # the Slack agent's system prompt gets Slack's formatting rules (the

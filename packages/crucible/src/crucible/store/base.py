@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from crucible.ports.chat.directory import AgentInfo
+from crucible.ports.lease import Lease
 
 # Which implementation holds the inventory. A closed set, like the run statuses
 # below: the name comes from configuration a person typed, so an unknown one has
@@ -615,6 +616,11 @@ class ConnectionStore(Protocol):
         ...
 
 
+class LeaseStore(Lease, Protocol):
+    """The store's leases (``ports.lease.Lease``): named, one holder at a time
+    across every process that shares the store."""
+
+
 class ConnectionLinkStore(Protocol):
     """Connects in progress."""
 
@@ -698,6 +704,7 @@ class Store(
     TraceStore,
     ConnectionStore,
     ConnectionLinkStore,
+    LeaseStore,
     Protocol,
 ):
     """Every question the inventory answers, in one type.

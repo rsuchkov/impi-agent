@@ -17,6 +17,7 @@ import logging
 import os
 import random
 import signal
+import socket
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -37,6 +38,7 @@ from crucible.gateways import (
     GatewayConfig,
     GatewayFactory,
     GatewayHandle,
+    LeasedGateway,
 )
 from crucible.gateways.http import HttpHub, HttpTurns, TokenCallers
 from crucible.gateways.mattermost import MattermostCallbackCodec
@@ -60,6 +62,7 @@ from crucible.ports.agent import (
     ChainedCaptions,
     RuntimeControl,
 )
+from crucible.ports.lease import Lease
 from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.profiles.errors import ProfileError
@@ -273,6 +276,12 @@ class ProfileBuilder:
         return with_tool_env(base, self._tools.profile_env(spec))
 
 
+# Gateway kinds that hold a connection the platform pushes events into (a bot's
+# websocket, Socket Mode) — the ones that must run in one process at a time. The
+# http and ws gateways are servers behind whatever balances them; nothing to lease.
+CONNECTION_GATEWAYS = frozenset({"mattermost", "slack"})
+
+
 def _build_unit(
     spec: AgentSpec,
     handle: GatewayHandle,
@@ -325,6 +334,8 @@ def _build_units(
     tracer: ToolTrace | None,
     http_turns: HttpTurns | None,
     turns: TurnRegistry,
+    leases: Lease,
+    instance: str,
 ) -> list[AgentUnit]:
     units: list[AgentUnit] = []
     for spec in specs:
@@ -346,19 +357,26 @@ def _build_units(
                 spec.name,
                 {"AGENTS_PATH": settings.agents_path, "IMPI_ROOT": str(IMPI_ROOT)},
             )
-        units.append(
-            _build_unit(
-                spec, handle,
-                runtime=runtime, control=control, sessions=sessions, profiles=profiles,
-                interactions=interactions, sinks_by_agent=sinks_by_agent,
-                inline_image_max_bytes=int(settings.inline_image_max_mb * 1024 * 1024),
-                # An http agent's tool activity goes to the caller's journal, not
-                # to a widget under a chat reply — there is no chat to draw it in.
-                tracer=http_turns if config.kind == "http" else tracer,
-                turns=turns,
-                captions=captions,
-            )
+        unit = _build_unit(
+            spec, handle,
+            runtime=runtime, control=control, sessions=sessions, profiles=profiles,
+            interactions=interactions, sinks_by_agent=sinks_by_agent,
+            inline_image_max_bytes=int(settings.inline_image_max_mb * 1024 * 1024),
+            # An http agent's tool activity goes to the caller's journal, not
+            # to a widget under a chat reply — there is no chat to draw it in.
+            tracer=http_turns if config.kind == "http" else tracer,
+            turns=turns,
+            captions=captions,
         )
+        if config.kind in CONNECTION_GATEWAYS:
+            # A connection the platform pushes events into is opened by one
+            # engine process at a time: two replicas with one bot token would
+            # each get half of every conversation. The store's lease says
+            # which; with one process and a sqlite store it is always ours.
+            unit.gateway = LeasedGateway(
+                unit.gateway, leases, name=f"gateway:{config.kind}:{spec.name}", owner=instance
+            )
+        units.append(unit)
     return units
 
 
@@ -620,6 +638,7 @@ def build_app(settings: ImpiSettings) -> App:
         specs, configs, engine_names,
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools,
+        leases=sessions, instance=f"{socket.gethostname()}:{os.getpid()}",
         # Who captions a call for the person watching: the deployment's tools
         # themselves, then the runtime's own built-ins.
         captions=ChainedCaptions(*([tools.registry] if tools.registry else []), PiBuiltinCaptions()),

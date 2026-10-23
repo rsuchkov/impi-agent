@@ -6,7 +6,18 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A gateway that must run in one process runs under a lease.** A bot's
+  websocket or Slack's Socket Mode is a connection the platform pushes events
+  into, choosing among the open ones by itself — two engine replicas would
+  split every conversation between two runtime memories. `LeasedGateway`
+  (`crucible.gateways`) runs such a gateway only while this process holds a
+  named lease in the store (`ports.lease.Lease`, implemented by the sqlite and
+  MongoDB stores with compare-and-swap; 30 s, renewed every 10 s), closes the
+  connection when the lease is lost and takes over when the holder lapses.
+  `impi` wraps its Mattermost and Slack gateways; one process on sqlite
+  always holds its own lease, so nothing changes there. `SessionStore`
+  implementations of your own gain `acquire_lease`/`release_lease` through
+  the `Store` composite.
 
 ## v0.27.0 — 2026-10-20
 

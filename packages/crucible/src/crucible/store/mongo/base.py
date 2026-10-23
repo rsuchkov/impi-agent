@@ -33,6 +33,7 @@ AUDIT = "approval_audit"
 TRACES = "tool_traces"
 CONNECTIONS = "connections"
 CONNECTION_LINKS = "connection_links"
+LEASES = "leases"
 
 # The heartbeat is one document by construction: a reader asks for THE beat,
 # so there is nothing to choose between.

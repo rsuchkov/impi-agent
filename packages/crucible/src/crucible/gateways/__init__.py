@@ -12,5 +12,14 @@ from crucible.gateways.factory import (
     GatewayHandle,
     needs_http_receiver,
 )
+from crucible.gateways.leased import LEASE_RENEW_S, LEASE_TTL_S, LeasedGateway
 
-__all__ = ["GatewayConfig", "GatewayFactory", "GatewayHandle", "needs_http_receiver"]
+__all__ = [
+    "LEASE_RENEW_S",
+    "LEASE_TTL_S",
+    "GatewayConfig",
+    "GatewayFactory",
+    "GatewayHandle",
+    "LeasedGateway",
+    "needs_http_receiver",
+]

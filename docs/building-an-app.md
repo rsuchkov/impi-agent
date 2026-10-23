@@ -501,6 +501,23 @@ credential, is another user's credential.
   hub's handlers have; `hub.drain()` / `await hub.idle(timeout)` are the
   shutdown pair, and `HttpHub(readiness_probes=…)` gives your own dependencies a
   say in `/readyz` — see [http-gateway.md](http-gateway.md).
+- **Several engine processes.** A chat connection the platform pushes events
+  into — a bot's websocket, Slack's Socket Mode — must be open in one process
+  at a time: the platform hands each event to one of its open connections by
+  its own choice, so two replicas would split a conversation between two
+  runtime memories. Wrap such a gateway in `LeasedGateway(gateway, store,
+  name="gateway:slack:<agent>", owner="<host>:<pid>")` (`crucible.gateways`):
+  it runs the gateway only while it holds the named lease in the store
+  (`ports.lease.Lease`, implemented by the sqlite and MongoDB stores,
+  compare-and-swap), renews it every 10 s for 30 s, closes the connection when
+  the lease is lost and queues up again; a replica that stops renewing — a
+  crash, a rollout — is replaced within one lease. Sending needs no connection
+  and works from every replica. What moves with the lease: the Slack
+  conversations' turns run on the holder, whose disk may not have their
+  runtime memory — such a turn starts over with the history
+  (`HistorySource`), as a rescheduled pod does; a card waiting on the old
+  holder expires with it. `impi` wraps its Mattermost and Slack gateways this
+  way; on one process with sqlite the lease is always its own.
 - **Testing without a model.** `crucible.runtimes.pi.testing.ScriptedHost`
   replaces the runtime's process and nothing else. Hand it to the runtime as
   `PiRuntime(hosts=HostRouter(ScriptedHost(script)), …)`, where

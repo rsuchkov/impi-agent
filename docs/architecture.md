@@ -359,6 +359,12 @@ in `MappingPresence`) and fills it as it builds each agent. So `InteractionWirin
 builds everything up front from the presence — no per-agent `register`, no
 post-loop `finalize`.
 
+**A gateway that must run once** — a bot's websocket, Slack's Socket Mode, where
+the platform picks which open connection gets an event — runs under a named
+lease in the store (`ports/lease.py`, `gateways/leased.py`): one engine process
+holds it and renews it, the others wait and take over when it lapses. The
+http and ws gateways are servers behind a balancer and need none.
+
 **The tool trace** is the third kind of screen, and the one the engine posts on
 its own: `crucible.interactions.tooltrace`. The flow hands each turn a trace and
 feeds it the runtime's neutral turn events (`ToolStarted`/`ToolFinished` and

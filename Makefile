@@ -26,7 +26,7 @@ test-mongo:
 	@MONGO_TEST_URL=mongodb://localhost:$(MONGO_TEST_PORT) \
 		uv run pytest tests/test_session_store.py tests/test_scheduler_store.py \
 		tests/test_approval_store.py tests/test_trace_store.py tests/test_store_prefix.py \
-		tests/test_connection_store.py -v; \
+		tests/test_connection_store.py tests/test_lease_store.py -v; \
 		status=$$?; $(MONGO_RUNTIME) rm -f impi-test-mongo >/dev/null; exit $$status
 
 run:
