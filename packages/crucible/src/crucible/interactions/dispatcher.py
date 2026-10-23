@@ -8,6 +8,7 @@ message. It knows nothing about HTTP or any platform's payload shape.
 """
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from uuid import uuid4
 
@@ -47,10 +48,23 @@ _FORM_SUBMITTED_MESSAGE = "✅ Submitted."
 @dataclass(frozen=True)
 class AgentSink:
     """Where a resolved click is routed for one agent: its message sink (the
-    coalescer) plus the chat client to reply through."""
+    coalescer) plus the chat client of every gateway it is reached through, by
+    gateway name, and which of them is the default — the one an engine-started
+    turn goes to, and the one a caller gets when it names no gateway."""
 
     sink: MessageSink
-    chat: ChatClient
+    gateways: Mapping[str, ChatClient]
+    default: str
+
+    @property
+    def chat(self) -> ChatClient:
+        """The default gateway's chat client."""
+        return self.gateways[self.default]
+
+    def chat_for(self, gateway: str) -> ChatClient:
+        """The chat client of ``gateway``, or the default's when the agent has
+        no such gateway (a message the engine made itself names none)."""
+        return self.gateways.get(gateway) or self.chat
 
 
 @dataclass(frozen=True)
@@ -129,8 +143,9 @@ class InteractionDispatcher:
         target = self._presence.sink(record.agent)
         if target is None:
             return ActionResult.UNAVAILABLE
+        chat = target.chat_for(record.gateway)  # the click comes back through the widget's gateway
         if pick:
-            value = await humanize(value, pick, target.chat)
+            value = await humanize(value, pick, chat)
         if not value:
             # Surfaces a malformed/unknown callback shape (a codec that failed to
             # find the picked value).
@@ -149,7 +164,7 @@ class InteractionDispatcher:
             synthetic=True,  # engine-generated from a click, not typed by a human
             gateway=record.gateway,
         )
-        target.sink.submit(msg, target.chat)
+        target.sink.submit(msg, chat)
         logger.info("interaction %s resolved: %r by %s", record.interaction_id, value, user_id)
         return ActionResult.FED
 
@@ -197,7 +212,7 @@ class InteractionDispatcher:
             quoted=quoted,
             gateway=gateway,
         )
-        target.sink.submit(msg, target.chat)
+        target.sink.submit(msg, target.chat_for(gateway))
         # What was typed is the person's, and a log is kept: the fact of the
         # command at INFO, its text only when someone asked for everything.
         logger.info(

@@ -175,7 +175,9 @@ class ToolGate:
         display_name: str,
     ) -> Approval | None:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        poster = self._presence.poster(agent)
+        # Asked where the conversation last spoke: the gateway the turn came
+        # through, in the conversation's address there.
+        poster = self._presence.poster(agent, record.last_gateway) if record else None
         if record is None or poster is None:
             logger.warning("tool gate: nowhere to ask about %s for %s", tool, agent)
             return None
@@ -197,7 +199,7 @@ class ToolGate:
         named = _named(tool, display_name)
         try:
             post_id = await poster.post_confirmation(
-                conversation_ref(record),
+                conversation_ref(record, record.last_gateway),
                 card,
                 approval_actions(token, offers=windows(ceiling_s=self._max_grant_s)),
                 callback_url=self._callback_url,

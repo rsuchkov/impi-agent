@@ -89,7 +89,12 @@ class ToolWiring:
         self.registry = registry if tools.enabled else None
         self.manifests_dir = manifests_dir(data_dir)
         self.tokens: dict[str, str] = {}  # token -> agent name (tool server gate)
-        self.admins: dict[str, ChatAdmin] = {}  # agent -> its own admin client
+        self.admins: dict[str, ChatAdmin] = {}  # agent -> its default gateway's admin client
+        # The same, by gateway: what a call may do depends on the gateway the
+        # conversation is in, not on the best of the agent's gateways.
+        self.gateway_admins: dict[str, dict[str, ChatAdmin]] = {}
+        self.gateway_caps: dict[str, dict[str, frozenset[str]]] = {}
+        self._token_of: dict[str, str] = {}  # agent -> its one tool token
         self.allowlists: dict[str, frozenset[str]] = {}  # agent -> tools it may call
         # A conversation entitled to less than its agent: runtime session id ->
         # the tools it may call, out of the agent's. The server checks it as a
@@ -125,7 +130,13 @@ class ToolWiring:
         self, spec: AgentSpec, admin: ChatAdmin | None,
         *, extra_caps: frozenset[str] = frozenset(),
         denied_caps: frozenset[str] = frozenset(),
+        gateway: str = "",
     ) -> None:
+        """Enrol an agent on one of its gateways; called once per gateway. The
+        token and the env are the agent's, minted on the first call; the admin
+        client and the capability set are the gateway's, kept by its name, and
+        the agent's allowlist is what ANY of its gateways can serve — the
+        server checks the conversation's own gateway when a call comes."""
         # Its own name, whether or not it has typed tools: any program an agent
         # runs may need to know which agent it is running as — to pick a
         # per-agent file, to say so in a log, to present the right identity to
@@ -134,24 +145,29 @@ class ToolWiring:
         self.add_env(spec.name, {AGENT_NAME_ENV: spec.name})
         if self.registry is None:
             return
-        token = secrets.token_hex(16)
-        self.tokens[token] = spec.name
+        token = self._token_of.get(spec.name)
+        if token is None:
+            token = self._token_of[spec.name] = secrets.token_hex(16)
+            self.tokens[token] = spec.name
         if admin is not None:
-            self.admins[spec.name] = admin
-        # base (widgets/forms) + chat-admin if the agent has an admin client +
-        # whatever extra capabilities its gateway kind advertises (e.g. ephemeral).
-        # ...minus what the gateway cannot honour however the deployment is set
+            self.admins.setdefault(spec.name, admin)
+            self.gateway_admins.setdefault(spec.name, {})[gateway] = admin
+        # base (widgets/forms) + chat-admin if this gateway has an admin client +
+        # whatever extra capabilities its kind advertises (e.g. ephemeral)...
+        # minus what the gateway cannot honour however the deployment is set
         # (a fire-and-forget widget on a transport nobody can click back from).
         caps = (
             self.base_caps
             | (frozenset({CAP_CHAT_ADMIN}) if admin is not None else frozenset())
             | extra_caps
         ) - denied_caps
-        self.caps[spec.name] = caps
-        advertised, dropped = _gate_tools(self.registry, spec.tools, caps)
+        self.gateway_caps.setdefault(spec.name, {})[gateway] = caps
+        # The agent's own set is what any of its gateways can serve.
+        self.caps[spec.name] = self.caps.get(spec.name, frozenset()) | caps
+        advertised, dropped = _gate_tools(self.registry, spec.tools, self.caps[spec.name])
         for name, missing in dropped.items():
             logger.info(
-                "agent %s: tool %r not advertised — gateway lacks %s",
+                "agent %s: tool %r not advertised — no gateway of its has %s",
                 spec.name, name, ", ".join(sorted(missing)),
             )
         self.allowlists[spec.name] = frozenset(advertised)
@@ -245,6 +261,8 @@ class ToolWiring:
             self.registry,
             directory=directory,
             admins=self.admins,
+            gateway_admins=self.gateway_admins,
+            gateway_caps=self.gateway_caps,
             tokens=self.tokens,
             allowlists=self.allowlists,
             session_allowlists=self.session_allowlists,

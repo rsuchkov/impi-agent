@@ -13,9 +13,10 @@ from crucible.ports.chat.gateway import Gateway
 
 @dataclass
 class AgentUnit:
-    """The gateway owns its driver and chat client; they are not part of the
+    """Each gateway owns its driver and chat client; they are not part of the
     manifest. ``spec`` and ``flow`` are reassigned in place on a hot-reload."""
 
     spec: AgentSpec
     flow: AgentFlow
-    gateway: Gateway
+    # The gateways the agent is reached through, by kind; the first is the default.
+    gateways: dict[str, Gateway]

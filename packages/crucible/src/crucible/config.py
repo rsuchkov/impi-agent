@@ -541,10 +541,21 @@ class Settings(BaseSettings):
         )
         return url, token
 
+    def gateways_for(self, agent: str) -> tuple[str, ...]:
+        """The gateways an agent is reached through, in the order written:
+        AGENTS_GATEWAY__<AGENT> (env/.env, CSV), else the global `gateway`. The
+        first is the agent's default — where a turn the engine starts goes.
+        Repeats are dropped; an empty list is the default gateway alone."""
+        raw = self._token(f"AGENTS_GATEWAY__{agent.upper().replace('-', '_')}") or self.gateway
+        kinds: list[str] = []
+        for kind in (part.strip().lower() for part in raw.split(",")):
+            if kind and kind not in kinds:
+                kinds.append(kind)
+        return tuple(kinds) or (self.gateway,)
+
     def gateway_for(self, agent: str) -> str:
-        """The chat gateway kind for an agent: AGENTS_GATEWAY__<AGENT> (env/.env),
-        else the global `gateway` default."""
-        return self._token(f"AGENTS_GATEWAY__{agent.upper().replace('-', '_')}") or self.gateway
+        """The agent's default gateway: the first of ``gateways_for``."""
+        return self.gateways_for(agent)[0]
 
     def inherited_env_for(self, agent: str) -> tuple[str, ...] | None:
         """Per-agent override of the environment names it inherits:

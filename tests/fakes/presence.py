@@ -13,7 +13,10 @@ class _DropSink:
 
 
 def presence_of(
-    chat: ChatClient, *, sink: MessageSink | None = None, agent: str = "assistant"
+    chat: ChatClient, *, sink: MessageSink | None = None, agent: str = "assistant",
+    gateways: dict[str, ChatClient] | None = None, default: str = "mattermost",
 ) -> MappingPresence:
-    """A single-agent presence: `poster(agent)` -> chat, `sink(agent)` -> the sink."""
-    return MappingPresence({agent: AgentSink(sink=sink or _DropSink(), chat=chat)})
+    """A single-agent presence: `poster(agent)` -> chat, `sink(agent)` -> the sink.
+    ``gateways`` adds more chat clients by gateway name beside the default."""
+    clients = {default: chat, **(gateways or {})}
+    return MappingPresence({agent: AgentSink(sink=sink or _DropSink(), gateways=clients, default=default)})

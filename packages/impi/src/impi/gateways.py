@@ -15,11 +15,28 @@ from impi.config import ImpiSettings
 logger = logging.getLogger(__name__)
 
 
+def resolve_gateways(settings: ImpiSettings, agent: str) -> list[GatewayConfig]:
+    """The agent's gateway configs, one per gateway it is reached through, in
+    the configured order (the first is its default). A gateway whose token(s)
+    are unset is left out with a logged reason; an unknown kind passes through
+    for the factory to reject."""
+    configs: list[GatewayConfig] = []
+    for kind in settings.gateways_for(agent):
+        config = resolve_gateway_kind(settings, agent, kind)
+        if config is not None:
+            configs.append(config)
+    return configs
+
+
 def resolve_gateway(settings: ImpiSettings, agent: str) -> GatewayConfig | None:
-    """The agent's gateway config, or None (with a logged reason) if its required
-    token(s) are unset. An unknown gateway kind passes through for the factory to
-    reject."""
-    kind = settings.gateway_for(agent)
+    """The agent's default gateway's config, or None when it has none it can run."""
+    configs = resolve_gateways(settings, agent)
+    return configs[0] if configs else None
+
+
+def resolve_gateway_kind(settings: ImpiSettings, agent: str, kind: str) -> GatewayConfig | None:
+    """One gateway's config for the agent, or None (with a logged reason) if its
+    required token(s) are unset."""
     if kind == "mattermost":
         token = settings.mm_token_for(agent)
         if not token:

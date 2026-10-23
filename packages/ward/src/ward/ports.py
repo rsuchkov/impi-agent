@@ -125,7 +125,7 @@ class AgentPosters(Protocol):
     root has to pass.
     """
 
-    def poster(self, agent: str) -> ChatClient | None: ...
+    def poster(self, agent: str, gateway: str = "") -> ChatClient | None: ...
 
 
 class SecretLeasing(Protocol):

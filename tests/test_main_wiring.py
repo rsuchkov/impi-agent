@@ -55,8 +55,9 @@ def test_build_app_wires_the_graph(tmp_path: Path) -> None:
     assert unit.flow._profile.model == "gpt-5.5"
     # A bot's websocket is a connection the platform pushes into: it runs
     # under the store's lease, in one engine process at a time.
-    assert isinstance(unit.gateway, LeasedGateway)
-    gateway = unit.gateway.gateway
+    assert list(unit.gateways) == ["mattermost"]
+    assert isinstance(unit.gateways["mattermost"], LeasedGateway)
+    gateway = unit.gateways["mattermost"].gateway
     assert isinstance(gateway, MattermostGateway)
     assert isinstance(gateway._sink, MessageCoalescer)
     assert gateway._sink._flow is unit.flow
@@ -121,8 +122,8 @@ async def test_build_app_picks_slack_gateway_when_configured(tmp_path: Path) -> 
     try:
         from crucible.gateways.slack import PROMPT_HINT, SlackGateway
 
-        assert isinstance(app.units[0].gateway, LeasedGateway)
-        assert isinstance(app.units[0].gateway.gateway, SlackGateway)
+        assert isinstance(app.units[0].gateways["slack"], LeasedGateway)
+        assert isinstance(app.units[0].gateways["slack"].gateway, SlackGateway)
         profile = app.units[0].flow._profile
         assert isinstance(profile, PiProfile)
         # the Slack agent's system prompt gets Slack's formatting rules (the
@@ -131,7 +132,7 @@ async def test_build_app_picks_slack_gateway_when_configured(tmp_path: Path) -> 
         # ...and a Slack-only deployment builds no HTTP callback receiver.
         assert app.integrations is None
     finally:
-        await app.units[0].gateway.stop()  # close the socket handler's aiohttp session
+        await app.units[0].gateways["slack"].stop()  # close the socket handler's aiohttp session
         await app.sessions.close()
 
 
@@ -270,7 +271,7 @@ async def test_the_scheduler_dispatches_through_the_agents_own_sink(tmp_path: Pa
 
     flow = Answering()
     chat = FakeChat()
-    sinks = {"assistant": AgentSink(sink=MessageCoalescer(flow), chat=chat)}
+    sinks = {"assistant": AgentSink(sink=MessageCoalescer(flow), gateways={"mattermost": chat}, default="mattermost")}
     dispatcher = SinkTurnDispatcher(sinks)
 
     outcome = await dispatcher.run_turn(
@@ -333,9 +334,10 @@ def test_an_engine_agent_is_told_where_the_engine_is_even_with_tools_off(
 
 async def _closed(app) -> None:
     for unit in app.units:
-        stop = getattr(unit.gateway, "stop", None)
-        if stop is not None:
-            await stop()
+        for gateway in unit.gateways.values():
+            stop = getattr(gateway, "stop", None)
+            if stop is not None:
+                await stop()
     await app.sessions.close()
 
 
@@ -389,7 +391,7 @@ async def test_build_app_puts_an_agent_on_the_http_hub(tmp_path: Path, monkeypat
     try:
         assert app.http_hub is not None and app.ws_hub is None
         unit = app.units[0]
-        assert isinstance(unit.gateway, HttpGateway)
+        assert isinstance(unit.gateways["http"], HttpGateway)
         assert unit.flow._tracer is app.http_hub.turns  # the journal, not ToolTrace
         assert unit.flow._turns is not None  # a caller's TurnScope has somewhere to go
         sink, chat = app.http_hub._agents["assistant"]
@@ -426,7 +428,8 @@ async def test_a_slack_only_deployment_mints_no_secret(tmp_path: Path) -> None:
     try:
         assert not Path(settings.dotenv_path).exists()
     finally:
-        await app.units[0].gateway.stop()
+        for gateway in app.units[0].gateways.values():
+            await gateway.stop()
         await app.sessions.close()
 
 
@@ -790,7 +793,7 @@ async def test_a_request_with_a_scope_of_its_own_keeps_it_on_a_chat_agent(tmp_pa
             return TurnOutcome.REPLIED
 
     flow = Answering()
-    sinks = {"assistant": AgentSink(sink=MessageCoalescer(flow), chat=FakeChat())}
+    sinks = {"assistant": AgentSink(sink=MessageCoalescer(flow), gateways={"mattermost": FakeChat()}, default="mattermost")}
     dispatcher = SinkTurnDispatcher(sinks)
 
     await dispatcher.run_turn(TurnRequest(
@@ -809,3 +812,136 @@ async def test_a_request_with_a_scope_of_its_own_keeps_it_on_a_chat_agent(tmp_pa
     assert with_scope.turn is not None and with_scope.turn.attributes == {"pipeline": "1234"}
     assert with_scope.turn.turn_id == "ev-1"
     assert scheduled.turn is not None and scheduled.turn.attributes == {ENGINE_TURN_ATTRIBUTE: "1"}
+
+
+def test_an_agents_gateways_are_a_list_whose_first_is_its_default(tmp_path: Path, monkeypatch) -> None:
+    settings = _settings(tmp_path).model_copy(update={"gateway": "mattermost, Slack ,mattermost"})
+    assert settings.gateways_for("assistant") == ("mattermost", "slack")  # order kept, repeats dropped
+    assert settings.gateway_for("assistant") == "mattermost"
+    monkeypatch.setenv("AGENTS_GATEWAY__ASSISTANT", "slack,http")
+    assert settings.gateways_for("assistant") == ("slack", "http")
+    assert settings.gateway_for("assistant") == "slack"
+    assert settings.gateways_for("other") == ("mattermost", "slack")  # the global default, for the rest
+
+
+def test_a_gateway_without_its_tokens_is_left_out_of_the_agents_list(tmp_path: Path) -> None:
+    from impi.gateways import resolve_gateway, resolve_gateways
+
+    settings = _settings(tmp_path).model_copy(update={"gateway": "mattermost,slack"})
+    assert [c.kind for c in resolve_gateways(settings, "assistant")] == ["mattermost"]  # no Slack tokens
+    both = settings.model_copy(update={"slack_bot_token": "xoxb-x", "slack_app_token": "xapp-x"})
+    assert [c.kind for c in resolve_gateways(both, "assistant")] == ["mattermost", "slack"]
+    default = resolve_gateway(both, "assistant")
+    assert default is not None and default.kind == "mattermost"  # the default is the first
+
+
+async def test_build_app_reaches_one_agent_through_two_gateways(tmp_path: Path) -> None:
+    """One flow, one sink, one session per conversation — and a chat client, an
+    identity and a lease per gateway."""
+    from crucible.gateways.slack import PROMPT_HINT, SlackGateway
+    from crucible.tools.base import CAP_CHAT_ADMIN
+
+    settings = _settings(tmp_path).model_copy(
+        update={"gateway": "mattermost,slack", "slack_bot_token": "xoxb-x", "slack_app_token": "xapp-x"}
+    )
+    app = build_app(settings)
+    try:
+        unit = app.units[0]
+        assert list(unit.gateways) == ["mattermost", "slack"]
+        leased_mm, leased_slack = unit.gateways["mattermost"], unit.gateways["slack"]
+        assert isinstance(leased_mm, LeasedGateway) and isinstance(leased_slack, LeasedGateway)
+        mm, slack = leased_mm.gateway, leased_slack.gateway
+        assert isinstance(mm, MattermostGateway) and isinstance(slack, SlackGateway)
+        # Both gateways feed the same coalescer; a reply goes back through the
+        # chat client of the gateway the message came through.
+        sink = app.sinks_by_agent["assistant"]
+        assert set(sink.gateways) == {"mattermost", "slack"} and sink.default == "mattermost"
+        assert mm._sink is slack._sink
+        assert sink.chat_for("slack") is slack._chat
+        assert sink.chat_for("nowhere") is sink.chat  # unknown: the default's
+        # The one gateway with formatting rules lends them to the agent's prompt.
+        profile = unit.flow._profile
+        assert isinstance(profile, PiProfile) and profile.append_system_prompt == PROMPT_HINT
+        # Each gateway's capabilities are kept by its name.
+        assert app.tools is not None
+        assert set(app.tools.gateway_caps["assistant"]) == {"mattermost", "slack"}
+        assert CAP_CHAT_ADMIN in app.tools.gateway_caps["assistant"]["mattermost"]
+        assert set(app.tools.gateway_admins["assistant"]) == {"mattermost", "slack"}
+        assert list(app.tools.tokens.values()).count("assistant") == 1  # one token, however many gateways
+    finally:
+        await _closed(app)
+
+
+async def test_a_capability_one_gateway_lacks_is_still_advertised_and_checked_per_call(tmp_path: Path, monkeypatch) -> None:
+    from crucible.tools.base import CAP_CHAT_ADMIN
+    from impi.app import _TracerByChat
+
+    monkeypatch.setenv("HTTP_CALLER_TOKEN__PORTAL", "tok-portal")
+    settings = _settings(tmp_path).model_copy(update={"gateway": "mattermost,http"})
+    app = build_app(settings)
+    try:
+        unit = app.units[0]
+        assert list(unit.gateways) == ["mattermost", "http"]
+        assert app.tools is not None
+        caps = app.tools.gateway_caps["assistant"]
+        assert CAP_CHAT_ADMIN in caps["mattermost"] and CAP_CHAT_ADMIN not in caps["http"]
+        # A channel-admin tool is advertised when ANY gateway can serve it — the
+        # agent's set is the union — and the server refuses it per call elsewhere.
+        from crucible.tools.wiring import _gate_tools
+
+        assert CAP_CHAT_ADMIN in app.tools.caps["assistant"]
+        kept, _ = _gate_tools(engine_tool_registry(), ("create_channel",), app.tools.caps["assistant"])
+        assert kept == ("create_channel",)
+        _, dropped = _gate_tools(engine_tool_registry(), ("create_channel",), caps["http"])
+        assert dropped == {"create_channel": frozenset({CAP_CHAT_ADMIN})}
+        assert "http" not in app.tools.gateway_admins["assistant"]  # no admin client over http
+        assert isinstance(unit.flow._tracer, _TracerByChat)  # the journal for http turns, the widget for chat
+        assert app.http_hub is not None and app.http_hub.serves("assistant")
+    finally:
+        await _closed(app)
+
+
+async def test_an_engine_turn_goes_to_the_default_gateway_or_where_the_conversation_last_spoke(tmp_path: Path) -> None:
+    """The operator's default gateway, when the conversation is live there (or
+    nowhere yet); else the gateway it last spoke through — with the
+    conversation's own address on that gateway."""
+    from crucible.interactions import AgentSink
+    from crucible.ports.chat.flow import TurnOutcome
+    from crucible.ports.chat.types import KIND_THREAD
+    from crucible.ports.engine_turn import TurnRequest
+    from crucible.store.base import GatewayAddress
+    from impi.scheduling import SinkTurnDispatcher
+    from tests.fakes.fake_chat import FakeChat
+
+    class Recording:
+        def __init__(self) -> None:
+            self.turns: list[tuple[list, object]] = []
+
+        async def handle_batch(self, msgs, chat):
+            self.turns.append((msgs, chat))
+            return TurnOutcome.REPLIED
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = Recording()
+    mm, slack = FakeChat(), FakeChat()
+    sinks = {"assistant": AgentSink(sink=MessageCoalescer(flow), gateways={"mattermost": mm, "slack": slack}, default="mattermost")}
+    dispatcher = SinkTurnDispatcher(sinks, sessions=store)
+    request = TurnRequest(agent="assistant", channel_id="ch1", conversation_id="task-7", kind="dm",
+                          text="report", message_id="ev-1", user_id="u1", username="bot")
+    try:
+        # Nothing known yet: the default gateway, the request's own address.
+        await dispatcher.run_turn(request)
+        assert flow.turns[-1][1] is mm and flow.turns[-1][0][0].ref.channel_id == "ch1"
+        # Live on Slack only: Slack, at the conversation's Slack address.
+        await store.get_or_create("assistant", "ch1", "task-7", "dm")
+        await store.set_gateway_address("assistant", "task-7", "slack", GatewayAddress("C9", "1700.1", KIND_THREAD))
+        await store.touch("assistant", "task-7", gateway="slack")
+        await dispatcher.run_turn(request)
+        msg = flow.turns[-1][0][0]
+        assert flow.turns[-1][1] is slack and (msg.ref.channel_id, msg.ref.thread_root_id) == ("C9", "1700.1")
+        # Live on both: the default wins, however recently Slack spoke.
+        await store.set_gateway_address("assistant", "task-7", "mattermost", GatewayAddress("ch1", "task-7", "dm"))
+        await dispatcher.run_turn(request)
+        assert flow.turns[-1][1] is mm
+    finally:
+        await store.close()

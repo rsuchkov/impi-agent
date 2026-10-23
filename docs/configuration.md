@@ -74,12 +74,27 @@ command in that message's conversation, as a slash command or a shortcut would
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GATEWAY` | `mattermost` | which gateway agents run on (`mattermost` \| `slack` \| `ws` \| `http`); override per agent below |
+| `GATEWAY` | `mattermost` | the gateways agents are reached through (`mattermost` \| `slack` \| `ws` \| `http`), as a CSV when several; override per agent with `AGENTS_GATEWAY__<AGENT>` |
 
 Gateway kinds mix freely in one engine process — agent A on Slack, agent B on
 Mattermost, agent C on ws, each with its own connection, supervised
 independently. One constraint: all Mattermost agents share the single
 `MATTERMOST_URL` (one MM server per process).
+
+**One agent, several gateways.** `AGENTS_GATEWAY__ASSISTANT=mattermost,slack`
+reaches the same agent through both: one profile, one runtime session per
+conversation, a reply through the gateway the message came in by. The first
+in the list is the agent's **default gateway** — where a turn the engine
+starts by itself (a scheduled task, a reported event) goes, when the
+conversation is live there (or nowhere yet); otherwise it goes where the
+conversation last spoke. A gateway whose tokens are missing is left out with
+a logged reason; the agent runs on the rest. What a tool call may do is
+decided per call by the gateway the conversation is in: a channel-admin tool
+asked for from Slack, which has no channel administration, is refused with
+`not available through this gateway` even though the agent has the tool
+through Mattermost. Which conversation a Slack thread and an http dialog are
+the same one is the application's to say (`ConversationKey`); `impi` keeps the
+platform's own ids, so a conversation stays within its gateway.
 
 ## ws gateway (custom client services)
 

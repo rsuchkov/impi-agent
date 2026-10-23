@@ -84,6 +84,9 @@ NOT_ASKED_ERROR = "not asked: {reason}. Tell the user, and do not retry"
 # A tool the agent has and this conversation does not: said so, because the
 # model may have read the tool's name somewhere and there is nothing to retry.
 NOT_IN_CONVERSATION_ERROR = "not available in this conversation"
+# The agent has the tool, but not through the gateway this conversation is in: a
+# channel-admin tool asked for from a chat without channel administration.
+NOT_THROUGH_GATEWAY_ERROR = "not available through this gateway"
 
 
 def _log_if_orphaned(task: "asyncio.Future[Any]") -> None:
@@ -104,6 +107,8 @@ class ToolServer:
         directory: AgentDirectory,
         admins: Mapping[str, ChatAdmin],
         tokens: Mapping[str, str],  # token -> agent name
+        gateway_admins: Mapping[str, Mapping[str, ChatAdmin]] | None = None,
+        gateway_caps: Mapping[str, Mapping[str, frozenset[str]]] | None = None,
         allowlists: Mapping[str, frozenset[str]],  # agent name -> allowed tool names
         session_allowlists: Mapping[str, frozenset[str]] | None = None,
         host: str = "127.0.0.1",
@@ -122,6 +127,11 @@ class ToolServer:
         self._registry = registry
         self._directory = directory
         self._admins = admins
+        # By gateway, when the agent has several: a call is served with the
+        # admin client and within the capabilities of the gateway the
+        # conversation is in, not the best of the agent's.
+        self._gateway_admins = gateway_admins or {}
+        self._gateway_caps = gateway_caps or {}
         self._tokens = tokens
         self._allowlists = allowlists
         # The second door, behind the agent's: a conversation entitled to fewer
@@ -205,10 +215,6 @@ class ToolServer:
         if name not in self._allowlists.get(agent, frozenset()):
             return web.json_response({"error": "forbidden"}, status=403)
 
-        # May be None: a gateway without channel administration (e.g. Slack) has no
-        # admin client. Tools that need it raise a ToolError; the rest ignore it.
-        admin = self._admins.get(agent)
-
         try:
             args = await request.json()
         except Exception:
@@ -246,6 +252,19 @@ class ToolServer:
             if self._conversation_resolver is not None and runtime_session_id else None
         )
         turn = self._turns.current(runtime_session_id) if self._turns is not None else None
+        # The gateway the conversation is in decides what this call may do and
+        # with which admin client. May be None: a gateway without channel
+        # administration (e.g. Slack) has none; tools that need it raise a
+        # ToolError, the rest ignore it.
+        gateway = conversation.gateway if conversation else ""
+        admin = self._gateway_admins.get(agent, {}).get(gateway, self._admins.get(agent))
+        caps = self._gateway_caps.get(agent, {}).get(gateway)
+        if caps is not None and tool.requires - caps:
+            logger.info(
+                "tool %s: conversation %s is on gateway %s, which lacks %s; refused",
+                tool.name, runtime_session_id, gateway or "-", ", ".join(sorted(tool.requires - caps)),
+            )
+            return web.json_response({"error": NOT_THROUGH_GATEWAY_ERROR}, status=403)
 
         ctx = ToolContext(
             agent_name=agent,

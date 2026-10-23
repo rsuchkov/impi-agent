@@ -359,6 +359,19 @@ in `MappingPresence`) and fills it as it builds each agent. So `InteractionWirin
 builds everything up front from the presence — no per-agent `register`, no
 post-loop `finalize`.
 
+**One agent may be reached through several gateways.** Every message says which
+gateway delivered it (`IncomingMessage.gateway`); the flow replies through the
+chat client that came with it, and the conversation's record remembers its
+address on each gateway and which one spoke last (`SessionRecord.gateways`,
+`last_gateway`). Which messages are one conversation is a port the application
+fills (`ports/chat/keying.ConversationKey`; the platform's own id by default),
+and the flow and the coalescer key by the same answer. The presence an agent
+has (`AgentSink`) carries one chat client per gateway and a default; whatever
+posts for an agent outside a turn — a card, a widget, a file, a turn the
+engine starts — asks for the conversation's gateway. A tool call is served
+within the capabilities of the gateway the conversation is in (`ToolServer`,
+`gateway_caps`).
+
 **A gateway that must run once** — a bot's websocket, Slack's Socket Mode, where
 the platform picks which open connection gets an event — runs under a named
 lease in the store (`ports/lease.py`, `gateways/leased.py`): one engine process

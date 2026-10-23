@@ -144,7 +144,7 @@ class InteractionService:
                 Action(id=f"opt{i}", label=option, value=option, context=ctx)
                 for i, option in enumerate(options)
             ]
-        await poster.post_actions(self._ref(record), prompt, actions, callback_url=self._callback_url)
+        await poster.post_actions(self._ref(record, record.last_gateway), prompt, actions, callback_url=self._callback_url)
         return True
 
     async def open_form(self, agent: str, runtime_session_id: str, form: Form) -> bool:
@@ -161,7 +161,7 @@ class InteractionService:
             Action(id="openform", label=form.open_label or _OPEN_LABEL, context={"form": token})
         ]
         post_id = await poster.post_actions(
-            self._ref(record), form.intro or form.title, actions, callback_url=self._callback_url
+            self._ref(record, record.last_gateway), form.intro or form.title, actions, callback_url=self._callback_url
         )
         # Registered AFTER posting, unlike a widget: the record carries the button's
         # own post id so submitting can retire it, and that id exists only now. A
@@ -200,7 +200,7 @@ class InteractionService:
         poster = self._presence.poster(agent)
         if screen is None or record is None or poster is None:
             return False
-        ref = self._ref(record)
+        ref = self._ref(record, record.last_gateway)
         denial = await refusal(screen, user_id=user_id, ref=ref, kind=record.kind)
         if denial:
             logger.info("screen %s refused in an agent turn: %s", screen.command, denial)

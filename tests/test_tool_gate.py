@@ -35,6 +35,7 @@ from crucible.ports.chat.types import (
     KIND_DM,
     ApprovalCard,
     CallPreview,
+    ConversationRef,
     PreviewRow,
 )
 from crucible.store.base import KIND_TOOL
@@ -100,6 +101,7 @@ class Posted:
     actions: list
     post_id: str
     card: ApprovalCard | None = None
+    ref: ConversationRef | None = None  # where it was posted
 
 
 @dataclass
@@ -122,7 +124,7 @@ class FakePoster:
     async def post_confirmation(self, ref, card, actions, *, callback_url) -> str:
         # The text form, as a chat platform would show it, so the assertions on
         # what a person reads stay readable; the card itself beside it.
-        self.posts.append(Posted(card_markdown(card), list(actions), f"post-{len(self.posts) + 1}", card))
+        self.posts.append(Posted(card_markdown(card), list(actions), f"post-{len(self.posts) + 1}", card, ref))
         return self.posts[-1].post_id
 
     async def update_confirmation(self, post_id, card, actions=None, *, callback_url="") -> None:
@@ -135,8 +137,11 @@ class FakePoster:
 @dataclass
 class FakePresence:
     chat: FakePoster
+    by_gateway: dict[str, FakePoster] | None = None
 
-    def poster(self, agent: str):
+    def poster(self, agent: str, gateway: str = ""):
+        if self.by_gateway and gateway in self.by_gateway:
+            return self.by_gateway[gateway]
         return self.chat
 
     def sink(self, agent: str):
@@ -180,7 +185,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
     poster = FakePoster()
     approvals = PendingApprovals()
     gate = ToolGate(
-        FakePresence(poster), store, store, approvals,  # type: ignore[arg-type]
+        FakePresence(poster, over.pop("by_gateway", None)), store, store, approvals,  # type: ignore[arg-type]
         callback_url="http://engine/interact",
         timeout_s=over.pop("timeout_s", 5.0),
         max_grant_s=over.pop("max_grant_s", 900),
@@ -788,5 +793,31 @@ async def test_a_previews_verbatim_block_reaches_the_card_whole(tmp_path: Path) 
         assert len(script) > toolgate.ARGUMENTS_LIMIT
         assert card.fields == (PreviewRow("Issue", "IPA-7"),)
         assert "Script" in card_markdown(card) and "line 399" in card_markdown(card)
+    finally:
+        await _close(rig)
+
+
+async def test_the_card_is_posted_where_the_conversation_last_spoke(tmp_path: Path) -> None:
+    """An agent reached through two gateways asks on the one the turn came
+    through, at the conversation's address there — not on its default."""
+    from crucible.ports.chat.types import KIND_THREAD
+    from crucible.store.base import GatewayAddress
+
+    slack = FakePoster()
+    rig = await _rig(tmp_path, 8561, by_gateway={"slack": slack})
+    try:
+        await rig.store.set_gateway_address("assistant", "dm1", "slack", GatewayAddress("C9", "1700.1", KIND_THREAD))
+        await rig.store.touch("assistant", "dm1", gateway="slack")
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        for _ in range(100):
+            if slack.posts:
+                break
+            await asyncio.sleep(0.02)
+        assert slack.posts and not rig.poster.posts  # asked on Slack, not on the default gateway
+        ref = slack.posts[0].ref
+        assert ref is not None and (ref.channel_id, ref.thread_root_id) == ("C9", "1700.1")  # its Slack address
+        pending.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await pending
     finally:
         await _close(rig)

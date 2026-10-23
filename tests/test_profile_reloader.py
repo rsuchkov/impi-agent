@@ -82,7 +82,7 @@ def _build(tmp_path: Path):
         agent_name="assistant",
     )
     built.clear()  # ignore the initial build; assert only on reloads
-    unit = AgentUnit(spec=spec, flow=flow, gateway=cast(Gateway, None))
+    unit = AgentUnit(spec=spec, flow=flow, gateways={"mattermost": cast(Gateway, None)})
     reloader = ProfileReloader(
         profiles=profiles,
         runtime=cast(AgentRuntime, runtime),

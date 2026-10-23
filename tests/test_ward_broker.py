@@ -164,7 +164,7 @@ class FakePoster:
 class FakePresence:
     chat: FakePoster | None
 
-    def poster(self, agent: str):
+    def poster(self, agent: str, gateway: str = ""):
         return self.chat
 
     def sink(self, agent: str):

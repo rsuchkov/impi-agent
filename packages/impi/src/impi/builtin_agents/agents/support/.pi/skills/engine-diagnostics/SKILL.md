@@ -273,6 +273,10 @@ And from the session check:
   a restart, or something in the agent's container calling the tool server by
   hand. Not a configuration problem.
 - `not available in this conversation` — the agent has the tool, but the
+- `not available through this gateway` (403) — the agent has the tool through
+  another of its gateways (`AGENTS_GATEWAY__<AGENT>=mattermost,slack`), but the
+  conversation is in one without the capability it needs: a channel-admin tool
+  asked for from Slack. Not a bug; the same call from the other gateway works.
   application entitled this conversation to fewer of them (its process was
   started with a manifest listing only those), and the model called one it
   read about elsewhere. Not a configuration problem: the application decides

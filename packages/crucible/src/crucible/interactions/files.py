@@ -53,13 +53,13 @@ class ChatFileService:
             raise FileError(f"at most {MAX_FILES_PER_SEND} files at a time")
 
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        poster = self._presence.poster(agent)
+        poster = self._presence.poster(agent, record.last_gateway) if record else None
         if record is None or poster is None:
             logger.warning("send file: no session/poster for %s / %s", agent, runtime_session_id)
             raise FileError("this conversation could not be resolved — no file was sent")
 
         files = [await asyncio.to_thread(self._read, agent, path) for path in paths]
-        await poster.post_files(conversation_ref(record), files, text=text)
+        await poster.post_files(conversation_ref(record, record.last_gateway), files, text=text)
         logger.info("agent %s sent %d file(s)", agent, len(files))
         return [file.name for file in files]
 

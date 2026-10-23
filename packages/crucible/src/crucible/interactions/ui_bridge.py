@@ -15,14 +15,13 @@ import secrets
 
 from crucible.interactions.pending_ui import CONFIRM_NO, CONFIRM_YES, PendingUiRequests
 from crucible.interactions.presence import AgentPresence
+from crucible.interactions.service import conversation_ref
 from crucible.ports.agent.ui import UiOutcome, UiRequest
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import (
     ACTION_SELECT,
-    KIND_THREAD,
     Action,
     Choice,
-    ConversationRef,
 )
 from crucible.store.base import SessionStore
 
@@ -54,7 +53,7 @@ class WidgetUiBridge:
 
     async def request(self, runtime_session_id: str, req: UiRequest) -> UiOutcome:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        poster = self._presence.poster(record.agent) if record else None
+        poster = self._presence.poster(record.agent, record.last_gateway) if record else None
         if record is None or poster is None:
             logger.warning("ui bridge: no session/poster for %s", runtime_session_id)
             return UiOutcome(cancelled=True)
@@ -70,13 +69,7 @@ class WidgetUiBridge:
         future = self._pending.register(
             token, method=req.method, agent=record.agent, conversation_id=record.conversation_id
         )
-        thread_root = record.conversation_id if record.kind == KIND_THREAD else ""
-        ref = ConversationRef(
-            channel_id=record.channel_id,
-            conversation_id=record.conversation_id,
-            message_id=record.conversation_id,
-            thread_root_id=thread_root,
-        )
+        ref = conversation_ref(record, record.last_gateway)
         try:
             post_id = await poster.post_actions(
                 ref, self._prompt_text(req), actions, callback_url=self._callback_url

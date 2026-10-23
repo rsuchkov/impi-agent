@@ -1628,3 +1628,65 @@ def test_a_captioning_tool_captions_its_calls_and_a_failing_or_plain_one_gives_n
     assert chained.caption("read", {"path": "/srv/agents/assistant/SYSTEM.md"}) == "Reading SYSTEM.md"
     assert chained.caption("grep", {"pattern": "TODO"}) == "Searching for TODO"
     assert chained.caption("bash", {"command": "rm -rf /"}) == ""  # the command is the argument: never shown
+
+
+async def test_a_call_is_served_within_the_gateway_the_conversation_is_in() -> None:
+    """The agent has the tool through one of its gateways; a conversation in a
+    gateway without the capability is refused, one in a gateway with it is
+    served with that gateway's admin client."""
+    from typing import Any, ClassVar
+
+    from crucible.ports.conversation import SessionConversation
+    from crucible.tools.base import CAP_CHAT_ADMIN, Tool, ToolContext
+    from crucible.tools.server import NOT_THROUGH_GATEWAY_ERROR
+
+    class _Admin:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class _NeedsAdmin(Tool):
+        name: ClassVar[str] = "needs_admin"
+        description: ClassVar[str] = ""
+        parameters: ClassVar[dict[str, Any]] = {"type": "object", "properties": {}}
+        requires: ClassVar[frozenset[str]] = frozenset({CAP_CHAT_ADMIN})
+
+        async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+            return {"admin": getattr(ctx.chat_admin, "name", None)}
+
+    conversations = {
+        "assistant--in-slack": SessionConversation("C1", "u1", kind="dm", gateway="slack", gateways=("slack",)),
+        "assistant--in-mm": SessionConversation("ch1", "u1", kind="dm", gateway="mattermost", gateways=("mattermost",)),
+    }
+
+    async def resolver(agent: str, rsid: str):
+        return conversations.get(rsid)
+
+    mm_admin = _Admin("mm")
+    server = ToolServer(
+        build_registry([_NeedsAdmin]),
+        directory=FakeDirectory(AGENTS),
+        admins={"assistant": mm_admin},  # type: ignore[arg-type]
+        gateway_admins={"assistant": {"mattermost": mm_admin}},  # type: ignore[arg-type]
+        gateway_caps={"assistant": {"mattermost": frozenset({CAP_CHAT_ADMIN}), "slack": frozenset()}},
+        tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"needs_admin"})},  # advertised: one gateway can serve it
+        port=8471,
+        conversation_resolver=resolver,
+    )
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8471/tool/needs_admin", json={},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--in-slack"},
+            ) as resp:
+                assert resp.status == 403
+                assert (await resp.json()) == {"error": NOT_THROUGH_GATEWAY_ERROR}
+            async with s.post(
+                "http://127.0.0.1:8471/tool/needs_admin", json={},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--in-mm"},
+            ) as resp:
+                assert resp.status == 200
+                assert (await resp.json())["result"] == {"admin": "mm"}  # that gateway's admin client
+    finally:
+        await server.stop()

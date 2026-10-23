@@ -92,16 +92,20 @@ async def test_widget_service_returns_false_for_unknown_session(tmp_path: Path) 
 class SinkSpy:
     def __init__(self) -> None:
         self.submitted: list = []
+        self.chats: list = []  # the chat each message was submitted with
 
     def submit(self, msg, chat) -> None:
         self.submitted.append(msg)
+        self.chats.append(chat)
 
 
-async def _integrations(port: int, store) -> tuple[InteractionsServer, SinkSpy, PendingUiRequests]:
+async def _integrations(
+    port: int, store, *, gateways: dict | None = None
+) -> tuple[InteractionsServer, SinkSpy, PendingUiRequests]:
     spy = SinkSpy()
     pending = PendingUiRequests()
     dispatcher = InteractionDispatcher(
-        store, presence_of(object(), sink=spy), pending, store  # type: ignore[arg-type]
+        store, presence_of(object(), sink=spy, gateways=gateways), pending, store  # type: ignore[arg-type]
     )
     server = InteractionsServer(
         dispatcher, MattermostCallbackCodec(), MappingPresence({}), host="127.0.0.1", port=port
@@ -303,3 +307,27 @@ async def test_what_a_screen_tells_the_clicker_alone_comes_back_as_an_ephemeral_
         assert body == {"ephemeral_text": "for u1 only"}
     finally:
         await server.stop()
+
+
+async def test_a_click_comes_back_through_the_gateway_the_widget_was_posted_on(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/interact")
+    slack_chat = object()
+    server, spy, _pending = await _integrations(8472, store, gateways={"slack": slack_chat})
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        await store.touch("assistant", "dm1", gateway="slack")  # the widget went out on Slack
+        await svc.ask("assistant", rec.runtime_session_id, "Choose", ["Yes", "No"])
+        token = poster.posted[0][2][0].context["token"]
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8472/interact",
+                json={"user_id": "uid-roman", "context": {"token": token, "value": "Yes"}},
+            ) as resp:
+                assert resp.status == 200
+        assert spy.submitted[0].gateway == "slack"
+        assert spy.chats[0] is slack_chat  # the reply will go back through Slack
+    finally:
+        await server.stop()
+        await store.close()

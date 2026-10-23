@@ -57,7 +57,7 @@ from impi.deployment_report import (
     select_specs,
 )
 from impi.escape import EscapeError, build_plan, parse_map, render_nul, render_text
-from impi.gateways import resolve_gateway
+from impi.gateways import resolve_gateway, resolve_gateways
 from impi.profiles import open_profile_stores
 from impi.skill_tools import bundled_skill
 
@@ -305,13 +305,13 @@ def _cmd_agent_list(args: argparse.Namespace) -> int:
         _fail(str(exc))
         return 2
     for spec in store.list():
-        gateway = settings.gateway_for(spec.name)
-        if gateway == "mattermost":
-            has_token = bool(settings.mm_token_for(spec.name))
-        else:
-            has_token = all(settings.slack_tokens_for(spec.name))
+        kinds = settings.gateways_for(spec.name)
+        # Runnable on a gateway when its token(s) are set; the resolver logs the rest.
+        runnable = {cfg.kind for cfg in resolve_gateways(settings, spec.name)}
+        gateways = ",".join(kinds)
+        has_token = all(kind in runnable for kind in kinds)
         status = _sgr("32", "token ok") if has_token else _sgr("33", "no token")
-        print(f"{_bold(spec.name):<32} {spec.role:<24} {gateway:<12} {status}")
+        print(f"{_bold(spec.name):<32} {spec.role:<24} {gateways:<12} {status}")
     return 0
 
 

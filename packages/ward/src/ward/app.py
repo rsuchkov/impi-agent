@@ -53,8 +53,8 @@ class OneBot:
     def __init__(self, chat: ChatClient) -> None:
         self._chat = chat
 
-    def poster(self, agent: str) -> ChatClient:
-        return self._chat
+    def poster(self, agent: str, gateway: str = "") -> ChatClient:
+        return self._chat  # one account, whichever gateway is named
 
     def sink(self, agent: str) -> None:
         # ward runs no turns: a click on its card resolves a waiting request and

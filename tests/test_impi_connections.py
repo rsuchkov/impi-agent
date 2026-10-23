@@ -533,7 +533,7 @@ async def test_a_scheduler_turn_says_it_is_one() -> None:
             return "ok"
 
     sink = Tracked()
-    dispatcher = SinkTurnDispatcher({"chat": AgentSink(sink=sink, chat=object())})  # type: ignore[arg-type]
+    dispatcher = SinkTurnDispatcher({"chat": AgentSink(sink=sink, gateways={"mattermost": object()}, default="mattermost")})  # type: ignore[arg-type]
     await dispatcher.run_turn(TurnRequest(
         agent="chat", channel_id="d1", conversation_id="d1", kind="dm", text="do it",
         message_id="sched-1", user_id="u1", username="u",

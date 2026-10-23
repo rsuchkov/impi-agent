@@ -18,8 +18,10 @@ if TYPE_CHECKING:
 
 
 class AgentPresence(Protocol):
-    def poster(self, agent: str) -> ChatClient | None:
-        """The agent's outbound chat client, or None if it has no live presence."""
+    def poster(self, agent: str, gateway: str = "") -> ChatClient | None:
+        """The agent's outbound chat client on ``gateway`` — its default
+        gateway's when none is named or the agent has no such gateway — or
+        None if it has no live presence."""
         ...
 
     def sink(self, agent: str) -> AgentSink | None:
@@ -34,9 +36,9 @@ class MappingPresence:
     def __init__(self, sinks: Mapping[str, AgentSink]) -> None:
         self._sinks = sinks
 
-    def poster(self, agent: str) -> ChatClient | None:
+    def poster(self, agent: str, gateway: str = "") -> ChatClient | None:
         target = self._sinks.get(agent)
-        return target.chat if target is not None else None
+        return target.chat_for(gateway) if target is not None else None
 
     def sink(self, agent: str) -> AgentSink | None:
         return self._sinks.get(agent)

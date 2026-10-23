@@ -40,7 +40,7 @@ from crucible.gateways import (
     GatewayHandle,
     LeasedGateway,
 )
-from crucible.gateways.http import HttpHub, HttpTurns, TokenCallers
+from crucible.gateways.http import HttpChatClient, HttpHub, HttpTurns, TokenCallers
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.gateways.ws import WsHub
 from crucible.interactions import (
@@ -100,7 +100,7 @@ from impi.deployment_report import (
     select_specs,
 )
 from impi.engine_tools import engine_tool_registry
-from impi.gateways import resolve_gateway
+from impi.gateways import resolve_gateways
 from impi.profiles import (
     IMPI_ROOT,
     build_pi_env,
@@ -228,6 +228,10 @@ class App:
     # what tells a command typed in the agent's direct message from one typed
     # in somebody else's.
     agent_user_ids: dict[str, str] = dataclasses.field(default_factory=dict)
+    # The tool wiring (allowlists, per-gateway capabilities) and the live presence
+    # map (agent -> its sink and chat clients), for whoever operates the app.
+    tools: ToolWiring | None = None
+    sinks_by_agent: dict[str, AgentSink] = dataclasses.field(default_factory=dict)
 
 
 def _engine_version() -> str:
@@ -282,9 +286,35 @@ class ProfileBuilder:
 CONNECTION_GATEWAYS = frozenset({"mattermost", "slack"})
 
 
+class _TracerByChat:
+    """One tracer per kind of chat: an http caller's turn writes its tool
+    events into the caller's journal, a chat turn draws the widget. Chosen per
+    turn by the chat the message came with, so an agent reached through both
+    is traced right on each."""
+
+    def __init__(self, journal: HttpTurns | None, widget: ToolTrace | None) -> None:
+        self._journal = journal
+        self._widget = widget
+
+    def begin(self, record, chat, *, anchor=None):
+        if isinstance(chat, HttpChatClient) and self._journal is not None:
+            return self._journal.begin(record, chat, anchor=anchor)
+        if self._widget is not None:
+            return self._widget.begin(record, chat, anchor=anchor)
+        return _NoTrace()
+
+
+class _NoTrace:
+    def on_event(self, event) -> None:
+        return None
+
+    async def end(self, *, interrupted: bool = False) -> None:
+        return None
+
+
 def _build_unit(
     spec: AgentSpec,
-    handle: GatewayHandle,
+    handles: dict[str, GatewayHandle],
     *,
     runtime: AgentRuntime,
     control: RuntimeControl,
@@ -293,7 +323,7 @@ def _build_unit(
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
     inline_image_max_bytes: int,
-    tracer: ToolTrace | HttpTurns | None,
+    tracer: ToolTrace | HttpTurns | _TracerByChat | None,
     turns: TurnRegistry,
     captions: CallCaptions,
 ) -> AgentUnit:
@@ -309,16 +339,23 @@ def _build_unit(
         # reset) gets its thread replayed again instead of starting mid-air.
         control=control,
     )
-    coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
+    coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name), agent=spec.name)
     # Record the agent's live presence in the app-owned registry; interactions read
-    # it lazily through MappingPresence.
-    sinks_by_agent[spec.name] = AgentSink(sink=coalescer, chat=handle.chat)
-    return AgentUnit(spec=spec, flow=flow, gateway=handle.create_gateway(coalescer))
+    # it lazily through MappingPresence. One sink, a chat client per gateway, the
+    # first gateway the default.
+    kinds = list(handles)
+    sinks_by_agent[spec.name] = AgentSink(
+        sink=coalescer, gateways={kind: handle.chat for kind, handle in handles.items()}, default=kinds[0],
+    )
+    return AgentUnit(
+        spec=spec, flow=flow,
+        gateways={kind: handle.create_gateway(coalescer) for kind, handle in handles.items()},
+    )
 
 
 def _build_units(
     specs: list[AgentSpec],
-    configs: dict[str, GatewayConfig | None],
+    configs: dict[str, list[GatewayConfig]],
     engine_names: set[str],
     *,
     settings: ImpiSettings,
@@ -339,16 +376,24 @@ def _build_units(
 ) -> list[AgentUnit]:
     units: list[AgentUnit] = []
     for spec in specs:
-        config = configs.get(spec.name)
-        if config is None:
-            continue  # no token for this agent (resolver logged why)
-        handle = gateway_factory.create(spec.name, config)
-        if handle is None:
-            continue  # unknown gateway kind (factory logged why)
-        profiles.set_hint(spec.name, handle.prompt_hint)
-        # must precede profiles.build (reads caps/env); handle.caps carries
-        # gateway-kind capabilities like ephemeral.
-        tools.enroll(spec, handle.admin, extra_caps=handle.caps, denied_caps=handle.denied_caps)
+        handles: dict[str, GatewayHandle] = {}
+        for config in configs.get(spec.name) or []:
+            handle = gateway_factory.create(spec.name, config)
+            if handle is None:
+                continue  # unknown gateway kind (factory logged why)
+            handles[config.kind] = handle
+        if not handles:
+            continue  # no token for any of its gateways (resolver logged why)
+        # Every gateway's formatting rules, once each — the agent writes for
+        # all of them at once.
+        hints = [h.prompt_hint for h in handles.values() if h.prompt_hint]
+        profiles.set_hint(spec.name, "\n\n".join(dict.fromkeys(hints)))
+        # must precede profiles.build (reads caps/env); each gateway's caps are
+        # kept by its name, the agent's allowlist is what any of them can serve.
+        for kind, handle in handles.items():
+            tools.enroll(
+                spec, handle.admin, extra_caps=handle.caps, denied_caps=handle.denied_caps, gateway=kind,
+            )
         if spec.name in engine_names:
             # Engine-owned agents (support) get the agents directory path (their
             # editable workspace) and the engine source root (read-only) so their
@@ -358,24 +403,30 @@ def _build_units(
                 {"AGENTS_PATH": settings.agents_path, "IMPI_ROOT": str(IMPI_ROOT)},
             )
         unit = _build_unit(
-            spec, handle,
+            spec, handles,
             runtime=runtime, control=control, sessions=sessions, profiles=profiles,
             interactions=interactions, sinks_by_agent=sinks_by_agent,
             inline_image_max_bytes=int(settings.inline_image_max_mb * 1024 * 1024),
-            # An http agent's tool activity goes to the caller's journal, not
-            # to a widget under a chat reply — there is no chat to draw it in.
-            tracer=http_turns if config.kind == "http" else tracer,
+            # An http caller's tool activity goes to the caller's journal, a
+            # chat turn's to a widget under the reply — chosen per turn by the
+            # chat the message came with.
+            tracer=(
+                http_turns if set(handles) == {"http"}
+                else _TracerByChat(http_turns, tracer) if "http" in handles
+                else tracer
+            ),
             turns=turns,
             captions=captions,
         )
-        if config.kind in CONNECTION_GATEWAYS:
-            # A connection the platform pushes events into is opened by one
-            # engine process at a time: two replicas with one bot token would
-            # each get half of every conversation. The store's lease says
-            # which; with one process and a sqlite store it is always ours.
-            unit.gateway = LeasedGateway(
-                unit.gateway, leases, name=f"gateway:{config.kind}:{spec.name}", owner=instance
-            )
+        for kind in handles:
+            if kind in CONNECTION_GATEWAYS:
+                # A connection the platform pushes events into is opened by one
+                # engine process at a time: two replicas with one bot token would
+                # each get half of every conversation. The store's lease says
+                # which; with one process and a sqlite store it is always ours.
+                unit.gateways[kind] = LeasedGateway(
+                    unit.gateways[kind], leases, name=f"gateway:{kind}:{spec.name}", owner=instance
+                )
         units.append(unit)
     return units
 
@@ -395,10 +446,12 @@ def build_app(settings: ImpiSettings) -> App:
     # are runnable and whether any needs the HTTP receiver — so the interaction
     # plumbing can be built complete (no post-loop finalize).
     specs = select_specs(settings, user_store, engine_store)
-    configs = {spec.name: resolve_gateway(settings, spec.name) for spec in specs}
+    configs = {spec.name: resolve_gateways(settings, spec.name) for spec in specs}
+    # The default gateway's config per agent, for what asks about one gateway.
+    defaults = {name: (cfgs[0] if cfgs else None) for name, cfgs in configs.items()}
     # A receiver with no secret trusts every callback on arrival; a deployment
     # that needs one gets a secret minted on its first start.
-    receiver_needed = needs_receiver(configs.values())
+    receiver_needed = needs_receiver(cfg for cfgs in configs.values() for cfg in cfgs)
     settings = ensure_receiver_secret(settings, needs_receiver=receiver_needed)
 
     # The app owns the registry of live agent presences (agent -> AgentSink); the
@@ -412,13 +465,13 @@ def build_app(settings: ImpiSettings) -> App:
     # handed over below once interactivity is built.
     redraw_on_connect = RedrawOnConnect()
     connections = build_connections(
-        settings, sessions, configs,
+        settings, sessions, defaults,
         lambda agent: sink.chat if (sink := sinks_by_agent.get(agent)) is not None else None,
         on_connected=redraw_on_connect,
     )
     if connections is not None:
         report = connections_report(
-            settings, connections.providers, configs,
+            settings, connections.providers, defaults,
             tools_on=settings.tools.enabled, widgets_on=settings.integrations.enabled,
         )
         logger.info(report.line)
@@ -466,7 +519,7 @@ def build_app(settings: ImpiSettings) -> App:
     # Which agents this engine actually runs — a profile with no token is not one
     # of them. It answers /command/default, so a deployment can register a slash
     # command without naming an agent in its URL.
-    runnable = tuple(name for name, cfg in configs.items() if cfg is not None)
+    runnable = tuple(name for name, cfgs in configs.items() if cfgs)
     # Requests waiting on a human — a credential, a tool call. Built here
     # because the click that answers one arrives through the interaction
     # receiver, while the things that raise one are assembled further down.
@@ -521,7 +574,7 @@ def build_app(settings: ImpiSettings) -> App:
     hosts = build_agent_hosts(settings, specs, attachments.dir_for if attachments else None)
     abi = landlock_abi()
     line, shared_warning = confinement_report(
-        specs, configs, engine_names, level_for=process_scopes.level_for, abi=abi,
+        specs, defaults, engine_names, level_for=process_scopes.level_for, abi=abi,
         in_process=lambda name: name not in hosts.remote_agents,
     )
     (logger.info if abi else logger.warning)(line)
@@ -530,7 +583,7 @@ def build_app(settings: ImpiSettings) -> App:
     # An agent in its own container is handed the credential file alone.
     here, own_container = configured_providers(), configured_providers(definitions=False)
     fallback_line, fallback_warning = fallback_report(
-        specs, configs,
+        specs, defaults,
         providers_for=lambda name: own_container if name in hosts.remote_agents else here,
     )
     if fallback_line:
@@ -585,7 +638,7 @@ def build_app(settings: ImpiSettings) -> App:
     # The ws hub exists only when some agent lives on the "ws" gateway; client
     # services authenticate against it with their own tokens (WS_SERVICE_TOKEN__*).
     ws_hub: WsHub | None = None
-    if any(cfg is not None and cfg.kind == "ws" for cfg in configs.values()):
+    if any(cfg.kind == "ws" for cfgs in configs.values() for cfg in cfgs):
         ws_services = settings.ws_services()
         if not ws_services:
             logger.warning(
@@ -599,7 +652,7 @@ def build_app(settings: ImpiSettings) -> App:
     # The http hub likewise: a request/turn API for programs that cannot hold a
     # socket; callers authenticate with their own tokens (HTTP_CALLER_TOKEN__*).
     http_hub: HttpHub | None = None
-    if any(cfg is not None and cfg.kind == "http" for cfg in configs.values()):
+    if any(cfg.kind == "http" for cfgs in configs.values() for cfg in cfgs):
         http_callers = settings.http_callers()
         if not http_callers:
             logger.warning(
@@ -719,7 +772,7 @@ def build_app(settings: ImpiSettings) -> App:
 
         scheduler = Scheduler(
             sessions,
-            dispatcher=SinkTurnDispatcher(sinks_by_agent, http=http_hub),
+            dispatcher=SinkTurnDispatcher(sinks_by_agent, http=http_hub, sessions=sessions),
             prompts=RuntimePromptRunner(runtime, _profile_of),
             notifier=PresenceNotifier(presence),
             tick_s=settings.scheduler.tick_s,
@@ -767,6 +820,8 @@ def build_app(settings: ImpiSettings) -> App:
         auth_refresher=AuthRefresher(program=settings.pi_bin),
         connections=connections,
         agent_user_ids=agent_user_ids,
+        tools=tools,
+        sinks_by_agent=sinks_by_agent,
     )
 
 
@@ -830,12 +885,16 @@ async def run(settings: ImpiSettings) -> None:
     try:
         identities = {}
         for unit in app.units:
-            identity = await unit.gateway.login()
-            identities[unit.spec.name] = identity
-            app.agent_user_ids[unit.spec.name] = identity.user_id
-            # The gateway is the only authority on who we are on the platform;
-            # the flow needs it to keep our own posts out of replayed history.
-            unit.flow.add_identity(identity.user_id)
+            # Each gateway is the authority on who we are on its platform; the
+            # flow needs every one to keep our own posts out of replayed
+            # history. The default gateway's identity is the agent's for the
+            # directory.
+            for kind, gateway in unit.gateways.items():
+                identity = await gateway.login()
+                unit.flow.add_identity(identity.user_id)
+                if unit.spec.name not in identities:
+                    identities[unit.spec.name] = identity
+                    app.agent_user_ids[unit.spec.name] = identity.user_id
         await app.registry.sync([unit.spec for unit in app.units], identities)
         # SIGHUP → hot-reload agent profiles (`make reload`). Deliberate and
         # human-triggered: the operator reviews/updates the agents directory first,
@@ -855,7 +914,8 @@ async def run(settings: ImpiSettings) -> None:
         # detached task on purpose: a background task whose exception nobody
         # observes is exactly how a timer dies unnoticed.
         loops = [
-            _supervise(f"gateway {unit.spec.name}", unit.gateway.run) for unit in app.units
+            _supervise(f"gateway {unit.spec.name}/{kind}", gateway.run)
+            for unit in app.units for kind, gateway in unit.gateways.items()
         ]
         if app.scheduler is not None:
             loops.append(_supervise("scheduler", app.scheduler.run))
@@ -883,6 +943,7 @@ async def run(settings: ImpiSettings) -> None:
         if app.tool_server is not None:
             await app.tool_server.stop()
         for unit in app.units:
-            await unit.gateway.stop()
+            for gateway in unit.gateways.values():
+                await gateway.stop()
         await app.runtime.close()
         await app.sessions.close()

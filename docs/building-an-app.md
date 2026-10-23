@@ -507,6 +507,19 @@ credential, is another user's credential.
   hub's handlers have; `hub.drain()` / `await hub.idle(timeout)` are the
   shutdown pair, and `HttpHub(readiness_probes=…)` gives your own dependencies a
   say in `/readyz` — see [http-gateway.md](http-gateway.md).
+- **One agent, several gateways.** Build one `AgentFlow` and one
+  `MessageCoalescer` per agent and hand every gateway's `create_gateway` the
+  same coalescer; register the agent's presence as `AgentSink(sink,
+  gateways={kind: chat}, default=kind)`. Enrol the agent once per gateway
+  (`ToolWiring.enroll(..., gateway=kind)`): the token is the agent's, the
+  admin client and the capabilities are the gateway's, and the server checks
+  the conversation's own gateway on every call. Log every gateway in and give
+  the flow each identity (`add_identity`). When a thread in one chat and a
+  dialog in another are one conversation to the person, say so with a
+  `ConversationKey` (`ports.chat.keying`) given to both the flow and the
+  coalescer; the engine then runs them through one runtime session and keeps
+  the conversation's address on each gateway. `impi` wires all of this from
+  `AGENTS_GATEWAY__<AGENT>=mattermost,slack`.
 - **Several engine processes.** A chat connection the platform pushes events
   into — a bot's websocket, Slack's Socket Mode — must be open in one process
   at a time: the platform hands each event to one of its open connections by
