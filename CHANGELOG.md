@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.29.0 — 2026-10-24
+
 - **Fixed: a leased Slack gateway runs again after it lost its lease.** The
   Socket Mode handler was built once; `stop` closed it and slack_sdk's client
   stays closed for good, so the next `run` — the lease taken back — waited on a
