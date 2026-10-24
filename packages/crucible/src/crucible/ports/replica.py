@@ -91,7 +91,7 @@ class ForwardedClick(Enum):
 
 class ClickForwarder(Protocol):
     async def forward_click(
-        self, url: str, kind: ClickKind, token: str, value: str, user_id: str
+        self, url: str, kind: ClickKind, token: str, value: str, user_id: str, gateway: str
     ) -> ForwardedClick: ...
 
 

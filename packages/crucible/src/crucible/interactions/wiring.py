@@ -28,6 +28,7 @@ from crucible.interactions.server import (
 from crucible.interactions.service import InteractionService
 from crucible.interactions.toolgate import ToolGate
 from crucible.interactions.ui_bridge import WidgetUiBridge
+from crucible.ports.chat.keying import PersonKey
 from crucible.ports.chat.types import IncomingMessage
 from crucible.ports.replica import ClickForwarder, Replica
 from crucible.store.base import Store
@@ -56,6 +57,7 @@ class InteractionWiring:
         tool_approvers: tuple[str, ...] = (),
         replica: Replica | None = None,
         clicks: ClickForwarder | None = None,
+        people: PersonKey | None = None,
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
         # service need its InteractionStore + FormStore facets too.
@@ -95,6 +97,9 @@ class InteractionWiring:
             approvals=approvals,
             callback_url=integrations.interact_url,
             replica=replica, replicas=sessions if replica is not None else None, clicks=clicks,
+            # Who a platform id is across gateways — the application's answer
+            # (None: each platform id is a person of its own).
+            people=people,
         )
         # One service for widgets (ask) and forms (open_form). The one concrete store
         # backs all three store facets.
@@ -115,6 +120,7 @@ class InteractionWiring:
                 max_grant_s=tool_max_grant_s,
                 approvers=frozenset(tool_approvers),
                 replica_id=replica_id,
+                people=people,
             )
         # The HTTP receiver is only for gateways that deliver callbacks over HTTP
         # (Mattermost); socket gateways (Slack) drive the same dispatcher over their

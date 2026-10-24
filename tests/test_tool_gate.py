@@ -191,6 +191,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         max_grant_s=over.pop("max_grant_s", 900),
         approvers=frozenset(over.pop("approvers", ())),
         replica_id=over.pop("replica_id", ""),
+        people=over.pop("people", None),
     )
     dangerous, plain = Dangerous(), Harmless()
     clock = FakeClock()
@@ -829,6 +830,32 @@ async def test_the_card_is_posted_in_every_gateway_and_the_first_answer_closes_t
         assert rig.approvals.resolve(token, ANSWER_DENY, CLICKER) is ApprovalOutcome.NOT_MINE  # 2nd click
         assert [u.card.headline for u in rig.poster.updated] == [u.card.headline for u in slack.updated]
         assert "Allowed once" in slack.updated[0].card.headline
+    finally:
+        await _close(rig)
+
+
+async def test_the_asker_is_named_as_a_person_so_a_click_from_another_gateway_counts(tmp_path: Path) -> None:
+    """The person who asked from the panel is the approver; their click on the
+    Slack copy of the card arrives under a Slack id the application maps to
+    the same person."""
+    from crucible.approvals import ApprovalOutcome
+
+    class _People:
+        def key(self, gateway: str, user_id: str) -> str:
+            return {("mattermost", CLICKER): "roman", ("slack", "U0123"): "roman"}.get((gateway, user_id), user_id)
+
+    rig = await _rig(tmp_path, 8564, people=_People())
+    try:
+        await rig.store.touch("assistant", "dm1", CLICKER, gateway="mattermost")  # the asker, on Mattermost
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        for _ in range(400):
+            if rig.poster.posts:
+                break
+            await asyncio.sleep(0.005)
+        token = str(rig.poster.posts[0].actions[0].context[APPROVAL_KEY])
+        assert rig.approvals.resolve(token, ANSWER_ONCE, "U0123") is ApprovalOutcome.NOT_ALLOWED  # a raw id
+        assert rig.approvals.resolve(token, ANSWER_ONCE, "roman") is ApprovalOutcome.RESOLVED  # the person
+        assert await pending == 200
     finally:
         await _close(rig)
 

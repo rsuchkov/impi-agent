@@ -140,7 +140,7 @@ class SlackInteractions:
             # The broker rewrites its own card once it has the answer, so the
             # buttons are stripped from here only when the click landed on a
             # request that no longer exists.
-            outcome = await self._dispatcher.resolve_approval(approval, value, user_id)
+            outcome = await self._dispatcher.resolve_approval(approval, value, user_id, gateway=GATEWAY_SLACK)
             if outcome is ApprovalOutcome.NOT_MINE:
                 await self._strip_buttons(body, BUTTONS_RETIRED_TEXT)
             elif outcome is ApprovalOutcome.NOT_ALLOWED:

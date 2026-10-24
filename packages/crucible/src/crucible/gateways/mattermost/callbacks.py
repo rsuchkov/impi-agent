@@ -13,9 +13,12 @@ from crucible.interactions.callbacks import (
     CommandCallback,
     DialogCallback,
 )
+from crucible.ports.chat.gateway import GATEWAY_MATTERMOST
 
 
 class MattermostCallbackCodec:
+    gateway = GATEWAY_MATTERMOST
+
     def parse_action(self, body: dict) -> ActionCallback:
         context = body.get("context") or {}
         return ActionCallback(

@@ -242,10 +242,12 @@ class InternalRoutes:
         body = await self._body(request)
         if self._dispatcher is None:
             raise Refusal(404, "not_found", "interactivity is off on this engine")
-        token, value, user_id = (str(body.get(k, "")) for k in ("token", "value", "user_id"))
+        token, value, user_id, gateway = (
+            str(body.get(k, "")) for k in ("token", "value", "user_id", "gateway")
+        )
         kind = str(body.get("kind", ""))
         if kind == ClickKind.APPROVAL.name:
-            outcome = await self._dispatcher.resolve_approval(token, value, user_id)
+            outcome = await self._dispatcher.resolve_approval(token, value, user_id, gateway=gateway)
             answer = ForwardedClick[outcome.name]
         elif kind == ClickKind.PENDING.name:
             resolved = await self._dispatcher.resolve_pending(token, value)
@@ -273,10 +275,11 @@ class HubForwarder:
         return TurnOutcome[str(answer.get("outcome", ""))]
 
     async def forward_click(
-        self, url: str, kind: ClickKind, token: str, value: str, user_id: str
+        self, url: str, kind: ClickKind, token: str, value: str, user_id: str, gateway: str
     ) -> ForwardedClick:
         answer = await self._post(
-            url + CLICKS_PATH, {"kind": kind.name, "token": token, "value": value, "user_id": user_id}
+            url + CLICKS_PATH,
+            {"kind": kind.name, "token": token, "value": value, "user_id": user_id, "gateway": gateway},
         )
         return ForwardedClick[str(answer.get("outcome", ""))]
 

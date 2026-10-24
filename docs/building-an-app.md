@@ -525,7 +525,14 @@ credential, is another user's credential.
   dialog in another are one conversation to the person, say so with a
   `ConversationKey` (`ports.chat.keying`) given to both the flow and the
   coalescer; the engine then runs them through one runtime session and keeps
-  the conversation's address on each gateway. `impi` wires all of this from
+  the conversation's address on each gateway. The same person also carries a
+  different id on each gateway; `PersonKey.key(gateway, user_id)` (same module,
+  given to `InteractionWiring(people=)` or straight to `ToolGate` and
+  `InteractionDispatcher`) says which ids are one person — the one place the
+  engine compares people is who may answer a confirmation card, and with it a
+  card for a turn started from a web panel is answered by the same person's
+  click on its Slack copy. Without one, each platform id is a person of its
+  own. `impi` wires all of this from
   `AGENTS_GATEWAY__<AGENT>=mattermost,slack`.
 - **Several engine processes.** A chat connection the platform pushes events
   into — a bot's websocket, Slack's Socket Mode — must be open in one process

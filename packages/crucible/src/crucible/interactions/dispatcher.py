@@ -29,6 +29,7 @@ from crucible.interactions.screens import (
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.interactions import form_from_json
+from crucible.ports.chat.keying import PersonKey, PlatformPerson
 from crucible.ports.chat.types import (
     KIND_THREAD,
     STATIC_FIELD_TYPES,
@@ -98,6 +99,7 @@ class InteractionDispatcher:
         replica: Replica | None = None,
         replicas: Replicas | None = None,
         clicks: ClickForwarder | None = None,
+        people: PersonKey | None = None,
     ) -> None:
         self._interactions = interactions
         self._presence = presence
@@ -119,8 +121,12 @@ class InteractionDispatcher:
         self._replica = replica
         self._replicas = replicas
         self._clicks = clicks
+        # Who a platform id is, for the one click whose answer depends on it.
+        self._people: PersonKey = people or PlatformPerson()
 
-    async def resolve_approval(self, token: str, value: str, user_id: str) -> ApprovalOutcome:
+    async def resolve_approval(
+        self, token: str, value: str, user_id: str, *, gateway: str = ""
+    ) -> ApprovalOutcome:
         """A click answering a request for authorization — a credential, a
         gated tool call.
 
@@ -132,9 +138,10 @@ class InteractionDispatcher:
         """
         if not token or self._approvals is None:
             return ApprovalOutcome.NOT_MINE
-        outcome = self._approvals.resolve(token, value, user_id)
+        # The clicker as a person: the request named its approvers the same way.
+        outcome = self._approvals.resolve(token, value, self._people.key(gateway, user_id))
         if outcome is ApprovalOutcome.NOT_MINE:
-            forwarded = await self._forward(ClickKind.APPROVAL, token, value, user_id)
+            forwarded = await self._forward(ClickKind.APPROVAL, token, value, user_id, gateway)
             if forwarded is not None:
                 return ApprovalOutcome[forwarded.name]
         return outcome
@@ -147,11 +154,11 @@ class InteractionDispatcher:
             return False
         if self._pending.resolve(token, value):
             return True
-        forwarded = await self._forward(ClickKind.PENDING, token, value, "")
+        forwarded = await self._forward(ClickKind.PENDING, token, value, "", "")
         return forwarded is ForwardedClick.RESOLVED
 
     async def _forward(
-        self, kind: ClickKind, token: str, value: str, user_id: str
+        self, kind: ClickKind, token: str, value: str, user_id: str, gateway: str
     ) -> ForwardedClick | None:
         """What the replica that asked did with the click — None when the token
         is nobody else's (untagged, our own, or its replica is gone)."""
@@ -164,7 +171,7 @@ class InteractionDispatcher:
         if not url:
             return None
         try:
-            return await self._clicks.forward_click(url, kind, token, value, user_id)
+            return await self._clicks.forward_click(url, kind, token, value, user_id, gateway)
         except Exception:
             logger.warning("click for replica %s at %s could not be forwarded", minted_by, url, exc_info=True)
             return None

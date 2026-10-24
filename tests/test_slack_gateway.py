@@ -7,6 +7,8 @@ modals, shortcuts and slash commands are SlackInteractions' and are tested in
 test_slack_interactions.py.
 """
 
+import asyncio
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -44,7 +46,6 @@ def _gateway(sink, dispatcher=None, poster=None, **kwargs):
     gw = SlackGateway(
         app, "xapp-fake", sink, object(), poster=poster, dispatcher=dispatcher, **kwargs  # type: ignore[arg-type]
     )
-    _HANDLERS.append(gw._handler)
     gw._own_user_id = OWN
     return gw
 
@@ -180,3 +181,46 @@ async def test_a_login_page_instead_of_a_file_leaves_the_message_intact(
     (msg,) = sink.submitted
     assert msg.attachments == ()
     assert msg.text == "look"
+
+
+async def test_a_gateway_stopped_and_run_again_opens_a_new_connection() -> None:
+    """A lost lease stops the gateway; taking the lease back runs it again.
+    slack_sdk's socket client stays closed once closed, so each run gets a
+    handler of its own — the second run connects instead of waiting on a
+    dead client forever."""
+
+    class _Handler:
+        made: list["_Handler"] = []
+
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.closed = False
+            self.made.append(self)
+
+        async def start_async(self) -> None:
+            self.started.set()
+            await asyncio.Event().wait()  # holds the connection until closed
+
+        async def close_async(self) -> None:
+            self.closed = True
+
+    gw = _gateway(FakeSink())
+    gw._new_handler = lambda: _Handler()  # type: ignore[method-assign]
+    first = asyncio.create_task(gw.run())
+    for _ in range(50):
+        if _Handler.made:
+            break
+        await asyncio.sleep(0)
+    await asyncio.wait_for(_Handler.made[0].started.wait(), 1)
+    await gw.stop()
+    first.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await first
+    assert _Handler.made[0].closed is True
+    second = asyncio.create_task(gw.run())
+    await asyncio.wait_for(asyncio.sleep(0.05), 1)
+    assert len(_Handler.made) == 2 and _Handler.made[1].started.is_set()  # a fresh handler, connected
+    assert _Handler.made[1] is not _Handler.made[0]
+    second.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await second

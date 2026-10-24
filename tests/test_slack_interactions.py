@@ -163,6 +163,7 @@ async def test_an_approver_s_click_is_resolved_and_the_card_is_left_to_its_owner
     whispers = _recorder(it, "chat_postEphemeral")
     await it.handle_action(_APPROVAL_CLICK)
     assert ("resolve_approval", "APR", "once", "U9") in dispatcher.calls
+    assert dispatcher.gateways[-1] == "slack"  # the click says where it came from: that tells who U9 is
     assert updates == [] and whispers == []  # the broker rewrites its own card
 
 

@@ -54,7 +54,11 @@ class SlackGateway:
         reaction_commands: ReactionCommands | None = None,
     ) -> None:
         self._app = app
-        self._handler = AsyncSocketModeHandler(app, app_token)
+        self._app_token = app_token
+        # The socket handler lives one connection: slack_sdk's client stays
+        # closed once closed, so ``run`` opens a fresh one each time it is
+        # asked to — after ``stop`` (a lost lease) the gateway runs again.
+        self._handler: AsyncSocketModeHandler | None = None
         self._agent = agent  # our own name; a command names the agent to run
         self._sink = sink
         self._chat = chat
@@ -91,10 +95,16 @@ class SlackGateway:
         return AgentIdentity(user_id=self._own_user_id, username=username)
 
     async def run(self) -> None:
+        self._handler = self._new_handler()
         await self._handler.start_async()  # opens the socket; returns on disconnect
 
     async def stop(self) -> None:
-        await self._handler.close_async()
+        handler, self._handler = self._handler, None
+        if handler is not None:
+            await handler.close_async()
+
+    def _new_handler(self) -> AsyncSocketModeHandler:
+        return AsyncSocketModeHandler(self._app, self._app_token)
 
     # -- registration -------------------------------------------------------
 

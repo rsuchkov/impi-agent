@@ -151,8 +151,8 @@ class _Clicks:
         self.answer = answer
         self.sent: list[tuple] = []
 
-    async def forward_click(self, url, kind, token, value, user_id):
-        self.sent.append((url, kind, token, value, user_id))
+    async def forward_click(self, url, kind, token, value, user_id, gateway):
+        self.sent.append((url, kind, token, value, user_id, gateway))
         return self.answer
 
 
@@ -170,12 +170,12 @@ async def test_a_click_on_another_replicas_question_is_handed_to_that_replica(tm
     )
     try:
         assert await dispatcher.resolve_approval("b2.tok", ANSWER_ONCE, APPROVER) is ApprovalOutcome.RESOLVED
-        assert clicks.sent == [("http://pod-b:8428", ClickKind.APPROVAL, "b2.tok", ANSWER_ONCE, APPROVER)]
+        assert clicks.sent == [("http://pod-b:8428", ClickKind.APPROVAL, "b2.tok", ANSWER_ONCE, APPROVER, "")]
         clicks.answer = ForwardedClick.NOT_ALLOWED
         assert await dispatcher.resolve_approval("b2.tok", ANSWER_ONCE, STRANGER) is ApprovalOutcome.NOT_ALLOWED
         clicks.answer = ForwardedClick.RESOLVED
         assert await dispatcher.resolve_pending("b2.tok2", "yes") is True
-        assert clicks.sent[-1] == ("http://pod-b:8428", ClickKind.PENDING, "b2.tok2", "yes", "")
+        assert clicks.sent[-1] == ("http://pod-b:8428", ClickKind.PENDING, "b2.tok2", "yes", "", "")
         clicks.answer = ForwardedClick.NOT_MINE
         assert await dispatcher.resolve_pending("b2.tok3", "yes") is False
         sent = len(clicks.sent)
@@ -317,4 +317,25 @@ async def test_a_window_picked_from_the_dropdown_reaches_the_broker(
         assert (answer.allowed, answer.grant_s) == (True, 300)
     finally:
         await server.stop()
+        await store.close()
+
+
+class _People:
+    """One person under two ids: a caller's key on http, a Slack id on Slack."""
+
+    def key(self, gateway: str, user_id: str) -> str:
+        return {("slack", "U0123"): "roman.s"}.get((gateway, user_id), user_id)
+
+
+async def test_a_click_is_judged_by_the_person_not_the_platform_id(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    approvals = PendingApprovals()
+    try:
+        dispatcher = _dispatcher(store, approvals, people=_People())
+        approvals.register("tok-1", kind="tool", principal="assistant", scopes=("t",), approvers=frozenset({"roman.s"}))
+        # The same person from Slack, under their Slack id — allowed; a Slack id
+        # the application does not know is still a stranger.
+        assert await dispatcher.resolve_approval("tok-1", ANSWER_DENY, "U0999", gateway="slack") is ApprovalOutcome.NOT_ALLOWED
+        assert await dispatcher.resolve_approval("tok-1", ANSWER_ONCE, "U0123", gateway="slack") is ApprovalOutcome.RESOLVED
+    finally:
         await store.close()

@@ -111,14 +111,14 @@ async def test_a_forwarded_click_is_answered_by_the_dispatcher_here(tmp_path: Pa
     forwarder = HubForwarder("shared")
     try:
         dispatcher.approval_outcome = ApprovalOutcome.NOT_ALLOWED
-        answer = await forwarder.forward_click("http://127.0.0.1:8572", ClickKind.APPROVAL, "a1.tok", "once", "U9")
+        answer = await forwarder.forward_click("http://127.0.0.1:8572", ClickKind.APPROVAL, "a1.tok", "once", "U9", "slack")
         assert answer is ForwardedClick.NOT_ALLOWED
-        assert dispatcher.approvals == [("a1.tok", "once", "U9")]
+        assert dispatcher.approvals == [("a1.tok", "once", "U9", "slack")]  # the clicker and their gateway
         dispatcher.resolves = True
-        assert await forwarder.forward_click("http://127.0.0.1:8572", ClickKind.PENDING, "a1.tok2", "yes", "U9") is ForwardedClick.RESOLVED
+        assert await forwarder.forward_click("http://127.0.0.1:8572", ClickKind.PENDING, "a1.tok2", "yes", "U9", "") is ForwardedClick.RESOLVED
         assert dispatcher.pending == [("a1.tok2", "yes")]
         dispatcher.resolves = False
-        assert await forwarder.forward_click("http://127.0.0.1:8572", ClickKind.PENDING, "a1.tok3", "yes", "U9") is ForwardedClick.NOT_MINE
+        assert await forwarder.forward_click("http://127.0.0.1:8572", ClickKind.PENDING, "a1.tok3", "yes", "U9", "") is ForwardedClick.NOT_MINE
     finally:
         await forwarder.aclose()
         await hub.stop()

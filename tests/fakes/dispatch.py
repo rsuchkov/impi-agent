@@ -38,8 +38,9 @@ class FakeDispatcher:
         self._command_result = command_result
         self._redrawn = redrawn
 
-    async def resolve_approval(self, token, value, user_id):
+    async def resolve_approval(self, token, value, user_id, *, gateway=""):
         self.calls.append(("resolve_approval", token, value, user_id))
+        self.gateways.append(gateway)
         return self._approval
 
     async def resolve_pending(self, token, value) -> bool:

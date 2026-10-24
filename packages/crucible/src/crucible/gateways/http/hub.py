@@ -586,7 +586,7 @@ class HttpHub:
         context: Mapping[str, Any] = action.context
         if context.get(APPROVAL_KEY):
             outcome = await self._dispatcher.resolve_approval(
-                str(context[APPROVAL_KEY]), value, caller.user_id
+                str(context[APPROVAL_KEY]), value, caller.user_id, gateway=GATEWAY_HTTP
             )
             if outcome is ApprovalOutcome.NOT_MINE:
                 self._retire(turn, post_id, "These controls are no longer active.")

@@ -212,7 +212,7 @@ class InteractionsServer:
         # card once it has the answer, so nothing is replaced from here.
         if cb.approval:
             outcome = await self._dispatcher.resolve_approval(
-                cb.approval, cb.value, cb.user_id
+                cb.approval, cb.value, cb.user_id, gateway=self._codec.gateway
             )
             if outcome is ApprovalOutcome.NOT_ALLOWED:
                 return web.json_response(self._codec.reply_notice(NOT_AN_APPROVER_TEXT))

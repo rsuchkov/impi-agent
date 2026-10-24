@@ -53,12 +53,12 @@ class FakeDispatcher:
     def __init__(self) -> None:
         self.pending: list[tuple[str, str]] = []
         self.consumed: list[tuple[str, str, str, str]] = []
-        self.approvals: list[tuple[str, str, str]] = []
+        self.approvals: list[tuple[str, str, str, str]] = []
         self.approval_outcome = ApprovalOutcome.RESOLVED
         self.resolves = True
 
-    async def resolve_approval(self, token, value, user_id):
-        self.approvals.append((token, value, user_id))
+    async def resolve_approval(self, token, value, user_id, *, gateway=""):
+        self.approvals.append((token, value, user_id, gateway))
         return self.approval_outcome
 
     async def resolve_pending(self, token, value) -> bool:
@@ -327,7 +327,7 @@ async def test_a_click_on_a_credential_request_is_an_approval() -> None:
                 {"postId": post_id, "actionId": "once", "value": "once"},
             )
             assert (status, answer) == (200, {"outcome": "not_allowed"})
-            assert dispatcher.approvals == [("ap-9", "once", "u-7")]
+            assert dispatcher.approvals == [("ap-9", "once", "u-7", "http")]
             assert dispatcher.pending == []  # never mistaken for a plain widget
     finally:
         await hub.stop()

@@ -50,6 +50,7 @@ from crucible.approvals import (
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.service import conversation_ref
 from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.keying import PersonKey, PlatformPerson
 from crucible.ports.chat.types import (
     VERDICT_EXPIRED,
     VERDICT_WITHDRAWN,
@@ -103,6 +104,7 @@ class ToolGate:
         max_grant_s: int = 900,
         approvers: frozenset[str] = frozenset(),
         replica_id: str = "",
+        people: PersonKey | None = None,
     ) -> None:
         self._presence = presence
         self._sessions = sessions
@@ -111,6 +113,9 @@ class ToolGate:
         self._callback_url = callback_url
         self._timeout = timeout_s
         self._replica_id = replica_id  # in front of every token minted here
+        # Who a platform id is: the asker on one gateway and the clicker on
+        # another are compared as persons, not as ids.
+        self._people: PersonKey = people or PlatformPerson()
         # Shorter than a secret's ceiling by default: "let it use bash for a
         # while" is a broader permission than one named credential.
         self._max_grant_s = max_grant_s
@@ -201,7 +206,9 @@ class ToolGate:
         # newest of a merged burst; a scheduled turn's creator). A record that
         # never had a user leaves the set empty: anyone in the conversation.
         who = self._approvers or (
-            frozenset({record.last_user_id}) if record.last_user_id else frozenset()
+            frozenset({self._people.key(record.last_gateway, record.last_user_id)})
+            if record.last_user_id
+            else frozenset()
         )
         future = self._approvals.register(
             token, kind=KIND_TOOL, principal=agent, scopes=(tool,), approvers=who

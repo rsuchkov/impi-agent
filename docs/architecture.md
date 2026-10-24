@@ -365,6 +365,8 @@ chat client that came with it, and the conversation's record remembers its
 address on each gateway and which one spoke last (`SessionRecord.gateways`,
 `last_gateway`). Which messages are one conversation is a port the application
 fills (`ports/chat/keying.ConversationKey`; the platform's own id by default),
+as is which platform ids are one person (`PersonKey`, asked when a click on a
+confirmation card is judged),
 and the flow and the coalescer key by the same answer. The presence an agent
 has (`AgentSink`) carries one chat client per gateway and a default; whatever
 posts for an agent outside a turn — a widget, a file, a turn the engine

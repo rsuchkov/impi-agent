@@ -272,21 +272,14 @@ async def test_a_reactor_without_a_profile_is_named_by_id_only() -> None:
 
 
 async def test_the_gateway_has_reactions_only_with_a_map_and_a_dispatcher() -> None:
-    handlers = []
-
     def gateway(**kwargs):
         app = AsyncApp(token="xoxb-fake", signing_secret="x" * 16)
         _APPS.append(app)
-        gw = SlackGateway(app, "xapp-fake", FakeSink(), FakeChat(), **kwargs)  # type: ignore[arg-type]
-        handlers.append(gw._handler)
-        return gw
+        return SlackGateway(app, "xapp-fake", FakeSink(), FakeChat(), **kwargs)  # type: ignore[arg-type]
 
-    try:
-        assert gateway().reactions is None
-        assert gateway(reaction_commands=ReactionCommands({"eyes": "summarize"})).reactions is None  # no dispatcher
-        assert gateway(dispatcher=FakeDispatcher()).reactions is None  # no map
-        assert gateway(dispatcher=FakeDispatcher(), reaction_commands=ReactionCommands()).reactions is None  # empty map
-        assert gateway(dispatcher=FakeDispatcher(), reaction_commands=ReactionCommands({"eyes": "summarize"})).reactions is not None
-    finally:
-        for handler in handlers:
-            await handler.close_async()
+    # No socket is opened until a gateway runs; the web clients are closed by the fixture.
+    assert gateway().reactions is None
+    assert gateway(reaction_commands=ReactionCommands({"eyes": "summarize"})).reactions is None  # no dispatcher
+    assert gateway(dispatcher=FakeDispatcher()).reactions is None  # no map
+    assert gateway(dispatcher=FakeDispatcher(), reaction_commands=ReactionCommands()).reactions is None  # empty map
+    assert gateway(dispatcher=FakeDispatcher(), reaction_commands=ReactionCommands({"eyes": "summarize"})).reactions is not None

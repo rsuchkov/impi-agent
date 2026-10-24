@@ -6,7 +6,23 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a leased Slack gateway runs again after it lost its lease.** The
+  Socket Mode handler was built once; `stop` closed it and slack_sdk's client
+  stays closed for good, so the next `run` — the lease taken back — waited on a
+  dead client forever and the process held the lease with no connection. Each
+  `run` now opens a handler of its own, one connection per run as before.
+- **Who may answer a card is a person, not a platform id.** One person reaches
+  an agent through several gateways under several ids — a caller's key on
+  http, a Slack id on Slack — and the card for a turn started from the panel,
+  mirrored into Slack, answered their Slack click with "not an approver".
+  `PersonKey` (`ports.chat.keying`, beside `ConversationKey`) is the
+  application's say on which ids are one person, the identity by default; the
+  tool gate names its approver through it and the dispatcher judges the clicker
+  through it, with the gateway the click came through. `TOOL_APPROVERS` is
+  compared the same way: with a `PersonKey`, list persons. **Breaks:**
+  `GatewayDispatcher.resolve_approval(..., gateway=)` and
+  `ClickForwarder.forward_click(..., gateway)` carry the click's gateway;
+  `InteractionDispatcher`, `ToolGate` and `InteractionWiring` take `people=`.
 
 ## v0.28.0 — 2026-10-24
 
