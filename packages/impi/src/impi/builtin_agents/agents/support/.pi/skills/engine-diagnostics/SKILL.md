@@ -215,7 +215,11 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   answer** — the card is addressed to the person whose message started the
   turn, or to `TOOL_APPROVERS` when set (log: `approval … may not answer
   for …`). Working as designed; the card stays live for the right person. If
-  colleagues should be able to approve, name them in `TOOL_APPROVERS`.
+  colleagues should be able to approve, name them in `TOOL_APPROVERS`. On an
+  agent with several gateways the card is in each of them, and the same person
+  clicking from another gateway is another id to the engine unless the
+  application maps them (`PersonKey`); impi does not, so answer the copy on the
+  gateway the turn was asked from.
 
 In order:
 
