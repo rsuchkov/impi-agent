@@ -61,7 +61,7 @@ def _gate_tools(
     typed tools (the runtime's own builtins, e.g. ``read``) are ignored here."""
     kept: list[str] = []
     dropped: dict[str, frozenset[str]] = {}
-    for name in tools:
+    for name in _named(registry, tools):
         tool = registry.get(name)
         if tool is None:
             continue
@@ -73,6 +73,20 @@ def _gate_tools(
         else:
             kept.append(name)
     return tuple(kept), dropped
+
+
+def _named(registry: ToolRegistry, tools: tuple[str, ...]) -> tuple[str, ...]:
+    """The declared tools by name: an entry ``<family>__*`` stands for every
+    registry tool whose name starts with ``<family>__`` (an MCP server's tools,
+    pinned when the server was declared), each once, in declared order."""
+    names: list[str] = []
+    for entry in tools:
+        if entry.endswith("__*"):
+            prefix = entry[:-1]
+            names += [n for n in registry.names() if n.startswith(prefix) and n not in names]
+        elif entry not in names:
+            names.append(entry)
+    return tuple(names)
 
 
 class ToolWiring:
@@ -175,6 +189,19 @@ class ToolWiring:
             )
         self.allowlists[spec.name] = frozenset(advertised)
         self.add_env(spec.name, {"TOOL_URL": self._tools.server_url, "TOOL_TOKEN": token})
+
+    def withdraw(self, names: Collection[str]) -> None:
+        """Take tools away from every agent that had them and rewrite the
+        manifests: for a tool whose definition is no longer the one reviewed.
+        Before any process reads a manifest, so nothing is told twice."""
+        if self.registry is None or not names:
+            return
+        gone = set(names)
+        for agent, allowed in list(self.allowlists.items()):
+            if allowed & gone:
+                kept = tuple(n for n in self.registry.names() if n in allowed - gone)
+                self.allowlists[agent] = frozenset(kept)
+                self.registry.write_manifest(self.manifests_dir, agent, kept)
 
     def add_env(self, name: str, env: dict[str, str]) -> None:
         # Extra tool env that must apply even with tools disabled (engine agents);

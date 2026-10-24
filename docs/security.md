@@ -24,7 +24,7 @@ Two facts shape everything below.
 
 ## The boundaries
 
-Four lines are drawn. Each is listed with what crosses it, what enforces it,
+Five lines are drawn. Each is listed with what crosses it, what enforces it,
 and what it does not hold against.
 
 ### The model and the engine
@@ -174,6 +174,29 @@ apart, not their network: both reach whatever the deployment's network
 reaches. Turn the containers on for a network of their own, or do not give
 the first one a shell.
 
+### An MCP server and the engine
+
+What crosses: the arguments of a call the model made, the headers the server's
+entry names (a deployment credential from the `MCP_` family, or the token of
+the person whose turn it is), and back, the server's answer. Nothing else: the
+engine asks a server for `tools/list` and `tools/call` only, and answers a
+request the server sends back with "method not found".
+
+Enforced by: the definitions the model reads are the ones pinned when the
+server was declared, not the server's current word — an untrusted server whose
+tools changed has them withdrawn until a person reviews the change (`trust:
+trusted` opts out, for a server your own team runs); every result comes
+wrapped as a stranger's text; a tool the entry names in `confirm:`, or the
+server marks destructive, waits for a person's card; the token of a person is
+fetched for the call and sent on a connection of that call alone. The runtime
+never meets a server: `--no-mcp` stays on every process.
+
+Does not hold against: what the server does with a call it was allowed to
+receive — it is a service the deployment chose, as a tool's own code is. A
+server on stdio is a child of the engine, not of an agent: it runs with the
+engine's rights (not confined) and sees `PATH` and the variables its entry
+names, nothing else of the engine's environment.
+
 ### The deployment and the outside
 
 What crosses: chat traffic (the engine holds a bot token per agent and calls
@@ -279,7 +302,7 @@ decisions an operator makes.
 | every door compares its token in constant time | the http and WebSocket gateways, the tool server, the agent host relay, the session proof |
 | the log names, it does not replay | a click's token is logged by its first characters; a command's text only at DEBUG; every line of the engine's and the broker's log goes through `crucible.redaction` first, which replaces what looks like a token, a proof, a password, a receiver's secret path or a private key — a heuristic that narrows a leak, not a licence to log a secret |
 | the callback receivers answer only under a secret path | a Mattermost callback carries no signature and names its own user; `INTEGRATIONS_SECRET` (engine) and `WARD_CALLBACK_SECRET` (broker) are what make that claim one only the platform can make |
-| no MCP (`--no-mcp` on every runtime process), no plugin-bundled servers | the runtime's tool surface is the manifest and nothing else: an `mcp.json` in the runtime's own directory or in a profile's `.pi/` starts no server and adds no tool |
+| no MCP in the runtime (`--no-mcp` on every process), no plugin-bundled servers; an MCP server's tools come through the engine, pinned ([mcp.md](mcp.md)) | the runtime's tool surface is the manifest and nothing else: an `mcp.json` in the runtime's own directory or in a profile's `.pi/` starts no server and adds no tool |
 
 **Your decisions**
 
@@ -300,6 +323,15 @@ decisions an operator makes.
 ## Known limits
 
 Things the design does not solve, stated so nobody relies on them by accident.
+
+- **An MCP server on stdio runs as the engine.** It is a child of the engine
+  process with the engine's rights and no confinement of its own — a service
+  the deployment installed, trusted like the engine's code. A server that
+  should see less runs over HTTP, elsewhere.
+- **A trusted MCP server's words reach the model unreviewed.** `trust: trusted`
+  takes the server's tool definitions as they come at every start; a server
+  that turns hostile changes what the model is told. The default, untrusted,
+  withdraws changed tools until a person looks.
 
 - **Confinement needs Landlock.** A kernel without it (older than 5.13, or
   with Landlock left out of the boot's LSM list) runs every process

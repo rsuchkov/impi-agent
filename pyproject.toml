@@ -189,6 +189,23 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "MCP servers are a source of tools — the tool port and the chat vocabulary, no runtime, gateway, flow, store or engine machinery"
+type = "forbidden"
+source_modules = ["crucible.mcp"]
+forbidden_modules = [
+    "crucible.runtimes",
+    "crucible.gateways",
+    "crucible.flows",
+    "crucible.interactions",
+    "crucible.store",
+    "crucible.profiles",
+    "crucible.scheduler",
+    "crucible.tools.server",
+    "crucible.tools.wiring",
+    "crucible.tools.registry",
+]
+
+[[tool.importlinter.contracts]]
 name = "chat is a pure vocabulary, depends on nothing"
 type = "forbidden"
 source_modules = ["crucible.ports.chat"]
@@ -212,6 +229,7 @@ name = "The tool layer depends only on ports, not on platform/engine concretes"
 type = "forbidden"
 source_modules = ["crucible.tools", "crucible.builtin_tools"]
 forbidden_modules = [
+    "crucible.mcp",
     # A tool reaches connected accounts through crucible.ports.connections; the
     # machinery behind it needs the store, and importing the package would
     # load it — the breach import-linter cannot see on its own.
@@ -243,7 +261,7 @@ forbidden_modules = [
 name = "Profile loading is runtime-agnostic (produces neutral AgentSpec, not a pi profile)"
 type = "forbidden"
 source_modules = ["crucible.profiles"]
-forbidden_modules = ["crucible.runtimes.pi"]
+forbidden_modules = ["crucible.runtimes.pi", "crucible.mcp"]
 
 [[tool.importlinter.contracts]]
 name = "The scheduler works through ports and the store, never through concretes"

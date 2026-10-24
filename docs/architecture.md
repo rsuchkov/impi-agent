@@ -202,7 +202,11 @@ the modules the deployment offers — `build_registry(builtin_tools, my_tools)`,
 plus a list of instances it configured itself — into the `ToolWiring`. The
 mark registers nothing; it says the class is a tool the root may list, not a
 base or a helper. A forgotten module is a missing name in that call, not a
-tool that quietly vanished. At runtime:
+tool that quietly vanished. A tool may also be an MCP server's
+(`crucible.mcp`): the root lists the servers' pinned definitions as instances
+(`McpServers.registry_tools()`), named `mcp__<server>__<tool>`, each calling
+its server when run — the same registry, the same server, the same gate;
+`docs/mcp.md`. At runtime:
 
 - Each agent gets a per-agent **manifest** (the tools it may use) and a secret
   **token**, injected into its `pi` subprocess env; each conversation's

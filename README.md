@@ -190,6 +190,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/building-an-app.md](docs/building-an-app.md) — a bot of your own on the `crucible` library.
 - [docs/creating-agents.md](docs/creating-agents.md) — write and register an agent.
 - [docs/skills.md](docs/skills.md) — the shared skill library and `/skills`.
+- [docs/mcp.md](docs/mcp.md) — tools from MCP servers, declared once and named like any other.
 - [docs/tasks.md](docs/tasks.md) — scheduled and recurring work, and why a run didn't happen.
 - [docs/secrets.md](docs/secrets.md) — credentials an agent can use but never read.
 - [docs/connections.md](docs/connections.md) — people's own accounts at an OAuth provider, for tools acting as them.

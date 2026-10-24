@@ -796,6 +796,12 @@ class Settings(BaseSettings):
             return Path(self.skills_path)
         return Path(self.agents_path or ".") / "_skills"
 
+    @property
+    def resolved_mcp_path(self) -> Path:
+        """The MCP servers the deployment declares (``docs/mcp.md``): ``_mcp``
+        beside the agents, one YAML and one snapshot per server."""
+        return Path(self.agents_path or ".") / "_mcp"  # crucible.mcp.library.MCP_DIR
+
 
 def load_settings() -> Settings:
     """Build a Settings instance from the current environment / .env."""

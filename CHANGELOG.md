@@ -6,7 +6,26 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Tools from MCP servers.** An operator declares a server once —
+  `impi mcp add github --url … --header 'Authorization=Bearer ${MCP_GITHUB_TOKEN}'`,
+  or `--command 'uvx …'` for one on stdio — and an agent names its tools in
+  `runtime.tools` as `mcp__github__*` or one at a time. The engine is the MCP
+  client (the runtime keeps `--no-mcp`): each tool stands in the registry like
+  the engine's own and is called through the tool server, so the allowlist, a
+  conversation's entitlement, the confirmation card (named in the server's
+  `confirm:` or marked `destructiveHint` by the server), the trace and the
+  untrusted-result wrapping all apply. What a server says about its tools is
+  pinned in `_mcp/<name>.lock.json` when it is declared; an `untrusted` server
+  (the default) whose tools changed has them withdrawn at start until someone
+  reviews and runs `impi mcp refresh`, a `trusted` one has its snapshot follow.
+  A header may be the person's own token (`${connection:<provider>}`), fetched
+  per call. The client speaks protocol revision 2026-07-28 (stateless, per-request
+  metadata) and falls back to the 2025-11-25 handshake for a server of that
+  era. Only `tools/list` and `tools/call`; no resources, prompts, sampling,
+  elicitation or OAuth. New: `crucible.mcp`, `docs/mcp.md`, `impi mcp`, the `MCP_`
+  environment family (reserved from `RUNTIME_ENV`), `Settings.
+  resolved_mcp_path`, `ToolWiring.withdraw`; `runtime.tools` accepts the one
+  pattern `mcp__<server>__*`; `engine_tool_registry(extra)`.
 
 ## v0.29.0 — 2026-10-24
 

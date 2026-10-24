@@ -26,7 +26,7 @@ _FAMILY = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}\*")
 # the settings; ``tests/test_inherited_env.py`` holds the two in step.
 RESERVED_PREFIXES = (
     "AGENTS_", "MATTERMOST_", "SLACK_", "TOOL_", "INTEGRATIONS_",
-    "HTTP_CALLER_", "WS_SERVICE_", "COMMAND_TOKENS", "DB_", "LLM_", "REPLICA_",
+    "HTTP_CALLER_", "WS_SERVICE_", "COMMAND_TOKENS", "DB_", "LLM_", "REPLICA_", "MCP_",
 )
 
 

@@ -15,8 +15,10 @@ import base64
 import getpass
 import os
 import secrets
+import shlex
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -24,6 +26,20 @@ from pydantic import ValidationError
 
 from crucible import sessions_cli
 from crucible.confinement import landlock_abi
+from crucible.mcp import (
+    TRUST_TRUSTED,
+    TRUST_UNTRUSTED,
+    McpClient,
+    McpConfigError,
+    McpError,
+    McpLibrary,
+    McpServer,
+    Snapshot,
+    expand,
+    server_from_yaml,
+    tool_name,
+)
+from crucible.mcp.service import default_transport
 from crucible.ports.agent import AgentSpec
 from crucible.ports.tasks import TaskError
 from crucible.process_scopes import AgentProcessScopes
@@ -676,6 +692,138 @@ def _cmd_ws_add_service(args: argparse.Namespace) -> int:
 # --- impi http add-caller ---------------------------------------------------------
 
 
+# -- mcp -----------------------------------------------------------------------
+
+
+def _mcp_library(args: argparse.Namespace) -> McpLibrary:
+    settings = _settings()
+    root = getattr(args, "agents_dir", None)
+    return McpLibrary(Path(root) / "_mcp" if root else settings.resolved_mcp_path)
+
+
+def _pairs(entries: list[str], what: str) -> dict[str, str]:
+    pairs: dict[str, str] = {}
+    for entry in entries:
+        key, sep, value = entry.partition("=")
+        if not sep or not key.strip():
+            _fail(f"{what}: {entry!r} is not NAME=VALUE")
+            raise SystemExit(2)
+        pairs[key.strip()] = value
+    return pairs
+
+
+async def _pin_server(library: McpLibrary, server: McpServer) -> Snapshot:
+    """Connect, list the tools, and write the snapshot the engine will advertise."""
+    client = McpClient(default_transport(expand(server, dict(os.environ))))
+    try:
+        tools = await client.list_tools()
+        snapshot = Snapshot.taken(
+            server.name, tools, datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            client.server_info,
+        )
+    finally:
+        await client.close()
+    library.save_snapshot(snapshot)
+    return snapshot
+
+
+def _print_tools(snapshot: Snapshot) -> None:
+    for tool in snapshot.tools:
+        hint = " ⚠ destructive" if tool.annotations.get("destructiveHint") else ""
+        print(f"  {tool_name(snapshot.server, tool.name)}{hint}")
+        if tool.description:
+            print(f"      {tool.description.splitlines()[0][:110]}")
+
+
+def _cmd_mcp_list(args: argparse.Namespace) -> int:
+    library = _mcp_library(args)
+    servers = library.list()
+    if not servers:
+        print(f"no MCP servers declared under {library.root}")
+        return 0
+    for server in servers:
+        snapshot = library.snapshot(server.name)
+        where = server.url or f"{server.command} {' '.join(server.args)}".strip()
+        pinned = f"{len(snapshot.tools)} tools pinned {snapshot.taken_at}" if snapshot else "NO SNAPSHOT"
+        print(f"{server.name}  [{server.trust}]  {where}  — {pinned}")
+    return 0
+
+
+def _cmd_mcp_show(args: argparse.Namespace) -> int:
+    library = _mcp_library(args)
+    server = library.get(args.name)
+    if server is None:
+        _fail(f"no MCP server {args.name!r} under {library.root}")
+        return 2
+    snapshot = library.snapshot(server.name)
+    print(f"{server.name}  [{server.trust}]  {server.url or server.command}")
+    if server.confirm:
+        print(f"  confirm: {', '.join(server.confirm)}")
+    if snapshot is None:
+        print("  no snapshot: run `impi mcp refresh` to pin its tools")
+        return 0
+    print(f"  {len(snapshot.tools)} tools pinned {snapshot.taken_at} ({snapshot.digest[:12]})")
+    _print_tools(snapshot)
+    return 0
+
+
+def _cmd_mcp_add(args: argparse.Namespace) -> int:
+    library = _mcp_library(args)
+    if library.get(args.name) is not None and not args.force:
+        _fail(f"MCP server {args.name!r} exists; --force replaces it")
+        return 2
+    if bool(args.url) == bool(args.command):
+        _fail("give either --url or --command")
+        return 2
+    command, *cmd_args = shlex.split(args.command) if args.command else [""]
+    try:
+        server = server_from_yaml(
+            args.name,
+            {
+                "url": args.url or "", "headers": _pairs(args.header, "--header"),
+                "command": command, "args": cmd_args, "env": _pairs(args.env, "--env"),
+                "trust": TRUST_TRUSTED if args.trusted else TRUST_UNTRUSTED,
+                "confirm": args.confirm, "description": args.description,
+            },
+        )
+        snapshot = asyncio.run(_pin_server(library, server))
+    except (McpConfigError, McpError) as exc:
+        _fail(str(exc))
+        return 1
+    path = library.write(server)
+    print(f"declared {server.name} ({server.trust}) in {path}; {len(snapshot.tools)} tools pinned:")
+    _print_tools(snapshot)
+    print(f"name them in an agent's runtime.tools: mcp__{server.name}__* or one at a time")
+    return 0
+
+
+def _cmd_mcp_refresh(args: argparse.Namespace) -> int:
+    library = _mcp_library(args)
+    server = library.get(args.name)
+    if server is None:
+        _fail(f"no MCP server {args.name!r} under {library.root}")
+        return 2
+    before = library.snapshot(server.name)
+    try:
+        snapshot = asyncio.run(_pin_server(library, server))
+    except (McpConfigError, McpError) as exc:
+        _fail(str(exc))
+        return 1
+    changed = before is None or before.digest != snapshot.digest
+    print(f"{server.name}: {len(snapshot.tools)} tools pinned" + (" (changed)" if changed else " (unchanged)"))
+    _print_tools(snapshot)
+    return 0
+
+
+def _cmd_mcp_remove(args: argparse.Namespace) -> int:
+    library = _mcp_library(args)
+    if not library.remove(args.name):
+        _fail(f"no MCP server {args.name!r} under {library.root}")
+        return 2
+    print(f"removed {args.name}; agents naming mcp__{args.name}__… lose those tools at the next start")
+    return 0
+
+
 def _cmd_http_add_caller(args: argparse.Namespace) -> int:
     settings = _settings()
     return _register_caller(
@@ -1187,6 +1335,44 @@ def _build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--yes", action="store_true", help="don't ask")
         if name == "remove":
             cmd.add_argument("--force", action="store_true", help="remove even if assigned")
+        cmd.set_defaults(func=handler)
+
+    mcp = sub.add_parser("mcp", help="MCP servers whose tools agents may name")
+    mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
+    for name, help_text, handler in (
+        ("list", "every declared server, its trust and how many tools are pinned", _cmd_mcp_list),
+        ("show", "one server's pinned tools", _cmd_mcp_show),
+        ("add", "declare a server and pin its tools (connects to it)", _cmd_mcp_add),
+        ("refresh", "connect again and pin the server's tools as they are now", _cmd_mcp_refresh),
+        ("remove", "forget a server and its snapshot", _cmd_mcp_remove),
+    ):
+        cmd = mcp_sub.add_parser(name, help=help_text)
+        cmd.add_argument("--agents-dir", help="profiles directory (default: AGENTS_PATH)")
+        if name != "list":
+            cmd.add_argument("name", help="server name (lowercase letters, digits, _ -)")
+        if name == "add":
+            cmd.add_argument("--url", help="streamable HTTP endpoint")
+            cmd.add_argument(
+                "--header", action="append", default=[], metavar="NAME=VALUE",
+                help="a request header; ${VAR} is read from the engine's environment, "
+                "${connection:<provider>} becomes the person's token at that provider",
+            )
+            cmd.add_argument("--command", help="a stdio server: the command line to start it")
+            cmd.add_argument(
+                "--env", action="append", default=[], metavar="NAME=VALUE",
+                help="an environment variable for a stdio server; ${VAR} as above",
+            )
+            cmd.add_argument(
+                "--trusted", action="store_true",
+                help="take the server's tool definitions as they come; the default pins them "
+                "and withdraws the tools when they change",
+            )
+            cmd.add_argument(
+                "--confirm", action="append", default=[], metavar="PATTERN",
+                help="tool names (patterns with *) a person must confirm before they run",
+            )
+            cmd.add_argument("--description", default="", help="what the server offers, in a sentence")
+            cmd.add_argument("--force", action="store_true", help="replace a server of that name")
         cmd.set_defaults(func=handler)
 
     task = sub.add_parser("task", help="scheduled and recurring work")

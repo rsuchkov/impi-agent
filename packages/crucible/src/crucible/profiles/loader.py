@@ -8,6 +8,7 @@ settings) that the engine never reads.
 """
 
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -18,6 +19,9 @@ from crucible.ports.agent.confinement import ConfinementLevel, check_confinement
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
 from crucible.profiles.errors import ProfileError
+
+# Every tool of one declared MCP server, as runtime.tools may name them.
+_SERVER_TOOLS = re.compile(r"^mcp__[a-z0-9][a-z0-9_-]*__\*$")
 
 logger = logging.getLogger(__name__)
 
@@ -175,11 +179,15 @@ class FsProfileStore:
         for tool in tools:
             # The list is the whole allowlist, so every entry names one tool.
             # A pattern, or an entry that edits the runtime's defaults, would
-            # hand the agent tools nobody named.
+            # hand the agent tools nobody named. The one pattern allowed names
+            # a whole MCP server — `mcp__<server>__*` — whose tools the
+            # operator pinned when they declared the server.
+            if _SERVER_TOOLS.match(tool):
+                continue
             if "*" in tool or tool.strip().startswith(("+", "-")):
                 raise ProfileError(
-                    f"{manifest}: runtime.tools entry {tool!r}: name each tool — no patterns, "
-                    "no +/- edits of the runtime's defaults"
+                    f"{manifest}: runtime.tools entry {tool!r}: name each tool — no patterns "
+                    "(but `mcp__<server>__*`), no +/- edits of the runtime's defaults"
                 )
         skills = runtime.get("skills") or []
         if not isinstance(skills, list) or not all(isinstance(s, str) for s in skills):

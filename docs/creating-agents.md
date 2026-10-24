@@ -88,6 +88,9 @@ to put a package in. The same goes for a `Dockerfile.include` beside
   `.env` names what loads, and the engine logs what is present but not named.
   `impi doctor` lists both.
 - the engine's typed tools (e.g. the multi-agent choreography tools).
+- the tools of an MCP server the deployment declared (`impi mcp add`, see
+  [mcp.md](mcp.md)): `mcp__<server>__<tool>`, or every pinned tool of a server
+  as `mcp__<server>__*` — the one pattern the list accepts.
 
 Naming a tool is the only way to enable it; an **empty list means the agent gets
 no tools at all**. Two rules to remember:
