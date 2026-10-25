@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.31.0 — 2026-10-25
+
 - **Fixed: a confirmation card on a conversation's first turn could not be
   answered by the person who asked.** Who may answer a card is the person whose
   turn it is, as a person of the gateway they wrote from — but the record's
