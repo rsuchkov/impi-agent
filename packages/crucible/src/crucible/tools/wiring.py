@@ -15,6 +15,7 @@ A convenience for composition roots; an app may wire the registry/server by hand
 import logging
 import secrets
 from collections.abc import Collection
+from pathlib import Path
 
 from crucible.approvals.ports import ToolApproving
 from crucible.config import ToolSettings
@@ -121,6 +122,7 @@ class ToolWiring:
         # definitions are no longer the reviewed ones): a reload re-gates from
         # the profile and must not hand them back.
         self.withdrawn: set[str] = set()
+        self._specs: dict[str, AgentSpec] = {}  # each enrolled agent's profile, for a re-gate
         self.caps: dict[str, frozenset[str]] = {}  # agent -> capability set
         # Widgets/forms exist iff the integrations receiver is on; chat_admin only on
         # gateways that provide it (Mattermost, not Slack) — added per agent in enroll.
@@ -174,6 +176,7 @@ class ToolWiring:
         # on Slack gets no channel administration even though Mattermost's is
         # in the same process.
         self.gateway_admins.setdefault(spec.name, {})[gateway] = admin
+        self._specs[spec.name] = spec
         # base (widgets/forms) + chat-admin if this gateway has an admin client +
         # whatever extra capabilities its kind advertises (e.g. ephemeral)...
         # minus what the gateway cannot honour however the deployment is set
@@ -209,6 +212,15 @@ class ToolWiring:
                 self.allowlists[agent] = frozenset(kept)
                 self.registry.write_manifest(self.manifests_dir, agent, kept)
 
+    def restore(self, names: Collection[str]) -> None:
+        """Hand back tools ``withdraw`` took — a review pinned them again — to
+        every agent whose profile names them, allowlists and manifests both."""
+        if self.registry is None or not names:
+            return
+        self.withdrawn -= set(names)
+        for spec in self._specs.values():
+            self._gate(spec)
+
     def refresh_manifests(self) -> None:
         """Rewrite every enrolled agent's manifest from the registry as it is
         now: for a tool whose definition moved (a trusted MCP server's)."""
@@ -233,16 +245,21 @@ class ToolWiring:
             extra = self.envs.get(spec.name)
             return dict(extra) if extra else None
         # Manifest re-derived here so a hot-reload re-filters the advertised tools.
+        self._specs[spec.name] = spec
+        return {**self.envs[spec.name], MANIFEST_ENV: str(self._gate(spec))}
+
+    def _gate(self, spec: AgentSpec) -> Path:
+        """The agent's allowlist and manifest from its profile as the registry
+        stands now. The server's gate must move with the manifest: the tool
+        server holds the mapping by reference, so a tool added to a profile and
+        hot-reloaded is advertised AND callable, instead of being answered with
+        403 until the next restart."""
+        assert self.registry is not None
         advertised, _ = _gate_tools(
             self.registry, spec.tools, self.caps.get(spec.name, frozenset()), self.withdrawn
         )
-        # The server's gate must move with the manifest: the tool server holds this
-        # mapping by reference, so a tool added to a profile and hot-reloaded is
-        # advertised AND callable, instead of being answered with 403 until the
-        # next restart.
         self.allowlists[spec.name] = frozenset(advertised)
-        path = self.registry.write_manifest(self.manifests_dir, spec.name, advertised)
-        return {**self.envs[spec.name], MANIFEST_ENV: str(path)}
+        return self.registry.write_manifest(self.manifests_dir, spec.name, advertised)
 
     def session_env(
         self, agent: str, runtime_session_id: str, tools: Collection[str] | None

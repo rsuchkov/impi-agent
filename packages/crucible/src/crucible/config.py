@@ -392,6 +392,9 @@ class Settings(BaseSettings):
     # Where agents reach the tool server, when that is not where it binds. Set
     # when the agents run in containers of their own; empty otherwise.
     tool_public_url: str = ""
+    # How often the MCP servers' tools are compared with their snapshots again
+    # (seconds; 0 = only when a server says they changed or the operator reloads).
+    mcp_recheck_s: float = 300.0
 
     # Agent containers. Off = every agent's runtime is a child process of this
     # one, which is what a deployment made before this existed keeps doing.

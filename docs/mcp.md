@@ -64,8 +64,8 @@ runs on.
 `impi mcp list` shows every server, its trust and how many tools are pinned;
 `impi mcp show <name>` the tools; `impi mcp refresh <name>` connects again and
 pins the tools as they are now; `impi mcp remove <name>` forgets the server.
-A new or removed server needs an engine restart; a changed snapshot is read at
-the next start too.
+A refreshed snapshot is read at `impi reload`; a new or removed server, and a
+tool a server gained, need an engine restart (the registry is built at start).
 
 ## Give an agent the tools
 
@@ -85,14 +85,24 @@ Everything else in the list is named one by one as before.
 
 Every server has a trust level, `untrusted` unless `--trusted` was given:
 
-- **untrusted** — the snapshot is the truth. At every start the engine
-  connects, lists the tools and compares the digest; a server whose tools
-  differ has **all of them withdrawn** from every agent (the log says so, with
-  `ERROR`), until someone reviews the change and runs `impi mcp refresh`. A
-  server nobody pinned (`_mcp/<name>.yaml` without its lock) advertises
-  nothing.
+- **untrusted** — the snapshot is the truth. The engine connects, lists the
+  tools and compares the digest — at start and again in the life of the
+  process (below); a server whose tools differ has **all of them withdrawn**
+  from every agent (the log says so, with `ERROR`), until someone reviews the
+  change, runs `impi mcp refresh` and then `impi reload`, which hands them
+  back. A server back to its snapshot on its own stays withdrawn: nobody
+  looked. A server nobody pinned (`_mcp/<name>.yaml` without its lock)
+  advertises nothing.
 - **trusted** — the server's word is taken: a changed definition rewrites the
-  snapshot at start and the tools follow it. For a server your own team runs.
+  snapshot and the tools follow it, at start and at every recheck. For a
+  server your own team runs.
+
+The check runs again every `MCP_RECHECK_S` seconds (300; 0 for no timer), not
+more often than a server's own `ttlMs` on its listing allows; at once when a
+server on stdio sends `notifications/tools/list_changed`; and at `impi
+reload`, which is the one check that reads the snapshots from disk again — the
+operator's review. A server that could not be reached is said once in the log,
+and once more when it is reached again.
 
 A server that cannot be reached at start keeps its tools advertised, as any
 service that is down would; each call answers with the error

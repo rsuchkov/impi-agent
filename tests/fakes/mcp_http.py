@@ -29,9 +29,11 @@ class FakeMcpHttp:
     def __init__(
         self, port: int, *, tools: list[dict] | None = None, token: str = "", sse: bool = False,
         era: str = "modern", supported: tuple[str, ...] = ("2026-07-28",), reject: int = 0,
+        ttl_ms: int | None = None,
     ) -> None:
         self.port = port
         self.tools = tools if tools is not None else [ECHO, WIPE]
+        self.ttl_ms = ttl_ms  # how long a listing is fresh, when the server says
         self.token = token  # when set, the Authorization header must carry it
         self.sse = sse  # answer as a one-message event stream instead of JSON
         self.era = era
@@ -112,7 +114,7 @@ class FakeMcpHttp:
         elif method == "server/discover":
             result = {"supportedVersions": list(self.supported), "capabilities": {"tools": {}}}
         elif method == "tools/list":
-            result = {"tools": self.tools}
+            result = {"tools": self.tools, **({"ttlMs": self.ttl_ms} if self.ttl_ms is not None else {})}
         elif method == "tools/call":
             self.calls.append((params["name"], dict(params.get("arguments") or {}), dict(request.headers)))
             if params["name"] == "echo":

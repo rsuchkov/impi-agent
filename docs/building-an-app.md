@@ -544,10 +544,16 @@ credential, is another user's credential.
   whole server as `mcp__<server>__*`. At start, before the tool server:
   `report = await mcp.start()` connects every server and compares its tools
   with the snapshot; `tools.withdraw(report.withdrawn_tools)` takes the
-  changed untrusted ones out of every allowlist and manifest for the life of
-  the process, `tools.refresh_manifests()` when `report.refreshed` names a
-  trusted server whose definitions moved (`report.connected`, `unreachable`,
-  `unpinned` are for the startup log). At stop, `await mcp.stop()`. A tool
+  changed untrusted ones out of every allowlist and manifest,
+  `tools.restore(report.restored_tools)` hands back what a review pinned
+  again, `tools.refresh_manifests()` when `report.refreshed` names a trusted
+  server whose definitions moved (`report.connected`, `unreachable`,
+  `unpinned`, `skipped` are for the log). The same three calls apply every
+  later `CheckReport`: run `mcp.run(interval_s, apply)` as a supervised loop
+  (it rechecks on the timer and when a server says its tools changed) and
+  call `mcp.recheck(reviewed=True)` on your reload signal, before the profiles
+  are re-read — the one check that reads the snapshots from disk again. At
+  stop, `await mcp.stop()`. A tool
   whose header is `${connection:<provider>}` needs `connections` on the tool
   server and acts only in a direct message.
 - **Several engine processes.** A chat connection the platform pushes events

@@ -38,12 +38,24 @@ when a release is cut, and `impi update` shows the target version's section.
   comment's body was approved unseen. Such an argument is now a passage of the
   card — its lines kept, bounded as every passage is — and a program reading
   the card's fields gets it whole with `passage: true`.
+- **Added: an MCP server's tools are checked against the snapshot again in
+  the life of the process.** Every `MCP_RECHECK_S` seconds (300; `0` for no
+  timer), not more often than the server's own `ttlMs` allows; at once when a
+  server on stdio sends `notifications/tools/list_changed`; and at `impi
+  reload`, which reads the snapshots from disk again — so after `impi mcp
+  refresh` a reload, not a restart, adopts the review and hands a withdrawn
+  server's tools back (`ToolWiring.restore`). A drift found later withdraws
+  the tools then, said once; a trusted server's snapshot follows at every
+  check. An unreachable server is said once, and once more when reached again.
+  `McpServers.recheck()` and `McpServers.run()` for an application.
 - **Breaks:** `SessionStore.touch` no longer takes `gateway=`; `get_or_create`
   takes `gateway=` beside `user_id=` and records both on arrival. An
   application with a store of its own moves the write. An untrusted MCP
   server's tools that were advertised unconfirmed now raise a card, and with
   `INTEGRATIONS_ENABLED=false` are not advertised at all, until the operator
   reviews them into `safe:` (`impi mcp show <name>` lists which).
+  `crucible.mcp.StartReport` is `CheckReport` (what `start()` and `recheck()`
+  return), with `restored` and `skipped` beside the old fields.
 
 ## v0.30.0 — 2026-10-25
 

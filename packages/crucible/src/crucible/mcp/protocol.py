@@ -27,7 +27,7 @@ import base64
 import json
 import logging
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -161,9 +161,12 @@ class Transport(Protocol):
     when the caller wants a shorter wait than the transport's own. ``close``
     ends the connection; the next request opens a new one. ``probes_era`` says
     the binding cannot tell a legacy server from a modern one by a status (no
-    status to read), so the client asks ``server/discover`` first."""
+    status to read), so the client asks ``server/discover`` first.
+    ``on_notification`` is told the method of a notification the server
+    sends unasked, on a binding where one can arrive (stdio)."""
 
     probes_era: bool
+    on_notification: Callable[[str], None] | None
 
     async def request(
         self, method: str, params: Mapping[str, Any], *, version: str, timeout_s: float | None = None
@@ -216,6 +219,7 @@ class HttpTransport:
         )
         self._next_id = 0
         self.session_id = ""  # a legacy server's, once it gave one
+        self.on_notification: Callable[[str], None] | None = None  # never called: a POST carries no unasked message
 
     async def request(
         self, method: str, params: Mapping[str, Any], *, version: str, timeout_s: float | None = None
@@ -345,6 +349,7 @@ class StdioTransport:
         self._env = {"PATH": os.environ.get("PATH", ""), **dict(env or {})}
         self._cwd = cwd or None
         self._timeout_s = timeout_s
+        self.on_notification: Callable[[str], None] | None = None
         self._process: asyncio.subprocess.Process | None = None
         self._reader: asyncio.Task[None] | None = None
         self._waiting: dict[int, asyncio.Future[Mapping[str, Any]]] = {}
@@ -389,6 +394,11 @@ class StdioTransport:
                         {"jsonrpc": "2.0", "id": message["id"],
                          "error": {"code": -32601, "message": "method not found"}},
                     )
+                    continue
+                if "method" in message:
+                    # A notification: the server telling, not asking.
+                    if self.on_notification is not None:
+                        self.on_notification(str(message["method"]))
                     continue
                 rid = message.get("id")
                 waiting = self._waiting.pop(rid, None) if isinstance(rid, int) else None
@@ -459,6 +469,16 @@ class McpClient:
         self._probed = False  # the era is known (a probe, or an answer)
         self._initialized = False  # the legacy session is open
         self.server_info: Mapping[str, Any] = {}  # as the server named itself, when it did
+        self.list_ttl_s: float | None = None  # how long the last listing is fresh, by the server (ttlMs)
+
+    @property
+    def on_notification(self) -> Callable[[str], None] | None:
+        """Told the method of a notification the server sends unasked."""
+        return self._transport.on_notification
+
+    @on_notification.setter
+    def on_notification(self, callback: Callable[[str], None] | None) -> None:
+        self._transport.on_notification = callback
 
     @property
     def legacy(self) -> bool:
@@ -472,6 +492,8 @@ class McpClient:
             params: dict[str, Any] = {"cursor": cursor} if cursor else {}
             result = await self._call("tools/list", params)
             tools += [ToolDefinition.from_wire(t) for t in result.get("tools") or () if isinstance(t, Mapping)]
+            ttl = result.get("ttlMs")
+            self.list_ttl_s = ttl / 1000 if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) and ttl >= 0 else None
             cursor = result.get("nextCursor") or None
             if not cursor:
                 break

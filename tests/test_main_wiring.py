@@ -991,3 +991,29 @@ async def test_an_engine_turn_goes_to_the_default_gateway_or_where_the_conversat
         assert flow.turns[-1][1] is mm and flow.turns[-1][0][0].gateway == "mattermost"
     finally:
         await store.close()
+
+
+def test_a_check_of_the_mcp_servers_is_applied_to_what_the_agents_are_shown() -> None:
+    from crucible.mcp import CheckReport
+    from impi.app import _apply_mcp_check
+
+    class _Tools:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[str, ...]]] = []
+
+        def withdraw(self, names) -> None:
+            self.calls.append(("withdraw", tuple(names)))
+
+        def restore(self, names) -> None:
+            self.calls.append(("restore", tuple(names)))
+
+        def refresh_manifests(self) -> None:
+            self.calls.append(("refresh", ()))
+
+    tools = _Tools()
+    _apply_mcp_check(tools, CheckReport(withdrawn={"a": ("mcp__a__x",)}, restored={"b": ("mcp__b__y",)}, refreshed=["c"]))  # type: ignore[arg-type]
+    assert tools.calls == [("withdraw", ("mcp__a__x",)), ("restore", ("mcp__b__y",)), ("refresh", ())]
+    tools = _Tools()
+    _apply_mcp_check(tools, CheckReport())  # type: ignore[arg-type]
+    assert tools.calls == [("withdraw", ()), ("restore", ())]  # nothing moved: no manifest rewritten
+    assert Settings(_env_file=None, dotenv_path="x").mcp_recheck_s == 300.0  # pyright: ignore[reportCallIssue]

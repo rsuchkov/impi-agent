@@ -176,3 +176,34 @@ async def test_a_stdio_server_that_cannot_start_or_died_is_said_so() -> None:
         assert caught.value.code == UNREACHABLE
     finally:
         await client.close()
+
+
+async def test_the_client_keeps_the_listings_ttl_and_hears_a_servers_notification() -> None:
+    http = FakeMcpHttp(8594, ttl_ms=90_000)
+    await http.start()
+    client = McpClient(HttpTransport(http.url))
+    try:
+        assert client.list_ttl_s is None
+        await client.list_tools()
+        assert client.list_ttl_s == 90.0
+        http.ttl_ms = None
+        await client.list_tools()
+        assert client.list_ttl_s is None  # the server stopped saying
+    finally:
+        await client.close()
+        await http.stop()
+
+    heard: list[str] = []
+    stdio = McpClient(StdioTransport(sys.executable, [STDIO_SERVER], env={"FAKE_CHANGE_AFTER_LIST": "1"}))
+    stdio.on_notification = heard.append
+    try:
+        first = await stdio.list_tools()
+        for _ in range(200):
+            if heard:
+                break
+            await asyncio.sleep(0.01)
+        assert heard == ["notifications/tools/list_changed"]
+        second = await stdio.list_tools()
+        assert first[0].description != second[0].description
+    finally:
+        await stdio.close()

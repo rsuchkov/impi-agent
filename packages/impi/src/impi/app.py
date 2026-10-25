@@ -63,7 +63,7 @@ from crucible.interactions import (
 from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.loopguard import LoopGuard
-from crucible.mcp import McpLibrary, McpServers
+from crucible.mcp import CheckReport, McpLibrary, McpServers
 from crucible.ports.agent import (
     AgentProfile,
     AgentRuntime,
@@ -78,6 +78,7 @@ from crucible.ports.chat.gateway import (
     GATEWAY_MATTERMOST,
     GATEWAY_SLACK,
     GATEWAY_WS,
+    AgentIdentity,
 )
 from crucible.ports.lease import Leases
 from crucible.ports.replica import Replica, Replicas
@@ -900,6 +901,25 @@ def build_app(settings: ImpiSettings) -> App:
     )
 
 
+def _apply_mcp_check(tools: ToolWiring, report: CheckReport) -> None:
+    """What a check of the MCP servers found, applied to what the agents are
+    shown: withdrawn tools go from every allowlist and manifest, tools a review
+    handed back return, moved definitions reach the manifests."""
+    tools.withdraw(report.withdrawn_tools)
+    tools.restore(report.restored_tools)
+    if report.refreshed:
+        tools.refresh_manifests()
+
+
+async def _reload(app: App, identities: dict[str, AgentIdentity]) -> None:
+    """``impi reload``: the MCP servers are checked against their snapshots as
+    the operator left them on disk — a refreshed snapshot is adopted, a server
+    reviewed back in is handed back — and then every profile is re-read."""
+    if app.mcp_servers is not None and app.tools is not None:
+        _apply_mcp_check(app.tools, await app.mcp_servers.recheck(reviewed=True))
+    await app.reloader.reload(identities)
+
+
 async def _supervise(
     name: str, run_loop: Callable[[], Awaitable[None]], *, sleep=asyncio.sleep
 ) -> None:
@@ -952,9 +972,7 @@ async def run(settings: ImpiSettings) -> None:
         # manifest or a model is shown it; a trusted server's moved definitions
         # reach the manifests the same way.
         report = await app.mcp_servers.start()
-        app.tools.withdraw(report.withdrawn_tools)
-        if report.refreshed:
-            app.tools.refresh_manifests()
+        _apply_mcp_check(app.tools, report)
         logger.info(
             "mcp: %s",
             ", ".join(
@@ -997,7 +1015,7 @@ async def run(settings: ImpiSettings) -> None:
         # then signals. Installed after login so `identities` is populated.
         asyncio.get_running_loop().add_signal_handler(
             signal.SIGHUP,
-            lambda: asyncio.create_task(app.reloader.reload(identities)),
+            lambda: asyncio.create_task(_reload(app, identities)),
         )
         # SIGTERM (`make stop`, a container runtime, Kubernetes) ends THIS task
         # only, so the finally below runs while every other task — the turns in
@@ -1019,6 +1037,11 @@ async def run(settings: ImpiSettings) -> None:
             loops.append(_supervise("runtime login refresh", app.auth_refresher.run))
         if app.heartbeat is not None:
             loops.append(_supervise("replica heartbeat", app.heartbeat.run))
+        if app.mcp_servers is not None and app.tools is not None:
+            mcp, tools = app.mcp_servers, app.tools
+            loops.append(_supervise(
+                "mcp recheck", lambda: mcp.run(settings.mcp_recheck_s, lambda report: _apply_mcp_check(tools, report))
+            ))
         await asyncio.gather(*loops)
     finally:
         if app.heartbeat is not None:

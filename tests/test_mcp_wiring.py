@@ -64,6 +64,10 @@ def test_a_server_entry_stands_for_its_pinned_tools_in_the_allowlist_and_the_man
     wiring.profile_env(spec)
     wiring.enroll(spec, None, gateway="mattermost")
     assert wiring.allowlists["assistant"] == {"mcp__github__wipe"}
+    # Handed back after a review: in the allowlist and the manifest again, with no profile re-read needed.
+    wiring.restore(["mcp__github__echo"])
+    assert wiring.withdrawn == set() and wiring.allowlists["assistant"] == {"mcp__github__echo", "mcp__github__wipe"}
+    assert [m["name"] for m in json.loads(Path(env["TOOL_MANIFEST"]).read_text())] == ["mcp__github__echo", "mcp__github__wipe"]
 
 
 def test_a_conversations_set_may_name_a_servers_tools_whole(tmp_path: Path) -> None:

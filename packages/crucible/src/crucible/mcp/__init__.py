@@ -26,7 +26,7 @@ from crucible.mcp.protocol import (
     McpError,
     ToolDefinition,
 )
-from crucible.mcp.service import McpServers, StartReport
+from crucible.mcp.service import CheckReport, McpServers
 from crucible.mcp.snapshot import Snapshot
 from crucible.mcp.tools import (
     McpTool,
@@ -51,7 +51,7 @@ __all__ = [
     "McpServers",
     "McpTool",
     "Snapshot",
-    "StartReport",
+    "CheckReport",
     "ToolDefinition",
     "VALUES_FAMILY",
     "destructive",

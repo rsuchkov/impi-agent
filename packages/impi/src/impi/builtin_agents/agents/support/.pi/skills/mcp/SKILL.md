@@ -39,7 +39,8 @@ container: its runtime (`uvx`, `npx`, a binary) has to be in that image, or
 `impi mcp add` fails with the OS error (`No such file or directory`) and a
 call with `<name> could not be reached`.
 
-A new or removed server needs an engine restart (`impi restart`).
+A new or removed server, and a tool a server gained, need an engine restart
+(`impi restart`); a refreshed snapshot is read at `impi reload`.
 
 ## 2. Give an agent the tools
 
@@ -66,12 +67,15 @@ many. An operator whose reads all raise cards adds `--safe 'get_*'` (or a
 
 ## 3. Trust
 
-- `untrusted` (default): the snapshot is what the model is shown. At start the
-  engine compares the live server with it; a difference **withdraws every tool
-  of that server** from every agent until a person reviews the change and runs
-  `impi mcp refresh <name>`. A server with no snapshot advertises nothing.
+- `untrusted` (default): the snapshot is what the model is shown. The engine
+  compares the live server with it — at start, every `MCP_RECHECK_S` seconds
+  (300), at once when a stdio server says its tools changed, and at `impi
+  reload`; a difference **withdraws every tool of that server** from every
+  agent until a person reviews the change and runs `impi mcp refresh <name>`
+  then `impi reload`. A server with no snapshot advertises nothing.
 - `trusted` (`--trusted`): the server's definitions are taken as they come; the
-  snapshot is rewritten at start. For a server your own team runs.
+  snapshot is rewritten at start and at every recheck. For a server your own
+  team runs.
 
 A description is text the model reads as an instruction; that is why the
 default pins it.
@@ -81,14 +85,19 @@ default pins it.
 Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, unreachable)`.
 
 - `mcp <name>: its tools differ from the reviewed snapshot; N tool(s) withdrawn`
-  (ERROR) — the server changed a tool; the tools stay withdrawn for the life of
-  the process, a reload included. Show the operator `impi mcp show <name>` (the
-  pinned definitions) and suggest comparing with the server's current list;
-  when the change is fine, `impi mcp refresh <name>` and restart.
+  (ERROR, at start or at a later recheck) — the server changed a tool; the
+  tools stay withdrawn until a person reviews: show the operator `impi mcp
+  show <name>` (the pinned definitions) and suggest comparing with the
+  server's current list; when the change is fine, `impi mcp refresh <name>`
+  then `impi reload` (`mcp <name>: its tools match the reviewed snapshot
+  again; handed back`). A server that went back to its snapshot by itself
+  stays withdrawn — nobody looked — and comes back the same way.
 - `mcp <name>: no snapshot of its tools` (ERROR; `impi mcp list` says
   `UNPINNED`) — the yaml exists without its lock (hand-written, or the lock was
-  deleted): `impi mcp refresh <name>`.
-- `mcp <name>: not reached at startup` (WARNING) — the tools stay advertised and
+  deleted): `impi mcp refresh <name>` and restart (`N new tool(s) pinned; they
+  appear at the next start`).
+- `mcp <name>: not reached at startup` / `not reached` (WARNING, once; `reached
+  again` at INFO when it is back) — the tools stay advertised and
   each call answers `<name> could not be reached; try again later`; check the
   URL or the command, the token in `conf/.env`, and for stdio that the runtime
   is in the image. The server's own words are in the engine log, never in the

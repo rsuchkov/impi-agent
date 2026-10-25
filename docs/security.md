@@ -331,9 +331,9 @@ Things the design does not solve, stated so nobody relies on them by accident.
   the deployment installed, trusted like the engine's code. A server that
   should see less runs over HTTP, elsewhere.
 - **A trusted MCP server's words reach the model unreviewed.** `trust: trusted`
-  takes the server's tool definitions as they come at every start; a server
-  that turns hostile changes what the model is told. The default, untrusted,
-  withdraws changed tools until a person looks.
+  takes the server's tool definitions as they come, at start and at every
+  recheck; a server that turns hostile changes what the model is told. The
+  default, untrusted, withdraws changed tools until a person looks.
 
 - **Confinement needs Landlock.** A kernel without it (older than 5.13, or
   with Landlock left out of the boot's LSM list) runs every process

@@ -382,9 +382,11 @@ platform cannot hand back (tool calls) is not in that history.
 
 The startup log says `mcp: <server>(<n> tools, <trust>[, unreachable][, withdrawn])`
 for every declared server. `withdrawn` means the server's tools differ from the
-reviewed snapshot and none are advertised until `impi mcp refresh`; a server
-with no snapshot advertises nothing; `unreachable` keeps the tools and answers
-each call with the error. The **mcp** skill has the whole list.
+reviewed snapshot and none are advertised until `impi mcp refresh` and `impi
+reload`; a server with no snapshot advertises nothing; `unreachable` keeps the
+tools and answers each call with the error. The check runs again every
+`MCP_RECHECK_S` seconds (300) and when a server says its tools changed, so the
+same `ERROR` can appear mid-life. The **mcp** skill has the whole list.
 
 ## 8. Reporting back
 
