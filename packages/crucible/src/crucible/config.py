@@ -709,6 +709,12 @@ class Settings(BaseSettings):
     def _token(self, key: str) -> str:
         return os.environ.get(key) or self._dotenv.get(key) or ""
 
+    def mcp_values(self) -> dict[str, str]:
+        """What a ``${NAME}`` in an MCP server's entry is filled from: the
+        engine's process environment, then the ``.env`` beside it — the same
+        two places every other secret setting is read from (``docs/mcp.md``)."""
+        return {**self._dotenv, **os.environ}
+
     @cached_property
     def _dotenv(self) -> dict[str, str]:
         if not self.dotenv_path or not Path(self.dotenv_path).exists():

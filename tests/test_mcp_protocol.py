@@ -169,8 +169,10 @@ async def test_a_stdio_server_that_cannot_start_or_died_is_said_so() -> None:
         process.kill()
         await process.wait()
         await asyncio.sleep(0)
-        # The next request starts a new child rather than waiting on the dead one.
-        assert (await client.call_tool("echo", {"text": "again"})).text == "echo: again"
-        assert transport._process is not process
+        # A dead child ends this transport: the next request says so rather
+        # than starting a process the client never greeted.
+        with pytest.raises(McpError) as caught:
+            await client.call_tool("echo", {"text": "again"})
+        assert caught.value.code == UNREACHABLE
     finally:
         await client.close()

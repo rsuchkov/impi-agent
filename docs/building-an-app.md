@@ -534,6 +534,22 @@ credential, is another user's credential.
   click on its Slack copy. Without one, each platform id is a person of its
   own. `impi` wires all of this from
   `AGENTS_GATEWAY__<AGENT>=mattermost,slack`.
+- **Tools from MCP servers.** `crucible.mcp` ([mcp.md](mcp.md)) is a source
+  of tools for the registry: `mcp = McpServers(McpLibrary(Path(agents) /
+  "_mcp"), values)` reads the servers an operator declared and their pinned
+  snapshots, `values` being what a `${MCP_…}` in a server's entry is filled
+  from (`impi`: `Settings.mcp_values()`, the process environment then `.env`);
+  `build_registry(builtin_tools, my_tools, mcp.registry_tools())` puts their
+  tools beside yours as `mcp__<server>__<tool>`, and `runtime.tools` may name a
+  whole server as `mcp__<server>__*`. At start, before the tool server:
+  `report = await mcp.start()` connects every server and compares its tools
+  with the snapshot; `tools.withdraw(report.withdrawn_tools)` takes the
+  changed untrusted ones out of every allowlist and manifest for the life of
+  the process, `tools.refresh_manifests()` when `report.refreshed` names a
+  trusted server whose definitions moved (`report.connected`, `unreachable`,
+  `unpinned` are for the startup log). At stop, `await mcp.stop()`. A tool
+  whose header is `${connection:<provider>}` needs `connections` on the tool
+  server and acts only in a direct message.
 - **Several engine processes.** A chat connection the platform pushes events
   into — a bot's websocket, Slack's Socket Mode — must be open in one process
   at a time: the platform hands each event to one of its open connections by

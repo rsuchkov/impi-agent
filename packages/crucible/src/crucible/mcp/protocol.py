@@ -157,10 +157,17 @@ def request_meta(version: str) -> dict[str, Any]:
 class Transport(Protocol):
     """One JSON-RPC connection: a request awaits its answer; a notification does
     not. ``version`` is the protocol version the request speaks, for whatever
-    the binding mirrors into its envelope; ``close`` ends the connection, and
-    the next request opens a new one."""
+    the binding mirrors into its envelope; ``timeout_s`` bounds one request
+    when the caller wants a shorter wait than the transport's own. ``close``
+    ends the connection; the next request opens a new one. ``probes_era`` says
+    the binding cannot tell a legacy server from a modern one by a status (no
+    status to read), so the client asks ``server/discover`` first."""
 
-    async def request(self, method: str, params: Mapping[str, Any], *, version: str) -> Any: ...
+    probes_era: bool
+
+    async def request(
+        self, method: str, params: Mapping[str, Any], *, version: str, timeout_s: float | None = None
+    ) -> Any: ...
     async def notify(self, method: str, params: Mapping[str, Any], *, version: str) -> None: ...
     async def close(self) -> None: ...
 
@@ -191,6 +198,8 @@ def _header_value(value: str) -> str:
 
 
 class HttpTransport:
+    probes_era = False  # a status code tells the eras apart
+
     def __init__(
         self,
         url: str,
@@ -201,13 +210,16 @@ class HttpTransport:
     ) -> None:
         self._url = url
         self._headers = dict(headers or {})
+        self._owns_http = http is None
         self._http = http or httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_s, connect=CONNECT_TIMEOUT_S), follow_redirects=False
         )
         self._next_id = 0
         self.session_id = ""  # a legacy server's, once it gave one
 
-    async def request(self, method: str, params: Mapping[str, Any], *, version: str) -> Any:
+    async def request(
+        self, method: str, params: Mapping[str, Any], *, version: str, timeout_s: float | None = None
+    ) -> Any:
         self._next_id += 1
         message = await self._post(
             {"jsonrpc": "2.0", "id": self._next_id, "method": method, "params": dict(params)},
@@ -273,6 +285,8 @@ class HttpTransport:
             except httpx.HTTPError:
                 pass
             self.session_id = ""
+        if self._owns_http:
+            await self._http.aclose()
 
 
 def _rpc_error_in(response: httpx.Response) -> Mapping[str, Any] | None:
@@ -310,7 +324,12 @@ def _message_from_events(text: str, expect: int) -> Mapping[str, Any]:
 class StdioTransport:
     """A server as a child process of the engine, one line of JSON-RPC each way.
     The child gets PATH and the variables the server's entry names — not the
-    engine's environment. A child that died is started again on the next request."""
+    engine's environment. A child that died ends the transport: the request
+    fails as unreachable, and whoever holds the client opens a new one — with
+    its handshake, if the server needs one — rather than this transport
+    quietly starting a process the client thinks it already greeted."""
+
+    probes_era = True  # no status to read: ask server/discover first
 
     def __init__(
         self,
@@ -332,8 +351,10 @@ class StdioTransport:
         self._next_id = 0
 
     async def _ensure(self) -> asyncio.subprocess.Process:
-        if self._process is not None and self._process.returncode is None:
-            return self._process
+        if self._process is not None:
+            if self._process.returncode is None:
+                return self._process
+            raise McpError(UNREACHABLE, f"{self._command}: the server exited")
         try:
             self._process = await asyncio.create_subprocess_exec(
                 self._command, *self._args, env=self._env, cwd=self._cwd,
@@ -434,10 +455,15 @@ class McpClient:
 
     def __init__(self, transport: Transport) -> None:
         self._transport = transport
-        self.version = MODERN_VERSION  # what the server is spoken to in
-        self.legacy = False  # found to need the initialize handshake
+        self.version = MODERN_VERSION  # what the server is spoken to in: the one fact of the era
+        self._probed = False  # the era is known (a probe, or an answer)
         self._initialized = False  # the legacy session is open
-        self.server_info: Mapping[str, Any] = {}
+        self.server_info: Mapping[str, Any] = {}  # as the server named itself, when it did
+
+    @property
+    def legacy(self) -> bool:
+        """Whether the server needs the initialize handshake."""
+        return self.version == LEGACY_VERSION
 
     async def list_tools(self) -> tuple[ToolDefinition, ...]:
         tools: list[ToolDefinition] = []
@@ -468,9 +494,8 @@ class McpClient:
     async def _call(self, method: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
         if self.legacy:
             return await self._legacy_call(method, params)
-        if isinstance(self._transport, StdioTransport) and not self.server_info:
-            # No status code on stdio to tell the eras apart: probe first.
-            await self._probe_stdio()
+        if self._transport.probes_era and not self._probed:
+            await self._probe()
             if self.legacy:
                 return await self._legacy_call(method, params)
         try:
@@ -480,8 +505,7 @@ class McpClient:
         except McpError as exc:
             if exc.rpc_code == ERROR_UNSUPPORTED_VERSION:
                 self.version = self._agree(exc)
-                if self.version == LEGACY_VERSION:
-                    self.legacy = True
+                if self.legacy:
                     return await self._legacy_call(method, params)
                 result = await self._transport.request(
                     method, {**params, "_meta": request_meta(self.version)}, version=self.version
@@ -489,7 +513,7 @@ class McpClient:
             elif exc.legacy_sign:
                 # An HTTP 4xx with no modern error in it: a legacy server.
                 logger.info("mcp: the server answered a modern request with %s; speaking %s", exc, LEGACY_VERSION)
-                self.legacy = True
+                self.version = LEGACY_VERSION
                 return await self._legacy_call(method, params)
             else:
                 raise
@@ -506,10 +530,10 @@ class McpClient:
             f"this client speaks {', '.join(PROTOCOL_VERSIONS)}",
         )
 
-    async def _probe_stdio(self) -> None:
+    async def _probe(self) -> None:
         """``server/discover`` tells a modern server from a legacy one: a result
         or a modern error is modern; any other error, or silence, is legacy."""
-        assert isinstance(self._transport, StdioTransport)
+        self._probed = True
         try:
             result = await self._transport.request(
                 "server/discover", {"_meta": request_meta(self.version)},
@@ -518,34 +542,30 @@ class McpClient:
         except McpError as exc:
             if exc.rpc_code == ERROR_UNSUPPORTED_VERSION:
                 self.version = self._agree(exc)
-                self.legacy = self.version == LEGACY_VERSION
                 return
             if exc.rpc_code in MODERN_ERROR_CODES:
                 raise
             logger.info("mcp: the server did not answer server/discover (%s); speaking %s", exc, LEGACY_VERSION)
-            self.legacy = True
+            self.version = LEGACY_VERSION
             return
-        if not isinstance(result, Mapping):
-            raise McpError(PROTOCOL, "server/discover answered no object")
-        self._complete(result, "server/discover")
+        result = self._complete(result, "server/discover")
         offered = [v for v in result.get("supportedVersions") or () if isinstance(v, str)]
         if offered and self.version not in offered:
             for version in PROTOCOL_VERSIONS:
                 if version in offered:
                     self.version = version
-                    break
-            else:
-                raise McpError(PROTOCOL, f"the server supports {', '.join(offered)}; this client speaks {', '.join(PROTOCOL_VERSIONS)}")
-            self.legacy = self.version == LEGACY_VERSION
+                    return
+            raise McpError(
+                PROTOCOL, f"the server supports {', '.join(offered)}; this client speaks {', '.join(PROTOCOL_VERSIONS)}"
+            )
 
     def _complete(self, result: Any, method: str) -> Mapping[str, Any]:
         if not isinstance(result, Mapping):
             raise McpError(PROTOCOL, f"{method} answered no object")
+        self._probed = True  # an answer in the modern era settles it too
         meta = result.get("_meta")
         if isinstance(meta, Mapping) and isinstance(meta.get(META_SERVER_INFO), Mapping):
             self.server_info = dict(meta[META_SERVER_INFO])
-        elif not self.server_info:
-            self.server_info = {"name": "?"}  # answered, so known; nameless
         return result
 
     async def _legacy_call(self, method: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -558,6 +578,7 @@ class McpClient:
 
     async def _initialize(self) -> None:
         self.version = LEGACY_VERSION
+        self._probed = True
         result = await self._transport.request(
             "initialize",
             {"protocolVersion": LEGACY_VERSION, "capabilities": {}, "clientInfo": CLIENT_INFO},

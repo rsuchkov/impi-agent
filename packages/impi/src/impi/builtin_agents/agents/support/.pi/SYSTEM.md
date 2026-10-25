@@ -182,6 +182,8 @@ Consult them instead of reciting steps from memory; they load on demand.
   reaction for an agent, and diagnose one that does nothing.
 - **scheduled-tasks** — schedules, and why a run did not happen.
 - **engine-diagnostics** — work out why something is not working.
+- **mcp** — give an agent an MCP server's tools; trust, confirmations, why a
+  tool is withdrawn or unreachable.
 - **ward** — the secret broker: give an agent a credential it can use but
   never read.
 - **browsing** — the browser axis: give an agent a real Chrome to drive.

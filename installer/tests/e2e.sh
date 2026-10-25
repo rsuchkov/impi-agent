@@ -334,6 +334,61 @@ if [ "$STORE" = mongo ]; then
         sh -c 'compose run --rm -T impi impi task list 2>&1 | grep -qv "^✘"'
 fi
 
+# 4c. An MCP server's tools. A tiny server over stdio, written into the agents
+#     directory the engine mounts, declared through the container CLI (which
+#     connects to it and pins its tools), given to the assistant, seen at the
+#     next start. Plumbing only here; the live leg below asks the model to call it.
+mkdir -p "$E2E_HOME/agents/_mcp"
+cat >"$E2E_HOME/agents/_mcp/probe_server.py" <<'PY'
+import json, sys
+TOOLS = [
+    {"name": "echo", "title": "Echo", "description": "Echoes the text back.",
+     "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+    {"name": "wipe", "description": "Wipes everything.", "inputSchema": {"type": "object", "properties": {}},
+     "annotations": {"destructiveHint": True}},
+]
+INFO = {"io.modelcontextprotocol/serverInfo": {"name": "e2e-probe", "version": "1"}}
+for line in sys.stdin:
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    rid, method, params = m.get("id"), m.get("method"), m.get("params") or {}
+    if rid is None:
+        continue
+    if method == "server/discover":
+        result = {"supportedVersions": ["2026-07-28"], "capabilities": {"tools": {}}}
+    elif method == "tools/list":
+        result = {"tools": TOOLS}
+    elif method == "tools/call" and params.get("name") == "echo":
+        result = {"content": [{"type": "text", "text": "echo: " + str((params.get("arguments") or {}).get("text", ""))}]}
+    elif method == "tools/call":
+        result = {"content": [{"type": "text", "text": "wiped"}]}
+    else:
+        print(json.dumps({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "method not found"}}), flush=True)
+        continue
+    print(json.dumps({"jsonrpc": "2.0", "id": rid, "result": {"resultType": "complete", **result, "_meta": INFO}}), flush=True)
+PY
+check "impi mcp add probe (connects and pins the tools)" \
+    compose run --rm -T impi impi mcp add probe --command "python3 /app/agents/_mcp/probe_server.py" --confirm wipe
+check "the server is declared in the agents dir" test -f "$E2E_HOME/agents/_mcp/probe.yaml"
+two_tools_pinned() {
+    python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if [t["name"] for t in d["tools"]] == ["echo", "wipe"] else 1)' \
+        "$E2E_HOME/agents/_mcp/probe.lock.json"
+}
+check "its two tools are pinned in the snapshot" two_tools_pinned
+mcp_listed() { compose run --rm -T impi impi mcp list 2>/dev/null | grep -q 'probe  \[untrusted\]'; }
+check "impi mcp list shows it untrusted" mcp_listed
+printf '    - mcp__probe__*\n' >>"$E2E_HOME/agents/agents/assistant/agent.yaml"
+built_before=$(engine_log_count "app built:")
+compose restart impi >/dev/null 2>&1
+for _ in $(seq 1 45); do
+    if [ "$(engine_log_count 'app built:')" -gt "$built_before" ]; then break; fi
+    sleep 2
+done
+mcp_connected() { engine_logged "mcp: probe(2 tools, untrusted)"; }
+check "the engine connected the server and advertises its two tools" mcp_connected
+
 # 5. The browser axis, when it was installed (BROWSER=1).
 #
 # Every check runs FROM THE ENGINE, which is the whole point: the browser
@@ -578,6 +633,14 @@ call("/reactions", json.dumps({"user_id": os.environ["ME_ID"], "post_id": mine[-
     check "the engine read :eyes: as /echo for the assistant" read_as_command
     echoed() { EXACT=1 waits_for "pelican" 90; }
     check "the agent answered the command the reaction ran" echoed
+
+    # 6b. A tool from an MCP server: the model calls it through the tool server,
+    #     the engine calls the server over stdio, and the answer comes back.
+    ask "Call your tool mcp__probe__echo with text set to the word albatross, then reply with exactly the text the tool returned and nothing else."
+    echoed_by_mcp() { waits_for "echo: albatross" 90; }
+    check "the agent called the MCP server's tool and relayed its answer" echoed_by_mcp
+    mcp_ran() { engine_logged "tool mcp__probe__echo ran for agent assistant"; }
+    check "the engine ran the MCP tool for the assistant" mcp_ran
 
     # With a live model AND containers, the two things the dummy model cannot
     # show: a turn the engine counts as complete, and the memory of it landing in

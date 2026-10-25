@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from crucible.mcp.snapshot import Snapshot
+from crucible.mcp.snapshot import SNAPSHOT_VERSION, Snapshot
 
 MCP_DIR = "_mcp"
 SERVER_FILE_SUFFIX = ".yaml"
@@ -28,10 +28,13 @@ SNAPSHOT_FILE_SUFFIX = ".lock.json"
 TRUST_UNTRUSTED = "untrusted"  # definitions pinned; a server that changed them is not advertised
 TRUST_TRUSTED = "trusted"  # the server's word is taken; the snapshot follows it
 TRUST_LEVELS = (TRUST_UNTRUSTED, TRUST_TRUSTED)
+# The one family of the engine's environment a server entry may name.
+VALUES_FAMILY = "MCP_"
 # Where a header asks for the person's own token at a connected provider.
 CONNECTION_REF = re.compile(r"^\$\{connection:([A-Za-z0-9_-]+)\}$")
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# No double underscore: `mcp__<server>__<tool>` is split on the first one.
+_NAME = re.compile(r"^[a-z0-9](?:_?[a-z0-9-])*$")
 
 
 class McpConfigError(ValueError):
@@ -108,34 +111,46 @@ def server_from_yaml(name: str, data: Mapping[str, Any], *, source: str = "") ->
         return dict(raw)
 
     if not _NAME.match(name):
-        raise McpConfigError(f"{where}: {name!r} is not a server name (lowercase letters, digits, _ -)")
+        raise McpConfigError(
+            f"{where}: {name!r} is not a server name (lowercase letters, digits, - and single _)"
+        )
     url = str(data.get("url") or "")
     command = str(data.get("command") or "")
     if bool(url) == bool(command):
         raise McpConfigError(f"{where}: a server has either `url` or `command`")
     if url and not url.startswith(("http://", "https://")):
         raise McpConfigError(f"{where}: url must be http(s)")
+    headers = mapping("headers")
+    if url.startswith("http://") and any(CONNECTION_REF.match(v) for v in headers.values()):
+        raise McpConfigError(f"{where}: a person's token (${{connection:…}}) goes only over https")
     trust = str(data.get("trust") or TRUST_UNTRUSTED)
     if trust not in TRUST_LEVELS:
         raise McpConfigError(f"{where}: trust must be one of {', '.join(TRUST_LEVELS)}")
     return McpServer(
-        name=name, url=url, headers=mapping("headers"), command=command, args=strings("args"),
+        name=name, url=url, headers=headers, command=command, args=strings("args"),
         env=mapping("env"), cwd=str(data.get("cwd") or ""), trust=trust,
         confirm=strings("confirm"), description=str(data.get("description") or ""),
     )
 
 
-def expand(server: McpServer, values: Mapping[str, str]) -> McpServer:
+def with_values(server: McpServer, values: Mapping[str, str]) -> McpServer:
     """The server with every ``${NAME}`` in its headers and environment filled
-    from ``values``; a name ``values`` lacks is an error naming it, since a
-    header sent with a hole would be a credential that is not there. A
-    ``${connection:…}`` header is left as it is: that one is per call."""
+    from ``values``. Only the ``MCP_`` family is read: a server entry is a
+    file in the agents directory, and a file must not be the way an engine's
+    other secrets travel to an address of the file's choosing. A name
+    ``values`` lacks is an error naming it, since a header sent with a hole
+    would be a credential that is not there. A ``${connection:…}`` header is
+    left as it is: that one is per call."""
 
     def fill(text: str, where: str) -> str:
         # A ``${connection:…}`` is not a variable (the colon keeps it out of
         # ``_VAR``) and passes through untouched, for the call.
         def one(match: re.Match[str]) -> str:
             name = match.group(1)
+            if not name.startswith(VALUES_FAMILY):
+                raise McpConfigError(
+                    f"{server.name}: {where} names ${{{name}}}; only the {VALUES_FAMILY} family is read"
+                )
             if name not in values:
                 raise McpConfigError(f"{server.name}: {where} needs ${{{name}}}, which is not set")
             return values[name]
@@ -194,6 +209,8 @@ class McpLibrary:
             raise McpConfigError(f"{path}: not JSON") from exc
         if not isinstance(data, Mapping):
             raise McpConfigError(f"{path}: not a snapshot")
+        if data.get("version") != SNAPSHOT_VERSION:
+            raise McpConfigError(f"{path}: snapshot version {data.get('version')!r}; this engine writes {SNAPSHOT_VERSION}")
         return Snapshot.from_json(data)
 
     def save_snapshot(self, snapshot: Snapshot) -> Path:

@@ -23,7 +23,7 @@ impi mcp add github --url https://mcp.github.example/mcp \
 ```
 
 This connects to the server, lists its tools, and writes two files under
-`$AGENTS_PATH/_mcp/` (beside `_skills` and `_extensions`):
+`$AGENTS_PATH/_mcp/` (beside `_extensions`, and `_skills` when the library lives there):
 
 ```yaml
 # _mcp/github.yaml
@@ -38,9 +38,12 @@ description: GitHub issues and pull requests
 and `_mcp/github.lock.json` — the snapshot: every tool's name, title,
 description, input schema and annotations, with a digest over them and when
 they were taken. Both files belong in the agents repository; the secret does
-not — `${MCP_GITHUB_TOKEN}` is read from the engine's environment when the
-server is connected (the `MCP_` family is the engine's own and never reaches
-an agent's process).
+not — `${MCP_GITHUB_TOKEN}` is read when the server is connected from the
+engine's process environment or, failing that, from `conf/.env`, the two
+places every secret setting is read from. Only the `MCP_` family may be named:
+a file in the agents directory is not the way the engine's other secrets
+travel to an address of the file's choosing (and the family never reaches an
+agent's process).
 
 A server on stdio is a command instead of a URL:
 
@@ -50,7 +53,8 @@ impi mcp add stands --command 'uvx jira-stands-mcp' --env 'STANDS_TOKEN=${MCP_ST
 
 The engine starts it as a child of its own — one process per server, shared by
 every agent, given `PATH` and the variables the entry names and nothing else of
-the engine's environment — and starts it again if it dies. Its runtime (`uvx`,
+the engine's environment. A child that dies fails the call in flight as
+unreachable; the next call opens a new one. Its runtime (`uvx`,
 `npx`, a binary) has to be in the engine's image or on the host the engine
 runs on.
 
@@ -111,19 +115,25 @@ A header can be the token of the person whose turn it is, from their
 impi mcp add gitlab --url https://gitlab.example/mcp --header 'Authorization=${connection:gitlab}'
 ```
 
-The tool then needs the connections capability (it is advertised only where
-connections are configured), the person's token is fetched for each call and
-sent on a connection of that call alone, and a person who has not connected
-their account is told so by the tool, in words the model repeats. The model
-never sees the token.
+The header's value is exactly `${connection:<provider>}` and goes out as
+`Bearer <token>`; the URL must be `https`. The tool then needs the connections
+capability (it is advertised only where connections are configured) and works
+in a direct message with the person only, as the connection tools do; the
+person's token is fetched for each call and sent on a connection of that call
+alone — the server's standing connection, the one that lists its tools, never
+carries it — and a person who has not connected their account is told so by
+the tool, in words the model repeats. The model never sees the token.
 
 ## What a result is
 
 Whatever a server answers is a stranger's text: every MCP tool is
 `returns_untrusted`, so its description carries the note and its result comes
-wrapped (`{"untrusted": true, "data": …}`). A text answer is handed over as
-text, a `structuredContent` as JSON; a result the server marks `isError` is a
-tool error with the server's words quoted.
+wrapped (`{"untrusted": true, "note": …, "data": …}`). A text answer is handed
+over as text, a `structuredContent` as JSON; a result the server marks
+`isError` is handed over the same way, as `{"error": true, "text": …}` — the
+server's words stay data. When the server could not be called at all, the tool
+fails in the engine's own words (`<server> could not be reached; try again
+later`) and the server's message goes to the log, not to the model.
 
 ## Protocol revisions
 
@@ -132,7 +142,7 @@ The engine speaks the current revision of the protocol, **2026-07-28**
 capabilities in `_meta`, and on HTTP the `MCP-Protocol-Version`, `Mcp-Method`
 and `Mcp-Name` headers), and falls back to the handshake era (**2025-11-25**,
 `initialize` and a session) when a server turns out to be of it: on HTTP a
-modern request answered with a 400 that carries no modern error, on stdio a
+modern request answered with a 400, 404 or 405 that carries no modern error, on stdio a
 `server/discover` probe the server does not answer. A modern server that
 names other supported versions (`-32022`) is spoken to in the newest one both
 sides share; one that shares none is reported.
@@ -153,6 +163,8 @@ person's connection.
 directory), `snapshot` (the pinned definitions and their digest), `tools` (a
 definition as a tool of the engine), `service` (the servers connected, checked
 and called). The composition root builds the registry from the snapshots
-(`McpServers.registry_tools()`), starts the servers before the tool server and
-withdraws what the check says (`ToolWiring.withdraw`); see
+(`McpServers.registry_tools()`), starts the servers before the tool server,
+withdraws what the check says (`ToolWiring.withdraw`) and rewrites the
+manifests when a trusted server's definitions moved
+(`ToolWiring.refresh_manifests`); see "Tools from MCP servers" in
 [building-an-app.md](building-an-app.md).

@@ -177,8 +177,8 @@ the first one a shell.
 ### An MCP server and the engine
 
 What crosses: the arguments of a call the model made, the headers the server's
-entry names (a deployment credential from the `MCP_` family, or the token of
-the person whose turn it is), and back, the server's answer. Nothing else: the
+entry names (a deployment credential from the `MCP_` family — the only family
+an entry may name — or the token of the person whose turn it is), and back, the server's answer. Nothing else: the
 engine asks a server for `tools/list` and `tools/call` only, and answers a
 request the server sends back with "method not found".
 

@@ -15,7 +15,7 @@ pi --mode rpc --approve
    --session-dir <DATA_DIR>/pi-sessions/<agent>/<session-id>  # absent for a stateless run
    -e <engine tool-bridge> [-e <extension> ...] [-e <fallback extension>]
    --tools <csv>                            # the single allowlist
-   --no-mcp                                 # no MCP server joins in
+   --no-mcp                                 # no MCP server joins in through the runtime (the engine is the client: docs/mcp.md)
    --no-skills [--skill <path> ...]
    [--provider <p>] [--model <m>]
    [--append-system-prompt <text>]

@@ -11,14 +11,16 @@ be reached keeps its tools advertised and answers each call with the error,
 the way any service down does.
 """
 
+import asyncio
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from crucible.mcp.library import McpLibrary, McpServer, expand
+from crucible.mcp.library import CONNECTION_REF, McpLibrary, McpServer, with_values
 from crucible.mcp.protocol import (
+    UNREACHABLE,
     CallResult,
     HttpTransport,
     McpClient,
@@ -50,11 +52,16 @@ class StartReport:
     unreachable: dict[str, str] = field(default_factory=dict)  # server -> why
     refreshed: list[str] = field(default_factory=list)  # trusted servers whose snapshot moved
     withdrawn: dict[str, tuple[str, ...]] = field(default_factory=dict)  # untrusted server -> tool names
-    unsnapshotted: list[str] = field(default_factory=list)  # servers with tools nobody pinned yet
+    unpinned: list[str] = field(default_factory=list)  # servers whose tools nobody pinned yet
 
     @property
     def withdrawn_tools(self) -> tuple[str, ...]:
         return tuple(name for names in self.withdrawn.values() for name in names)
+
+    @property
+    def refreshed_tools(self) -> tuple[str, ...]:
+        """Not known here by name; the service says which tools moved."""
+        return ()
 
 
 class McpServers:
@@ -63,11 +70,11 @@ class McpServers:
         library: McpLibrary,
         values: Mapping[str, str],
         *,
-        transport: TransportFactory = default_transport,
+        transport_factory: TransportFactory = default_transport,
     ) -> None:
         self._library = library
         self._values = values  # what ${NAME} in a server entry is filled from
-        self._transport = transport
+        self._transport_factory = transport_factory
         self._servers: dict[str, McpServer] = {}
         self._clients: dict[str, McpClient] = {}
         self._tools: dict[str, list[McpTool]] = {}
@@ -102,10 +109,12 @@ class McpServers:
         return call
 
     async def client(self, name: str) -> McpClient:
+        """The server's standing connection: its own headers, never a person's
+        — a call with a person's token rides a connection of its own."""
         client = self._clients.get(name)
         if client is None:
-            server = expand(self._servers[name], self._values)
-            client = self._clients[name] = McpClient(self._transport(server))
+            server = without_connection_headers(with_values(self._servers[name], self._values))
+            client = self._clients[name] = McpClient(self._transport_factory(server))
         return client
 
     async def call(
@@ -116,22 +125,21 @@ class McpServers:
         ordinary case, not an error worth the model's attention."""
         if headers:
             # A per-call credential: this call's connection carries it, alone.
-            spec = expand(self._servers[server], self._values)
-            client = McpClient(self._transport(_with_headers(spec, headers)))
+            spec = with_values(self._servers[server], self._values)
+            client = McpClient(self._transport_factory(_with_headers(spec, headers)))
             try:
                 return await client.call_tool(tool, arguments)
             finally:
                 await client.close()
-        for attempt in (1, 2):
-            client = await self.client(server)
-            try:
-                return await client.call_tool(tool, arguments)
-            except McpError as exc:
-                if exc.code != "unreachable" or attempt == 2:
-                    raise
-                logger.warning("mcp %s: %s; reconnecting", server, exc)
-                await self._drop(server)
-        raise AssertionError("unreachable")
+        client = await self.client(server)
+        try:
+            return await client.call_tool(tool, arguments)
+        except McpError as exc:
+            if exc.code != UNREACHABLE:
+                raise
+            logger.warning("mcp %s: %s; reconnecting", server, exc)
+            await self._drop(server)
+        return await (await self.client(server)).call_tool(tool, arguments)
 
     async def _drop(self, server: str) -> None:
         client = self._clients.pop(server, None)
@@ -142,17 +150,19 @@ class McpServers:
                 logger.debug("mcp %s: close failed", server, exc_info=True)
 
     async def start(self) -> StartReport:
-        """Connect every server and check its tools against the snapshot."""
+        """Connect every server, all at once, and check each one's tools
+        against its snapshot."""
         report = StartReport()
-        for name, server in self._servers.items():
-            try:
-                client = await self.client(name)
-                definitions = await client.list_tools()
-            except (McpError, Exception) as exc:
-                report.unreachable[name] = str(exc)
-                logger.warning("mcp %s: not reached at startup: %s", name, exc)
+        listed = await asyncio.gather(
+            *(self._list(name) for name in self._servers), return_exceptions=True
+        )
+        for (name, server), outcome in zip(self._servers.items(), listed, strict=True):
+            if isinstance(outcome, BaseException):
+                report.unreachable[name] = str(outcome)
+                logger.warning("mcp %s: not reached at startup: %s", name, outcome)
                 await self._drop(name)
                 continue
+            client, definitions = outcome
             report.connected.append(name)
             snapshot = self._library.snapshot(name)
             if snapshot is None:
@@ -160,7 +170,7 @@ class McpServers:
                     self._pin(name, definitions, client.server_info)
                     report.refreshed.append(name)
                 else:
-                    report.unsnapshotted.append(name)
+                    report.unpinned.append(name)
                     logger.error(
                         "mcp %s: no snapshot of its tools — nothing is advertised until "
                         "they are reviewed and pinned", name,
@@ -181,6 +191,10 @@ class McpServers:
                 )
         return report
 
+    async def _list(self, name: str) -> tuple[McpClient, tuple[ToolDefinition, ...]]:
+        client = await self.client(name)
+        return client, await client.list_tools()
+
     def _pin(self, name: str, definitions: tuple[ToolDefinition, ...], server_info: Mapping[str, Any]) -> None:
         """A trusted server's word, taken: the snapshot and the live tools follow
         it. A tool the server dropped keeps its definition until a restart —
@@ -198,7 +212,13 @@ class McpServers:
 
 
 def _with_headers(server: McpServer, headers: Mapping[str, str]) -> McpServer:
-    return replace(server, headers={**server.headers, **headers})
+    return replace(server, headers={**without_connection_headers(server).headers, **headers})
+
+
+def without_connection_headers(server: McpServer) -> McpServer:
+    """The server's headers less the ones that are a person's token: a listing,
+    or a call for nobody in particular, carries none."""
+    return replace(server, headers={k: v for k, v in server.headers.items() if not CONNECTION_REF.match(v)})
 
 
 def _now() -> str:

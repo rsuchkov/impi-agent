@@ -9,9 +9,15 @@ says where they are, so what forgets a conversation (``session_retention``,
 ``sessions_cli``) can take its manifest with it without the tool layer.
 """
 
+import re
 from pathlib import Path
 
 MANIFESTS_DIR_NAME = "tool-manifests"
+# The one pattern an agent's tool list may carry: every tool of one declared
+# MCP server, ``mcp__<server>__*`` (a server name is lowercase letters, digits,
+# hyphens and single underscores — ``crucible.mcp.library``). Read by the
+# profile loader, which may not import the MCP package.
+MCP_SERVER_TOOLS = re.compile(r"^mcp__[a-z0-9](?:_?[a-z0-9-])*__\*$")
 # The env variable naming the manifest FILE a process reads: the engine ↔ tool
 # extension contract. A name rather than a literal at the call site because a
 # composition root has to tell it apart from the rest of the env: it is a

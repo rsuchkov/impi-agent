@@ -16,6 +16,9 @@ people. Keep them accurate to the code.
 - **[skills.md](skills.md)** — the shared skill library: installing from a
   directory or a repository, giving skills to agents, `/skills`, and what
   carries over from other tools' skill formats.
+- **[mcp.md](mcp.md)** — tools from MCP servers: declaring one with `impi mcp
+  add`, the pinned snapshot and trust, confirmations, a person's token in a
+  header, what is not supported.
 - **[tasks.md](tasks.md)** — scheduled and recurring work: writing a schedule,
   the run modes, what happens to a missed or failed run, and how to tell
   whether the scheduler is alive.
@@ -23,7 +26,7 @@ people. Keep them accurate to the code.
   the approval card, policies and time-boxed windows, the ledger, and an honest
   account of what the broker protects against and what it doesn't.
 - **[security.md](security.md)** — what the engine protects and what it does
-  not: the four boundaries, where data and credentials go and for how long,
+  not: the five boundaries, where data and credentials go and for how long,
   what an agent with a shell can reach in each deployment shape, the hardening
   checklist, and the known limits.
 - **[browsing.md](browsing.md)** — a real browser the agents drive: what the

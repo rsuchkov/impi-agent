@@ -55,11 +55,15 @@ class Snapshot:
 
     @classmethod
     def from_json(cls, data: Mapping[str, Any]) -> "Snapshot":
+        """The snapshot as the file holds it. The digest is computed from the
+        tools in the file, not read from it: what the model will be shown is
+        the file's tools, so that is what the live server is compared with — a
+        file whose text was edited by hand is judged by its text."""
         tools = tuple(ToolDefinition.from_wire(t) for t in data.get("tools") or () if isinstance(t, Mapping))
         return cls(
             server=str(data.get("server", "")),
             tools=tools,
-            digest=str(data.get("digest") or digest(tools)),
+            digest=digest(tools),
             taken_at=str(data.get("taken_at", "")),
             server_info=dict(data.get("server_info") or {}),
         )

@@ -52,7 +52,8 @@ AGENT_NAME_ENV = "AGENT_NAME"
 
 
 def _gate_tools(
-    registry: ToolRegistry, tools: tuple[str, ...], caps: frozenset[str]
+    registry: ToolRegistry, tools: tuple[str, ...], caps: frozenset[str],
+    withdrawn: Collection[str] = (),
 ) -> tuple[tuple[str, ...], dict[str, frozenset[str]]]:
     """Split an agent's declared tools into (advertised, {dropped: missing caps}).
     A typed tool is dropped when the agent's gateway/config doesn't provide a
@@ -61,9 +62,9 @@ def _gate_tools(
     typed tools (the runtime's own builtins, e.g. ``read``) are ignored here."""
     kept: list[str] = []
     dropped: dict[str, frozenset[str]] = {}
-    for name in _named(registry, tools):
+    for name in _declared(registry, tools):
         tool = registry.get(name)
-        if tool is None:
+        if tool is None or name in withdrawn:
             continue
         missing = tool.requires - caps
         if tool.requires_confirmation and CAP_CONFIRMATION not in caps:
@@ -75,7 +76,7 @@ def _gate_tools(
     return tuple(kept), dropped
 
 
-def _named(registry: ToolRegistry, tools: tuple[str, ...]) -> tuple[str, ...]:
+def _declared(registry: ToolRegistry, tools: tuple[str, ...]) -> tuple[str, ...]:
     """The declared tools by name: an entry ``<family>__*`` stands for every
     registry tool whose name starts with ``<family>__`` (an MCP server's tools,
     pinned when the server was declared), each once, in declared order."""
@@ -116,6 +117,10 @@ class ToolWiring:
         # agent's whole allowlist.
         self.session_allowlists: dict[str, frozenset[str]] = {}
         self.envs: dict[str, dict[str, str]] = {}  # agent -> tool env (stable across reloads)
+        # Tools taken away for the life of the process (an MCP server's whose
+        # definitions are no longer the reviewed ones): a reload re-gates from
+        # the profile and must not hand them back.
+        self.withdrawn: set[str] = set()
         self.caps: dict[str, frozenset[str]] = {}  # agent -> capability set
         # Widgets/forms exist iff the integrations receiver is on; chat_admin only on
         # gateways that provide it (Mattermost, not Slack) — added per agent in enroll.
@@ -181,7 +186,7 @@ class ToolWiring:
         self.gateway_caps.setdefault(spec.name, {})[gateway] = caps
         # The agent's own set is what any of its gateways can serve.
         self.caps[spec.name] = self.caps.get(spec.name, frozenset()) | caps
-        advertised, dropped = _gate_tools(self.registry, spec.tools, self.caps[spec.name])
+        advertised, dropped = _gate_tools(self.registry, spec.tools, self.caps[spec.name], self.withdrawn)
         for name, missing in dropped.items():
             logger.info(
                 "agent %s: tool %r not advertised — none of its gateways has %s",
@@ -197,11 +202,22 @@ class ToolWiring:
         if self.registry is None or not names:
             return
         gone = set(names)
+        self.withdrawn |= gone
         for agent, allowed in list(self.allowlists.items()):
             if allowed & gone:
                 kept = tuple(n for n in self.registry.names() if n in allowed - gone)
                 self.allowlists[agent] = frozenset(kept)
                 self.registry.write_manifest(self.manifests_dir, agent, kept)
+
+    def refresh_manifests(self) -> None:
+        """Rewrite every enrolled agent's manifest from the registry as it is
+        now: for a tool whose definition moved (a trusted MCP server's)."""
+        if self.registry is None:
+            return
+        for agent, allowed in self.allowlists.items():
+            self.registry.write_manifest(
+                self.manifests_dir, agent, tuple(n for n in self.registry.names() if n in allowed)
+            )
 
     def add_env(self, name: str, env: dict[str, str]) -> None:
         # Extra tool env that must apply even with tools disabled (engine agents);
@@ -217,7 +233,9 @@ class ToolWiring:
             extra = self.envs.get(spec.name)
             return dict(extra) if extra else None
         # Manifest re-derived here so a hot-reload re-filters the advertised tools.
-        advertised, _ = _gate_tools(self.registry, spec.tools, self.caps.get(spec.name, frozenset()))
+        advertised, _ = _gate_tools(
+            self.registry, spec.tools, self.caps.get(spec.name, frozenset()), self.withdrawn
+        )
         # The server's gate must move with the manifest: the tool server holds this
         # mapping by reference, so a tool added to a profile and hot-reloaded is
         # advertised AND callable, instead of being answered with 403 until the

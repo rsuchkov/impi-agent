@@ -187,6 +187,11 @@ locally instead of attempting a post.
   gateway, and any tool that needs confirming (`create_agent`, `install_skill`,
   `remove_skill`) when interactivity is off — there is nobody to confirm it.
   Check the startup log for "tool … not advertised".
+- An `mcp__<server>__…` tool is missing when the server has no snapshot, when
+  its tools were **withdrawn** at start (`ERROR mcp <server>: its tools differ
+  from the reviewed snapshot` — review, `impi mcp refresh <server>`, restart),
+  or when a confirmed or destructive tool has nobody to confirm it. `impi mcp
+  list` and `impi mcp show <server>` say what is pinned; [mcp.md](mcp.md).
 - A tool the agent has can still be **refused per call**: `not available
   through this gateway` — the conversation is on one of the agent's gateways
   that lacks the capability (a channel-admin tool asked for from Slack when the

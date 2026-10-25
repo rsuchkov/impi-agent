@@ -12,16 +12,17 @@ from crucible.mcp.library import (
     TRUST_LEVELS,
     TRUST_TRUSTED,
     TRUST_UNTRUSTED,
+    VALUES_FAMILY,
     McpConfigError,
     McpLibrary,
     McpServer,
-    expand,
     server_from_yaml,
+    with_values,
 )
 from crucible.mcp.protocol import CallResult, McpClient, McpError, ToolDefinition
 from crucible.mcp.service import McpServers, StartReport
 from crucible.mcp.snapshot import Snapshot
-from crucible.mcp.tools import McpTool, is_server_pattern, split_tool_name, tool_name
+from crucible.mcp.tools import McpTool, mcp_tool_name, split_tool_name
 
 __all__ = [
     "MCP_DIR",
@@ -39,9 +40,9 @@ __all__ = [
     "Snapshot",
     "StartReport",
     "ToolDefinition",
-    "expand",
-    "is_server_pattern",
+    "VALUES_FAMILY",
+    "mcp_tool_name",
     "server_from_yaml",
     "split_tool_name",
-    "tool_name",
+    "with_values",
 ]

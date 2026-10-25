@@ -21,9 +21,11 @@ from collections.abc import Collection
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _FAMILY = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}\*")
 
-# The families of keys ``crucible.config`` reads its secrets and addresses
-# from. Kept here rather than there because the profile loader may not import
-# the settings; ``tests/test_inherited_env.py`` holds the two in step.
+# The families of keys the engine reads its secrets and addresses from:
+# ``crucible.config``'s, and ``MCP_``, which an MCP server's entry names
+# (``crucible.mcp.library``). Kept here rather than there because the profile
+# loader may not import the settings; ``tests/test_inherited_env.py`` holds the
+# two in step.
 RESERVED_PREFIXES = (
     "AGENTS_", "MATTERMOST_", "SLACK_", "TOOL_", "INTEGRATIONS_",
     "HTTP_CALLER_", "WS_SERVICE_", "COMMAND_TOKENS", "DB_", "LLM_", "REPLICA_", "MCP_",

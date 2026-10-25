@@ -8,7 +8,6 @@ settings) that the engine never reads.
 """
 
 import logging
-import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -19,9 +18,7 @@ from crucible.ports.agent.confinement import ConfinementLevel, check_confinement
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
 from crucible.profiles.errors import ProfileError
-
-# Every tool of one declared MCP server, as runtime.tools may name them.
-_SERVER_TOOLS = re.compile(r"^mcp__[a-z0-9][a-z0-9_-]*__\*$")
+from crucible.tool_manifests import MCP_SERVER_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +179,7 @@ class FsProfileStore:
             # hand the agent tools nobody named. The one pattern allowed names
             # a whole MCP server — `mcp__<server>__*` — whose tools the
             # operator pinned when they declared the server.
-            if _SERVER_TOOLS.match(tool):
+            if MCP_SERVER_TOOLS.match(tool):
                 continue
             if "*" in tool or tool.strip().startswith(("+", "-")):
                 raise ProfileError(

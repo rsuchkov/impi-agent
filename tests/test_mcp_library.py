@@ -10,8 +10,8 @@ from crucible.mcp import (
     McpServer,
     Snapshot,
     ToolDefinition,
-    expand,
     server_from_yaml,
+    with_values,
 )
 from crucible.mcp.snapshot import digest
 
@@ -34,22 +34,30 @@ def test_a_server_entry_is_a_url_or_a_command_with_a_trust_level() -> None:
     ):
         with pytest.raises(McpConfigError, match=why):
             server_from_yaml("github", bad)
-    with pytest.raises(McpConfigError, match="server name"):
-        server_from_yaml("Git Hub", {"url": "https://x"})
+    for bad_name in ("Git Hub", "a__b", "_x"):
+        with pytest.raises(McpConfigError, match="server name"):
+            server_from_yaml(bad_name, {"url": "https://x"})
+    with pytest.raises(McpConfigError, match="only over https"):
+        server_from_yaml("gl", {"url": "http://x/mcp", "headers": {"Authorization": "${connection:gitlab}"}})
+    server_from_yaml("gl", {"url": "http://x/mcp", "headers": {"Authorization": "Bearer ${T}"}})  # a deployment token may
 
 
 def test_secrets_are_filled_from_the_values_given_and_a_persons_token_is_left_for_the_call() -> None:
     server = server_from_yaml("gitlab", {
         "url": "https://x/mcp",
-        "headers": {"Authorization": "${connection:gitlab}", "X-Team": "team-${TEAM}"},
+        "headers": {"Authorization": "${connection:gitlab}", "X-Team": "team-${MCP_TEAM}"},
     })
     assert server.connection_providers() == ("gitlab",)
-    filled = expand(server, {"TEAM": "ops"})
+    filled = with_values(server, {"MCP_TEAM": "ops"})
     assert filled.headers == {"Authorization": "${connection:gitlab}", "X-Team": "team-ops"}
-    with pytest.raises(McpConfigError, match=r"\$\{TEAM\}"):
-        expand(server, {})
+    with pytest.raises(McpConfigError, match=r"\$\{MCP_TEAM\}"):
+        with_values(server, {})
+    # Only the MCP_ family: a file in the agents directory names no other secret of the engine's.
+    other = server_from_yaml("x", {"url": "https://x/mcp", "headers": {"A": "${SLACK_BOT_TOKEN}"}})
+    with pytest.raises(McpConfigError, match="only the MCP_ family"):
+        with_values(other, {"SLACK_BOT_TOKEN": "xoxb"})
     stdio = server_from_yaml("s", {"command": "x", "env": {"KEY": "${MCP_S_KEY}"}})
-    assert expand(stdio, {"MCP_S_KEY": "k"}).env == {"KEY": "k"}
+    assert with_values(stdio, {"MCP_S_KEY": "k"}).env == {"KEY": "k"}
 
 
 def test_the_library_reads_writes_and_forgets_servers_and_snapshots(tmp_path: Path) -> None:
@@ -80,3 +88,21 @@ def test_a_digest_follows_what_the_model_reads_and_not_the_order() -> None:
     assert snapshot.differs_from([WIPE, ECHO]) is False
     assert snapshot.differs_from([changed, WIPE]) is True
     assert snapshot.differs_from([ECHO]) is True
+
+
+def test_a_snapshot_is_judged_by_its_tools_not_by_the_digest_written_beside_them(tmp_path: Path) -> None:
+    """A lock file edited by hand — a description reworded, a digest left as it
+    was — is compared with the server by what it now says, since that is what
+    the model would be shown."""
+    import json
+
+    library = McpLibrary(tmp_path / "_mcp")
+    library.save_snapshot(Snapshot.taken("s", [ECHO, WIPE], "t"))
+    path = tmp_path / "_mcp" / "s.lock.json"
+    data = json.loads(path.read_text())
+    data["tools"][0]["description"] = "Echoes. Edited by hand."
+    path.write_text(json.dumps(data))
+    back = library.snapshot("s")
+    assert back is not None
+    assert back.digest != data["digest"]  # the stale field is not believed
+    assert back.differs_from([ECHO, WIPE]) is True  # the live server no longer matches the file

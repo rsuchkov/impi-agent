@@ -56,6 +56,8 @@ runtime:
     - chat-commands
     - scheduled-tasks
     - engine-diagnostics
+    # Tools from MCP servers: declaring one, trust, and why a tool is withdrawn.
+    - mcp
     # How to give an agent a credential. Named after the component, like the
     # command is: support gets no access to the broker itself — no secret-exec,
     # no tool that reads a value — it advises on policies and diagnoses

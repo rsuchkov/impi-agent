@@ -27,6 +27,7 @@ from pydantic import ValidationError
 from crucible import sessions_cli
 from crucible.confinement import landlock_abi
 from crucible.mcp import (
+    MCP_DIR,
     TRUST_TRUSTED,
     TRUST_UNTRUSTED,
     McpClient,
@@ -35,11 +36,11 @@ from crucible.mcp import (
     McpLibrary,
     McpServer,
     Snapshot,
-    expand,
+    mcp_tool_name,
     server_from_yaml,
-    tool_name,
+    with_values,
 )
-from crucible.mcp.service import default_transport
+from crucible.mcp.service import default_transport, without_connection_headers
 from crucible.ports.agent import AgentSpec
 from crucible.ports.tasks import TaskError
 from crucible.process_scopes import AgentProcessScopes
@@ -698,7 +699,7 @@ def _cmd_ws_add_service(args: argparse.Namespace) -> int:
 def _mcp_library(args: argparse.Namespace) -> McpLibrary:
     settings = _settings()
     root = getattr(args, "agents_dir", None)
-    return McpLibrary(Path(root) / "_mcp" if root else settings.resolved_mcp_path)
+    return McpLibrary(Path(root) / MCP_DIR if root else settings.resolved_mcp_path)
 
 
 def _pairs(entries: list[str], what: str) -> dict[str, str]:
@@ -714,7 +715,7 @@ def _pairs(entries: list[str], what: str) -> dict[str, str]:
 
 async def _pin_server(library: McpLibrary, server: McpServer) -> Snapshot:
     """Connect, list the tools, and write the snapshot the engine will advertise."""
-    client = McpClient(default_transport(expand(server, dict(os.environ))))
+    client = McpClient(default_transport(without_connection_headers(with_values(server, _settings().mcp_values()))))
     try:
         tools = await client.list_tools()
         snapshot = Snapshot.taken(
@@ -730,7 +731,7 @@ async def _pin_server(library: McpLibrary, server: McpServer) -> Snapshot:
 def _print_tools(snapshot: Snapshot) -> None:
     for tool in snapshot.tools:
         hint = " ⚠ destructive" if tool.annotations.get("destructiveHint") else ""
-        print(f"  {tool_name(snapshot.server, tool.name)}{hint}")
+        print(f"  {mcp_tool_name(snapshot.server, tool.name)}{hint}")
         if tool.description:
             print(f"      {tool.description.splitlines()[0][:110]}")
 
@@ -744,7 +745,7 @@ def _cmd_mcp_list(args: argparse.Namespace) -> int:
     for server in servers:
         snapshot = library.snapshot(server.name)
         where = server.url or f"{server.command} {' '.join(server.args)}".strip()
-        pinned = f"{len(snapshot.tools)} tools pinned {snapshot.taken_at}" if snapshot else "NO SNAPSHOT"
+        pinned = f"{len(snapshot.tools)} tools pinned {snapshot.taken_at}" if snapshot else "UNPINNED"
         print(f"{server.name}  [{server.trust}]  {where}  — {pinned}")
     return 0
 

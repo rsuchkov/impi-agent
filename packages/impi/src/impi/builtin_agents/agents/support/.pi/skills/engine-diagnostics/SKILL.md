@@ -378,7 +378,15 @@ died, or the message came through `http`/`ws`, which are served where they
 arrive) and the new owner caught up from the application's history; what the
 platform cannot hand back (tool calls) is not in that history.
 
-## 7. Reporting back
+## 7. An MCP server's tools
+
+The startup log says `mcp: <server>(<n> tools, <trust>[, unreachable][, withdrawn])`
+for every declared server. `withdrawn` means the server's tools differ from the
+reviewed snapshot and none are advertised until `impi mcp refresh`; a server
+with no snapshot advertises nothing; `unreachable` keeps the tools and answers
+each call with the error. The **mcp** skill has the whole list.
+
+## 8. Reporting back
 
 - Name the layer and the evidence: "the agent isn't running — no
   `AGENTS_MM_TOKEN__X` in the config", not "it seems the token may be missing".

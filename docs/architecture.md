@@ -133,7 +133,7 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
      --session-dir <data>/pi-sessions/<agent>/<session-id>   # absent for a stateless run
      -e <engine tool-bridge> [-e <extension> ...]
      --tools read,bash,...                      # the ONE allowlist (may be empty)
-     --no-mcp                                   # no MCP server joins in
+     --no-mcp                                   # no MCP server joins in through the runtime (the engine is the client: docs/mcp.md)
      --no-skills [--skill <path> ...]           # only the agent's declared skills
      [--provider <p>] [--model <m>]
      [--append-system-prompt <gateway formatting rules>]

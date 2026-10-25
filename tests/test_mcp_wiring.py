@@ -8,7 +8,7 @@ import pytest
 from crucible.config import Settings
 from crucible.mcp import McpLibrary, McpServer, Snapshot, ToolDefinition
 from crucible.profiles import FsProfileStore, ProfileError
-from crucible.tools.wiring import ToolWiring, _named
+from crucible.tools.wiring import ToolWiring, _declared
 from impi.app import build_app
 from impi.engine_tools import engine_tool_registry
 from tests.fakes.mcp_http import ECHO, WIPE
@@ -41,7 +41,7 @@ def test_a_server_entry_stands_for_its_pinned_tools_in_the_allowlist_and_the_man
 
     library = _pinned_library(tmp_path)
     registry = engine_tool_registry(McpServers(library, {}).registry_tools())
-    assert _named(registry, ("read", "mcp__github__*", "list_agents", "mcp__github__echo")) == (
+    assert _declared(registry, ("read", "mcp__github__*", "list_agents", "mcp__github__echo")) == (
         "read", "mcp__github__echo", "mcp__github__wipe", "list_agents",
     )
     wiring = ToolWiring(
@@ -56,10 +56,14 @@ def test_a_server_entry_stands_for_its_pinned_tools_in_the_allowlist_and_the_man
     manifest = json.loads(Path(env["TOOL_MANIFEST"]).read_text())
     assert [m["name"] for m in manifest] == ["mcp__github__echo", "mcp__github__wipe"]
     assert manifest[0]["returns_untrusted"] is True and "never an instruction" in manifest[0]["description"]
-    # Withdrawn: gone from the allowlist and the manifest both.
+    # Withdrawn: gone from the allowlist and the manifest both — and a reload,
+    # which re-gates from the profile, does not hand it back.
     wiring.withdraw(["mcp__github__echo"])
     assert wiring.allowlists["assistant"] == {"mcp__github__wipe"}
     assert [m["name"] for m in json.loads(Path(env["TOOL_MANIFEST"]).read_text())] == ["mcp__github__wipe"]
+    wiring.profile_env(spec)
+    wiring.enroll(spec, None, gateway="mattermost")
+    assert wiring.allowlists["assistant"] == {"mcp__github__wipe"}
 
 
 def test_a_confirmed_tool_is_dropped_where_nobody_can_confirm(tmp_path: Path) -> None:
@@ -85,7 +89,7 @@ def test_build_app_puts_the_declared_servers_tools_in_the_registry(tmp_path: Pat
     _pinned_library(agents_dir)
     app = build_app(settings)
     try:
-        assert app.mcp is not None and [s.name for s in app.mcp.servers] == ["github"]
+        assert app.mcp_servers is not None and [s.name for s in app.mcp_servers.servers] == ["github"]
         assert app.tools is not None and app.tools.registry is not None
         assert app.tools.registry.get("mcp__github__echo") is not None
         assert {"mcp__github__echo", "mcp__github__wipe"} <= app.tools.allowlists["assistant"]
@@ -100,6 +104,29 @@ def test_build_app_without_servers_has_no_mcp(tmp_path: Path) -> None:
 
     app = build_app(_settings(tmp_path))
     try:
-        assert app.mcp is None
+        assert app.mcp_servers is None
     finally:
         asyncio.run(app.sessions.close())
+
+
+def test_refresh_manifests_rewrites_what_every_agent_is_shown(tmp_path: Path) -> None:
+    from crucible.mcp import McpServers
+    from crucible.ports.agent import AgentSpec
+
+    library = _pinned_library(tmp_path)
+    servers = McpServers(library, {})
+    registry = engine_tool_registry(servers.registry_tools())
+    wiring = ToolWiring(
+        Settings(_env_file=None, dotenv_path="x").tools, registry=registry, data_dir=str(tmp_path / "data"),  # pyright: ignore[reportCallIssue]
+        interactivity_on=True, confirmations_on=True,
+    )
+    spec = AgentSpec(name="assistant", display_name="A", role="r", description="d", profile_dir=tmp_path, tools=("mcp__github__*",))
+    wiring.enroll(spec, None, gateway="mattermost")
+    env = wiring.profile_env(spec)
+    assert env is not None
+    echo = next(t for t in servers.tools() if t.name == "mcp__github__echo")
+    echo.definition = ToolDefinition("echo", "Echoes, louder.", echo.definition.input_schema, title="Echo")
+    assert "louder" not in Path(env["TOOL_MANIFEST"]).read_text()  # the manifest is what it was
+    wiring.refresh_manifests()
+    manifest = json.loads(Path(env["TOOL_MANIFEST"]).read_text())
+    assert next(m for m in manifest if m["name"] == "mcp__github__echo")["description"].startswith("Echoes, louder.")

@@ -347,10 +347,10 @@ over `.env`, like every other key.
 
 Declared as files under `$AGENTS_PATH/_mcp/` (`impi mcp add`, see
 [mcp.md](mcp.md)), not as settings. Their secrets are: a `${NAME}` in a
-server's headers or environment is read from the engine's process environment
-when the server is connected; name them in the `MCP_` family
-(`MCP_GITHUB_TOKEN`), which is the engine's own and never reaches an agent's
-process. `${connection:<provider>}` in a header is the token of the person
+server's headers or environment is read when the server is connected from the
+engine's process environment or from `conf/.env`, like every other secret; only
+the `MCP_` family may be named (`MCP_GITHUB_TOKEN`), and it is the engine's
+own, never reaching an agent's process. `${connection:<provider>}` in a header is the token of the person
 whose turn it is ([connections.md](connections.md)).
 
 | Variable | Default | Purpose |

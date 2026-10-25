@@ -256,7 +256,7 @@ class App:
     heartbeat: ReplicaHeartbeat | None = None
     forwarder: HubForwarder | None = None
     # The deployment's MCP servers, connected at start and closed at stop.
-    mcp: McpServers | None = None
+    mcp_servers: McpServers | None = None
 
 
 def _engine_version() -> str:
@@ -670,7 +670,7 @@ def build_app(settings: ImpiSettings) -> App:
     # The MCP servers the deployment declares: their pinned tools stand in the
     # registry beside the engine's own, and are called through them. The
     # servers themselves are connected when the app starts (``run``).
-    mcp = McpServers(McpLibrary(settings.resolved_mcp_path), os.environ)
+    mcp = McpServers(McpLibrary(settings.resolved_mcp_path), settings.mcp_values())
     tools = ToolWiring(
         settings.tools, registry=engine_tool_registry(mcp.registry_tools()), data_dir=settings.data_dir,
         interactivity_on=settings.integrations.enabled,
@@ -896,7 +896,7 @@ def build_app(settings: ImpiSettings) -> App:
         sinks_by_agent=sinks_by_agent,
         heartbeat=ReplicaHeartbeat(sessions, replica) if replica is not None else None,
         forwarder=forwarder,
-        mcp=mcp if mcp.servers else None,
+        mcp_servers=mcp if mcp.servers else None,
     )
 
 
@@ -946,20 +946,23 @@ async def run(settings: ImpiSettings) -> None:
                         settings.processed_posts_retention_days)
     await prepare_runtime_storage(settings, app.sessions)
     app.runtime.start()
-    if app.mcp is not None and app.tools is not None:
+    if app.mcp_servers is not None and app.tools is not None:
         # Before the tool server and the gateways: a tool whose definition is
         # no longer the one reviewed is withdrawn before any process reads a
-        # manifest or a model is shown it.
-        report = await app.mcp.start()
+        # manifest or a model is shown it; a trusted server's moved definitions
+        # reach the manifests the same way.
+        report = await app.mcp_servers.start()
         app.tools.withdraw(report.withdrawn_tools)
+        if report.refreshed:
+            app.tools.refresh_manifests()
         logger.info(
             "mcp: %s",
             ", ".join(
-                f"{s.name}({len([t for t in app.mcp.tools() if t.server.name == s.name])} tools, {s.trust}"
+                f"{s.name}({len([t for t in app.mcp_servers.tools() if t.server.name == s.name])} tools, {s.trust}"
                 f"{', unreachable' if s.name in report.unreachable else ''}"
                 f"{', withdrawn' if s.name in report.withdrawn else ''})"
-                for s in app.mcp.servers
-            ) or "none",
+                for s in app.mcp_servers.servers
+            ),
         )
     if app.tool_server is not None:
         # Up before the gateways: a pi turn may call a tool the moment it starts.
@@ -1043,8 +1046,8 @@ async def run(settings: ImpiSettings) -> None:
             await app.integrations.stop()
         if app.tool_server is not None:
             await app.tool_server.stop()
-        if app.mcp is not None:
-            await app.mcp.stop()
+        if app.mcp_servers is not None:
+            await app.mcp_servers.stop()
         for unit in app.units:
             for gateway in unit.gateways.values():
                 await gateway.stop()

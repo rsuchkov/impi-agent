@@ -292,3 +292,11 @@ def test_a_replica_url_is_normalised_and_must_be_an_http_address() -> None:
     assert _settings(replica_url="http://10.0.3.7:8428").replicated is False  # no token
     with pytest.raises(ValidationError, match="REPLICA_URL"):
         _settings(replica_url="10.0.3.7:8428")
+
+
+def test_an_mcp_servers_secret_is_read_from_the_environment_then_the_env_file(tmp_path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("MCP_GITHUB_TOKEN=from-file\nMCP_OTHER=file-only\n")
+    monkeypatch.setenv("MCP_GITHUB_TOKEN", "from-env")
+    values = _settings(dotenv_path=str(env_file)).mcp_values()
+    assert values["MCP_GITHUB_TOKEN"] == "from-env" and values["MCP_OTHER"] == "file-only"

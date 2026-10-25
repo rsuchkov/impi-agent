@@ -16,8 +16,16 @@ from typing import Any
 
 from crucible.containment import one_line
 from crucible.mcp.library import CONNECTION_REF, McpServer
-from crucible.mcp.protocol import CallResult, McpError, ToolDefinition
-from crucible.ports.chat.types import CallPreview, PreviewRow
+from crucible.mcp.protocol import (
+    PROTOCOL,
+    REFUSED,
+    UNREACHABLE,
+    UNSUPPORTED,
+    CallResult,
+    McpError,
+    ToolDefinition,
+)
+from crucible.ports.chat.types import KIND_DM, CallPreview, PreviewRow
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 
 logger = logging.getLogger(__name__)
@@ -26,12 +34,21 @@ TOOL_PREFIX = "mcp__"
 TOOL_SEP = "__"
 # What a call's row shows of one argument.
 _ARG_LIMIT = 200
+# What the model is told when the server could not be called, by error code —
+# fixed wording, the server's own message stays in the log.
+_FAILED = {
+    UNREACHABLE: "{server} could not be reached; try again later",
+    REFUSED: "{server} refused the call",
+    PROTOCOL: "{server} answered in a way the engine does not accept",
+    UNSUPPORTED: "{server} asked for something the engine does not do (more input mid-call)",
+}
 
 # The server, called: (tool name, arguments, headers for this call) -> result.
 Caller = Callable[[str, Mapping[str, Any], Mapping[str, str]], Awaitable[CallResult]]
 
 
-def tool_name(server: str, tool: str) -> str:
+def mcp_tool_name(server: str, tool: str) -> str:
+    """The engine's name for a server's tool."""
     return f"{TOOL_PREFIX}{server}{TOOL_SEP}{tool}"
 
 
@@ -41,12 +58,6 @@ def split_tool_name(name: str) -> tuple[str, str] | None:
         return None
     server, sep, tool = name[len(TOOL_PREFIX):].partition(TOOL_SEP)
     return (server, tool) if sep and server and tool else None
-
-
-def is_server_pattern(entry: str) -> str:
-    """The server an allowlist entry ``mcp__<server>__*`` names, "" otherwise."""
-    parts = split_tool_name(entry)
-    return parts[0] if parts is not None and parts[1] == "*" else ""
 
 
 class McpTool:
@@ -60,7 +71,7 @@ class McpTool:
     def __init__(self, server: McpServer, definition: ToolDefinition, call: Caller) -> None:
         self.server = server
         self._call = call
-        self.name = tool_name(server.name, definition.name)
+        self.name = mcp_tool_name(server.name, definition.name)
         # The headers that are a person's token are filled per call: the tool
         # then needs the connections capability to be advertised at all.
         self.requires = frozenset({CAP_CONNECTIONS}) if server.connection_providers() else frozenset()
@@ -86,20 +97,33 @@ class McpTool:
         try:
             result = await self._call(self._definition.name, args, headers)
         except McpError as exc:
-            raise ToolError(f"{self.server.name}: {exc.code}: {exc}") from exc
+            # The engine's own words and the code: the server's message goes to
+            # the log, not to the model — an error text is as much a stranger's
+            # as a result, and a tool error is read as the tool's own voice.
+            logger.warning("mcp %s: %s failed: %s: %s", self.server.name, self._definition.name, exc.code, exc)
+            raise ToolError(_FAILED[exc.code].format(server=self.server.name)) from exc
         if result.is_error:
-            raise ToolError(f"{self.server.name} refused the call: {one_line(result.text, limit=500)}")
+            # The server's refusal is data of the server's, wrapped as such by
+            # the tool server (``returns_untrusted``), never raised as our own.
+            return {"error": True, "text": result.text}
         return result.structured if result.structured is not None else result.text
 
     async def _headers(self, ctx: ToolContext) -> dict[str, str]:
-        """The server's headers with the person's tokens filled in."""
+        """The headers of this call alone: the person's tokens, filled in. The
+        server's own headers are the service's, filled from the engine's values."""
         headers: dict[str, str] = {}
         for key, value in self.server.headers.items():
             match = CONNECTION_REF.match(value)
             if match is None:
-                headers[key] = value
                 continue
             provider = match.group(1)
+            if ctx.conversation_kind != KIND_DM:
+                # Whose turn it is in a shared conversation is not settled
+                # enough to act as anyone — the rule the connection tools keep.
+                raise ToolError(
+                    f"{self.server.name} acts as the person, which works only in a direct message "
+                    "with them; tell them to ask there"
+                )
             if ctx.connections is None or provider not in ctx.connections.providers:
                 raise ToolError(
                     f"{self.server.name} acts as the person at {provider}, and they have not "

@@ -17,14 +17,21 @@ when a release is cut, and `impi update` shows the target version's section.
   untrusted-result wrapping all apply. What a server says about its tools is
   pinned in `_mcp/<name>.lock.json` when it is declared; an `untrusted` server
   (the default) whose tools changed has them withdrawn at start until someone
-  reviews and runs `impi mcp refresh`, a `trusted` one has its snapshot follow.
+  reviews and runs `impi mcp refresh` (the startup log says `mcp: <server>(<n>
+  tools, <trust>[, unreachable][, withdrawn])`, and `ERROR mcp <server>: its tools
+  differ from the reviewed snapshot`), a `trusted` one has its snapshot follow.
   A header may be the person's own token (`${connection:<provider>}`), fetched
-  per call. The client speaks protocol revision 2026-07-28 (stateless, per-request
+  per call, in a direct message with the person only (the rule the connection
+  tools keep), and only over https; a server's entry may name secrets of the
+  `MCP_` family alone. A server's error text is data for the wrapper, never the
+  tool's own error voice. A snapshot is judged by the tools written in it, not by the digest
+  beside them, so a lock file edited by hand is compared as it reads. The
+  client speaks protocol revision 2026-07-28 (stateless, per-request
   metadata) and falls back to the 2025-11-25 handshake for a server of that
   era. Only `tools/list` and `tools/call`; no resources, prompts, sampling,
   elicitation or OAuth. New: `crucible.mcp`, `docs/mcp.md`, `impi mcp`, the `MCP_`
-  environment family (reserved from `RUNTIME_ENV`), `Settings.
-  resolved_mcp_path`, `ToolWiring.withdraw`; `runtime.tools` accepts the one
+  environment family (reserved from `RUNTIME_ENV`),
+  `Settings.resolved_mcp_path` and `Settings.mcp_values`, `ToolWiring.withdraw`; `runtime.tools` accepts the one
   pattern `mcp__<server>__*`; `engine_tool_registry(extra)`.
 
 ## v0.29.0 — 2026-10-24
