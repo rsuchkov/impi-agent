@@ -269,7 +269,7 @@ async def test_a_conversation_holds_cards_outside_a_turn_until_their_verdict(sto
     await store.hold_card(HeldCard("http", "portal:c1", "p1", "assistant", '{"a": 1, "still": true}', '[{"id": "x"}]', "later"))
     held = await store.held_card("p1")
     assert held is not None and held.card == '{"a": 1, "still": true}' and held.actions == '[{"id": "x"}]'
-    assert len(await store.held_cards("http", "portal:c1")) == 2
+    assert [c.post_id for c in await store.held_cards("http", "portal:c1")] == ["p1", "p2"]  # a rewrite keeps its place
     await store.release_card("p1")
     await store.release_card("p1")  # gone already: nothing to say
     assert [c.post_id for c in await store.held_cards("http", "portal:c1")] == ["p2"]

@@ -13,8 +13,10 @@ from typing import Protocol
 
 @dataclass(frozen=True)
 class HeldCard:
-    """One such card. ``conversation`` is the gateway's own key; the card and
-    its controls travel as JSON (``ports.chat.interactions.approval_card_to_json``
+    """One such card. ``conversation`` is the gateway's own key; ``post_id`` is
+    the gateway's, minted unique across every gateway (a random id, never a
+    platform's post id), so a post id alone names one card; the card and its
+    controls travel as JSON (``ports.chat.interactions.approval_card_to_json``
     / ``actions_to_json``), the way a form does."""
 
     gateway: str

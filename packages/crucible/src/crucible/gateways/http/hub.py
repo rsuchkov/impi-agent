@@ -77,6 +77,20 @@ ReadinessProbe = Callable[[], Awaitable[str | None]]
 READINESS_PROBE_TIMEOUT_S = 2.0
 
 
+def _expired(expires_at: str) -> bool:
+    """Whether a card's ``expires_at`` (ISO-8601 UTC) is past; an unreadable or
+    absent one is not an expiry."""
+    if not expires_at:
+        return False
+    try:
+        until = datetime.fromisoformat(expires_at)
+    except ValueError:
+        return False
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=timezone.utc)
+    return until <= datetime.now(timezone.utc)
+
+
 def _conversation_key(caller: Caller, conversation_id: str) -> str:
     """The engine-side conversation: realm-namespaced, like a ws service's."""
     return f"{caller.realm}{_SEP}{conversation_id}"
@@ -560,15 +574,20 @@ class HttpHub:
         # arguments are the asker's business, as a turn's journal is its owner's.
         pending = []
         for held in await self.turns.held_by(key):
+            card = approval_card_from_json(held.card)
+            if _expired(card.expires_at):
+                # The question is over whatever became of the pod that asked
+                # it; a card nobody can close any more is let go here.
+                await self.turns.release(held.post_id)
+                continue
             actions = actions_from_json(held.actions)
-            if await self._may_answer(actions, caller):
+            if await self._caller_may_answer(actions, caller):
                 pending.append({
-                    "postId": held.post_id, **wire_card(approval_card_from_json(held.card)),
-                    "actions": [wire_action(a) for a in actions],
+                    "postId": held.post_id, **wire_card(card), "actions": [wire_action(a) for a in actions],
                 })
         return web.json_response({"conversationId": conversation_id, "activeTurn": active, "pendingCards": pending})
 
-    async def _may_answer(self, actions: tuple[Action, ...], caller: Caller) -> bool:
+    async def _caller_may_answer(self, actions: tuple[Action, ...], caller: Caller) -> bool:
         if self._dispatcher is None:
             return False
         tokens = {str(a.context.get(APPROVAL_KEY) or "") for a in actions} - {""}

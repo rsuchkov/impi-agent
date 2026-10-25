@@ -8,7 +8,14 @@ from crucible.store.mongo.base import HELD_CARDS, MongoBase, from_doc, to_doc
 class MongoHeldCardMixin(MongoBase):
     async def hold_card(self, record: HeldCard) -> None:
         db = await self._ready()
-        await db[HELD_CARDS].replace_one({"_id": record.post_id}, to_doc(record, _id=record.post_id), upsert=True)
+        # A rewrite changes what the card says, not when it was held: it keeps
+        # its place in the listing, as on SQLite.
+        doc = to_doc(record, _id=record.post_id)
+        await db[HELD_CARDS].update_one(
+            {"_id": record.post_id},
+            {"$set": {"card": doc.pop("card"), "actions": doc.pop("actions")}, "$setOnInsert": doc},
+            upsert=True,
+        )
 
     async def held_cards(self, gateway: str, conversation: str) -> list[HeldCard]:
         db = await self._ready()

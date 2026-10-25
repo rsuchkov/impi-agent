@@ -156,8 +156,10 @@ forbidden_modules = [
 name = "Entitlements and engine-started turns are ports — vocabulary over the other ports, no concrete layer"
 type = "forbidden"
 source_modules = [
+    "crucible.ports.connections",
     "crucible.ports.entitlement",
     "crucible.ports.engine_turn",
+    "crucible.ports.held_cards",
     "crucible.ports.lease",
     "crucible.ports.replica",
 ]

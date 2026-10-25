@@ -14,11 +14,8 @@ from crucible.connections.errors import (
     LINK_EXPIRED,
     LINK_FOREIGN,
     LINK_REJECTED,
-    ConnectionsError,
     LinkRefused,
-    NotConnected,
     ProviderRejected,
-    ProviderUnavailable,
 )
 from crucible.connections.ports import (
     AccountPolicy,
@@ -28,7 +25,14 @@ from crucible.connections.ports import (
 )
 from crucible.connections.service import OAuthConnections
 from crucible.connections.types import Connected, Disconnection, OAuthTokens
-from crucible.ports.connections import AccessToken, ProviderAccount, TokenGrant
+from crucible.ports.connections import (
+    AccessToken,
+    ConnectionsError,
+    NotConnected,
+    ProviderAccount,
+    ProviderUnavailable,
+    TokenGrant,
+)
 
 __all__ = [
     "ACCOUNT_REFUSED",

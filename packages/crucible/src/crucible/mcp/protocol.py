@@ -261,7 +261,7 @@ class HttpTransport:
         except httpx.HTTPError as exc:
             raise McpError(UNREACHABLE, f"{self._url}: {exc.__class__.__name__}") from exc
         if response.status_code in (401, 403):
-            raise McpError(REFUSED, f"{self._url}: {response.status_code}")
+            raise McpError(REFUSED, f"{self._url}: {response.status_code}", status=response.status_code)
         if response.status_code >= 400:
             # A modern server puts a JSON-RPC error in the body of its 400/404
             # (an unsupported version, a header mismatch, an unknown method);

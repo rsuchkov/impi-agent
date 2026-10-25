@@ -171,8 +171,8 @@ on this gateway and on a chat platform too (one agent, several gateways) has
 its turn on the platform ask for a yes, and the card is forwarded here as to
 every gateway the conversation is live in. Each is the `confirmation` event's
 payload (`postId`, `headline`, `title`, `tool`, `fields`, `block`, `danger`,
-`expiresAt`, `actions[]`, …) and stays until its verdict comes or it is
-withdrawn (oldest first). The cards are kept in the engine's store, so with
+`expiresAt`, `actions[]`, …) and stays until its verdict comes, it is
+withdrawn or its `expiresAt` passes; listed oldest first. The cards are kept in the engine's store, so with
 several pods every pod lists them and takes an answer — the question itself
 waits on the pod whose turn raised it, and that pod is asked whether the
 caller may answer before the card is shown. Listed only to a caller the card is

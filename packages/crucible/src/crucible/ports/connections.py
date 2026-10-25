@@ -99,6 +99,9 @@ class ConnectionAccess(Protocol):
     async def account(self, provider: str) -> ProviderAccount | None: ...
 
 
-# (agent, the user the turn acts for, the turn's scope) -> that person's
-# connections, or None when the turn acts for nobody the application can name.
-ConnectionAccessFactory = Callable[[str, str, TurnScope | None], ConnectionAccess | None]
+# (agent, the user the turn acts for, the gateway the conversation is on, the
+# turn's scope) -> that person's connections, or None when the turn acts for
+# nobody the application can name. The gateway is the conversation's, not the
+# agent's default: a program that asserts its users' ids may reach an agent
+# that also lives on a chat platform, and those ids are nobody's there.
+ConnectionAccessFactory = Callable[[str, str, str, TurnScope | None], ConnectionAccess | None]

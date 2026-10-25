@@ -1367,8 +1367,8 @@ async def test_a_tool_is_handed_the_connections_of_the_person_its_turn_acts_for(
 
     asked: list[tuple] = []
 
-    def factory(agent, user_id, turn):
-        asked.append((agent, user_id, turn))
+    def factory(agent, user_id, gateway, turn):
+        asked.append((agent, user_id, gateway, turn))
         return object()
 
     async def resolver(agent: str, rsid: str):
@@ -1393,7 +1393,7 @@ async def test_a_tool_is_handed_the_connections_of_the_person_its_turn_acts_for(
                     result = (await resp.json())["result"]
                     results.append((result["has"], result["kind"]))
         assert results == [(True, "dm"), (False, "dm")]
-        assert asked == [("assistant", "u-7", None)]
+        assert asked == [("assistant", "u-7", "", None)]  # the conversation's gateway rides along
     finally:
         await server.stop()
 
@@ -1416,8 +1416,8 @@ def test_connections_are_promised_exactly_when_they_are_handed_over(tmp_path) ->
     with pytest.raises(ValueError, match="disagree"):
         promised.build_server(**build)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="disagree"):
-        wiring().build_server(**build, connections=lambda a, u, t: None)  # type: ignore[arg-type]
-    assert promised.build_server(**build, connections=lambda a, u, t: None) is not None  # type: ignore[arg-type]
+        wiring().build_server(**build, connections=lambda a, u, g, t: None)  # type: ignore[arg-type]
+    assert promised.build_server(**build, connections=lambda a, u, g, t: None) is not None  # type: ignore[arg-type]
 
 
 async def test_the_server_refuses_a_tool_outside_the_conversations_set() -> None:

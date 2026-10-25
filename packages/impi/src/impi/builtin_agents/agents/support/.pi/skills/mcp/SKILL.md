@@ -105,11 +105,11 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
   each call answers `<name> could not be reached; try again later`; check the
   URL or the command, the token in `conf/.env`, and for stdio that the runtime
   is in the image. The server's own words are in the engine log, never in the
-  agent's answer. The same answer from a server that is up, after a minute,
-  as `<name> did not answer in time; the call may have run — check before
-  repeating it`, with `no answer in 60s` (stdio) or `<url>: ReadTimeout` (HTTP)
-  in the log — the call outran the server's time (the engine does not repeat a
-  call that reached the server; the model is told to check first):
+  agent's answer. From a server that is up, after a minute, `<name> did not
+  answer in time; the call may have run — check before repeating it`, with
+  `no answer in 60s` (stdio) or `<url>: ReadTimeout` (HTTP) in the log — the
+  call outran the server's time (the engine does not repeat a call that reached
+  the server; the model is told to check first):
   `timeout: <seconds>` in `_mcp/<name>.yaml` (or `impi mcp add --timeout`)
   gives a slow server more.
 - an agent lacks a tool it names — `impi mcp list` shows the server and its
@@ -127,7 +127,8 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
   supports …; this client speaks 2026-07-28, 2025-11-25` in the log — a protocol
   version nobody shares. Report it; the server has to offer one of those.
 - `<name> refused the call` — the server answered a JSON-RPC error (a capability
-  this client lacks, an unknown tool) or a 401/403 on its own credentials; the
+  this client lacks, an unknown tool), a 401/403 on its own credentials, or a
+  403 on the person's token (which leaves their connection as it is); the
   message is in the engine log. `<name> no longer accepts the user's connection,
   so it has ended` — a 401 on the *person's* token (`${connection:…}`): the
   connection is forgotten, the person connects again (`/connections`).

@@ -55,9 +55,7 @@ from crucible.connections.errors import (
     LINK_FOREIGN,
     LINK_REJECTED,
     LinkRefused,
-    NotConnected,
     ProviderRejected,
-    ProviderUnavailable,
 )
 from crucible.connections.pkce import (
     code_challenge,
@@ -75,7 +73,9 @@ from crucible.connections.types import Connected, Disconnection, OAuthTokens
 from crucible.ports.connections import (
     AccessToken,
     ConnectionAccessFactory,
+    NotConnected,
     ProviderAccount,
+    ProviderUnavailable,
     TokenGrant,
 )
 from crucible.ports.turn import TurnScope
@@ -472,15 +472,16 @@ class OwnerConnections:
 
 
 def connection_access(
-    service: OAuthConnections, owner_for: Callable[[str, str, TurnScope | None], str | None],
+    service: OAuthConnections, owner_for: Callable[[str, str, str, TurnScope | None], str | None],
 ) -> ConnectionAccessFactory:
     """What the tool server is handed: for each call, the connections of the
-    person its turn acts for. ``owner_for(agent, user_id, turn)`` is the
-    application's rule for who that is — a chat user as ``<gateway>:<id>``, a
-    caller's realm — or None for a turn that acts for nobody it can name."""
+    person its turn acts for. ``owner_for(agent, user_id, gateway, turn)`` is
+    the application's rule for who that is — a chat user as ``<gateway>:<id>``,
+    a caller's realm — or None for a turn that acts for nobody it can name;
+    ``gateway`` is the conversation's."""
 
-    def access(agent: str, user_id: str, turn: TurnScope | None) -> OwnerConnections | None:
-        owner = owner_for(agent, user_id, turn)
+    def access(agent: str, user_id: str, gateway: str, turn: TurnScope | None) -> OwnerConnections | None:
+        owner = owner_for(agent, user_id, gateway, turn)
         return service.for_owner(owner) if owner else None
 
     return access

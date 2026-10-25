@@ -4,7 +4,7 @@ What one replica hands another (``ports.replica``): a batch of messages for a
 conversation the other owns, answered with the turn's outcome once it ran;
 a click on a card the other posted, answered with what it did with it; and
 the question whether a person may answer a card the other asked, before it is shown.
-Both under one shared secret (``Authorization: Bearer``), on the hub's port —
+All three under one shared secret (``Authorization: Bearer``), on the hub's port —
 behind the same balancer as the public routes, which is why the secret is a
 must and not a hardening.
 

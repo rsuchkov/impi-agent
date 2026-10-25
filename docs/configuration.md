@@ -141,7 +141,9 @@ Two or more engines on one store — pods behind a balancer. Each process is a
 replica with an address the others reach it at, and all share one secret for
 what they hand each other over the http hub's port: a turn for a conversation
 another replica owns (the one whose runtime remembers it), a click on a card
-another replica posted. The hub runs for these routes even with no http agent.
+another replica posted, and the question whether a person may answer a card
+another replica asked, before it is shown. The hub runs for these routes even
+with no http agent.
 Both set = conversations have owners and are forwarded; either empty = one
 process, nothing is forwarded (two replicas then each serve whatever reaches
 them, and a card can be answered only where it was posted).

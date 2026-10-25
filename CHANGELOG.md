@@ -8,7 +8,7 @@ when a release is cut, and `impi update` shows the target version's section.
 
 - **Fixed: an MCP call that reached the server was sent again after a
   timeout.** A call on a server's shared connection was tried once more on any
-  failure, a read timeout included — so a tool that was running, or had run,
+  failure to reach the server, a read timeout included — so a tool that was running, or had run,
   ran a second time under the one card the person confirmed, and the wait
   doubled. A request is now sent again only when it never left (the connection
   was refused); one that left and got no answer fails with its own words,
@@ -22,6 +22,8 @@ when a release is cut, and `impi update` shows the target version's section.
   MCP server that no longer takes the token answered "refused the call" on
   every call. The engine now forgets the connection, as the connection tools
   do, and the model asks the person to connect again; a `403` changes nothing.
+  A 401 on a call that carried the person's token is read as the token's — a
+  server whose own credential expired answers the same status.
 - **Fixed: a tool judged "direct message or not" by where the conversation
   began.** A conversation keyed across gateways kept the kind and channel of
   its first message, so a thread on Slack in a conversation begun as a direct
@@ -39,9 +41,23 @@ when a release is cut, and `impi update` shows the target version's section.
 - `ConnectionsError`, `NotConnected` and `ProviderUnavailable` — what a
   connection grant raises — live in `crucible.ports.connections` with the
   port; `crucible.connections` still exports them.
+- **Fixed (security): whose connected accounts a tool uses was judged by the
+  agent's default gateway, not the conversation's.** An agent that lives on a
+  chat platform and is also reached over the `http` gateway handed an HTTP
+  turn the connections of the chat user whose id the calling program asserted
+  in `X-User-Id`. The tool server now passes the conversation's gateway to the
+  connections factory, and a conversation on a gateway whose ids are asserted
+  acts for nobody, whatever the agent's default is.
 - **Breaks:** `GatewayDispatcher.may_answer` is a coroutine (the question may
   wait in another replica); `ClickForwarder` gains `ask_may_answer`;
-  `HttpTurns.hold/held_by/release` are coroutines and take the agent's name.
+  `HttpTurns.hold` (now given the agent's name), `held_by` (was `pending`),
+  `held` and `release` are coroutines, `conversation_of`, `PendingCard` and
+  the 50-card cap are gone — the store holds the cards, and one past its
+  `expiresAt` is let go when the conversation is listed. `ConnectionAccessFactory`
+  and `connection_access`'s `owner_for` take the conversation's gateway
+  (`(agent, user_id, gateway, turn)`). `ConnectionsError`, `NotConnected` and
+  `ProviderUnavailable` are imported from `crucible.ports.connections` (or the
+  `crucible.connections` package), no longer from `crucible.connections.errors`.
 
 ## v0.31.0 — 2026-10-25
 

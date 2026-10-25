@@ -1293,7 +1293,7 @@ async def test_a_card_from_a_turn_on_another_gateway_is_held_by_the_conversation
     chat = HttpChatClient(hub.turns, "helper")
     ref = ConversationRef(channel_id="portal:u-7", conversation_id="portal:c1", message_id="", thread_root_id="")
     card = ApprovalCard(agent="helper", headline="wants to run dangerous", title="wipe (files)", tool="dangerous",
-                        expires_at="2026-10-04T12:00:00+00:00")
+                        expires_at="2999-10-04T12:00:00+00:00")
     allow = Action(id="yes", label="Allow", value="Allow", context={APPROVAL_KEY: "ap-1"})
     deny = Action(id="no", label="Deny", value="Deny", context={APPROVAL_KEY: "ap-1"})
     await hub.start()
@@ -1407,3 +1407,28 @@ async def test_a_card_held_by_one_replica_is_shown_and_answered_on_another(tmp_p
         await hub_a.stop()
         await hub_b.stop()
         await store.close()
+
+
+async def test_a_held_card_whose_time_is_up_is_let_go_when_the_conversation_is_asked() -> None:
+    """The pod that asked may be gone with the question; a card past its
+    expiry is released by whoever lists the conversation, not kept forever."""
+    from crucible.ports.chat.types import ApprovalCard, ConversationRef
+
+    dispatcher = FakeDispatcher()
+    hub, _ = _hub(8515, dispatcher=dispatcher)
+    chat = HttpChatClient(hub.turns, "helper")
+    ref = ConversationRef(channel_id="portal:u-7", conversation_id="portal:c1", message_id="", thread_root_id="")
+    allow = Action(id="yes", label="Allow", value="Allow", context={APPROVAL_KEY: "ap-1"})
+    await hub.start()
+    try:
+        stale = await chat.post_confirmation(
+            ref, ApprovalCard(agent="helper", headline="old", expires_at="2020-01-01T00:00:00+00:00"), [allow], callback_url="")
+        live = await chat.post_confirmation(
+            ref, ApprovalCard(agent="helper", headline="new", expires_at="2999-01-01T00:00:00+00:00"), [allow], callback_url="")
+        unsaid = await chat.post_confirmation(ref, ApprovalCard(agent="helper", headline="no expiry"), [allow], callback_url="")
+        async with aiohttp.ClientSession() as s:
+            _, seen = await _get(s, 8515, "/v1/agents/helper/conversations/c1")
+            assert [c["postId"] for c in seen["pendingCards"]] == [live, unsaid]
+        assert await hub.turns.held(stale) is None and await hub.turns.held(live) is not None
+    finally:
+        await hub.stop()

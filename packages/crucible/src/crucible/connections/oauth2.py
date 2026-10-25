@@ -20,9 +20,11 @@ from urllib.parse import urlencode
 
 import httpx
 
-from crucible.connections.errors import ProviderRejected, ProviderUnavailable
+from crucible.connections.errors import (
+    ProviderRejected,
+)
 from crucible.connections.types import OAuthTokens
-from crucible.ports.connections import ProviderAccount
+from crucible.ports.connections import ProviderAccount, ProviderUnavailable
 
 _TIMEOUT_S = 15.0
 # Which userinfo field fills each part of a ProviderAccount, by default: the

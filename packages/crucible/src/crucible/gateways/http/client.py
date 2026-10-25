@@ -181,12 +181,12 @@ class HttpChatClient:
         answers = tuple(actions or ())
         turn = self._turn_of_post(post_id)
         if turn is None:
-            conversation = await self._turns.conversation_of(post_id)
-            if conversation is not None:
+            held = await self._turns.held(post_id)
+            if held is not None:
                 # Rewritten while held: with controls it still asks; with none
                 # the question is over and the conversation holds it no more.
                 if answers:
-                    await self._turns.hold(conversation, post_id, self._agent, card, answers)
+                    await self._turns.hold(held.conversation, post_id, self._agent, card, answers)
                 else:
                     await self._turns.release(post_id)
             return

@@ -59,7 +59,7 @@ redirect URI to register) and `!` lines for what is wrong.
 | Agent says the tool is missing | not in `runtime.tools`, the tool server off, or no provider configured (the tools are advertised only then) | engine-diagnostics §3 |
 | Tool: "works only in a direct message" | the agent was asked in a channel or a thread | by design, for now |
 | Tool: "there is no person here whose connected accounts a tool could use" | a scheduled turn (it acts for nobody), or an agent on the ws/http gateway (`impi health`: `… is not offered to …`) | by design: those turns have no person the engine can name |
-| Tool: "has not connected their … account" | they never connected, or a 401 ended it | the Connect button the engine posted, or `/connections` in the DM |
+| Tool: "has not connected their … account" (an `mcp__<server>__…` tool says the same, naming the server) | they never connected, or a 401 ended it | the Connect button the engine posted, or `/connections` in the DM |
 | No Connect button appeared | interactivity off (`INTEGRATIONS_ENABLED`): there is then no button and no panel, and nobody can connect | turn interactivity on |
 | Connected, but the button message did not change | the chat refused the edit (`impi logs`: `on_connected hook failed`) | harmless: the connection is stored; `/connections` shows it |
 | Tool: "give a path under the provider's API, not a URL" / "may not step up out of the provider's API" / "the path leaves the provider's API" | the model passed a full URL, a `..`, or a path that resolves elsewhere | the path is relative to `CONNECTION_API_URL__<NAME>` |

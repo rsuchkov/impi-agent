@@ -154,3 +154,15 @@ def test_a_forwarded_clicks_outcomes_are_the_approval_outcomes() -> None:
     """The port may not import the approvals leaf, so the two enums are kept in
     step here: the dispatcher converts one into the other by name."""
     assert {m.name for m in ForwardedClick} == {m.name for m in ApprovalOutcome}
+
+
+async def test_whether_a_person_may_answer_is_asked_of_the_replica_that_holds_the_question(tmp_path: Path) -> None:
+    hub, _, dispatcher, _ = await _hub(8573, tmp_path)
+    forwarder = HubForwarder("shared")
+    try:
+        dispatcher.answerers = {"U9"}
+        assert await forwarder.ask_may_answer("http://127.0.0.1:8573", "a1.tok", "U9", "slack") is True
+        assert await forwarder.ask_may_answer("http://127.0.0.1:8573", "a1.tok", "U8", "slack") is False
+    finally:
+        await forwarder.aclose()
+        await hub.stop()

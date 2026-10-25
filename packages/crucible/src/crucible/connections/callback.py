@@ -20,9 +20,9 @@ from crucible.connections.errors import (
     LINK_FOREIGN,
     LINK_REJECTED,
     LinkRefused,
-    ProviderUnavailable,
 )
 from crucible.connections.service import OAuthConnections
+from crucible.ports.connections import ProviderUnavailable
 
 logger = logging.getLogger(__name__)
 

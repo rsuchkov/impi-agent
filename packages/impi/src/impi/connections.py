@@ -150,11 +150,15 @@ class Connections:
     def providers_for(self, agent: str) -> tuple[str, ...]:
         return tuple(name for name, p in sorted(self.providers.items()) if p.allows(agent))
 
-    def owner_for(self, agent: str, user_id: str, turn: TurnScope | None = None) -> str | None:
+    def owner_for(
+        self, agent: str, user_id: str, gateway: str = "", turn: TurnScope | None = None
+    ) -> str | None:
         """Whose connections ``user_id`` talking to ``agent`` uses — None for
-        nobody's: an agent on a gateway whose user ids the calling program
-        asserts, or a scheduled turn, which acts for no person."""
-        gateway = self.gateways.get(agent, "")
+        nobody's: a conversation on a gateway whose user ids the calling program
+        asserts, or a scheduled turn, which acts for no person. ``gateway`` is
+        the conversation's; the agent's own stands in when the conversation
+        names none (a record from before gateways were recorded, a screen)."""
+        gateway = gateway or self.gateways.get(agent, "")
         if gateway in ASSERTED_IDENTITY_GATEWAYS:
             return None
         if turn is not None and turn.attributes.get(ENGINE_TURN_ATTRIBUTE):
@@ -166,9 +170,9 @@ class Connections:
         as the agent calling may use them."""
         owned = connection_access(self.service, self.owner_for)
 
-        def factory(agent: str, user_id: str, turn: TurnScope | None) -> ConnectionAccess | None:
+        def factory(agent: str, user_id: str, gateway: str, turn: TurnScope | None) -> ConnectionAccess | None:
             allowed = self.providers_for(agent)
-            access = owned(agent, user_id, turn) if allowed else None
+            access = owned(agent, user_id, gateway, turn) if allowed else None
             return NarrowedConnections(access, allowed) if access is not None else None
 
         return factory

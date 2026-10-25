@@ -247,10 +247,10 @@ async def test_a_built_service_acts_for_the_chat_user_of_the_agent_asking(
     assert connections.owner_for("idle", "u1") is None
     assert connections.providers_for("assistant") == ("gitlab",) and connections.providers_for("helper") == ()
     access = connections.tool_access()
-    granted = access("assistant", "u1", None)
+    granted = access("assistant", "u1", "mattermost", None)
     assert granted is not None and granted.providers == ("gitlab",)
-    assert access("helper", "u1", None) is None  # no provider for it
-    assert access("idle", "u1", None) is None  # nobody it can name
+    assert access("helper", "u1", "mattermost", None) is None  # no provider for it
+    assert access("idle", "u1", "", None) is None  # nobody it can name
     await connections.callback.start()  # where the settings put it
     try:
         async with aiohttp.ClientSession() as session:
@@ -504,18 +504,24 @@ def test_on_a_gateway_whose_user_ids_the_caller_asserts_nobody_is_an_owner() -> 
     assert connections.owner_for("chat", "alice") == "mattermost:alice"
     assert connections.owner_for("team", "U1") == "slack:U1"
     assert connections.owner_for("web", "alice") is None
+    # The conversation's gateway decides, not the agent's default: a chat agent reached over http
+    # acts for nobody (the caller asserted the id), and a web agent reached from a chat acts for that user.
+    assert connections.owner_for("chat", "alice", "http") is None
+    assert connections.owner_for("web", "U1", "slack") == "slack:U1"
     assert connections.owner_for("program", "alice") is None
     assert connections.owner_for("unknown", "alice") is None
     access = connections.tool_access()
-    assert access("web", "alice", None) is None and access("chat", "alice", None) is not None
+    assert access("web", "alice", "http", None) is None and access("chat", "alice", "mattermost", None) is not None
+    # The conversation's gateway, not the agent's default, says whose the turn is.
+    assert access("chat", "alice", "http", None) is None
 
 
 def test_a_scheduled_turn_acts_as_nobody() -> None:
     connections = _connections(chat="mattermost")
     scheduled = TurnScope(turn_id="t", attributes={ENGINE_TURN_ATTRIBUTE: "1"})
-    assert connections.owner_for("chat", "alice", scheduled) is None
-    assert connections.tool_access()("chat", "alice", scheduled) is None
-    assert connections.owner_for("chat", "alice", TurnScope(turn_id="t")) == "mattermost:alice"
+    assert connections.owner_for("chat", "alice", turn=scheduled) is None
+    assert connections.tool_access()("chat", "alice", "mattermost", scheduled) is None
+    assert connections.owner_for("chat", "alice", turn=TurnScope(turn_id="t")) == "mattermost:alice"
 
 
 async def test_a_scheduler_turn_says_it_is_one() -> None:

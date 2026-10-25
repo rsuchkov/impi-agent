@@ -129,7 +129,7 @@ class McpTool:
         self.requires_confirmation = requires_confirmation(self.server, definition)
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
-        headers, grants = await self._headers(ctx)
+        headers, grants = await self._credentials(ctx)
         try:
             result = await self._call(self._definition.name, args, headers)
         except McpError as exc:
@@ -138,9 +138,12 @@ class McpTool:
             # as a result, and a tool error is read as the tool's own voice.
             logger.warning("mcp %s: %s failed: %s: %s", self.server.name, self._definition.name, exc.code, exc)
             if exc.code == REFUSED and exc.status == 401 and grants:
-                # The person's token was not taken: the connection it came from
-                # is over, as the connection tools treat a 401 — forgotten, and
-                # the person asked to connect again.
+                # A 401 on a call that carried the person's token is read as
+                # the token's: the connection it came from is over, as the
+                # connection tools treat a 401 — forgotten, and the person asked
+                # to connect again. (A server whose own ${VAR} credential expired
+                # answers the same status; from the status alone the two cannot
+                # be told apart, so the person's connection goes first.)
                 assert ctx.connections is not None
                 for grant in grants:
                     await ctx.connections.forget(grant)
@@ -156,10 +159,11 @@ class McpTool:
             return {"error": True, "text": result.text}
         return result.structured if result.structured is not None else result.text
 
-    async def _headers(self, ctx: ToolContext) -> tuple[dict[str, str], tuple[TokenGrant, ...]]:
-        """The headers of this call alone — the person's tokens, filled in —
-        and the grants they came from, for a server that turns one down. The
-        server's own headers are the service's, filled from the engine's values."""
+    async def _credentials(self, ctx: ToolContext) -> tuple[dict[str, str], tuple[TokenGrant, ...]]:
+        """The person's credentials for this call alone: the headers with their
+        tokens filled in, and the grants they came from, for a server that
+        turns one down. The server's own headers are the service's, filled from
+        the engine's values."""
         headers: dict[str, str] = {}
         grants: list[TokenGrant] = []
         for key, value in self.server.headers.items():

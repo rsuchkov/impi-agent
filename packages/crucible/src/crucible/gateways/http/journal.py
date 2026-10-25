@@ -33,7 +33,7 @@ EV_FILE = "file"
 EV_TURN_FINISHED = "turn.finished"
 
 
-def _now() -> str:
+def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
@@ -67,7 +67,7 @@ class TurnJournal:
         return self.finished_at is not None
 
     def emit(self, event_type: str, **payload: Any) -> TurnEvent:
-        event = TurnEvent(seq=self.cursor + 1, at=_now(), type=event_type, payload=payload)
+        event = TurnEvent(seq=self.cursor + 1, at=now_iso(), type=event_type, payload=payload)
         self._events.append(event)
         self._wake()
         return event

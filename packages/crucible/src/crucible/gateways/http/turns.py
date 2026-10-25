@@ -21,7 +21,6 @@ import logging
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
 from crucible.gateways.http.journal import (
     EV_PROGRESS,
@@ -32,6 +31,7 @@ from crucible.gateways.http.journal import (
     STATUS_DONE,
     STATUS_FAILED,
     TurnJournal,
+    now_iso,
 )
 from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.chat.flow import TurnOutcome
@@ -216,7 +216,7 @@ class HttpTurns:
         put it in; replaces the same post when it is rewritten."""
         await self._cards.hold_card(HeldCard(
             GATEWAY_HTTP, conversation, post_id, agent,
-            approval_card_to_json(card), actions_to_json(actions), datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            approval_card_to_json(card), actions_to_json(actions), now_iso(),
         ))
 
     async def held_by(self, conversation: str) -> list[HeldCard]:
@@ -226,11 +226,6 @@ class HttpTurns:
     async def held(self, post_id: str) -> HeldCard | None:
         """The held card with this post id, or None."""
         return await self._cards.held_card(post_id)
-
-    async def conversation_of(self, post_id: str) -> str | None:
-        """The conversation holding this post, or None."""
-        held = await self._cards.held_card(post_id)
-        return held.conversation if held is not None else None
 
     async def release(self, post_id: str) -> None:
         """The card's question is over: the verdict came, or it was withdrawn."""

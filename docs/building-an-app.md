@@ -470,8 +470,9 @@ credential, is another user's credential.
   facts about a person, this one is the gate's own words.
 - `conversation_resolver` maps the calling agent and the runtime session id a
   tool call carries — the same id you passed to `run_stateful` — to a
-  `SessionConversation` (`crucible.ports.conversation`): channel, last
-  speaker, files directory, or None for a session that is not that agent's.
+  `SessionConversation` (`crucible.ports.conversation`): channel and kind as
+  the conversation is addressed on the gateway the last message came through,
+  last speaker, files directory, or None for a session that is not that agent's.
   Over crucible's own session store, `conversation_lookup(attachments, store)`
   (`crucible.conversation_files`) is that resolver.
 - **Per-turn data for tools — a credential the person sent with the message,

@@ -281,7 +281,7 @@ class ToolServer:
             files_dir=conversation.files_dir if conversation else None,
             conversation_kind=conversation.kind if conversation else "",
             connections=(
-                self._connections(agent, conversation.user_id, turn)
+                self._connections(agent, conversation.user_id, conversation.gateway, turn)
                 if self._connections is not None and conversation and conversation.user_id else None
             ),
             turn=turn,

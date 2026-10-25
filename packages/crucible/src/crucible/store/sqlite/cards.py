@@ -29,6 +29,7 @@ class HeldCardStoreMixin(SqliteBase):
         with self._lock:
             self._conn.execute(
                 f"INSERT INTO held_cards ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                # A rewrite changes what the card says, not when it was held.
                 "ON CONFLICT (post_id) DO UPDATE SET card = excluded.card, actions = excluded.actions",
                 (r.gateway, r.conversation, r.post_id, r.agent, r.card, r.actions, r.held_at),
             )

@@ -238,3 +238,18 @@ async def test_an_error_says_whether_the_request_left() -> None:
         await quiet.list_tools()
     assert caught.value.code == UNREACHABLE and caught.value.sent is True  # written, never answered
     await quiet.close()
+
+
+async def test_a_refused_call_carries_the_status_the_server_answered() -> None:
+    """A 401 is what ends a person's connection; the tool can only act on it
+    when the transport says which status it was."""
+    locked = FakeMcpHttp(8597, token="right")
+    await locked.start()
+    client = McpClient(HttpTransport(locked.url, {"Authorization": "Bearer wrong"}))
+    try:
+        with pytest.raises(McpError) as caught:
+            await client.list_tools()
+        assert (caught.value.code, caught.value.status) == (REFUSED, 401)
+    finally:
+        await client.close()
+        await locked.stop()

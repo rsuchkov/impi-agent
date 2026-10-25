@@ -1,13 +1,9 @@
-"""What can go wrong with a connected account, by kind — the kind decides what
-the person is told: connect again, try later, or nothing they can do. The
-errors a tool meets through the port (``grant``) are the port's own and live
-with it; they are named here too, for the machinery that raises them."""
+"""What can go wrong inside the connections machinery, by kind — the kind
+decides what the person is told. The errors a tool meets through the port
+(``ConnectionsError``, ``NotConnected``, ``ProviderUnavailable``) are the
+port's own and live with it in ``crucible.ports.connections``."""
 
-from crucible.ports.connections import (
-    ConnectionsError,
-    NotConnected,
-    ProviderUnavailable,
-)
+from crucible.ports.connections import ConnectionsError
 
 # Why a connect that came back was refused.
 LINK_EXPIRED = "expired"  # unknown, already used, or past its time
@@ -32,8 +28,3 @@ class LinkRefused(ConnectionsError):
 class ProviderRejected(ConnectionsError):
     """The provider refused a code or a refresh token: the grant is over."""
 
-
-__all__ = [
-    "ACCOUNT_REFUSED", "LINK_DENIED", "LINK_EXPIRED", "LINK_FOREIGN", "LINK_REJECTED",
-    "ConnectionsError", "LinkRefused", "NotConnected", "ProviderRejected", "ProviderUnavailable",
-]

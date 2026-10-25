@@ -403,7 +403,9 @@ batch's conversation: another live replica's, the batch goes to it over the
 hub's internal routes under one shared secret and the outcome comes back; a
 message a balancer or a socket pinned here takes the conversation over. A click
 token names the replica that minted it, and a click on another replica's
-question is handed to that replica by the dispatcher.
+question is handed to that replica by the dispatcher — as is the question
+whether a person may answer it, asked before a card the HTTP gateway holds
+outside a turn (`ports/held_cards.py`, kept in the store) is shown.
 
 **The tool trace** is the third kind of screen, and the one the engine posts on
 its own: `crucible.interactions.tooltrace`. The flow hands each turn a trace and

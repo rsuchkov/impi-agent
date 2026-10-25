@@ -161,9 +161,11 @@ person's token is fetched for each call and sent on a connection of that call
 alone — the server's standing connection, the one that lists its tools, never
 carries it — and a person who has not connected their account is told so by
 the tool, in words the model repeats (how to connect, never a request for a
-token). A `401` on the person's token ends their connection, as it does for
-the connection tools: the engine forgets it and the model asks them to connect
-again; a `403` is the server's refusal of a live token and changes nothing.
+token). A `401` on a call that carried the person's token ends their
+connection, as it does for the connection tools: the engine forgets it and the
+model asks them to connect again (a server whose own `${MCP_…}` credential
+expired answers the same status, and from the status alone the two cannot be
+told apart); a `403` is the server's refusal of a live token and changes nothing.
 The model never sees the token.
 
 ## What a result is

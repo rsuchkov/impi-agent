@@ -161,21 +161,21 @@ async def test_a_tool_is_handed_the_connections_of_the_person_its_turn_acts_for(
     await service.finish(state, code)
     asked: list[tuple] = []
 
-    def owner_for(agent: str, user_id: str, turn: TurnScope | None) -> str | None:
+    def owner_for(agent: str, user_id: str, gateway: str, turn: TurnScope | None) -> str | None:
         asked.append((agent, user_id, turn))
         return f"mattermost:{user_id}" if user_id else None
 
     access = connection_access(service, owner_for)
-    mine = access("assistant", "u1", None)
+    mine = access("assistant", "u1", "mattermost", None)
     assert mine is not None and mine.providers == ("gitlab",)
     grant = await mine.grant("gitlab")
     account = await mine.account("gitlab")
     assert grant.token.reveal() == "access-1" and account is not None and account.username == "alice"
-    stranger = access("assistant", "u2", None)
+    stranger = access("assistant", "u2", "mattermost", None)
     assert stranger is not None
     with pytest.raises(NotConnected):
         await stranger.grant("gitlab")
-    assert access("assistant", "", None) is None  # a turn that acts for nobody
+    assert access("assistant", "", "mattermost", None) is None  # a turn that acts for nobody
     await mine.forget(grant)
     assert await service.connected("mattermost:u1") == {}
     assert asked[0] == ("assistant", "u1", None)
