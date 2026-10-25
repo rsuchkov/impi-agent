@@ -64,7 +64,7 @@ class CheckReport:
 
     connected: list[str] = field(default_factory=list)
     unreachable: dict[str, str] = field(default_factory=dict)  # server -> why
-    refreshed: list[str] = field(default_factory=list)  # trusted servers whose snapshot moved
+    refreshed: list[str] = field(default_factory=list)  # servers whose definitions moved (a trusted pin, an adopted snapshot)
     withdrawn: dict[str, tuple[str, ...]] = field(default_factory=dict)  # untrusted server -> tool names
     restored: dict[str, tuple[str, ...]] = field(default_factory=dict)  # server -> tool names handed back
     unpinned: list[str] = field(default_factory=list)  # servers whose tools nobody pinned yet
@@ -96,6 +96,7 @@ class McpServers:
         self._digests: dict[str, str] = {}  # the snapshot each server's tools stand on
         self._withdrawn: set[str] = set()  # untrusted servers whose tools are withdrawn
         self._unreachable: set[str] = set()  # servers the last check could not reach
+        self._unpinned: set[str] = set()  # untrusted servers said to have no snapshot
         self._listed_at: dict[str, float] = {}  # when each server last listed its tools (monotonic)
         self._ttl_s: dict[str, float] = {}  # how long that listing is fresh, by the server's word
         self._changed: set[str] = set()  # servers that said their tools changed, not yet rechecked
@@ -202,7 +203,7 @@ class McpServers:
             if names is None and not reviewed and self._fresh(name):
                 report.skipped.append(name)
                 continue
-            if reviewed and not self._adopt(name):
+            if reviewed and not self._adopt(name, report):
                 continue
             due.append(name)
         listed = await asyncio.gather(*(self._list(name) for name in due), return_exceptions=True)
@@ -230,15 +231,17 @@ class McpServers:
                     report.refreshed.append(name)
                 else:
                     report.unpinned.append(name)
-                    logger.error(
-                        "mcp %s: no snapshot of its tools — nothing is advertised until "
-                        "they are reviewed and pinned", name,
-                    )
+                    if name not in self._unpinned:
+                        self._unpinned.add(name)
+                        logger.error(
+                            "mcp %s: no snapshot of its tools — nothing is advertised until "
+                            "they are reviewed and pinned", name,
+                        )
                 continue
             if digest(definitions) == self._digests[name]:
                 if reviewed and name in self._withdrawn:
                     self._withdrawn.discard(name)
-                    report.restored[name] = self._names(name)
+                    report.restored[name] = self._tool_names(name)
                     logger.info("mcp %s: its tools match the reviewed snapshot again; handed back", name)
                 continue
             if server.trusted:
@@ -247,7 +250,7 @@ class McpServers:
                 logger.info("mcp %s: tools changed; the snapshot follows (trusted)", name)
             elif name not in self._withdrawn:
                 self._withdrawn.add(name)
-                report.withdrawn[name] = self._names(name)
+                report.withdrawn[name] = self._tool_names(name)
                 logger.error(
                     "mcp %s: its tools differ from the reviewed snapshot; %d tool(s) withdrawn "
                     "until they are reviewed and pinned again", name, len(report.withdrawn[name]),
@@ -273,23 +276,33 @@ class McpServers:
         listed_at = self._listed_at.get(name)
         return listed_at is not None and time.monotonic() - listed_at < self._ttl_s.get(name, 0.0)
 
-    def _names(self, server: str) -> tuple[str, ...]:
+    def _tool_names(self, server: str) -> tuple[str, ...]:
+        """The server's tools as the registry names them."""
         return tuple(tool.name for tool in self._tools.get(server, ()))
 
-    def _adopt(self, name: str) -> bool:
+    def _adopt(self, name: str, report: CheckReport) -> bool:
         """Read the server's snapshot from disk again: a different one than the
-        tools stand on is what a review wrote, and the tools follow it. False
-        when the file cannot be read (said in the log; the server is left as it was)."""
+        tools stand on is what a review wrote, and the tools follow it; one that
+        is gone takes an untrusted server's tools with it. False when the file
+        cannot be read (said in the log; the server is left as it was)."""
         try:
             snapshot = self._library.snapshot(name)
         except McpConfigError as exc:
             logger.error("mcp %s: %s", name, exc)
             return False
         if snapshot is None:
-            self._digests.pop(name, None)
+            if self._digests.pop(name, None) is not None and not self._servers[name].trusted and name not in self._withdrawn:
+                self._withdrawn.add(name)
+                report.withdrawn[name] = self._tool_names(name)
+                logger.error(
+                    "mcp %s: its snapshot is gone; %d tool(s) withdrawn until they are pinned again",
+                    name, len(report.withdrawn[name]),
+                )
         elif snapshot.digest != self._digests.get(name):
             self._digests[name] = snapshot.digest
+            self._unpinned.discard(name)
             self._follow(name, snapshot.tools)
+            report.refreshed.append(name)
         return True
 
     async def _list(self, name: str) -> tuple[McpClient, tuple[ToolDefinition, ...]]:
@@ -301,6 +314,7 @@ class McpServers:
         snapshot = Snapshot.taken(name, definitions, _now(), server_info)
         self._library.save_snapshot(snapshot)
         self._digests[name] = snapshot.digest
+        self._unpinned.discard(name)
         self._follow(name, snapshot.tools)
 
     def _follow(self, name: str, definitions: tuple[ToolDefinition, ...]) -> None:

@@ -94,7 +94,7 @@ The installer drops a small CLI into `~/.local/bin/impi`:
 | `impi logs [-f]` | engine logs |
 | `impi start` / `impi stop` | bring the stack up / stop it |
 | `impi restart` | restart the engine — picks up `.env` edits and new agents |
-| `impi reload` | re-read agent profiles in place (skills, tools, prompts) — no restart |
+| `impi reload` | re-read agent profiles in place (skills, tools, prompts) and the MCP snapshots after `impi mcp refresh` — no restart |
 | `impi skill …` | the shared skill library (see [skills.md](skills.md)) |
 | `impi task …` | scheduled and recurring work (see [tasks.md](tasks.md)) |
 | `impi ward …` | the secret store and who may reach it (see [secrets.md](secrets.md)) |

@@ -1017,3 +1017,41 @@ def test_a_check_of_the_mcp_servers_is_applied_to_what_the_agents_are_shown() ->
     _apply_mcp_check(tools, CheckReport())  # type: ignore[arg-type]
     assert tools.calls == [("withdraw", ()), ("restore", ())]  # nothing moved: no manifest rewritten
     assert Settings(_env_file=None, dotenv_path="x").mcp_recheck_s == 300.0  # pyright: ignore[reportCallIssue]
+
+
+async def test_a_reload_reviews_the_mcp_servers_before_the_profiles_are_re_read() -> None:
+    from crucible.mcp import CheckReport
+    from impi.app import _reload
+
+    order: list[str] = []
+
+    class _Servers:
+        async def recheck(self, names=None, *, reviewed=False):
+            order.append(f"recheck reviewed={reviewed}")
+            return CheckReport(restored={"a": ("mcp__a__x",)})
+
+    class _Tools:
+        def withdraw(self, names) -> None:
+            order.append(f"withdraw {tuple(names)}")
+
+        def restore(self, names) -> None:
+            order.append(f"restore {tuple(names)}")
+
+        def refresh_manifests(self) -> None:
+            order.append("refresh")
+
+    class _Reloader:
+        async def reload(self, identities) -> None:
+            order.append(f"profiles {sorted(identities)}")
+
+    app = App.__new__(App)
+    app.mcp_servers = _Servers()  # type: ignore[assignment]
+    app.tools = _Tools()  # type: ignore[assignment]
+    app.reloader = _Reloader()  # type: ignore[assignment]
+    await _reload(app, {"assistant": object()})  # type: ignore[arg-type]
+    assert order == ["recheck reviewed=True", "withdraw ()", "restore ('mcp__a__x',)", "profiles ['assistant']"]
+    # Without servers: the profiles alone.
+    order.clear()
+    app.mcp_servers = None
+    await _reload(app, {})
+    assert order == ["profiles []"]

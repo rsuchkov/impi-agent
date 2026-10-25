@@ -205,12 +205,9 @@ class HttpTurns:
         """The cards the conversation holds, oldest first."""
         return list(self._pending.get(conversation, {}).values())
 
-    def pending_post(self, post_id: str) -> tuple[str, PendingCard] | None:
-        """(conversation, card) of a held post, or None."""
-        for conversation, held in self._pending.items():
-            if post_id in held:
-                return conversation, held[post_id]
-        return None
+    def conversation_of(self, post_id: str) -> str | None:
+        """The conversation holding this post, or None."""
+        return next((conversation for conversation, held in self._pending.items() if post_id in held), None)
 
     def release(self, post_id: str) -> None:
         """The card's question is over: the verdict came, or it was withdrawn."""

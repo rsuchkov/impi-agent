@@ -356,7 +356,7 @@ whose turn it is ([connections.md](connections.md)).
 | Variable | Default | Purpose |
 |---|---|---|
 | `MCP_RECHECK_S` | `300` | how often (s) every server's tools are compared with its snapshot again; `0` = only on `impi reload` and when a server says they changed |
-| `MCP_<ANYTHING>` | — | whatever a server entry's `${…}` names; by convention `MCP_<SERVER>_TOKEN` |
+| `MCP_<ANYTHING>` | — | whatever a server entry's `${…}` names; by convention `MCP_<SERVER>_TOKEN` (the engine's own `MCP_RECHECK_S` is in the family too, and an entry naming it gets its value) |
 
 ## Interactivity (widget/form callbacks)
 

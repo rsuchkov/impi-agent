@@ -61,6 +61,11 @@ class FakeDispatcher:
         self.approvals.append((token, value, user_id, gateway))
         return self.approval_outcome
 
+    answerers: set[str] | None = None  # who may answer any token; None = anyone
+
+    def may_answer(self, token, user_id, *, gateway=""):
+        return self.answerers is None or user_id in self.answerers
+
     async def resolve_pending(self, token, value) -> bool:
         self.pending.append((token, value))
         return self.resolves
@@ -1296,9 +1301,13 @@ async def test_a_card_from_a_turn_on_another_gateway_is_held_by_the_conversation
         post_id = await chat.post_confirmation(ref, card, [allow, deny], callback_url="")
         assert post_id  # held, not dropped
         async with aiohttp.ClientSession() as s:
+            dispatcher.answerers = {"u-7"}  # the card is the asker's
             _, seen = await _get(s, 8512, "/v1/agents/helper/conversations/c1")
             assert seen["activeTurn"] is None
             [pending] = seen["pendingCards"]
+            # Somebody else of the realm sees the conversation but not the card: its arguments are the asker's.
+            _, other_user = await _get(s, 8512, "/v1/agents/helper/conversations/c1", headers={**AUTH, "X-User-Id": "u-8"})
+            assert other_user["pendingCards"] == []
             assert pending["postId"] == post_id and pending["tool"] == "dangerous" and pending["verdict"] == ""
             assert [a["id"] for a in pending["actions"]] == ["yes", "no"]
             # Another realm's conversation of the same name holds nothing.

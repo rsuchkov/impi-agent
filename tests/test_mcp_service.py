@@ -242,10 +242,18 @@ async def test_a_review_hands_a_withdrawn_servers_tools_back_and_the_tools_follo
         report = await servers.recheck(reviewed=True)
         assert report.restored == {"remote": ("mcp__remote__echo", "mcp__remote__wipe")}
         assert report.restored_tools == ("mcp__remote__echo", "mcp__remote__wipe") and report.withdrawn == {}
+        assert report.refreshed == ["remote"]  # definitions moved: an application rewrites its manifests
         assert servers.tools()[0].description == "Echoes, louder."
         # A snapshot that cannot be read leaves the server as it was and is said in the log.
         (tmp_path / "_mcp" / "remote.lock.json").write_text("{not json")
         assert (await servers.recheck(reviewed=True)).connected == []
+        # A snapshot the operator deleted takes an untrusted server's tools with it — the log and the
+        # manifests then agree that nothing is advertised; said once.
+        (tmp_path / "_mcp" / "remote.lock.json").unlink()
+        gone = await servers.recheck(reviewed=True)
+        assert gone.withdrawn == {"remote": ("mcp__remote__echo", "mcp__remote__wipe")} and gone.unpinned == ["remote"]
+        again = await servers.recheck(reviewed=True)
+        assert again.withdrawn == {} and again.unpinned == ["remote"]
     finally:
         await servers.stop()
         await http.stop()
@@ -319,3 +327,25 @@ async def test_the_timer_rechecks_every_server_and_an_unreachable_one_is_said_on
         ]
     finally:
         await servers.stop()
+
+
+async def test_a_server_nobody_pinned_is_said_once(tmp_path: Path, caplog) -> None:
+    http = FakeMcpHttp(8595)
+    await http.start()
+    library = _library(tmp_path, McpServer("remote", url=http.url))  # no snapshot
+    servers = McpServers(library, {})
+    try:
+        with caplog.at_level(logging.ERROR, logger="crucible.mcp.service"):
+            assert (await servers.start()).unpinned == ["remote"]
+            assert (await servers.recheck()).unpinned == ["remote"]
+            assert (await servers.recheck(reviewed=True)).unpinned == ["remote"]
+        assert [r.getMessage() for r in caplog.records if "no snapshot" in r.getMessage()] == [
+            "mcp remote: no snapshot of its tools — nothing is advertised until they are reviewed and pinned",
+        ]
+        # Pinned by a review: adopted, and said again only if the lock goes again.
+        library.save_snapshot(Snapshot.taken("remote", [ECHO, WIPE], "t"))
+        adopted = await servers.recheck(reviewed=True)
+        assert adopted.unpinned == [] and adopted.refreshed == ["remote"]
+    finally:
+        await servers.stop()
+        await http.stop()

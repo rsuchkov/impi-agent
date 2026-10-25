@@ -210,6 +210,8 @@ async def test_the_dispatcher_forwards_to_the_registry(tmp_path: Path) -> None:
             await dispatcher.resolve_approval("tok-1", ANSWER_DENY, STRANGER) is ApprovalOutcome.NOT_ALLOWED
         )
         assert not future.done()
+        # A gateway asks the same question before it shows the card.
+        assert dispatcher.may_answer("tok-1", APPROVER) is True and dispatcher.may_answer("tok-1", STRANGER) is False
         assert await dispatcher.resolve_approval("tok-1", ANSWER_DENY, APPROVER) is ApprovalOutcome.RESOLVED
         assert (await future).allowed is False
     finally:

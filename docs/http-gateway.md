@@ -172,8 +172,12 @@ its turn on the platform ask for a yes, and the card is forwarded here as to
 every gateway the conversation is live in. Each is the `confirmation` event's
 payload (`postId`, `headline`, `title`, `tool`, `fields`, `block`, `danger`,
 `expiresAt`, `actions[]`, …) and stays until its verdict comes or it is
-withdrawn; oldest first. A card raised by a turn running *here* is in that
-turn's journal instead, as before. Poll this when the program shows a
+withdrawn (at most 50 a conversation, oldest first; they live in the engine's
+memory, as the question itself does). Listed only to a caller the card is
+addressed to — the person who asked, as the approvals judge `X-User-Id` on
+this gateway — another user of the realm sees the conversation and no card:
+its arguments are the asker's. A card raised by a turn running *here* is in
+that turn's journal instead, as before. Poll this when the program shows a
 conversation that may be live elsewhere too.
 
 ### `POST /v1/agents/{agent}/conversations/{conversation}/actions`

@@ -64,8 +64,9 @@ runs on.
 `impi mcp list` shows every server, its trust and how many tools are pinned;
 `impi mcp show <name>` the tools; `impi mcp refresh <name>` connects again and
 pins the tools as they are now; `impi mcp remove <name>` forgets the server.
-A refreshed snapshot is read at `impi reload`; a new or removed server, and a
-tool a server gained, need an engine restart (the registry is built at start).
+A refreshed snapshot is read at `impi reload`; a new or removed server, a
+changed entry (`trust`, `confirm`, `safe`, `timeout`) and a tool a server
+gained need an engine restart (the servers and the registry are read at start).
 
 ## Give an agent the tools
 
@@ -129,13 +130,15 @@ believes said it is harmless. Who may say so:
   to decide by hints from a server it does not trust. So every tool of an
   untrusted server asks until the operator names it in `safe:`.
 
-`impi mcp add` and `impi mcp show` say which tools are confirmed and how many;
-a server whose reads all ask is one `--safe 'get_*'` away. The card shows the
+`impi mcp add`, `show` and `refresh` say which tools are confirmed and how
+many; a server whose reads all ask is one `--safe 'get_*'` (and a restart)
+away. The card shows the
 tool's title, the server and the arguments: a short one as a fact on one line,
 a long or multi-line one — a script, a comment's body — whole, as a passage,
 so the person approves what they can read; a destructive tool gets the warning
 mark. Where nothing can confirm (`INTEGRATIONS_ENABLED=false`) a confirmed
-tool is not advertised at all, like any confirmed tool.
+tool is not advertised at all — for an untrusted server that is everything
+outside `safe:`.
 
 ## Acting as the person
 
@@ -195,7 +198,8 @@ directory), `snapshot` (the pinned definitions and their digest), `tools` (a
 definition as a tool of the engine), `service` (the servers connected, checked
 and called). The composition root builds the registry from the snapshots
 (`McpServers.registry_tools()`), starts the servers before the tool server,
-withdraws what the check says (`ToolWiring.withdraw`) and rewrites the
-manifests when a trusted server's definitions moved
-(`ToolWiring.refresh_manifests`); see "Tools from MCP servers" in
-[building-an-app.md](building-an-app.md).
+rechecks them on a timer and at a reload (`McpServers.run`, `recheck`), and
+applies what each check says: withdraws (`ToolWiring.withdraw`), hands back
+what a review pinned again (`ToolWiring.restore`) and rewrites the manifests
+when definitions moved (`ToolWiring.refresh_manifests`); see "Tools from MCP
+servers" in [building-an-app.md](building-an-app.md).

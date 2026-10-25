@@ -33,6 +33,7 @@ from crucible.gateways.http.journal import EV_ACTIONS_RETIRED, STATUS_RUNNING
 from crucible.gateways.http.turns import (
     STARTED_BY_ENGINE,
     HttpTurns,
+    PendingCard,
     Turn,
     TurnInProgress,
 )
@@ -553,13 +554,21 @@ class HttpHub:
         if turn is not None and turn.owner == caller.owner:
             active = {"turnId": turn.id, "status": turn.journal.status, "cursor": turn.journal.cursor}
         # Cards the conversation holds outside any turn of this gateway's:
-        # raised by a turn on another gateway, forwarded here. Who may answer
-        # one is the approvals' call, made when the answer comes.
+        # raised by a turn on another gateway, forwarded here. Shown to the
+        # caller only when the approvals would take their answer: a card's
+        # arguments are the asker's business, as a turn's journal is its owner's.
         pending = [
             {"postId": held.post_id, **wire_card(held.card), "actions": [wire_action(a) for a in held.actions]}
             for held in self.turns.pending(key)
+            if self._may_answer(held, caller)
         ]
         return web.json_response({"conversationId": conversation_id, "activeTurn": active, "pendingCards": pending})
+
+    def _may_answer(self, held: PendingCard, caller: Caller) -> bool:
+        if self._dispatcher is None:
+            return False
+        tokens = {str(a.context.get(APPROVAL_KEY) or "") for a in held.actions} - {""}
+        return any(self._dispatcher.may_answer(t, caller.user_id, gateway=GATEWAY_HTTP) for t in tokens)
 
     async def _conversation_action(self, request: web.Request) -> web.Response:
         """An answer to a card the conversation holds outside a turn — a

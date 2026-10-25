@@ -68,5 +68,3 @@ class Snapshot:
             server_info=dict(data.get("server_info") or {}),
         )
 
-    def differs_from(self, tools: Iterable[ToolDefinition]) -> bool:
-        return digest(tools) != self.digest

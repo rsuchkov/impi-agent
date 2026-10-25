@@ -122,7 +122,7 @@ class ToolWiring:
         # definitions are no longer the reviewed ones): a reload re-gates from
         # the profile and must not hand them back.
         self.withdrawn: set[str] = set()
-        self._specs: dict[str, AgentSpec] = {}  # each enrolled agent's profile, for a re-gate
+        self._specs: dict[str, AgentSpec] = {}  # each enrolled agent's profile, to advertise from again
         self.caps: dict[str, frozenset[str]] = {}  # agent -> capability set
         # Widgets/forms exist iff the integrations receiver is on; chat_admin only on
         # gateways that provide it (Mattermost, not Slack) — added per agent in enroll.
@@ -219,7 +219,7 @@ class ToolWiring:
             return
         self.withdrawn -= set(names)
         for spec in self._specs.values():
-            self._gate(spec)
+            self._advertise(spec)
 
     def refresh_manifests(self) -> None:
         """Rewrite every enrolled agent's manifest from the registry as it is
@@ -246,11 +246,11 @@ class ToolWiring:
             return dict(extra) if extra else None
         # Manifest re-derived here so a hot-reload re-filters the advertised tools.
         self._specs[spec.name] = spec
-        return {**self.envs[spec.name], MANIFEST_ENV: str(self._gate(spec))}
+        return {**self.envs[spec.name], MANIFEST_ENV: str(self._advertise(spec))}
 
-    def _gate(self, spec: AgentSpec) -> Path:
-        """The agent's allowlist and manifest from its profile as the registry
-        stands now. The server's gate must move with the manifest: the tool
+    def _advertise(self, spec: AgentSpec) -> Path:
+        """Write what the agent is shown — its allowlist and manifest — from its
+        profile as the registry stands now; returns the manifest's path. The server's gate must move with the manifest: the tool
         server holds the mapping by reference, so a tool added to a profile and
         hot-reloaded is advertised AND callable, instead of being answered with
         403 until the next restart."""

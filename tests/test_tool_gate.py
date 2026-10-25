@@ -754,6 +754,24 @@ async def test_named_approvers_replace_the_asker(tmp_path: Path) -> None:
 
 
 
+async def test_a_gateway_may_ask_who_may_answer_before_showing_the_card(tmp_path: Path) -> None:
+    """``may_answer`` judges a person as ``resolve`` will judge their click:
+    named approvers or anyone when nobody is named — and nothing once the
+    question is over."""
+    rig = await _rig(tmp_path, 8565, approvers=("uid-lead",))
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        token = await _asked(rig)
+        assert rig.approvals.may_answer(token, "uid-lead") is True
+        assert rig.approvals.may_answer(token, "uid-asker") is False
+        assert rig.approvals.may_answer("no-such-token", "uid-lead") is False
+        assert rig.approvals.resolve(token, ANSWER_ONCE, "uid-lead").name == "RESOLVED"
+        assert rig.approvals.may_answer(token, "uid-lead") is False  # answered
+        assert await pending == 200
+    finally:
+        await _close(rig)
+
+
 async def test_a_gate_that_never_asked_says_why_and_the_model_does_not_retry(tmp_path: Path) -> None:
     """An application's own gate may refuse to put the question at all — a
     budget of questions spent, a policy — and the model hears its reason, apart

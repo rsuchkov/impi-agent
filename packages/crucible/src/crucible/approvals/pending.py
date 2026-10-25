@@ -90,6 +90,13 @@ class PendingApprovals:
     def pending(self, token: str) -> bool:
         return token in self._by_token
 
+    def may_answer(self, token: str, user_id: str) -> bool:
+        """Whether the request is waiting and this person is among those it was
+        addressed to (anyone, when it named nobody) — what a gateway asks before
+        showing the card, the way ``resolve`` judges the click."""
+        entry = self._by_token.get(token)
+        return entry is not None and (not entry.approvers or user_id in entry.approvers)
+
     def resolve(self, token: str, value: str, user_id: str) -> ApprovalOutcome:
         """Answer a waiting request from a click."""
         entry = self._by_token.get(token)

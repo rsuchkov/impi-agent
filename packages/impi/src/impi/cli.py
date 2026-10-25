@@ -731,25 +731,24 @@ async def _pin_server(library: McpLibrary, server: McpServer) -> Snapshot:
     return snapshot
 
 
-def _print_tools(server: McpServer, snapshot: Snapshot) -> int:
+def _print_tools(server: McpServer, snapshot: Snapshot) -> None:
     """The pinned tools, each with what the server says of it and whether a
-    person confirms a call; returns how many are confirmed."""
-    confirmed = 0
+    person confirms a call."""
     for tool in snapshot.tools:
         marks = []
         if destructive(tool):
             marks.append("⚠ destructive")
         if requires_confirmation(server, tool):
-            confirmed += 1
             marks.append("needs confirmation")
         hint = f"  {', '.join(marks)}" if marks else ""
         print(f"  {mcp_tool_name(snapshot.server, tool.name)}{hint}")
         if tool.description:
             print(f"      {tool.description.splitlines()[0][:110]}")
-    return confirmed
 
 
-def _print_confirmed(server: McpServer, snapshot: Snapshot, confirmed: int) -> None:
+def _print_confirmed(server: McpServer, snapshot: Snapshot) -> None:
+    """How many of the pinned tools a person confirms, and how to say otherwise."""
+    confirmed = sum(requires_confirmation(server, tool) for tool in snapshot.tools)
     if confirmed and not server.trusted:
         print(
             f"{confirmed} of {len(snapshot.tools)} tools need a person's confirmation before they run "
@@ -790,7 +789,8 @@ def _cmd_mcp_show(args: argparse.Namespace) -> int:
         print("  no snapshot: run `impi mcp refresh` to pin its tools")
         return 0
     print(f"  {len(snapshot.tools)} tools pinned {snapshot.taken_at} ({snapshot.digest[:12]})")
-    _print_confirmed(server, snapshot, _print_tools(server, snapshot))
+    _print_tools(server, snapshot)
+    _print_confirmed(server, snapshot)
     return 0
 
 
@@ -820,7 +820,8 @@ def _cmd_mcp_add(args: argparse.Namespace) -> int:
         return 1
     path = library.write(server)
     print(f"declared {server.name} ({server.trust}) in {path}; {len(snapshot.tools)} tools pinned:")
-    _print_confirmed(server, snapshot, _print_tools(server, snapshot))
+    _print_tools(server, snapshot)
+    _print_confirmed(server, snapshot)
     print(f"name them in an agent's runtime.tools: mcp__{server.name}__* or one at a time")
     return 0
 
@@ -839,7 +840,8 @@ def _cmd_mcp_refresh(args: argparse.Namespace) -> int:
         return 1
     changed = before is None or before.digest != snapshot.digest
     print(f"{server.name}: {len(snapshot.tools)} tools pinned" + (" (changed)" if changed else " (unchanged)"))
-    _print_confirmed(server, snapshot, _print_tools(server, snapshot))
+    _print_tools(server, snapshot)
+    _print_confirmed(server, snapshot)
     return 0
 
 

@@ -39,8 +39,9 @@ container: its runtime (`uvx`, `npx`, a binary) has to be in that image, or
 `impi mcp add` fails with the OS error (`No such file or directory`) and a
 call with `<name> could not be reached`.
 
-A new or removed server, and a tool a server gained, need an engine restart
-(`impi restart`); a refreshed snapshot is read at `impi reload`.
+A new or removed server, a changed entry (`trust`, `confirm`, `safe`,
+`timeout`) and a tool a server gained need an engine restart (`impi restart`);
+a refreshed snapshot is read at `impi reload`.
 
 ## 2. Give an agent the tools
 
@@ -91,18 +92,22 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
   server's current list; when the change is fine, `impi mcp refresh <name>`
   then `impi reload` (`mcp <name>: its tools match the reviewed snapshot
   again; handed back`). A server that went back to its snapshot by itself
-  stays withdrawn — nobody looked — and comes back the same way.
+  stays withdrawn — nobody looked — and comes back at the next `impi reload`,
+  which is the review.
 - `mcp <name>: no snapshot of its tools` (ERROR; `impi mcp list` says
   `UNPINNED`) — the yaml exists without its lock (hand-written, or the lock was
-  deleted): `impi mcp refresh <name>` and restart (`N new tool(s) pinned; they
-  appear at the next start`).
+  deleted): `impi mcp refresh <name>` and restart (a reload instead logs `N
+  new tool(s) pinned; they appear at the next start` — the registry is built at
+  start). A lock deleted while the engine runs withdraws an untrusted server's
+  tools at the next reload (`its snapshot is gone; N tool(s) withdrawn`).
 - `mcp <name>: not reached at startup` / `not reached` (WARNING, once; `reached
   again` at INFO when it is back) — the tools stay advertised and
   each call answers `<name> could not be reached; try again later`; check the
   URL or the command, the token in `conf/.env`, and for stdio that the runtime
   is in the image. The server's own words are in the engine log, never in the
   agent's answer. The same answer from a server that is up, after a minute,
-  with `no answer in 60s` in the log — the call outran the server's time:
+  with `no answer in 60s` (stdio) or `<url>: ReadTimeout` (HTTP) in the log —
+  the call outran the server's time:
   `timeout: <seconds>` in `_mcp/<name>.yaml` (or `impi mcp add --timeout`)
   gives a slow server more.
 - an agent lacks a tool it names — `impi mcp list` shows the server and its

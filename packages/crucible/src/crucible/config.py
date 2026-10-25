@@ -394,7 +394,7 @@ class Settings(BaseSettings):
     tool_public_url: str = ""
     # How often the MCP servers' tools are compared with their snapshots again
     # (seconds; 0 = only when a server says they changed or the operator reloads).
-    mcp_recheck_s: float = 300.0
+    mcp_recheck_s: float = Field(default=300.0, ge=0)
 
     # Agent containers. Off = every agent's runtime is a child process of this
     # one, which is what a deployment made before this existed keeps doing.

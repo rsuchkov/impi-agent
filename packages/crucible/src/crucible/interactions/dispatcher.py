@@ -146,6 +146,12 @@ class InteractionDispatcher:
                 return ApprovalOutcome[forwarded.name]
         return outcome
 
+    def may_answer(self, token: str, user_id: str, *, gateway: str = "") -> bool:
+        """Whether this person, as the gateway knows them, may answer the
+        request — judged as ``resolve_approval`` will judge the click. A request
+        waiting in another replica is not known here, so: no."""
+        return self._approvals is not None and self._approvals.may_answer(token, self._people.key(gateway, user_id))
+
     async def resolve_pending(self, token: str, value: str) -> bool:
         """A blocking mid-turn confirm/select: resolve the Future the paused turn
         is waiting on so it continues in place. False when ``token`` is not a live
