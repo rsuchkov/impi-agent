@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.32.0 — 2026-10-25
+
 - **Fixed: an MCP call that reached the server was sent again after a
   timeout.** A call on a server's shared connection was tried once more on any
   failure to reach the server, a read timeout included — so a tool that was running, or had run,
