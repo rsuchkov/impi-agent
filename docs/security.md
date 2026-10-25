@@ -186,8 +186,10 @@ Enforced by: the definitions the model reads are the ones pinned when the
 server was declared, not the server's current word — an untrusted server whose
 tools changed has them withdrawn until a person reviews the change (`trust:
 trusted` opts out, for a server your own team runs); every result comes
-wrapped as a stranger's text; a tool the entry names in `confirm:`, or the
-server marks destructive, waits for a person's card; the token of a person is
+wrapped as a stranger's text; a tool waits for a person's card unless the
+operator put it in `safe:` or a trusted server marked it read-only or not
+destructive — an untrusted server's hints decide nothing, a tool it says
+nothing about is destructive by the protocol's default; the token of a person is
 fetched for the call and sent on a connection of that call alone. The runtime
 never meets a server: `--no-mcp` stays on every process.
 

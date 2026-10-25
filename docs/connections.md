@@ -114,7 +114,7 @@ a provider allows that run there.
 | `connected_accounts` | which providers the agent may use, which the person connected and as whom | no |
 | `connected_api_read` | `GET <api url>/<path>` as the person | no |
 | `connected_api_write` | `POST`/`PUT`/`PATCH`/`DELETE` with a JSON body, as the person | yes — the card shows the account and the full request; `DELETE` is marked dangerous |
-| `mcp__<server>__<tool>` of a server whose header is `${connection:<provider>}` ([mcp.md](mcp.md)) | the server's tool, called with the person's token | as the server's entry says (`confirm:`, `destructiveHint`) |
+| `mcp__<server>__<tool>` of a server whose header is `${connection:<provider>}` ([mcp.md](mcp.md)) | the server's tool, called with the person's token | as the server's entry says (`confirm:`, `safe:`) and, for a trusted server, its annotations |
 
 - **Direct messages only**, for now: in a shared conversation, whose turn it is
   is not settled enough to act as anyone. A thread inside the direct message

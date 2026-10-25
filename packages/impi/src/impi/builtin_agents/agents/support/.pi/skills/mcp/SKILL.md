@@ -20,12 +20,12 @@ You have no MCP tools of your own and do not need any: everything here is the
 ```
 impi mcp add github --url https://mcp.github.example/mcp \
     --header 'Authorization=Bearer ${MCP_GITHUB_TOKEN}' \
-    --confirm 'delete_*' --description 'GitHub issues and pull requests'
+    --confirm 'delete_*' --safe 'get_*' --safe 'list_*' --description 'GitHub issues and pull requests'
 impi mcp add stands --command 'uvx jira-stands-mcp' --env 'TOKEN=${MCP_STANDS_TOKEN}'
 ```
 
 The command connects, lists the tools and writes `$AGENTS_PATH/_mcp/<name>.yaml`
-(how to reach the server, `trust`, `confirm`, `description`, `timeout`) and
+(how to reach the server, `trust`, `confirm`, `safe`, `description`, `timeout`) and
 `<name>.lock.json` (the **snapshot**: every tool's definition and a digest).
 Both belong in the agents repository. The secret does not: `${MCP_…}` is read
 when the server is connected from the engine's process environment or from
@@ -53,9 +53,16 @@ runtime:
 ```
 
 `mcp__<server>__*` is the one pattern `runtime.tools` accepts. Then
-`impi reload`. A tool the server marks destructive, or the server entry names
-in `confirm:`, is advertised only where somebody can confirm it
-(`INTEGRATIONS_ENABLED=true`) — like `create_agent`.
+`impi reload`. A **confirmed** tool is advertised only where somebody can
+confirm it (`INTEGRATIONS_ENABLED=true`) — like `create_agent`. Which tools
+are confirmed: everything the entry names in `confirm:`; nothing it names in
+`safe:`; of the rest, every tool of an untrusted server (the protocol says a
+client must not decide by an untrusted server's hints), and on a trusted
+server the tools the server does not mark `readOnlyHint` or
+`destructiveHint: false` (absent annotations mean destructive). `impi mcp
+show <name>` lists them with `needs confirmation`; `impi mcp add` says how
+many. An operator whose reads all raise cards adds `--safe 'get_*'` (or a
+`safe:` list in the yaml) after looking at what those tools do.
 
 ## 3. Trust
 
@@ -91,7 +98,13 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
   gives a slow server more.
 - an agent lacks a tool it names — `impi mcp list` shows the server and its
   pinned count; the tool must be in the snapshot under exactly that name
-  (`impi mcp show <name>`); a confirmed tool needs `INTEGRATIONS_ENABLED=true`;
+  (`impi mcp show <name>`); a confirmed tool needs `INTEGRATIONS_ENABLED=true`
+  — and on an untrusted server every tool not in `safe:` is confirmed, so
+  with integrations off such a server advertises only its `safe:` tools;
+- every call raises a card, reads included — the server is untrusted and the
+  entry has no `safe:`; the operator reviews the read-only tools and names
+  them (`--safe 'get_*'`), or declares the server `--trusted` when their own
+  team runs it;
   a tool whose header is `${connection:…}` needs a connections provider
   configured.
 - `<name> answered in a way the engine does not accept`, with `the server

@@ -3,9 +3,9 @@
 Named ``mcp__<server>__<tool>``, it stands in the registry beside the engine's
 own: advertised to the agents that name it, called through the tool server
 with everything that implies — the allowlist, a conversation's entitlement, a
-confirmation card when the server's entry or the server's own
-``destructiveHint`` says so, the trace — and executed by calling the server.
-Its result is a stranger's text and comes wrapped as such.
+confirmation card unless the operator or a trusted server says the tool is
+harmless, the trace — and executed by calling the server. Its result is a
+stranger's text and comes wrapped as such.
 """
 
 import json
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 TOOL_PREFIX = "mcp__"
 TOOL_SEP = "__"
-# What a call's row shows of one argument.
+# An argument up to this long is a one-line fact; past it, a passage shown whole.
 _ARG_LIMIT = 200
 # What the model is told when the server could not be called, by error code —
 # fixed wording, the server's own message stays in the log.
@@ -58,6 +58,32 @@ def split_tool_name(name: str) -> tuple[str, str] | None:
         return None
     server, sep, tool = name[len(TOOL_PREFIX):].partition(TOOL_SEP)
     return (server, tool) if sep and server and tool else None
+
+
+def destructive(definition: ToolDefinition) -> bool:
+    """Whether the server says the tool may destroy something — with the
+    protocol's own defaults: a tool is destructive unless it is marked
+    read-only or ``destructiveHint`` is explicitly false. Absent annotations
+    are a server that said nothing, not a server that said "harmless"."""
+    annotations = definition.annotations
+    if annotations.get("readOnlyHint") is True:
+        return False
+    return annotations.get("destructiveHint", True) is not False
+
+
+def requires_confirmation(server: McpServer, definition: ToolDefinition) -> bool:
+    """Whether a person must confirm a call. The operator's word first:
+    ``confirm:`` patterns always ask, ``safe:`` patterns never do. Then the
+    server's — but only a trusted server's annotations are a decision's basis
+    (the protocol says a client must not decide by an untrusted server's
+    hints); an untrusted server's tool the operator did not name is asked
+    about."""
+    name = definition.name
+    if any(fnmatchcase(name, pattern) for pattern in server.confirm):
+        return True
+    if any(fnmatchcase(name, pattern) for pattern in server.safe):
+        return False
+    return destructive(definition) if server.trusted else True
 
 
 class McpTool:
@@ -87,10 +113,7 @@ class McpTool:
         self.description = definition.description or f"{definition.name} on {self.server.name}"
         self.parameters = dict(definition.input_schema)
         self.display_name = definition.title or definition.name
-        destructive = bool(definition.annotations.get("destructiveHint", False))
-        self.requires_confirmation = destructive or any(
-            fnmatchcase(definition.name, pattern) for pattern in self.server.confirm
-        )
+        self.requires_confirmation = requires_confirmation(self.server, definition)
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         headers = await self._headers(ctx)
@@ -134,13 +157,14 @@ class McpTool:
         return headers
 
     async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None:
-        rows = tuple(
-            PreviewRow(label=key, value=one_line(_text(value), limit=_ARG_LIMIT)) for key, value in args.items()
-        )
+        # A short argument is a fact on one line; a long or multi-line one — a
+        # script, a comment's body — is a passage the person reads whole: a
+        # card that cut it would ask them to approve what they cannot see.
+        rows = tuple(_argument_row(key, _text(value)) for key, value in args.items())
         return CallPreview(
             title=f"{self.display_name} ({self.server.name})",
             rows=rows,
-            danger=bool(self._definition.annotations.get("destructiveHint", False)),
+            danger=destructive(self._definition),
         )
 
     def caption(self, args: Mapping[str, Any]) -> str | None:
@@ -149,3 +173,9 @@ class McpTool:
 
 def _text(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
+def _argument_row(key: str, text: str) -> PreviewRow:
+    if "\n" in text or len(text) > _ARG_LIMIT:
+        return PreviewRow(label=key, value=text, passage=True)
+    return PreviewRow(label=key, value=one_line(text, limit=_ARG_LIMIT))

@@ -37,7 +37,9 @@ from crucible.mcp import (
     McpLibrary,
     McpServer,
     Snapshot,
+    destructive,
     mcp_tool_name,
+    requires_confirmation,
     server_from_yaml,
     with_values,
 )
@@ -729,12 +731,33 @@ async def _pin_server(library: McpLibrary, server: McpServer) -> Snapshot:
     return snapshot
 
 
-def _print_tools(snapshot: Snapshot) -> None:
+def _print_tools(server: McpServer, snapshot: Snapshot) -> int:
+    """The pinned tools, each with what the server says of it and whether a
+    person confirms a call; returns how many are confirmed."""
+    confirmed = 0
     for tool in snapshot.tools:
-        hint = " ⚠ destructive" if tool.annotations.get("destructiveHint") else ""
+        marks = []
+        if destructive(tool):
+            marks.append("⚠ destructive")
+        if requires_confirmation(server, tool):
+            confirmed += 1
+            marks.append("needs confirmation")
+        hint = f"  {', '.join(marks)}" if marks else ""
         print(f"  {mcp_tool_name(snapshot.server, tool.name)}{hint}")
         if tool.description:
             print(f"      {tool.description.splitlines()[0][:110]}")
+    return confirmed
+
+
+def _print_confirmed(server: McpServer, snapshot: Snapshot, confirmed: int) -> None:
+    if confirmed and not server.trusted:
+        print(
+            f"{confirmed} of {len(snapshot.tools)} tools need a person's confirmation before they run "
+            f"(an untrusted server's own hints do not decide); name the ones that may run "
+            f"unconfirmed in `safe:` of {server.name}.yaml or with --safe PATTERN"
+        )
+    elif confirmed:
+        print(f"{confirmed} of {len(snapshot.tools)} tools need a person's confirmation before they run")
 
 
 def _cmd_mcp_list(args: argparse.Namespace) -> int:
@@ -761,11 +784,13 @@ def _cmd_mcp_show(args: argparse.Namespace) -> int:
     print(f"{server.name}  [{server.trust}]  {server.url or server.command}")
     if server.confirm:
         print(f"  confirm: {', '.join(server.confirm)}")
+    if server.safe:
+        print(f"  safe: {', '.join(server.safe)}")
     if snapshot is None:
         print("  no snapshot: run `impi mcp refresh` to pin its tools")
         return 0
     print(f"  {len(snapshot.tools)} tools pinned {snapshot.taken_at} ({snapshot.digest[:12]})")
-    _print_tools(snapshot)
+    _print_confirmed(server, snapshot, _print_tools(server, snapshot))
     return 0
 
 
@@ -785,7 +810,7 @@ def _cmd_mcp_add(args: argparse.Namespace) -> int:
                 "url": args.url or "", "headers": _pairs(args.header, "--header"),
                 "command": command, "args": cmd_args, "env": _pairs(args.env, "--env"),
                 "trust": TRUST_TRUSTED if args.trusted else TRUST_UNTRUSTED,
-                "confirm": args.confirm, "description": args.description,
+                "confirm": args.confirm, "safe": args.safe, "description": args.description,
                 **({"timeout": args.timeout} if args.timeout is not None else {}),
             },
         )
@@ -795,7 +820,7 @@ def _cmd_mcp_add(args: argparse.Namespace) -> int:
         return 1
     path = library.write(server)
     print(f"declared {server.name} ({server.trust}) in {path}; {len(snapshot.tools)} tools pinned:")
-    _print_tools(snapshot)
+    _print_confirmed(server, snapshot, _print_tools(server, snapshot))
     print(f"name them in an agent's runtime.tools: mcp__{server.name}__* or one at a time")
     return 0
 
@@ -814,7 +839,7 @@ def _cmd_mcp_refresh(args: argparse.Namespace) -> int:
         return 1
     changed = before is None or before.digest != snapshot.digest
     print(f"{server.name}: {len(snapshot.tools)} tools pinned" + (" (changed)" if changed else " (unchanged)"))
-    _print_tools(snapshot)
+    _print_confirmed(server, snapshot, _print_tools(server, snapshot))
     return 0
 
 
@@ -1373,6 +1398,11 @@ def _build_parser() -> argparse.ArgumentParser:
             cmd.add_argument(
                 "--confirm", action="append", default=[], metavar="PATTERN",
                 help="tool names (patterns with *) a person must confirm before they run",
+            )
+            cmd.add_argument(
+                "--safe", action="append", default=[], metavar="PATTERN",
+                help="tool names (patterns with *) you reviewed and let run unconfirmed; "
+                "every other tool of an untrusted server is confirmed",
             )
             cmd.add_argument("--description", default="", help="what the server offers, in a sentence")
             cmd.add_argument(

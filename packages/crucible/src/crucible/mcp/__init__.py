@@ -28,7 +28,13 @@ from crucible.mcp.protocol import (
 )
 from crucible.mcp.service import McpServers, StartReport
 from crucible.mcp.snapshot import Snapshot
-from crucible.mcp.tools import McpTool, mcp_tool_name, split_tool_name
+from crucible.mcp.tools import (
+    McpTool,
+    destructive,
+    mcp_tool_name,
+    requires_confirmation,
+    split_tool_name,
+)
 
 __all__ = [
     "CALL_TIMEOUT_S",
@@ -48,7 +54,9 @@ __all__ = [
     "StartReport",
     "ToolDefinition",
     "VALUES_FAMILY",
+    "destructive",
     "mcp_tool_name",
+    "requires_confirmation",
     "server_from_yaml",
     "split_tool_name",
     "with_values",

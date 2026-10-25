@@ -19,7 +19,8 @@ today — a description is text the model reads as an instruction.
 ```
 impi mcp add github --url https://mcp.github.example/mcp \
     --header 'Authorization=Bearer ${MCP_GITHUB_TOKEN}' \
-    --confirm 'delete_*' --confirm 'merge_*' --description 'GitHub issues and pull requests'
+    --confirm 'delete_*' --confirm 'merge_*' --safe 'get_*' --safe 'list_*' --safe 'search_*' \
+    --description 'GitHub issues and pull requests'
 ```
 
 This connects to the server, lists its tools, and writes two files under
@@ -32,6 +33,7 @@ headers:
   Authorization: Bearer ${MCP_GITHUB_TOKEN}
 trust: untrusted
 confirm: [delete_*, merge_*]
+safe: [get_*, list_*, search_*]
 description: GitHub issues and pull requests
 timeout: 60        # seconds one call may take; 60 when omitted
 ```
@@ -102,12 +104,28 @@ reports) is the same failure.
 ## Confirmations
 
 A tool is confirmed with the usual card — in every gateway the conversation is
-live in, with "allow for…" windows and the ledger — when the server's entry
-names it in `confirm:` (patterns with `*`), or when the server itself marks it
-`destructiveHint`. The card shows the tool's title, the server and the
-arguments as given; a destructive tool gets the warning mark. Where nothing can
-confirm (`INTEGRATIONS_ENABLED=false`) such a tool is not advertised at all,
-like any confirmed tool.
+live in, with "allow for…" windows and the ledger — unless somebody the engine
+believes said it is harmless. Who may say so:
+
+- the operator, in the server's entry: a tool matching `confirm:` (patterns
+  with `*`) always asks, one matching `safe:` never does; `confirm:` wins when
+  both match;
+- a **trusted** server, through its annotations, read with the protocol's own
+  defaults: a tool is destructive unless it is marked `readOnlyHint: true` or
+  `destructiveHint: false` — a server that says nothing about a tool has said
+  "may destroy", not "harmless";
+- nobody else. An **untrusted** server's annotations are shown (the warning
+  mark, `impi mcp show`) but decide nothing: the protocol tells a client never
+  to decide by hints from a server it does not trust. So every tool of an
+  untrusted server asks until the operator names it in `safe:`.
+
+`impi mcp add` and `impi mcp show` say which tools are confirmed and how many;
+a server whose reads all ask is one `--safe 'get_*'` away. The card shows the
+tool's title, the server and the arguments: a short one as a fact on one line,
+a long or multi-line one — a script, a comment's body — whole, as a passage,
+so the person approves what they can read; a destructive tool gets the warning
+mark. Where nothing can confirm (`INTEGRATIONS_ENABLED=false`) a confirmed
+tool is not advertised at all, like any confirmed tool.
 
 ## Acting as the person
 

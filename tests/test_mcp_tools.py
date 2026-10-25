@@ -44,16 +44,44 @@ def test_names_say_the_server_and_the_tool() -> None:
 
 
 def test_a_tool_carries_its_definition_and_knows_when_a_person_must_confirm() -> None:
-    server = McpServer("github", url="https://x/mcp", confirm=("delete_*",))
+    server = McpServer("github", url="https://x/mcp", confirm=("delete_*",), safe=("echo",))
     echo, wipe, delete = (McpTool(server, d, _Calls(CallResult("x"))) for d in (ECHO, WIPE, DELETE))
     assert echo.name == "mcp__github__echo" and echo.display_name == "Echo" and echo.description == "Echoes."
     assert echo.parameters == ECHO.input_schema and echo.returns_untrusted is True
-    assert echo.requires_confirmation is False
+    assert echo.requires_confirmation is False  # the operator's safe list
     assert wipe.requires_confirmation is True  # the server says destructive
     assert delete.requires_confirmation is True  # the operator's pattern
     assert echo.requires == frozenset() and echo.caption({}) == "Echo"
     unnamed = McpTool(server, ToolDefinition("x", "", {"type": "object"}), _Calls(CallResult("x")))
     assert unnamed.description == "x on github" and unnamed.display_name == "x"
+
+
+def test_a_tool_is_confirmed_unless_the_operator_or_a_trusted_server_says_it_is_harmless() -> None:
+    """The protocol's defaults: a tool is destructive unless marked read-only
+    or ``destructiveHint: false`` — and an untrusted server's hints are not a
+    decision's basis at all. So on an untrusted server every tool the operator
+    did not put in ``safe:`` asks; on a trusted one the server's word holds;
+    ``confirm:`` always wins."""
+    from crucible.mcp import destructive, requires_confirmation
+
+    read_only = ToolDefinition("get_issue", "", {"type": "object"}, annotations={"readOnlyHint": True})
+    additive = ToolDefinition("add_comment", "", {"type": "object"}, annotations={"destructiveHint": False})
+    unannotated = ToolDefinition("do_something", "", {"type": "object"})
+    assert [destructive(d) for d in (read_only, additive, unannotated, WIPE)] == [False, False, True, True]
+    # A read-only tool is not destructive whatever destructiveHint says.
+    assert destructive(ToolDefinition("x", "", {"type": "object"}, annotations={"readOnlyHint": True, "destructiveHint": True})) is False
+
+    untrusted = McpServer("github", url="https://x/mcp", confirm=("do_*",), safe=("add_*",))
+    # read-only by the server's word, but the server is not trusted: asked about.
+    assert [requires_confirmation(untrusted, d) for d in (read_only, additive, unannotated, WIPE)] == [True, False, True, True]
+    trusted = McpServer("github", url="https://x/mcp", trust="trusted", confirm=("get_*",), safe=("do_*",))
+    assert [requires_confirmation(trusted, d) for d in (read_only, additive, unannotated, WIPE)] == [True, False, False, True]
+    both = McpServer("github", url="https://x/mcp", trust="trusted", confirm=("get_*",), safe=("get_issue",))
+    assert requires_confirmation(both, read_only) is True  # confirm wins over safe
+    plain_trusted = McpServer("github", url="https://x/mcp", trust="trusted")
+    assert [requires_confirmation(plain_trusted, d) for d in (read_only, additive, unannotated, WIPE)] == [False, False, True, True]
+    assert McpTool(untrusted, read_only, _Calls(CallResult("x"))).requires_confirmation is True
+    assert McpTool(plain_trusted, read_only, _Calls(CallResult("x"))).requires_confirmation is False
 
 
 async def test_a_call_returns_the_text_or_the_structured_content_and_an_error_is_a_tool_error() -> None:
@@ -115,5 +143,24 @@ async def test_the_preview_shows_the_arguments_and_flags_a_destructive_call() ->
     server = McpServer("github", url="https://x/mcp")
     preview = await McpTool(server, WIPE, _Calls(CallResult("x"))).describe(_ctx(), {"path": "/", "force": True})
     assert preview is not None and preview.title == "wipe (github)" and preview.danger is True
-    assert [(r.label, r.value) for r in preview.rows] == [("path", "/"), ("force", "true")]
-    assert (await McpTool(server, ECHO, _Calls(CallResult("x"))).describe(_ctx(), {})).danger is False  # type: ignore[union-attr]
+    assert [(r.label, r.value, r.passage) for r in preview.rows] == [("path", "/", False), ("force", "true", False)]
+    read_only = ToolDefinition("get", "", {"type": "object"}, annotations={"readOnlyHint": True})
+    assert (await McpTool(server, read_only, _Calls(CallResult("x"))).describe(_ctx(), {})).danger is False  # type: ignore[union-attr]
+    assert (await McpTool(server, ECHO, _Calls(CallResult("x"))).describe(_ctx(), {})).danger is True  # type: ignore[union-attr]  # the server said nothing
+
+
+async def test_a_long_or_multi_line_argument_is_shown_whole_as_a_passage() -> None:
+    """A script or a comment's body is what the person approves; a card that
+    cut it to one line would ask them to approve what they cannot see."""
+    server = McpServer("files", url="https://x/mcp")
+    script = "#!/bin/sh\nrm -rf /tmp/build\nmake all\n"
+    long = "x" * 201
+    preview = await McpTool(server, ECHO, _Calls(CallResult("x"))).describe(
+        _ctx(), {"path": "/tmp/run.sh", "script": script, "note": long, "tags": ["a", "b"]}
+    )
+    assert preview is not None
+    rows = {r.label: r for r in preview.rows}
+    assert (rows["path"].value, rows["path"].passage) == ("/tmp/run.sh", False)
+    assert (rows["script"].value, rows["script"].passage) == (script, True)  # whole, with its lines
+    assert (rows["note"].value, rows["note"].passage) == (long, True)
+    assert (rows["tags"].value, rows["tags"].passage) == ('["a", "b"]', False)

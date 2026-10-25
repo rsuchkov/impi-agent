@@ -53,6 +53,7 @@ class McpServer:
     cwd: str = ""
     trust: str = TRUST_UNTRUSTED
     confirm: tuple[str, ...] = ()  # tool-name patterns a person must confirm
+    safe: tuple[str, ...] = ()  # tool-name patterns the operator reviewed and lets run unconfirmed
     description: str = ""
     timeout_s: float = CALL_TIMEOUT_S  # how long one call to this server may take
 
@@ -90,6 +91,8 @@ class McpServer:
         data["trust"] = self.trust
         if self.confirm:
             data["confirm"] = list(self.confirm)
+        if self.safe:
+            data["safe"] = list(self.safe)
         if self.description:
             data["description"] = self.description
         if self.timeout_s != CALL_TIMEOUT_S:
@@ -136,8 +139,8 @@ def server_from_yaml(name: str, data: Mapping[str, Any], *, source: str = "") ->
     return McpServer(
         name=name, url=url, headers=headers, command=command, args=strings("args"),
         env=mapping("env"), cwd=str(data.get("cwd") or ""), trust=trust,
-        confirm=strings("confirm"), description=str(data.get("description") or ""),
-        timeout_s=float(timeout),
+        confirm=strings("confirm"), safe=strings("safe"),
+        description=str(data.get("description") or ""), timeout_s=float(timeout),
     )
 
 

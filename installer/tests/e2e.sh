@@ -370,7 +370,7 @@ for line in sys.stdin:
     print(json.dumps({"jsonrpc": "2.0", "id": rid, "result": {"resultType": "complete", **result, "_meta": INFO}}), flush=True)
 PY
 check "impi mcp add probe (connects and pins the tools)" \
-    compose run --rm -T impi impi mcp add probe --command "python3 /app/agents/_mcp/probe_server.py" --confirm wipe
+    compose run --rm -T impi impi mcp add probe --command "python3 /app/agents/_mcp/probe_server.py" --confirm wipe --safe echo
 check "the server is declared in the agents dir" test -f "$E2E_HOME/agents/_mcp/probe.yaml"
 two_tools_pinned() {
     python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if [t["name"] for t in d["tools"]] == ["echo", "wipe"] else 1)' \

@@ -24,9 +24,26 @@ when a release is cut, and `impi update` shows the target version's section.
   `_mcp/<name>.yaml` (`impi mcp add --timeout`) bounds one call to that server;
   the default stays 60 s. A server that runs long reports no longer fails as
   unreachable at the engine's one limit.
+- **Changed: an MCP tool is confirmed unless somebody trusted said it is
+  harmless.** A tool without `destructiveHint` was treated as safe, while the
+  protocol's default is the opposite (`destructiveHint` is true unless the
+  server says false or marks the tool read-only), and the protocol tells a
+  client never to decide by an untrusted server's hints. Now: `confirm:` in
+  the entry always asks, a new `safe:` list (`impi mcp add --safe PATTERN`)
+  never does; of the rest, every tool of an untrusted server asks, and a
+  trusted server's annotations decide with the protocol's defaults. `impi mcp
+  add` and `show` mark each tool `needs confirmation` and say how many are.
+- **Changed: a long or multi-line argument on an MCP tool's card is shown
+  whole.** Each argument was one line cut at 200 characters, so a script or a
+  comment's body was approved unseen. Such an argument is now a passage of the
+  card — its lines kept, bounded as every passage is — and a program reading
+  the card's fields gets it whole with `passage: true`.
 - **Breaks:** `SessionStore.touch` no longer takes `gateway=`; `get_or_create`
   takes `gateway=` beside `user_id=` and records both on arrival. An
-  application with a store of its own moves the write.
+  application with a store of its own moves the write. An untrusted MCP
+  server's tools that were advertised unconfirmed now raise a card, and with
+  `INTEGRATIONS_ENABLED=false` are not advertised at all, until the operator
+  reviews them into `safe:` (`impi mcp show <name>` lists which).
 
 ## v0.30.0 — 2026-10-25
 

@@ -20,8 +20,9 @@ WIPE = ToolDefinition("wipe", "Wipes.", {"type": "object"}, annotations={"destru
 
 
 def test_a_server_entry_is_a_url_or_a_command_with_a_trust_level() -> None:
-    http = server_from_yaml("github", {"url": "https://mcp.example/mcp", "headers": {"Authorization": "Bearer ${MCP_GITHUB_TOKEN}"}, "confirm": ["delete_*"]})
-    assert http.is_http and http.trust == "untrusted" and http.confirm == ("delete_*",)
+    http = server_from_yaml("github", {"url": "https://mcp.example/mcp", "headers": {"Authorization": "Bearer ${MCP_GITHUB_TOKEN}"}, "confirm": ["delete_*"], "safe": ["get_*", "list_*"]})
+    assert http.is_http and http.trust == "untrusted" and http.confirm == ("delete_*",) and http.safe == ("get_*", "list_*")
+    assert http.to_yaml()["safe"] == ["get_*", "list_*"] and "safe" not in server_from_yaml("x", {"url": "https://x"}).to_yaml()
     stdio = server_from_yaml("stands", {"command": "uvx", "args": ["jira-stands-mcp"], "env": {"TOKEN": "${MCP_STANDS}"}, "trust": "trusted"})
     assert not stdio.is_http and stdio.trusted and stdio.args == ("jira-stands-mcp",)
     assert http.timeout_s == 60.0 and "timeout" not in http.to_yaml()  # the default is not written

@@ -36,7 +36,10 @@ async def test_add_declares_the_server_and_pins_its_tools(agents_dir: Path, caps
         ])
         assert rc == 0
         out = capsys.readouterr().out
-        assert "2 tools pinned" in out and "mcp__github__echo" in out and "mcp__github__wipe ⚠ destructive" in out
+        assert "2 tools pinned" in out and "mcp__github__wipe  ⚠ destructive, needs confirmation" in out
+        # An untrusted server's unannotated tool is confirmed too, and the operator is told how to say otherwise.
+        assert "mcp__github__echo  ⚠ destructive, needs confirmation" in out
+        assert "2 of 2 tools need a person's confirmation" in out and "--safe PATTERN" in out
         declared = (agents_dir / "_mcp" / "github.yaml").read_text()
         assert "Bearer ${MCP_GITHUB_TOKEN}" in declared and "t0k" not in declared  # the secret stays in the env
         assert "trust: untrusted" in declared and "- wipe" in declared and "timeout: 120.0" in declared
@@ -48,6 +51,15 @@ async def test_add_declares_the_server_and_pins_its_tools(agents_dir: Path, caps
         assert "github  [untrusted]" in capsys.readouterr().out
         assert await _run(cli.main, ["mcp", "show", "github"]) == 0
         assert "confirm: wipe" in capsys.readouterr().out
+        assert await _run(cli.main, [
+            "mcp", "add", "github", "--url", server.url, "--header", "Authorization=Bearer ${MCP_GITHUB_TOKEN}",
+            "--safe", "echo", "--force",
+        ]) == 0
+        out = capsys.readouterr().out
+        assert "mcp__github__echo  ⚠ destructive\n" in out and "1 of 2 tools need" in out
+        assert "- echo" in (agents_dir / "_mcp" / "github.yaml").read_text()
+        assert await _run(cli.main, ["mcp", "show", "github"]) == 0
+        assert "safe: echo" in capsys.readouterr().out
     finally:
         await server.stop()
 
