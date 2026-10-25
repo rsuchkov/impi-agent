@@ -25,6 +25,7 @@ from crucible.ports.agent import (
     AgentRuntime,
     AgentStalled,
     AgentTimeout,
+    AgentUnavailable,
     CallCaptions,
     EventCallback,
     PromptImage,
@@ -610,7 +611,11 @@ class AgentFlow:
         session replays its history, so the same request fails from then on. The
         engine only shows pictures it has verified, so reaching this means the
         backend refused one it accepts the format of (an enormous one, say) —
-        say so plainly, with the way out."""
+        say so plainly, with the way out. Not for a runtime that could not be
+        started at all (``AgentUnavailable``): the model said nothing then, and
+        a host's "the image is out of date" is a container image."""
+        if isinstance(error, AgentUnavailable):
+            return
         if not any(word in str(error).lower() for word in _IMAGE_ERROR_WORDS):
             return
         logger.error(

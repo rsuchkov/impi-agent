@@ -1737,3 +1737,21 @@ async def test_the_agents_own_posts_on_every_gateway_stay_out_of_the_catch_up(tm
     ]
     assert [s.text for s in flow._since(snippets, since)] == ["theirs"]
     await store.close()
+
+
+async def test_a_host_that_refused_the_spawn_is_not_a_backend_refusing_a_picture(tmp_path: Path, caplog) -> None:
+    """A runtime host's "the image or the mount is out of date" says "image"
+    and means a container image; the model said nothing. The backend's own
+    refusal, replayed from history, is still warned about."""
+    from crucible.ports.agent import AgentUnavailable
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        record, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+        words = "skill 'x' is not in this host's profile directory — the image or the mount is out of date"
+        AgentFlow._warn_if_picture_rejected(AgentUnavailable(words), record)
+        assert "refused a picture" not in caplog.text
+        AgentFlow._warn_if_picture_rejected(RuntimeError("LLM error: the image data is invalid"), record)
+        assert "refused a picture" in caplog.text
+    finally:
+        await store.close()

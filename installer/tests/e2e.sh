@@ -379,7 +379,16 @@ two_tools_pinned() {
 check "its two tools are pinned in the snapshot" two_tools_pinned
 mcp_listed() { compose run --rm -T impi impi mcp list 2>/dev/null | grep -q 'probe  \[untrusted\]'; }
 check "impi mcp list shows it untrusted" mcp_listed
-printf '    - mcp__probe__*\n' >>"$E2E_HOME/agents/agents/assistant/agent.yaml"
+# Under `tools:` — the profile's last key is `skills:`, so an appended line would
+# land there.
+python3 - "$E2E_HOME/agents/agents/assistant/agent.yaml" <<'PY'
+import sys
+path = sys.argv[1]
+lines = open(path).read().splitlines(keepends=True)
+at = next(i for i, line in enumerate(lines) if line.strip() == "tools:")
+lines.insert(at + 1, "    - mcp__probe__*\n")
+open(path, "w").write("".join(lines))
+PY
 built_before=$(engine_log_count "app built:")
 compose restart impi >/dev/null 2>&1
 for _ in $(seq 1 45); do

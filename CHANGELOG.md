@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Fixed: a runtime host that refused to start an agent with "the image or
+  the mount is out of date" was logged as the model backend refusing a
+  picture.** A host's refusal is not the model's word; the warning is kept
+  for the backend's own.
 - **Tools from MCP servers.** An operator declares a server once —
   `impi mcp add github --url … --header 'Authorization=Bearer ${MCP_GITHUB_TOKEN}'`,
   or `--command 'uvx …'` for one on stdio — and an agent names its tools in
