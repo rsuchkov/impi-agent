@@ -83,3 +83,30 @@ async def test_a_conversation_is_addressed_on_the_gateway_asked_for(tmp_path: Pa
         assert found is not None and (found.gateway, found.gateways) == ("slack", ("slack",))
     finally:
         await store.close()
+
+
+async def test_the_tool_server_sees_the_place_the_turn_is_in_not_where_the_conversation_began(tmp_path: Path) -> None:
+    """One record keyed across gateways began as a direct message on the panel
+    and is now a thread on Slack: a tool that acts only in a direct message
+    judges the thread, and the channel is the thread's."""
+    from crucible.conversation_files import conversation_lookup
+    from crucible.ports.chat.types import KIND_THREAD
+    from crucible.store.base import GatewayAddress
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        record, _ = await store.get_or_create("assistant", "portal:u1", "task-7", KIND_DM, user_id="u1", gateway="http")
+        await store.set_gateway_address("assistant", "task-7", "http", GatewayAddress("portal:u1", "portal:task-7", KIND_DM))
+        lookup = conversation_lookup(None, store)
+        begun = await lookup("assistant", record.runtime_session_id)
+        assert begun is not None and (begun.kind, begun.channel_id) == (KIND_DM, "portal:u1")
+        await store.set_gateway_address("assistant", "task-7", "slack", GatewayAddress("C1", "1700.1", KIND_THREAD))
+        await store.get_or_create("assistant", "C1", "task-7", KIND_THREAD, user_id="U1", gateway="slack")
+        now = await lookup("assistant", record.runtime_session_id)
+        assert now is not None and (now.kind, now.channel_id, now.gateway) == (KIND_THREAD, "C1", "slack")
+        # Back on the panel: a direct message again.
+        await store.get_or_create("assistant", "portal:u1", "task-7", KIND_DM, user_id="u1", gateway="http")
+        back = await lookup("assistant", record.runtime_session_id)
+        assert back is not None and back.kind == KIND_DM
+    finally:
+        await store.close()

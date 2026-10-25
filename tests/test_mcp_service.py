@@ -8,6 +8,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from crucible.mcp import (
     CheckReport,
     McpLibrary,
@@ -149,7 +151,9 @@ async def test_a_connection_that_failed_is_dropped_and_the_call_tried_once_more(
         async def request(self, method, params, *, version, timeout_s=None):
             self.calls += 1
             if len(made) == 1:
-                raise McpError(UNREACHABLE, "reset by peer")
+                raise McpError(UNREACHABLE, "connection refused", sent=False)
+            if params.get("name") == "slow":
+                raise McpError(UNREACHABLE, "no answer in 60s")  # sent: the server may have run it
             return {"content": [{"type": "text", "text": "second time lucky"}]}
 
         async def notify(self, method, params, *, version):
@@ -161,6 +165,10 @@ async def test_a_connection_that_failed_is_dropped_and_the_call_tried_once_more(
     servers = McpServers(library, {}, transport_factory=lambda server: _Transport())
     result = await servers.call("flaky", "echo", {}, {})
     assert result.text == "second time lucky" and len(made) == 2
+    # A request that left and got no answer is not sent again: the server may have run it.
+    with pytest.raises(McpError) as caught:
+        await servers.call("flaky", "slow", {}, {})
+    assert caught.value.sent is True and len(made) == 2 and made[1].calls == 2
     await servers.stop()
 
 

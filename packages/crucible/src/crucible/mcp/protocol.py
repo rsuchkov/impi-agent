@@ -77,13 +77,16 @@ UNSUPPORTED = "unsupported"  # the server asked for something this client does n
 class McpError(Exception):
     def __init__(
         self, code: str, message: str, *, rpc_code: int | None = None, data: Any = None,
-        status: int | None = None,
+        status: int | None = None, sent: bool = True,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.rpc_code = rpc_code  # the JSON-RPC error code, when the server answered one
         self.data = data
         self.status = status  # the HTTP status, when that is all the server answered
+        # Whether the request reached the server before this failed. A request
+        # that never left may be sent again; one that did may have run, and is not.
+        self.sent = sent
 
     @property
     def legacy_sign(self) -> bool:
@@ -253,6 +256,8 @@ class HttpTransport:
             headers[SESSION_HEADER] = self.session_id
         try:
             response = await self._http.post(self._url, json=body, headers=headers)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise McpError(UNREACHABLE, f"{self._url}: {exc.__class__.__name__}", sent=False) from exc
         except httpx.HTTPError as exc:
             raise McpError(UNREACHABLE, f"{self._url}: {exc.__class__.__name__}") from exc
         if response.status_code in (401, 403):
@@ -359,7 +364,7 @@ class StdioTransport:
         if self._process is not None:
             if self._process.returncode is None:
                 return self._process
-            raise McpError(UNREACHABLE, f"{self._command}: the server exited")
+            raise McpError(UNREACHABLE, f"{self._command}: the server exited", sent=False)
         try:
             self._process = await asyncio.create_subprocess_exec(
                 self._command, *self._args, env=self._env, cwd=self._cwd,
@@ -367,7 +372,7 @@ class StdioTransport:
                 stderr=asyncio.subprocess.DEVNULL,
             )
         except OSError as exc:
-            raise McpError(UNREACHABLE, f"{self._command}: {exc}") from exc
+            raise McpError(UNREACHABLE, f"{self._command}: {exc}", sent=False) from exc
         self._reader = asyncio.ensure_future(self._read(self._process))
         return self._process
 
@@ -417,7 +422,7 @@ class StdioTransport:
             process.stdin.write(json.dumps(message, ensure_ascii=False).encode() + b"\n")
             await process.stdin.drain()
         except (BrokenPipeError, ConnectionResetError) as exc:
-            raise McpError(UNREACHABLE, "the server closed its input") from exc
+            raise McpError(UNREACHABLE, "the server closed its input", sent=False) from exc
 
     async def request(
         self, method: str, params: Mapping[str, Any], *, version: str, timeout_s: float | None = None

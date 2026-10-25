@@ -15,6 +15,24 @@ from typing import NoReturn, Protocol
 from crucible.ports.turn import TurnScope
 
 
+class ConnectionsError(Exception):
+    """Base for every failure of a connected account."""
+
+
+class NotConnected(ConnectionsError):
+    """The person has no usable connection to the provider — never had one, or
+    it ended (disconnected, revoked at the provider, unreadable with the key)."""
+
+    def __init__(self, owner: str, provider: str) -> None:
+        super().__init__(f"{owner} is not connected to {provider}")
+        self.owner = owner
+        self.provider = provider
+
+
+class ProviderUnavailable(ConnectionsError):
+    """The provider could not be asked, or did not answer as it should: try later."""
+
+
 class AccessToken:
     """A provider's access token, for one call. ``reveal()`` is the only way to
     the value: ``repr``, ``str`` and pickling give nothing away."""

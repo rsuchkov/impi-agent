@@ -1,5 +1,13 @@
 """What can go wrong with a connected account, by kind — the kind decides what
-the person is told: connect again, try later, or nothing they can do."""
+the person is told: connect again, try later, or nothing they can do. The
+errors a tool meets through the port (``grant``) are the port's own and live
+with it; they are named here too, for the machinery that raises them."""
+
+from crucible.ports.connections import (
+    ConnectionsError,
+    NotConnected,
+    ProviderUnavailable,
+)
 
 # Why a connect that came back was refused.
 LINK_EXPIRED = "expired"  # unknown, already used, or past its time
@@ -7,20 +15,6 @@ LINK_FOREIGN = "foreign"  # started by somebody else
 LINK_DENIED = "denied"  # the person declined at the provider
 LINK_REJECTED = "rejected"  # the provider would not exchange the code
 ACCOUNT_REFUSED = "account_refused"  # the application's rule refused that account
-
-
-class ConnectionsError(Exception):
-    """Base for every failure of a connected account."""
-
-
-class NotConnected(ConnectionsError):
-    """The person has no usable connection to the provider — never had one, or
-    it ended (disconnected, revoked at the provider, unreadable with the key)."""
-
-    def __init__(self, owner: str, provider: str) -> None:
-        super().__init__(f"{owner} is not connected to {provider}")
-        self.owner = owner
-        self.provider = provider
 
 
 class LinkRefused(ConnectionsError):
@@ -39,5 +33,7 @@ class ProviderRejected(ConnectionsError):
     """The provider refused a code or a refresh token: the grant is over."""
 
 
-class ProviderUnavailable(ConnectionsError):
-    """The provider could not be asked, or did not answer as it should: try later."""
+__all__ = [
+    "ACCOUNT_REFUSED", "LINK_DENIED", "LINK_EXPIRED", "LINK_FOREIGN", "LINK_REJECTED",
+    "ConnectionsError", "LinkRefused", "NotConnected", "ProviderRejected", "ProviderUnavailable",
+]

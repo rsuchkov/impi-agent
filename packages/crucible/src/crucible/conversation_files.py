@@ -33,9 +33,15 @@ def conversation_lookup(attachments: AttachmentStore | None, sessions: SessionSt
         if record is None or record.agent != agent:
             return None
         files_dir = attachments.conversation_dir(agent, record.conversation_id) if attachments else None
+        # The place the turn is in: a conversation keyed across gateways began
+        # somewhere (the record's own fields) but is now wherever the speaker
+        # wrote from — a direct message there, a thread elsewhere.
+        addresses = gateway_addresses(record)
+        place = addresses.get(record.last_gateway)
+        channel_id, kind = (place.channel_id, place.kind) if place else (record.channel_id, record.kind)
         return SessionConversation(
-            record.channel_id, record.last_user_id, files_dir, record.kind,
-            gateway=record.last_gateway, gateways=tuple(sorted(gateway_addresses(record))),
+            channel_id, record.last_user_id, files_dir, kind,
+            gateway=record.last_gateway, gateways=tuple(sorted(addresses)),
         )
 
     return conversation

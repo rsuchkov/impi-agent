@@ -6,7 +6,31 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: an MCP call that reached the server was sent again after a
+  timeout.** A call on a server's shared connection was tried once more on any
+  failure, a read timeout included — so a tool that was running, or had run,
+  ran a second time under the one card the person confirmed, and the wait
+  doubled. A request is now sent again only when it never left (the connection
+  was refused); one that left and got no answer fails with its own words,
+  `did not answer in time; the call may have run — check before repeating it`.
+- **Fixed: a person without a connection got "internal tool error" from an
+  MCP tool.** The tool checked that the provider exists, not that the person
+  connected it, and the connections' refusal was not caught. The model is now
+  told what the connection tools say: the person has not connected their
+  account, how they connect, and never to ask them for a token.
+- **Fixed: a `401` on a person's token left their connection in place.** An
+  MCP server that no longer takes the token answered "refused the call" on
+  every call. The engine now forgets the connection, as the connection tools
+  do, and the model asks the person to connect again; a `403` changes nothing.
+- **Fixed: a tool judged "direct message or not" by where the conversation
+  began.** A conversation keyed across gateways kept the kind and channel of
+  its first message, so a thread on Slack in a conversation begun as a direct
+  message on a panel counted as private, and the reverse was refused. The tool
+  server now sees the place the turn is in: the conversation's address on the
+  speaker's gateway.
+- `ConnectionsError`, `NotConnected` and `ProviderUnavailable` — what a
+  connection grant raises — live in `crucible.ports.connections` with the
+  port; `crucible.connections` still exports them.
 
 ## v0.31.0 — 2026-10-25
 

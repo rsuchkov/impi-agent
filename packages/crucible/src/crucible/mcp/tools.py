@@ -26,6 +26,12 @@ from crucible.mcp.protocol import (
     ToolDefinition,
 )
 from crucible.ports.chat.types import KIND_DM, CallPreview, PreviewRow
+from crucible.ports.connections import (
+    ConnectionsError,
+    NotConnected,
+    ProviderUnavailable,
+    TokenGrant,
+)
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 
 logger = logging.getLogger(__name__)
@@ -42,6 +48,13 @@ _FAILED = {
     PROTOCOL: "{server} answered in a way the engine does not accept",
     UNSUPPORTED: "{server} asked for something the engine does not do (more input mid-call)",
 }
+# The request reached the server and no answer came: it may have run.
+_UNANSWERED = "{server} did not answer in time; the call may have run — check before repeating it"
+# The server would not take the person's token any more: their connection is over.
+_TOKEN_REFUSED = (
+    "{server} no longer accepts the user's connection, so it has ended; ask them to "
+    "connect their {provider} account again in a direct message with you"
+)
 
 # The server, called: (tool name, arguments, headers for this call) -> result.
 Caller = Callable[[str, Mapping[str, Any], Mapping[str, str]], Awaitable[CallResult]]
@@ -116,7 +129,7 @@ class McpTool:
         self.requires_confirmation = requires_confirmation(self.server, definition)
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
-        headers = await self._headers(ctx)
+        headers, grants = await self._headers(ctx)
         try:
             result = await self._call(self._definition.name, args, headers)
         except McpError as exc:
@@ -124,6 +137,18 @@ class McpTool:
             # the log, not to the model — an error text is as much a stranger's
             # as a result, and a tool error is read as the tool's own voice.
             logger.warning("mcp %s: %s failed: %s: %s", self.server.name, self._definition.name, exc.code, exc)
+            if exc.code == REFUSED and exc.status == 401 and grants:
+                # The person's token was not taken: the connection it came from
+                # is over, as the connection tools treat a 401 — forgotten, and
+                # the person asked to connect again.
+                assert ctx.connections is not None
+                for grant in grants:
+                    await ctx.connections.forget(grant)
+                raise ToolError(
+                    _TOKEN_REFUSED.format(server=self.server.name, provider=", ".join(g.provider for g in grants))
+                ) from exc
+            if exc.code == UNREACHABLE and exc.sent:
+                raise ToolError(_UNANSWERED.format(server=self.server.name)) from exc
             raise ToolError(_FAILED[exc.code].format(server=self.server.name)) from exc
         if result.is_error:
             # The server's refusal is data of the server's, wrapped as such by
@@ -131,10 +156,12 @@ class McpTool:
             return {"error": True, "text": result.text}
         return result.structured if result.structured is not None else result.text
 
-    async def _headers(self, ctx: ToolContext) -> dict[str, str]:
-        """The headers of this call alone: the person's tokens, filled in. The
+    async def _headers(self, ctx: ToolContext) -> tuple[dict[str, str], tuple[TokenGrant, ...]]:
+        """The headers of this call alone — the person's tokens, filled in —
+        and the grants they came from, for a server that turns one down. The
         server's own headers are the service's, filled from the engine's values."""
         headers: dict[str, str] = {}
+        grants: list[TokenGrant] = []
         for key, value in self.server.headers.items():
             match = CONNECTION_REF.match(value)
             if match is None:
@@ -149,12 +176,26 @@ class McpTool:
                 )
             if ctx.connections is None or provider not in ctx.connections.providers:
                 raise ToolError(
-                    f"{self.server.name} acts as the person at {provider}, and they have not "
-                    f"connected a {provider} account here"
+                    f"{self.server.name} acts as the person at {provider}, which is not a provider "
+                    "anyone can connect here"
                 )
-            grant = await ctx.connections.grant(provider)
+            try:
+                grant = await ctx.connections.grant(provider)
+            except NotConnected as exc:
+                # What the connection tools say: the model tells the person how
+                # to connect, and never asks them for a token.
+                raise ToolError(
+                    f"the user has not connected their {provider} account, which {self.server.name} acts "
+                    "as them at. Ask them to connect it in a direct message with you (the connections "
+                    "command); never ask them for a token or a password"
+                ) from exc
+            except ProviderUnavailable as exc:
+                raise ToolError(f"{provider} did not answer; try again in a minute") from exc
+            except ConnectionsError as exc:
+                raise ToolError(str(exc)) from exc
+            grants.append(grant)
             headers[key] = f"Bearer {grant.token.reveal()}"
-        return headers
+        return headers, tuple(grants)
 
     async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None:
         # A short argument is a fact on one line; a long or multi-line one — a

@@ -3,6 +3,7 @@ era the test asks for: ``modern`` (per-request ``_meta``, revision 2026-07-28),
 ``legacy`` (an ``initialize`` handshake and a session, 2025-11-25) or ``dual``.
 The tools it serves and the calls it saw are the test's to set and read."""
 
+import asyncio
 import json
 from typing import Any
 
@@ -29,11 +30,12 @@ class FakeMcpHttp:
     def __init__(
         self, port: int, *, tools: list[dict] | None = None, token: str = "", sse: bool = False,
         era: str = "modern", supported: tuple[str, ...] = ("2026-07-28",), reject: int = 0,
-        ttl_ms: int | None = None,
+        ttl_ms: int | None = None, delay_s: float = 0.0,
     ) -> None:
         self.port = port
         self.tools = tools if tools is not None else [ECHO, WIPE]
         self.ttl_ms = ttl_ms  # how long a listing is fresh, when the server says
+        self.delay_s = delay_s  # how long a call takes before the answer goes out
         self.token = token  # when set, the Authorization header must carry it
         self.sse = sse  # answer as a one-message event stream instead of JSON
         self.era = era
@@ -117,6 +119,8 @@ class FakeMcpHttp:
             result = {"tools": self.tools, **({"ttlMs": self.ttl_ms} if self.ttl_ms is not None else {})}
         elif method == "tools/call":
             self.calls.append((params["name"], dict(params.get("arguments") or {}), dict(request.headers)))
+            if self.delay_s:
+                await asyncio.sleep(self.delay_s)
             if params["name"] == "echo":
                 result = {"content": [{"type": "text", "text": f"echo: {params['arguments'].get('text', '')}"}]}
             elif params["name"] == "wipe":

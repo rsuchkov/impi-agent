@@ -152,9 +152,12 @@ class McpServers:
     async def call(
         self, server: str, tool: str, arguments: Mapping[str, Any], headers: Mapping[str, str]
     ) -> CallResult:
-        """Call once; a connection that failed is dropped and the call tried
-        once more on a fresh one — a server restarted between calls is the
-        ordinary case, not an error worth the model's attention."""
+        """Call once; a connection that failed before the request left is
+        dropped and the call tried once more on a fresh one — a server
+        restarted between calls is the ordinary case, not an error worth the
+        model's attention. A request that did leave is not tried again: the
+        server may have run it, and a second run under one card is a second
+        action nobody confirmed."""
         if headers:
             # A per-call credential: this call's connection carries it, alone.
             spec = with_values(self._servers[server], self._values)
@@ -167,7 +170,7 @@ class McpServers:
         try:
             return await client.call_tool(tool, arguments)
         except McpError as exc:
-            if exc.code != UNREACHABLE:
+            if exc.code != UNREACHABLE or exc.sent:
                 raise
             logger.warning("mcp %s: %s; reconnecting", server, exc)
             await self._drop(server)

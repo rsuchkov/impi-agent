@@ -108,9 +108,13 @@ and once more when it is reached again.
 A server that cannot be reached at start keeps its tools advertised, as any
 service that is down would; each call answers with the error
 (`<server>: unreachable: …`) and the model is told. The engine reconnects on
-the next call. A call that outlasts the server's `timeout` (60 s unless the
-entry says otherwise — `impi mcp add --timeout 600` for a server that runs
-reports) is the same failure.
+the next call — and sends the call again only when the request never left
+(the connection was refused); a request that reached the server and got no
+answer is not repeated, since the server may have run it, and the model is told
+so (`did not answer in time; the call may have run — check before repeating
+it`). A call that outlasts the server's `timeout` (60 s unless the entry says
+otherwise — `impi mcp add --timeout 600` for a server that runs reports) is
+that case.
 
 ## Confirmations
 
@@ -156,7 +160,11 @@ in a direct message with the person only, as the connection tools do; the
 person's token is fetched for each call and sent on a connection of that call
 alone — the server's standing connection, the one that lists its tools, never
 carries it — and a person who has not connected their account is told so by
-the tool, in words the model repeats. The model never sees the token.
+the tool, in words the model repeats (how to connect, never a request for a
+token). A `401` on the person's token ends their connection, as it does for
+the connection tools: the engine forgets it and the model asks them to connect
+again; a `403` is the server's refusal of a live token and changes nothing.
+The model never sees the token.
 
 ## What a result is
 

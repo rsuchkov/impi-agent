@@ -207,3 +207,34 @@ async def test_the_client_keeps_the_listings_ttl_and_hears_a_servers_notificatio
         assert first[0].description != second[0].description
     finally:
         await stdio.close()
+
+
+async def test_an_error_says_whether_the_request_left() -> None:
+    """A request that never left may be sent again; one that did may have run."""
+    closed = McpClient(HttpTransport("http://127.0.0.1:1/mcp"))
+    with pytest.raises(McpError) as caught:
+        await closed.list_tools()
+    assert caught.value.code == UNREACHABLE and caught.value.sent is False
+    await closed.close()
+
+    slow = FakeMcpHttp(8596, delay_s=0.5)
+    await slow.start()
+    client = McpClient(HttpTransport(slow.url, timeout_s=0.1))
+    try:
+        with pytest.raises(McpError) as caught:
+            await client.call_tool("echo", {"text": "x"})
+        assert caught.value.code == UNREACHABLE and caught.value.sent is True  # ReadTimeout: it arrived
+    finally:
+        await client.close()
+        await slow.stop()
+
+    missing = McpClient(StdioTransport("/no/such/binary"))
+    with pytest.raises(McpError) as caught:
+        await missing.list_tools()
+    assert caught.value.sent is False
+    await missing.close()
+    quiet = McpClient(StdioTransport(sys.executable, ["-c", "import time; time.sleep(5)"], timeout_s=0.2))
+    with pytest.raises(McpError) as caught:
+        await quiet.list_tools()
+    assert caught.value.code == UNREACHABLE and caught.value.sent is True  # written, never answered
+    await quiet.close()
