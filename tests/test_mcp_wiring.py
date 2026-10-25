@@ -66,6 +66,30 @@ def test_a_server_entry_stands_for_its_pinned_tools_in_the_allowlist_and_the_man
     assert wiring.allowlists["assistant"] == {"mcp__github__wipe"}
 
 
+def test_a_conversations_set_may_name_a_servers_tools_whole(tmp_path: Path) -> None:
+    """A conversation entitled to ``mcp__github__*`` gets the server's tools the
+    agent advertises — not nothing because no tool is called that."""
+    from crucible.mcp import McpServers
+    from crucible.ports.agent import AgentSpec
+
+    library = _pinned_library(tmp_path)
+    registry = engine_tool_registry(McpServers(library, {}).registry_tools())
+    wiring = ToolWiring(
+        Settings(_env_file=None, dotenv_path="x").tools, registry=registry, data_dir=str(tmp_path / "data"),  # pyright: ignore[reportCallIssue]
+        interactivity_on=True, confirmations_on=True,
+    )
+    spec = AgentSpec(name="assistant", display_name="A", role="r", description="d", profile_dir=tmp_path, tools=("read", "mcp__github__*"))
+    wiring.enroll(spec, None, gateway="mattermost")
+    env = wiring.session_env("assistant", "assistant--dm1", ("mcp__github__*", "read", "list_agents"))
+    assert env is not None
+    assert wiring.session_allowlists["assistant--dm1"] == {"mcp__github__echo", "mcp__github__wipe"}
+    assert [m["name"] for m in json.loads(Path(env["TOOL_MANIFEST"]).read_text())] == ["mcp__github__echo", "mcp__github__wipe"]
+    # The agent's own set stays the ceiling: a tool the agent lost is not handed back by the pattern.
+    wiring.withdraw(["mcp__github__echo"])
+    wiring.session_env("assistant", "assistant--dm1", ("mcp__github__*",))
+    assert wiring.session_allowlists["assistant--dm1"] == {"mcp__github__wipe"}
+
+
 def test_a_confirmed_tool_is_dropped_where_nobody_can_confirm(tmp_path: Path) -> None:
     from crucible.mcp import McpServers
     from crucible.ports.agent import AgentSpec

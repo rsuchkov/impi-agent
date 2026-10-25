@@ -697,21 +697,22 @@ class SessionStore(Protocol):
 
     async def get_or_create(
         self, agent: str, channel_id: str, conversation_id: str, kind: str,
-        user_id: str = "",
+        user_id: str = "", gateway: str = "",
     ) -> tuple[SessionRecord, bool]:
         """Returns (record, created); created=True on first sight of the
         conversation — flows use it to backfill thread context once. ``user_id``
-        (the triggering user) is recorded as the conversation's last user, so a
-        mid-turn tool can address them."""
+        (the triggering user) and ``gateway`` (where their message came through)
+        are recorded as the conversation's last user and last gateway at once,
+        so a mid-turn tool, and the card it raises, address the person whose
+        turn this is where they are."""
         ...
 
     async def touch(
         self, agent: str, conversation_id: str, user_id: str = "", *,
-        engine_turn: bool = False, gateway: str = "",
+        engine_turn: bool = False,
     ) -> None:
         """A turn ended here: refresh ``last_active`` (and the last user when
-        given); ``engine_turn`` also stamps ``last_engine_turn_at``; ``gateway``
-        says which gateway the turn's message came through (``last_gateway``)."""
+        given); ``engine_turn`` also stamps ``last_engine_turn_at``."""
         ...
 
     async def set_gateway_address(

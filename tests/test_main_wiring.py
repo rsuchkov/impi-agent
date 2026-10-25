@@ -980,7 +980,7 @@ async def test_an_engine_turn_goes_to_the_default_gateway_or_where_the_conversat
         # Live on Slack only: Slack, at the conversation's Slack address.
         await store.get_or_create("assistant", "ch1", "task-7", "dm")
         await store.set_gateway_address("assistant", "task-7", "slack", GatewayAddress("C9", "1700.1", KIND_THREAD))
-        await store.touch("assistant", "task-7", gateway="slack")
+        await store.get_or_create("assistant", "ch1", "task-7", "dm", gateway="slack")
         await dispatcher.run_turn(request)
         msg = flow.turns[-1][0][0]
         assert flow.turns[-1][1] is slack and (msg.ref.channel_id, msg.ref.thread_root_id) == ("C9", "1700.1")

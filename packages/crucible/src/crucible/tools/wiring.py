@@ -250,7 +250,8 @@ class ToolWiring:
         """The tool env of one conversation's process: ``tools`` is what the
         conversation is entitled to, out of what its agent advertises (a name
         the agent does not have is ignored, so the agent's manifest is the
-        ceiling). The conversation gets a manifest of its own and an entry in
+        ceiling; ``mcp__<server>__*`` stands for the server's tools as it does
+        in a profile). The conversation gets a manifest of its own and an entry in
         ``session_allowlists`` that the server enforces from now on. None
         means the agent's own: the entry goes, and the env points at the
         agent's manifest. Called before every turn, so the entry always says
@@ -262,7 +263,8 @@ class ToolWiring:
             self.session_allowlists.pop(runtime_session_id, None)
             return {**self.envs[agent], MANIFEST_ENV: str(manifest_path(self.manifests_dir, agent))}
         ceiling = self.allowlists.get(agent, frozenset())
-        allowed = tuple(dict.fromkeys(name for name in tools if name in ceiling))
+        # A conversation's set may name a server's tools whole, as a profile does.
+        allowed = tuple(name for name in _declared(self.registry, tuple(tools)) if name in ceiling)
         self.session_allowlists[runtime_session_id] = frozenset(allowed)
         path = self.registry.write_session_manifest(
             self.manifests_dir, agent, runtime_session_id, allowed

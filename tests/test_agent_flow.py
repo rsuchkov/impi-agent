@@ -1712,6 +1712,33 @@ async def test_messages_from_two_gateways_run_one_session_when_the_application_k
     await store.close()
 
 
+async def test_the_turn_already_knows_the_speakers_gateway_on_the_first_turn(tmp_path: Path) -> None:
+    """A card raised by a tool mid-turn is addressed to the person who spoke, on
+    the gateway they spoke from — including on a conversation's very first turn,
+    when nothing has ended yet. So the gateway is recorded with the speaker on
+    arrival, not when the turn ends."""
+    from crucible.ports.chat.types import KIND_THREAD
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    seen: list[tuple[str, str]] = []
+
+    class _Runtime(FakeRuntime):
+        async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
+            record = await store.get_by_runtime_session(session_id)
+            assert record is not None
+            seen.append((record.last_user_id, record.last_gateway))
+            return await super().run_stateful(profile, session_id, message, on_event=on_event, cwd=cwd, images=images)
+
+    flow = AgentFlow(_Runtime(), PROFILE, store, agent_name="assistant")
+    first = IncomingMessage(
+        ref=ConversationRef(channel_id="C1", conversation_id="1700.1", message_id="1700.1", thread_root_id="1700.1"),
+        text="first", user_id="U1", username="roman", kind=KIND_THREAD, gateway="slack", mentioned=True,
+    )
+    await flow.handle(first, FakeChat())
+    assert seen == [("U1", "slack")]
+    await store.close()
+
+
 async def test_the_platforms_own_id_is_the_key_unless_the_application_says_otherwise(tmp_path: Path) -> None:
     runtime = FakeRuntime()
     flow, store = _flow(tmp_path, runtime)

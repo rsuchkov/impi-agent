@@ -24,6 +24,9 @@ def test_a_server_entry_is_a_url_or_a_command_with_a_trust_level() -> None:
     assert http.is_http and http.trust == "untrusted" and http.confirm == ("delete_*",)
     stdio = server_from_yaml("stands", {"command": "uvx", "args": ["jira-stands-mcp"], "env": {"TOKEN": "${MCP_STANDS}"}, "trust": "trusted"})
     assert not stdio.is_http and stdio.trusted and stdio.args == ("jira-stands-mcp",)
+    assert http.timeout_s == 60.0 and "timeout" not in http.to_yaml()  # the default is not written
+    slow = server_from_yaml("reports", {"url": "https://x", "timeout": 600})
+    assert slow.timeout_s == 600.0 and slow.to_yaml()["timeout"] == 600.0
     for bad, why in (
         ({"url": "https://x", "command": "y"}, "either"),
         ({}, "either"),
@@ -31,6 +34,9 @@ def test_a_server_entry_is_a_url_or_a_command_with_a_trust_level() -> None:
         ({"url": "https://x", "trust": "maybe"}, "trust"),
         ({"url": "https://x", "confirm": "delete_*"}, "list of strings"),
         ({"url": "https://x", "headers": {"A": 1}}, "strings"),
+        ({"url": "https://x", "timeout": 0}, "timeout"),
+        ({"url": "https://x", "timeout": "60"}, "timeout"),
+        ({"url": "https://x", "timeout": True}, "timeout"),
     ):
         with pytest.raises(McpConfigError, match=why):
             server_from_yaml("github", bad)

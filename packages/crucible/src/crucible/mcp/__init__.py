@@ -19,12 +19,19 @@ from crucible.mcp.library import (
     server_from_yaml,
     with_values,
 )
-from crucible.mcp.protocol import CallResult, McpClient, McpError, ToolDefinition
+from crucible.mcp.protocol import (
+    CALL_TIMEOUT_S,
+    CallResult,
+    McpClient,
+    McpError,
+    ToolDefinition,
+)
 from crucible.mcp.service import McpServers, StartReport
 from crucible.mcp.snapshot import Snapshot
 from crucible.mcp.tools import McpTool, mcp_tool_name, split_tool_name
 
 __all__ = [
+    "CALL_TIMEOUT_S",
     "MCP_DIR",
     "TRUST_LEVELS",
     "TRUST_TRUSTED",

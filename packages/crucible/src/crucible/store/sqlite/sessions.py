@@ -210,18 +210,18 @@ class SqliteSessionStore(
 
     async def get_or_create(
         self, agent: str, channel_id: str, conversation_id: str, kind: str,
-        user_id: str = "",
+        user_id: str = "", gateway: str = "",
     ) -> tuple[SessionRecord, bool]:
         return await asyncio.to_thread(
-            self.get_or_create_sync, agent, channel_id, conversation_id, kind, user_id
+            self.get_or_create_sync, agent, channel_id, conversation_id, kind, user_id, gateway
         )
 
     async def touch(
         self, agent: str, conversation_id: str, user_id: str = "", *,
-        engine_turn: bool = False, gateway: str = "",
+        engine_turn: bool = False,
     ) -> None:
         await asyncio.to_thread(
-            self.touch_sync, agent, conversation_id, user_id, engine_turn=engine_turn, gateway=gateway
+            self.touch_sync, agent, conversation_id, user_id, engine_turn=engine_turn
         )
 
     async def set_gateway_address(
@@ -278,7 +278,7 @@ class SqliteSessionStore(
 
     def get_or_create_sync(
         self, agent: str, channel_id: str, conversation_id: str, kind: str,
-        user_id: str = "",
+        user_id: str = "", gateway: str = "",
     ) -> tuple[SessionRecord, bool]:
         now = clock.now_iso()
         runtime_session_id = derive_runtime_session_id(agent, conversation_id)
@@ -286,17 +286,19 @@ class SqliteSessionStore(
             cursor = self._conn.execute(
                 f"INSERT INTO sessions ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (agent, conversation_id) DO NOTHING",
-                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now, user_id, "", "", "", ""),
+                (agent, channel_id, conversation_id, kind, runtime_session_id, now, now, user_id, "", "", "", gateway),
             )
             created = cursor.rowcount == 1
-            # Refresh the last user on an existing row too, so a tool called
-            # mid-turn addresses THIS turn's user, not the one who opened the
+            # Refresh the last user and gateway on an existing row too, so a
+            # tool called mid-turn — and the card it raises — addresses THIS
+            # turn's user where they wrote from, not the one who opened the
             # conversation. (ON CONFLICT DO NOTHING keeps the `created` flag clean.)
-            if not created and user_id:
+            if not created and (user_id or gateway):
+                changes = [c for c, v in (("last_user_id = ?", user_id), ("last_gateway = ?", gateway)) if v]
                 self._conn.execute(
-                    "UPDATE sessions SET last_user_id = ? "
+                    f"UPDATE sessions SET {', '.join(changes)} "
                     "WHERE agent = ? AND conversation_id = ?",
-                    (user_id, agent, conversation_id),
+                    (*(v for v in (user_id, gateway) if v), agent, conversation_id),
                 )
             self._conn.commit()
             row = self._conn.execute(
@@ -307,7 +309,7 @@ class SqliteSessionStore(
 
     def touch_sync(
         self, agent: str, conversation_id: str, user_id: str = "", *,
-        engine_turn: bool = False, gateway: str = "",
+        engine_turn: bool = False,
     ) -> None:
         now = clock.now_iso()
         changes = ["last_active = ?"]
@@ -318,9 +320,6 @@ class SqliteSessionStore(
         if engine_turn:
             changes.append("last_engine_turn_at = ?")
             values.append(now)
-        if gateway:
-            changes.append("last_gateway = ?")
-            values.append(gateway)
         with self._lock:
             self._conn.execute(
                 f"UPDATE sessions SET {', '.join(changes)} WHERE agent = ? AND conversation_id = ?",

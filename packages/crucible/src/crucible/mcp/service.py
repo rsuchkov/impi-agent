@@ -40,8 +40,8 @@ TransportFactory = Callable[[McpServer], Transport]
 
 def default_transport(server: McpServer) -> Transport:
     if server.is_http:
-        return HttpTransport(server.url, server.headers)
-    return StdioTransport(server.command, server.args, server.env, server.cwd)
+        return HttpTransport(server.url, server.headers, timeout_s=server.timeout_s)
+    return StdioTransport(server.command, server.args, server.env, server.cwd, timeout_s=server.timeout_s)
 
 
 @dataclass

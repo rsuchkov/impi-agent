@@ -20,6 +20,7 @@ from typing import Any
 
 import yaml
 
+from crucible.mcp.protocol import CALL_TIMEOUT_S
 from crucible.mcp.snapshot import SNAPSHOT_VERSION, Snapshot
 
 MCP_DIR = "_mcp"
@@ -53,6 +54,7 @@ class McpServer:
     trust: str = TRUST_UNTRUSTED
     confirm: tuple[str, ...] = ()  # tool-name patterns a person must confirm
     description: str = ""
+    timeout_s: float = CALL_TIMEOUT_S  # how long one call to this server may take
 
     @property
     def is_http(self) -> bool:
@@ -90,6 +92,8 @@ class McpServer:
             data["confirm"] = list(self.confirm)
         if self.description:
             data["description"] = self.description
+        if self.timeout_s != CALL_TIMEOUT_S:
+            data["timeout"] = self.timeout_s
         return data
 
 
@@ -126,10 +130,14 @@ def server_from_yaml(name: str, data: Mapping[str, Any], *, source: str = "") ->
     trust = str(data.get("trust") or TRUST_UNTRUSTED)
     if trust not in TRUST_LEVELS:
         raise McpConfigError(f"{where}: trust must be one of {', '.join(TRUST_LEVELS)}")
+    timeout = data.get("timeout", CALL_TIMEOUT_S)
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+        raise McpConfigError(f"{where}: timeout must be a number of seconds above zero")
     return McpServer(
         name=name, url=url, headers=headers, command=command, args=strings("args"),
         env=mapping("env"), cwd=str(data.get("cwd") or ""), trust=trust,
         confirm=strings("confirm"), description=str(data.get("description") or ""),
+        timeout_s=float(timeout),
     )
 
 

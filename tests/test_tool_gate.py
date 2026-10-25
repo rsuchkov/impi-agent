@@ -818,7 +818,7 @@ async def test_the_card_is_posted_in_every_gateway_and_the_first_answer_closes_t
         await rig.store.set_gateway_address(
             "assistant", "dm1", "slack", GatewayAddress("C9", "1700.1", KIND_THREAD)
         )
-        await rig.store.touch("assistant", "dm1", gateway="mattermost")
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="mattermost")
         pending = asyncio.create_task(_call(rig, "dangerous"))
         card = await _answer(rig, ANSWER_ONCE)  # answered on the Mattermost copy
         assert await pending == 200
@@ -846,7 +846,7 @@ async def test_the_asker_is_named_as_a_person_so_a_click_from_another_gateway_co
 
     rig = await _rig(tmp_path, 8564, people=_People())
     try:
-        await rig.store.touch("assistant", "dm1", CLICKER, gateway="mattermost")  # the asker, on Mattermost
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, user_id=CLICKER, gateway="mattermost")  # the asker, on Mattermost
         pending = asyncio.create_task(_call(rig, "dangerous"))
         for _ in range(400):
             if rig.poster.posts:
@@ -881,7 +881,7 @@ async def test_the_card_is_posted_where_the_conversation_last_spoke(tmp_path: Pa
     rig = await _rig(tmp_path, 8561, by_gateway={"slack": slack})
     try:
         await rig.store.set_gateway_address("assistant", "dm1", "slack", GatewayAddress("C9", "1700.1", KIND_THREAD))
-        await rig.store.touch("assistant", "dm1", gateway="slack")
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="slack")
         pending = asyncio.create_task(_call(rig, "dangerous"))
         for _ in range(100):
             if slack.posts:

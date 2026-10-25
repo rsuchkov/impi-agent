@@ -351,7 +351,7 @@ async def test_migration_adds_the_gateway_columns_to_old_db(tmp_path: Path) -> N
         from crucible.store.base import GatewayAddress
 
         await store.set_gateway_address("assistant", "root1", "mattermost", GatewayAddress("ch1", "root1", "thread"))
-        await store.touch("assistant", "root1", gateway="mattermost")
+        await store.get_or_create("assistant", "ch1", "root1", "thread", gateway="mattermost")
         moved = await store.get_by_runtime_session("assistant--root1")
         assert moved is not None and moved.last_gateway == "mattermost" and "mattermost" in moved.gateways
         taken = await store.take_interaction("t1")

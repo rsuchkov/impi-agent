@@ -33,6 +33,7 @@ headers:
 trust: untrusted
 confirm: [delete_*, merge_*]
 description: GitHub issues and pull requests
+timeout: 60        # seconds one call may take; 60 when omitted
 ```
 
 and `_mcp/github.lock.json` — the snapshot: every tool's name, title,
@@ -94,7 +95,9 @@ Every server has a trust level, `untrusted` unless `--trusted` was given:
 A server that cannot be reached at start keeps its tools advertised, as any
 service that is down would; each call answers with the error
 (`<server>: unreachable: …`) and the model is told. The engine reconnects on
-the next call.
+the next call. A call that outlasts the server's `timeout` (60 s unless the
+entry says otherwise — `impi mcp add --timeout 600` for a server that runs
+reports) is the same failure.
 
 ## Confirmations
 

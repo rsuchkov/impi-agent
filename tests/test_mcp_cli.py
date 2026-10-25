@@ -32,13 +32,14 @@ async def test_add_declares_the_server_and_pins_its_tools(agents_dir: Path, caps
         rc = await _run(cli.main, [
             "mcp", "add", "github", "--url", server.url,
             "--header", "Authorization=Bearer ${MCP_GITHUB_TOKEN}", "--confirm", "wipe", "--description", "GitHub",
+            "--timeout", "120",
         ])
         assert rc == 0
         out = capsys.readouterr().out
         assert "2 tools pinned" in out and "mcp__github__echo" in out and "mcp__github__wipe ⚠ destructive" in out
         declared = (agents_dir / "_mcp" / "github.yaml").read_text()
         assert "Bearer ${MCP_GITHUB_TOKEN}" in declared and "t0k" not in declared  # the secret stays in the env
-        assert "trust: untrusted" in declared and "- wipe" in declared
+        assert "trust: untrusted" in declared and "- wipe" in declared and "timeout: 120.0" in declared
         lock = json.loads((agents_dir / "_mcp" / "github.lock.json").read_text())
         assert [t["name"] for t in lock["tools"]] == ["echo", "wipe"] and lock["server_info"]["name"] == "fake-http"
         assert await _run(cli.main, ["mcp", "add", "github", "--url", server.url]) == 2  # exists; --force replaces

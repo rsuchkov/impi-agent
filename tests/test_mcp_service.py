@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.mcp import McpLibrary, McpServer, McpServers, Snapshot, ToolDefinition
-from crucible.mcp.protocol import UNREACHABLE, HttpTransport, McpError
+from crucible.mcp.protocol import UNREACHABLE, HttpTransport, McpError, StdioTransport
 from tests.fakes.mcp_http import ECHO as ECHO_WIRE
 from tests.fakes.mcp_http import WIPE as WIPE_WIRE
 from tests.fakes.mcp_http import FakeMcpHttp
@@ -177,3 +177,12 @@ async def test_a_persons_token_header_is_never_on_the_standing_connection(tmp_pa
     finally:
         await servers.stop()
         await http.stop()
+
+
+def test_the_default_transport_gives_a_call_the_servers_own_time() -> None:
+    from crucible.mcp.service import default_transport
+
+    http = default_transport(McpServer("slow", url="https://x/mcp", timeout_s=600.0))
+    assert isinstance(http, HttpTransport) and http._http.timeout.read == 600.0  # noqa: SLF001
+    stdio = default_transport(McpServer("local", command="x", timeout_s=5.0))
+    assert isinstance(stdio, StdioTransport) and stdio._timeout_s == 5.0  # noqa: SLF001

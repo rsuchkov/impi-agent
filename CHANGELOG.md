@@ -6,7 +6,27 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a confirmation card on a conversation's first turn could not be
+  answered by the person who asked.** Who may answer a card is the person whose
+  turn it is, as a person of the gateway they wrote from — but the record's
+  gateway was written when a turn *ended*, so during the first turn it was
+  empty and the click from Slack was judged as another person's; on later turns
+  it named the previous turn's gateway. The speaker's gateway is now recorded
+  with the speaker when their message arrives. Tools that address the
+  conversation on its gateway mid-turn (file posts, widgets) are addressed
+  right on the first turn for the same reason.
+- **Fixed: `mcp__<server>__*` in a conversation's tool set gave the
+  conversation nothing.** A conversation's entitlement was matched against the
+  agent's tools one name at a time, so the pattern that stands for a server's
+  tools in a profile stood for nothing there. It now stands for the same tools,
+  with the agent's own set still the ceiling.
+- **Added: a server's own time for a call.** `timeout: <seconds>` in
+  `_mcp/<name>.yaml` (`impi mcp add --timeout`) bounds one call to that server;
+  the default stays 60 s. A server that runs long reports no longer fails as
+  unreachable at the engine's one limit.
+- **Breaks:** `SessionStore.touch` no longer takes `gateway=`; `get_or_create`
+  takes `gateway=` beside `user_id=` and records both on arrival. An
+  application with a store of its own moves the write.
 
 ## v0.30.0 — 2026-10-25
 

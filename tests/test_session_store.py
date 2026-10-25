@@ -216,6 +216,16 @@ async def test_a_cut_short_note_is_kept_until_it_is_cleared(store: Store) -> Non
     assert (await store.list())[0].cut_short == ""
 
 
+async def test_the_first_message_already_says_which_gateway_it_came_through(store: Store) -> None:
+    """The speaker's gateway is recorded on arrival, with the speaker — not at
+    the end of the turn — so a card raised mid-turn on the first turn of a
+    conversation is addressed to the person where they wrote from."""
+    record, created = await store.get_or_create("assistant", "C1", "task-7", KIND_THREAD, user_id="u1", gateway="slack")
+    assert created and (record.last_user_id, record.last_gateway) == ("u1", "slack")
+    record, created = await store.get_or_create("assistant", "C1", "task-7", KIND_THREAD, user_id="u2", gateway="http")
+    assert not created and (record.last_user_id, record.last_gateway) == ("u2", "http")
+
+
 async def test_a_conversation_remembers_where_it_is_on_each_gateway_and_which_spoke_last(store: Store) -> None:
     from crucible.store.base import GatewayAddress, gateway_addresses
 
@@ -224,7 +234,7 @@ async def test_a_conversation_remembers_where_it_is_on_each_gateway_and_which_sp
 
     await store.set_gateway_address("assistant", "task-7", "slack", GatewayAddress("C1", "1700.1", KIND_THREAD))
     await store.set_gateway_address("assistant", "task-7", "http", GatewayAddress("portal:u1", "portal:task-7", KIND_DM))
-    await store.touch("assistant", "task-7", gateway="http")
+    await store.get_or_create("assistant", "C1", "task-7", KIND_THREAD, gateway="http")  # a message arrived there
     record = (await store.list())[0]
     assert gateway_addresses(record) == {
         "slack": GatewayAddress("C1", "1700.1", KIND_THREAD),
@@ -234,7 +244,8 @@ async def test_a_conversation_remembers_where_it_is_on_each_gateway_and_which_sp
     # An address moved: written again, the others kept.
     await store.set_gateway_address("assistant", "task-7", "slack", GatewayAddress("C2", "1800.1", KIND_THREAD))
     assert gateway_addresses((await store.list())[0])["slack"].channel_id == "C2"
-    await store.touch("assistant", "task-7")  # a touch that names no gateway leaves it
+    await store.touch("assistant", "task-7")  # the end of a turn leaves it
+    await store.get_or_create("assistant", "C1", "task-7", KIND_THREAD)  # as does an arrival that names none
     assert (await store.list())[0].last_gateway == "http"
     # A record the store does not have is left alone, not created.
     await store.set_gateway_address("assistant", "nowhere", "slack", GatewayAddress("C", "1", KIND_DM))

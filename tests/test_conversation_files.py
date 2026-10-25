@@ -71,7 +71,7 @@ async def test_a_conversation_is_addressed_on_the_gateway_asked_for(tmp_path: Pa
     try:
         record, _ = await store.get_or_create("assistant", "portal:u1", "task-7", KIND_DM, user_id="u1")
         await store.set_gateway_address("assistant", "task-7", "slack", GatewayAddress("C1", "1700.1", KIND_THREAD))
-        await store.touch("assistant", "task-7", gateway="slack")
+        await store.get_or_create("assistant", "C1", "task-7", KIND_DM, gateway="slack")
         record = (await store.list())[0]
         on_slack = conversation_ref(record, "slack")
         assert (on_slack.channel_id, on_slack.conversation_id, on_slack.thread_root_id) == ("C1", "1700.1", "1700.1")

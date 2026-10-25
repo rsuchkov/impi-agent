@@ -120,8 +120,7 @@ async def test_click_feeds_choice_back_into_conversation(tmp_path: Path) -> None
     svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/interact")
     server, spy, _pending = await _integrations(8471, store)
     try:
-        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
-        await store.touch("assistant", "dm1", gateway="mattermost")  # the conversation last spoke there
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="mattermost")  # the speaker wrote there
         await svc.ask("assistant", rec.runtime_session_id, "Choose", ["Yes", "No"])
         token = poster.posted[0][2][0].context["token"]
 
@@ -316,8 +315,7 @@ async def test_a_click_comes_back_through_the_gateway_the_widget_was_posted_on(t
     slack_chat = object()
     server, spy, _pending = await _integrations(8472, store, gateways={"slack": slack_chat})
     try:
-        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
-        await store.touch("assistant", "dm1", gateway="slack")  # the widget went out on Slack
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="slack")  # the widget went out on Slack
         await svc.ask("assistant", rec.runtime_session_id, "Choose", ["Yes", "No"])
         token = poster.posted[0][2][0].context["token"]
         async with aiohttp.ClientSession() as s:
@@ -348,8 +346,7 @@ async def test_a_widget_and_a_form_go_through_the_gateway_the_conversation_last_
         store, presence_of(mattermost, sink=spy, gateways={"slack": slack}), PendingUiRequests(), store  # type: ignore[arg-type]
     )
     try:
-        rec, _ = await store.get_or_create("assistant", "C9", "1700.1", KIND_THREAD)
-        await store.touch("assistant", "1700.1", gateway="slack")
+        rec, _ = await store.get_or_create("assistant", "C9", "1700.1", KIND_THREAD, gateway="slack")
         assert await svc.ask("assistant", rec.runtime_session_id, "Choose", ["Yes", "No"])
         assert len(slack.posted) == 1 and mattermost.posted == []
         form = Form(title="Ticket", fields=(FormField(name="summary", label="Summary"),))

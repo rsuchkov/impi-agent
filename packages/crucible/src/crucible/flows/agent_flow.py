@@ -363,7 +363,8 @@ class AgentFlow:
 
         key = self._keying.key(self._agent_name, anchor)
         record, created = await self._sessions.get_or_create(
-            self._agent_name, anchor.channel_id, key, anchor.kind, user_id=anchor.user_id,
+            self._agent_name, anchor.channel_id, key, anchor.kind,
+            user_id=anchor.user_id, gateway=anchor.gateway,
         )
         if anchor.gateway:
             # How this conversation is addressed on the gateway the message came
@@ -499,7 +500,6 @@ class AgentFlow:
 
         await self._sessions.touch(
             self._agent_name, record.conversation_id, engine_turn=anchor.engine_started,
-            gateway=anchor.gateway,
         )
         truncated = result.truncated
         if result.text:

@@ -27,6 +27,7 @@ from pydantic import ValidationError
 from crucible import sessions_cli
 from crucible.confinement import landlock_abi
 from crucible.mcp import (
+    CALL_TIMEOUT_S,
     MCP_DIR,
     TRUST_TRUSTED,
     TRUST_UNTRUSTED,
@@ -785,6 +786,7 @@ def _cmd_mcp_add(args: argparse.Namespace) -> int:
                 "command": command, "args": cmd_args, "env": _pairs(args.env, "--env"),
                 "trust": TRUST_TRUSTED if args.trusted else TRUST_UNTRUSTED,
                 "confirm": args.confirm, "description": args.description,
+                **({"timeout": args.timeout} if args.timeout is not None else {}),
             },
         )
         snapshot = asyncio.run(_pin_server(library, server))
@@ -1373,6 +1375,10 @@ def _build_parser() -> argparse.ArgumentParser:
                 help="tool names (patterns with *) a person must confirm before they run",
             )
             cmd.add_argument("--description", default="", help="what the server offers, in a sentence")
+            cmd.add_argument(
+                "--timeout", type=float, metavar="SECONDS",
+                help=f"how long one call to this server may take (default {CALL_TIMEOUT_S:.0f})",
+            )
             cmd.add_argument("--force", action="store_true", help="replace a server of that name")
         cmd.set_defaults(func=handler)
 

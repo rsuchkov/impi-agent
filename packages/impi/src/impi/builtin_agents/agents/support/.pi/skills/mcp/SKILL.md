@@ -25,7 +25,7 @@ impi mcp add stands --command 'uvx jira-stands-mcp' --env 'TOKEN=${MCP_STANDS_TO
 ```
 
 The command connects, lists the tools and writes `$AGENTS_PATH/_mcp/<name>.yaml`
-(how to reach the server, `trust`, `confirm`, `description`) and
+(how to reach the server, `trust`, `confirm`, `description`, `timeout`) and
 `<name>.lock.json` (the **snapshot**: every tool's definition and a digest).
 Both belong in the agents repository. The secret does not: `${MCP_…}` is read
 when the server is connected from the engine's process environment or from
@@ -85,7 +85,10 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
   each call answers `<name> could not be reached; try again later`; check the
   URL or the command, the token in `conf/.env`, and for stdio that the runtime
   is in the image. The server's own words are in the engine log, never in the
-  agent's answer.
+  agent's answer. The same answer from a server that is up, after a minute,
+  with `no answer in 60s` in the log — the call outran the server's time:
+  `timeout: <seconds>` in `_mcp/<name>.yaml` (or `impi mcp add --timeout`)
+  gives a slow server more.
 - an agent lacks a tool it names — `impi mcp list` shows the server and its
   pinned count; the tool must be in the snapshot under exactly that name
   (`impi mcp show <name>`); a confirmed tool needs `INTEGRATIONS_ENABLED=true`;

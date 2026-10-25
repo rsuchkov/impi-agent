@@ -67,7 +67,7 @@ class MongoSessionStore(
 
     async def get_or_create(
         self, agent: str, channel_id: str, conversation_id: str, kind: str,
-        user_id: str = "",
+        user_id: str = "", gateway: str = "",
     ) -> tuple[SessionRecord, bool]:
         db = await self._ready()
         now = clock.now_iso()
@@ -77,23 +77,25 @@ class MongoSessionStore(
             {"$setOnInsert": to_doc(SessionRecord(
                 agent=agent, channel_id=channel_id, conversation_id=conversation_id,
                 kind=kind, runtime_session_id=derive_runtime_session_id(agent, conversation_id),
-                created_at=now, last_active=now, last_user_id=user_id,
+                created_at=now, last_active=now, last_user_id=user_id, last_gateway=gateway,
             ))},
             upsert=True,
         )
         created = result.upserted_id is not None
-        # Refresh the last user on an existing record too, so a tool called
-        # mid-turn addresses THIS turn's user, not the one who opened the
-        # conversation. ($setOnInsert keeps the `created` flag clean.)
-        if not created and user_id:
-            await db[SESSIONS].update_one(key, {"$set": {"last_user_id": user_id}})
+        # Refresh the last user and gateway on an existing record too, so a
+        # tool called mid-turn — and the card it raises — addresses THIS turn's
+        # user where they wrote from, not the one who opened the conversation.
+        # ($setOnInsert keeps the `created` flag clean.)
+        arrival = {k: v for k, v in (("last_user_id", user_id), ("last_gateway", gateway)) if v}
+        if not created and arrival:
+            await db[SESSIONS].update_one(key, {"$set": arrival})
         doc = await db[SESSIONS].find_one(key)
         assert doc is not None  # we just upserted it
         return from_doc(SessionRecord, doc), created
 
     async def touch(
         self, agent: str, conversation_id: str, user_id: str = "", *,
-        engine_turn: bool = False, gateway: str = "",
+        engine_turn: bool = False,
     ) -> None:
         db = await self._ready()
         now = clock.now_iso()
@@ -102,8 +104,6 @@ class MongoSessionStore(
             changes["last_user_id"] = user_id
         if engine_turn:
             changes["last_engine_turn_at"] = now
-        if gateway:
-            changes["last_gateway"] = gateway
         await db[SESSIONS].update_one(
             {"agent": agent, "conversation_id": conversation_id}, {"$set": changes}
         )

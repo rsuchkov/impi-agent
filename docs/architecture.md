@@ -366,8 +366,10 @@ post-loop `finalize`.
 **One agent may be reached through several gateways.** Every message says which
 gateway delivered it (`IncomingMessage.gateway`); the flow replies through the
 chat client that came with it, and the conversation's record remembers its
-address on each gateway and which one spoke last (`SessionRecord.gateways`,
-`last_gateway`). Which messages are one conversation is a port the application
+address on each gateway and which one the current speaker wrote from
+(`SessionRecord.gateways`, `last_gateway` — written with the speaker when the
+message arrives, so a card raised mid-turn is addressed to them there, on the
+first turn too). Which messages are one conversation is a port the application
 fills (`ports/chat/keying.ConversationKey`; the platform's own id by default),
 as is which platform ids are one person (`PersonKey`, asked when a click on a
 confirmation card is judged),
