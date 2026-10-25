@@ -730,6 +730,10 @@ def build_app(settings: ImpiSettings) -> App:
         )
         http_hub = HttpHub(
             settings.http_host, settings.http_port, TokenCallers(http_callers),
+            # Cards a conversation holds outside a turn of this gateway's go in
+            # the store: every replica shows them, not only the one whose turn
+            # raised them.
+            turns=HttpTurns(cards=sessions),
             directory=registry, attachments=attachments,
             dispatcher=interactions.dispatcher, control=runtime,
             max_wait_s=settings.http_max_wait_s,

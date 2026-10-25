@@ -94,6 +94,11 @@ class ClickForwarder(Protocol):
         self, url: str, kind: ClickKind, token: str, value: str, user_id: str, gateway: str
     ) -> ForwardedClick: ...
 
+    async def ask_may_answer(self, url: str, token: str, user_id: str, gateway: str) -> bool:
+        """Whether the replica at ``url``, which asked the question the token
+        names, would take this person's answer — asked before a card is shown."""
+        ...
+
 
 def tag_token(replica: str, token: str) -> str:
     """A token that says which replica minted it (none when ``replica`` is "")."""

@@ -33,7 +33,6 @@ from crucible.gateways.http.journal import EV_ACTIONS_RETIRED, STATUS_RUNNING
 from crucible.gateways.http.turns import (
     STARTED_BY_ENGINE,
     HttpTurns,
-    PendingCard,
     Turn,
     TurnInProgress,
 )
@@ -43,9 +42,11 @@ from crucible.ports.agent.runtime import RuntimeControl
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import TrackedSink, TurnOutcome
 from crucible.ports.chat.gateway import GATEWAY_HTTP
+from crucible.ports.chat.interactions import actions_from_json, approval_card_from_json
 from crucible.ports.chat.types import (
     ACTION_BUTTON,
     KIND_DM,
+    Action,
     ConversationRef,
     IncomingMessage,
 )
@@ -557,18 +558,24 @@ class HttpHub:
         # raised by a turn on another gateway, forwarded here. Shown to the
         # caller only when the approvals would take their answer: a card's
         # arguments are the asker's business, as a turn's journal is its owner's.
-        pending = [
-            {"postId": held.post_id, **wire_card(held.card), "actions": [wire_action(a) for a in held.actions]}
-            for held in self.turns.pending(key)
-            if self._may_answer(held, caller)
-        ]
+        pending = []
+        for held in await self.turns.held_by(key):
+            actions = actions_from_json(held.actions)
+            if await self._may_answer(actions, caller):
+                pending.append({
+                    "postId": held.post_id, **wire_card(approval_card_from_json(held.card)),
+                    "actions": [wire_action(a) for a in actions],
+                })
         return web.json_response({"conversationId": conversation_id, "activeTurn": active, "pendingCards": pending})
 
-    def _may_answer(self, held: PendingCard, caller: Caller) -> bool:
+    async def _may_answer(self, actions: tuple[Action, ...], caller: Caller) -> bool:
         if self._dispatcher is None:
             return False
-        tokens = {str(a.context.get(APPROVAL_KEY) or "") for a in held.actions} - {""}
-        return any(self._dispatcher.may_answer(t, caller.user_id, gateway=GATEWAY_HTTP) for t in tokens)
+        tokens = {str(a.context.get(APPROVAL_KEY) or "") for a in actions} - {""}
+        for token in tokens:
+            if await self._dispatcher.may_answer(token, caller.user_id, gateway=GATEWAY_HTTP):
+                return True
+        return False
 
     async def _conversation_action(self, request: web.Request) -> web.Response:
         """An answer to a card the conversation holds outside a turn — a
@@ -581,9 +588,10 @@ class HttpHub:
             raise Refusal(404, "not_found", "interactivity is off on this engine")
         key = self.conversation_key(caller, request.match_info["conversation"])
         post_id = str(body.get("postId") or "")
-        held = next((h for h in self.turns.pending(key) if h.post_id == post_id), None)
+        held = await self.turns.held(post_id)
+        actions = actions_from_json(held.actions) if held is not None and held.conversation == key else ()
         action_id = str(body.get("actionId") or "")
-        action = next((a for a in held.actions if a.id == action_id), None) if held is not None else None
+        action = next((a for a in actions if a.id == action_id), None)
         if action is None:
             raise Refusal(404, "not_found", "no such control; the card may have been answered")
         token = str(action.context.get(APPROVAL_KEY) or "")
@@ -592,7 +600,7 @@ class HttpHub:
         value = action.value if action.kind == ACTION_BUTTON else str(body.get("value") or "")
         outcome = await self._dispatcher.resolve_approval(token, value, caller.user_id, gateway=GATEWAY_HTTP)
         if outcome is ApprovalOutcome.NOT_MINE:
-            self.turns.release(post_id)
+            await self.turns.release(post_id)
         return web.json_response({"outcome": outcome.name.lower()})
 
     async def _cancel(self, request: web.Request) -> web.Response:

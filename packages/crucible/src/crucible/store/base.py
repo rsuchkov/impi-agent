@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from crucible.ports.chat.directory import AgentInfo
+from crucible.ports.held_cards import HeldCards
 from crucible.ports.lease import Leases
 from crucible.ports.replica import Replicas
 
@@ -132,6 +133,11 @@ class InteractionRecord:
     # The gateway the widget was posted through: a click on it comes back as a
     # message through that gateway.
     gateway: str = ""
+
+
+class HeldCardStore(HeldCards, Protocol):
+    """The cards conversations hold outside a turn, by gateway
+    (``ports.held_cards``), as the store keeps them."""
 
 
 class InteractionStore(Protocol):
@@ -759,6 +765,7 @@ class SessionStore(Protocol):
 class Store(
     SessionStore,
     InteractionStore,
+    HeldCardStore,
     FormStore,
     TaskStore,
     SchedulerStateStore,

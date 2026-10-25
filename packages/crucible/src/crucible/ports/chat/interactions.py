@@ -14,9 +14,18 @@ JSON string; only this layer knows the shape).
 """
 
 import json
+from collections.abc import Sequence
 from typing import Any, Protocol
 
-from crucible.ports.chat.types import Form, FormField
+from crucible.ports.chat.types import (
+    ACTION_BUTTON,
+    Action,
+    ApprovalCard,
+    Choice,
+    Form,
+    FormField,
+    PreviewRow,
+)
 
 # How ``ask`` renders the question. The first two carry options of the caller's
 # own; the pickers are filled by the platform with its people / channels.
@@ -107,4 +116,54 @@ def form_from_json(spec: str) -> Form:
             )
             for f in d["fields"]
         ),
+    )
+
+
+def actions_to_json(actions: Sequence[Action]) -> str:
+    """A card's controls as the store keeps them: every field, the context too
+    (it carries the token a click answers)."""
+    return json.dumps([
+        {
+            "id": a.id, "label": a.label, "value": a.value, "style": a.style, "context": dict(a.context),
+            "kind": a.kind, "options": [{"label": c.label, "value": c.value} for c in a.options],
+        }
+        for a in actions
+    ])
+
+
+def actions_from_json(spec: str) -> tuple[Action, ...]:
+    return tuple(
+        Action(
+            id=a["id"], label=a["label"], value=a.get("value", ""), style=a.get("style", ""),
+            context=dict(a.get("context") or {}), kind=a.get("kind", ACTION_BUTTON),
+            options=tuple(Choice(label=c["label"], value=c["value"]) for c in a.get("options", ())),
+        )
+        for a in json.loads(spec)
+    )
+
+
+def approval_card_to_json(card: ApprovalCard) -> str:
+    """A card as the store keeps it, whole: what a gateway redraws it from."""
+    return json.dumps({
+        "agent": card.agent, "headline": card.headline, "icon": card.icon, "title": card.title,
+        "tool": card.tool,
+        "fields": [
+            {"label": r.label, "value": r.value, "before": r.before, "passage": r.passage} for r in card.fields
+        ],
+        "block_label": card.block_label, "block": card.block, "danger": card.danger,
+        "expires_at": card.expires_at, "verdict": card.verdict, "grant_s": card.grant_s,
+    })
+
+
+def approval_card_from_json(spec: str) -> ApprovalCard:
+    d = json.loads(spec)
+    return ApprovalCard(
+        agent=d["agent"], headline=d["headline"], icon=d.get("icon", "⚙️"), title=d.get("title", ""),
+        tool=d.get("tool", ""),
+        fields=tuple(
+            PreviewRow(label=f["label"], value=f["value"], before=f.get("before", ""), passage=f.get("passage", False))
+            for f in d.get("fields", ())
+        ),
+        block_label=d.get("block_label", ""), block=d.get("block", ""), danger=d.get("danger", False),
+        expires_at=d.get("expires_at", ""), verdict=d.get("verdict", ""), grant_s=d.get("grant_s", 0),
     )

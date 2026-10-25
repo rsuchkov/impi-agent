@@ -2,7 +2,8 @@
 
 What one replica hands another (``ports.replica``): a batch of messages for a
 conversation the other owns, answered with the turn's outcome once it ran;
-and a click on a card the other posted, answered with what it did with it.
+a click on a card the other posted, answered with what it did with it; and
+the question whether a person may answer a card the other asked, before it is shown.
 Both under one shared secret (``Authorization: Bearer``), on the hub's port —
 behind the same balancer as the public routes, which is why the secret is a
 must and not a hardening.
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 TURNS_PATH = "/v1/internal/turns"
 CLICKS_PATH = "/v1/internal/clicks"
+MAY_ANSWER_PATH = "/v1/internal/may-answer"
 # A forwarded turn is awaited whole: a turn waiting on a confirmation can take
 # minutes, and the caller has nothing else to do with the connection.
 FORWARD_TIMEOUT_S = 900.0
@@ -201,7 +203,11 @@ class InternalRoutes:
 
     @property
     def routes(self) -> list[web.RouteDef]:
-        return [web.post(TURNS_PATH, self._turns), web.post(CLICKS_PATH, self._clicks)]
+        return [
+            web.post(TURNS_PATH, self._turns),
+            web.post(CLICKS_PATH, self._clicks),
+            web.post(MAY_ANSWER_PATH, self._may_answer),
+        ]
 
     async def _body(self, request: web.Request) -> dict[str, Any]:
         presented = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
@@ -257,6 +263,15 @@ class InternalRoutes:
         return web.json_response({"outcome": answer.name})
 
 
+    async def _may_answer(self, request: web.Request) -> web.Response:
+        """Another replica shows a card this one asked: would this person's answer be taken?"""
+        body = await self._body(request)
+        if self._dispatcher is None:
+            raise Refusal(404, "not_found", "interactivity is off on this engine")
+        token, user_id, gateway = (str(body.get(k, "")) for k in ("token", "user_id", "gateway"))
+        return web.json_response({"allowed": await self._dispatcher.may_answer(token, user_id, gateway=gateway)})
+
+
 # -- the client side -------------------------------------------------------------
 
 
@@ -282,6 +297,10 @@ class HubForwarder:
             {"kind": kind.name, "token": token, "value": value, "user_id": user_id, "gateway": gateway},
         )
         return ForwardedClick[str(answer.get("outcome", ""))]
+
+    async def ask_may_answer(self, url: str, token: str, user_id: str, gateway: str) -> bool:
+        answer = await self._post(url + MAY_ANSWER_PATH, {"token": token, "user_id": user_id, "gateway": gateway})
+        return bool(answer.get("allowed"))
 
     async def _post(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:

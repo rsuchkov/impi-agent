@@ -28,9 +28,20 @@ when a release is cut, and `impi update` shows the target version's section.
   message on a panel counted as private, and the reverse was refused. The tool
   server now sees the place the turn is in: the conversation's address on the
   speaker's gateway.
+- **Fixed: a card the HTTP conversation holds outside a turn was on one pod
+  only.** The cards v0.31.0 lists as `pendingCards` lived in the memory of
+  the pod whose turn raised them; on another pod the list was empty and the
+  answer `404`. They are now kept in the store (`held_cards`), so every pod
+  lists them and takes the answer, and the pod that asked is asked whether the
+  caller may answer before the card is shown (`POST /v1/internal/may-answer`,
+  `ClickForwarder.ask_may_answer`). `HttpTurns(cards=store)` wires it; without
+  a store a hub keeps its own.
 - `ConnectionsError`, `NotConnected` and `ProviderUnavailable` — what a
   connection grant raises — live in `crucible.ports.connections` with the
   port; `crucible.connections` still exports them.
+- **Breaks:** `GatewayDispatcher.may_answer` is a coroutine (the question may
+  wait in another replica); `ClickForwarder` gains `ask_may_answer`;
+  `HttpTurns.hold/held_by/release` are coroutines and take the agent's name.
 
 ## v0.31.0 — 2026-10-25
 

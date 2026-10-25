@@ -22,6 +22,7 @@ T = TypeVar("T")
 
 SESSIONS = "sessions"
 INTERACTIONS = "pending_interactions"
+HELD_CARDS = "held_cards"
 FORMS = "pending_forms"
 PROCESSED = "processed_posts"
 AGENTS = "agents"
@@ -131,6 +132,7 @@ async def create_indexes(db: Collections) -> None:
     await db[GRANTS].create_index([("kind", 1), ("principal", 1), ("scope", 1)])
     await db[AUDIT].create_index([("at", -1)])
     await db[TRACES].create_index([("finished_at", 1)])
+    await db[HELD_CARDS].create_index([("gateway", 1), ("conversation", 1), ("held_at", 1)])
     # One connection per person and provider: a second save is a reconnect.
     await db[CONNECTIONS].create_index([("owner", 1), ("provider", 1)], unique=True)
     # A link nobody came back for goes on its own; the service checks the

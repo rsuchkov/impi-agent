@@ -250,3 +250,26 @@ async def test_a_conversation_remembers_where_it_is_on_each_gateway_and_which_sp
     # A record the store does not have is left alone, not created.
     await store.set_gateway_address("assistant", "nowhere", "slack", GatewayAddress("C", "1", KIND_DM))
     assert len(await store.list()) == 1
+
+
+async def test_a_conversation_holds_cards_outside_a_turn_until_their_verdict(store: Store) -> None:
+    """A card raised elsewhere and forwarded to a gateway with no turn running
+    there is kept by the store — every replica of the gateway shows it — and
+    goes when the verdict comes. The same post again is a rewrite, not a second card."""
+    from crucible.ports.held_cards import HeldCard
+
+    first = HeldCard("http", "portal:c1", "p1", "assistant", '{"a": 1}', "[]", "2026-10-25T10:00:00+00:00")
+    second = HeldCard("http", "portal:c1", "p2", "assistant", '{"a": 2}', "[]", "2026-10-25T10:00:01+00:00")
+    elsewhere = HeldCard("http", "portal:c2", "p3", "assistant", "{}", "[]", "2026-10-25T10:00:02+00:00")
+    for card in (second, first, elsewhere):
+        await store.hold_card(card)
+    assert [c.post_id for c in await store.held_cards("http", "portal:c1")] == ["p1", "p2"]  # oldest first
+    assert await store.held_cards("ws", "portal:c1") == []  # another gateway's conversation of the same name
+    assert await store.held_card("p3") == elsewhere and await store.held_card("nope") is None
+    await store.hold_card(HeldCard("http", "portal:c1", "p1", "assistant", '{"a": 1, "still": true}', '[{"id": "x"}]', "later"))
+    held = await store.held_card("p1")
+    assert held is not None and held.card == '{"a": 1, "still": true}' and held.actions == '[{"id": "x"}]'
+    assert len(await store.held_cards("http", "portal:c1")) == 2
+    await store.release_card("p1")
+    await store.release_card("p1")  # gone already: nothing to say
+    assert [c.post_id for c in await store.held_cards("http", "portal:c1")] == ["p2"]

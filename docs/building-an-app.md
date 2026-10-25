@@ -491,10 +491,13 @@ credential, is another user's credential.
   Slack or Mattermost belongs to one turn.
 - **An HTTP API for your own frontend** is what the `http` gateway is
   (`crucible.gateways.http`, contract in [http-gateway.md](http-gateway.md)):
-  `HttpHub(host, port, callers, dispatcher=…, control=runtime)` plus, per
-  agent, `HttpChatClient(hub.turns, name)` as the chat client and `hub.turns`
-  as the flow's `tracer`; `GatewayFactory(http_hub=hub)` does this for a
-  `GatewayConfig(kind="http")`. The piece that is yours is `callers`, a
+  `HttpHub(host, port, callers, dispatcher=…, control=runtime,
+  turns=HttpTurns(cards=store))` plus, per agent, `HttpChatClient(hub.turns,
+  name)` as the chat client and `hub.turns` as the flow's `tracer`;
+  `GatewayFactory(http_hub=hub)` does this for a `GatewayConfig(kind="http")`.
+  `cards` is where a conversation's cards raised on another gateway wait
+  (`ports.held_cards.HeldCards`, which the store implements) — give it the
+  store, or every replica shows only what its own turns raised. The piece that is yours is `callers`, a
   `CallerAuthenticator`: `TokenCallers` trusts a bearer token and two headers,
   and an application whose users prove themselves otherwise (a session cookie
   checked upstream) implements `authenticate(request, body) -> Caller | None`
@@ -595,7 +598,9 @@ credential, is another user's credential.
   token the gate and the widget bridge mint carries the replica's id in front
   (`tag_token`), and the dispatcher, finding nothing waiting for a token
   another replica minted, hands the click to that replica (`ClickForwarder`)
-  and answers with what it did. One shared secret guards the internal routes,
+  and answers with what it did — and asks it, the same way, whether a person
+  may answer a card it holds before the card is shown (`ask_may_answer`). One
+  shared secret guards the internal routes,
   on the hub's own port. `impi` turns all of this on with `REPLICA_URL` and
   `REPLICA_TOKEN`; with either unset nothing is owned or forwarded.
 - **Testing without a model.** `crucible.runtimes.pi.testing.ScriptedHost`

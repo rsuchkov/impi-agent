@@ -21,6 +21,7 @@ import logging
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from crucible.gateways.http.journal import (
     EV_PROGRESS,
@@ -34,7 +35,10 @@ from crucible.gateways.http.journal import (
 )
 from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.gateway import GATEWAY_HTTP
+from crucible.ports.chat.interactions import actions_to_json, approval_card_to_json
 from crucible.ports.chat.types import Action, ApprovalCard
+from crucible.ports.held_cards import HeldCard, HeldCards
 
 logger = logging.getLogger(__name__)
 
@@ -99,27 +103,39 @@ class _Trace:
         return  # the ending is reported from the outcome, not from here
 
 
-@dataclass(eq=False)
-class PendingCard:
-    """A confirmation card a conversation holds outside any turn of this
-    gateway's, until its verdict arrives."""
+class InMemoryHeldCards:
+    """The held cards of one process — for a gateway with no store behind it
+    (a test, a single-process application). With replicas, the cards go in
+    the shared store, or a replica shows only what its own turns raised."""
 
-    post_id: str
-    card: ApprovalCard
-    actions: tuple[Action, ...]
+    def __init__(self) -> None:
+        self._by_post: dict[str, HeldCard] = {}
 
+    async def hold_card(self, record: HeldCard) -> None:
+        self._by_post[record.post_id] = record
 
-# How many cards one conversation holds outside a turn; the oldest goes first.
-PENDING_CARDS_PER_CONVERSATION = 50
+    async def held_cards(self, gateway: str, conversation: str) -> list[HeldCard]:
+        return [c for c in self._by_post.values() if c.gateway == gateway and c.conversation == conversation]
+
+    async def held_card(self, post_id: str) -> HeldCard | None:
+        return self._by_post.get(post_id)
+
+    async def release_card(self, post_id: str) -> None:
+        self._by_post.pop(post_id, None)
 
 
 class HttpTurns:
-    def __init__(self, *, journal_retention_s: float = 600.0, remembered: int = 10_000) -> None:
+    def __init__(
+        self, *, journal_retention_s: float = 600.0, remembered: int = 10_000,
+        cards: HeldCards | None = None,
+    ) -> None:
         self._retention = journal_retention_s
         self._remembered = remembered
         self._by_id: dict[str, Turn] = {}
         self._active: dict[str, Turn] = {}  # conversation -> its running turn
-        self._pending: dict[str, dict[str, PendingCard]] = {}  # conversation -> post id -> card
+        # Cards conversations hold outside any turn of this gateway's: in the
+        # application's store, so every replica of the gateway shows them.
+        self._cards: HeldCards = cards if cards is not None else InMemoryHeldCards()
         # Set while nothing runs; what a hub draining before shutdown waits on.
         self.idle = asyncio.Event()
         self.idle.set()
@@ -193,27 +209,32 @@ class HttpTurns:
 
     # -- cards outside a turn ---------------------------------------------------
 
-    def hold(self, conversation: str, post_id: str, card: ApprovalCard, actions: tuple[Action, ...]) -> None:
+    async def hold(
+        self, conversation: str, post_id: str, agent: str, card: ApprovalCard, actions: tuple[Action, ...]
+    ) -> None:
         """A card the conversation holds with no turn of this gateway's to
         put it in; replaces the same post when it is rewritten."""
-        held = self._pending.setdefault(conversation, {})
-        held[post_id] = PendingCard(post_id, card, actions)
-        while len(held) > PENDING_CARDS_PER_CONVERSATION:
-            del held[next(iter(held))]
+        await self._cards.hold_card(HeldCard(
+            GATEWAY_HTTP, conversation, post_id, agent,
+            approval_card_to_json(card), actions_to_json(actions), datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        ))
 
-    def pending(self, conversation: str) -> list[PendingCard]:
+    async def held_by(self, conversation: str) -> list[HeldCard]:
         """The cards the conversation holds, oldest first."""
-        return list(self._pending.get(conversation, {}).values())
+        return await self._cards.held_cards(GATEWAY_HTTP, conversation)
 
-    def conversation_of(self, post_id: str) -> str | None:
+    async def held(self, post_id: str) -> HeldCard | None:
+        """The held card with this post id, or None."""
+        return await self._cards.held_card(post_id)
+
+    async def conversation_of(self, post_id: str) -> str | None:
         """The conversation holding this post, or None."""
-        return next((conversation for conversation, held in self._pending.items() if post_id in held), None)
+        held = await self._cards.held_card(post_id)
+        return held.conversation if held is not None else None
 
-    def release(self, post_id: str) -> None:
+    async def release(self, post_id: str) -> None:
         """The card's question is over: the verdict came, or it was withdrawn."""
-        for conversation, held in list(self._pending.items()):
-            if held.pop(post_id, None) is not None and not held:
-                del self._pending[conversation]
+        await self._cards.release_card(post_id)
 
     def sweep(self, now: float) -> int:
         """Forget finished turns whose journals nobody should poll any more."""

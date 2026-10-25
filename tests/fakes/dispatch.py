@@ -43,7 +43,7 @@ class FakeDispatcher:
         self.gateways.append(gateway)
         return self._approval
 
-    def may_answer(self, token, user_id, *, gateway=""):
+    async def may_answer(self, token, user_id, *, gateway=""):
         return True
 
     async def resolve_pending(self, token, value) -> bool:

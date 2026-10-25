@@ -146,11 +146,29 @@ class InteractionDispatcher:
                 return ApprovalOutcome[forwarded.name]
         return outcome
 
-    def may_answer(self, token: str, user_id: str, *, gateway: str = "") -> bool:
+    async def may_answer(self, token: str, user_id: str, *, gateway: str = "") -> bool:
         """Whether this person, as the gateway knows them, may answer the
-        request — judged as ``resolve_approval`` will judge the click. A request
-        waiting in another replica is not known here, so: no."""
-        return self._approvals is not None and self._approvals.may_answer(token, self._people.key(gateway, user_id))
+        request — judged as ``resolve_approval`` will judge the click; asked
+        of the replica that holds the question when it is another's."""
+        if not token or self._approvals is None:
+            return False
+        if self._approvals.may_answer(token, self._people.key(gateway, user_id)):
+            return True
+        # Not here (or here and not theirs — a token of our own is never
+        # forwarded): the replica whose token it is answers for it.
+        if self._replica is None or self._replicas is None or self._clicks is None:
+            return False
+        minted_by = replica_of(token)
+        if not minted_by or minted_by == self._replica.id:
+            return False
+        url = await self._replicas.replica_url(minted_by)
+        if not url:
+            return False
+        try:
+            return await self._clicks.ask_may_answer(url, token, user_id, gateway)
+        except Exception:
+            logger.warning("may-answer for replica %s at %s could not be asked", minted_by, url, exc_info=True)
+            return False
 
     async def resolve_pending(self, token: str, value: str) -> bool:
         """A blocking mid-turn confirm/select: resolve the Future the paused turn

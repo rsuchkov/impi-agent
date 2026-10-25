@@ -172,8 +172,10 @@ its turn on the platform ask for a yes, and the card is forwarded here as to
 every gateway the conversation is live in. Each is the `confirmation` event's
 payload (`postId`, `headline`, `title`, `tool`, `fields`, `block`, `danger`,
 `expiresAt`, `actions[]`, …) and stays until its verdict comes or it is
-withdrawn (at most 50 a conversation, oldest first; they live in the engine's
-memory, as the question itself does). Listed only to a caller the card is
+withdrawn (oldest first). The cards are kept in the engine's store, so with
+several pods every pod lists them and takes an answer — the question itself
+waits on the pod whose turn raised it, and that pod is asked whether the
+caller may answer before the card is shown. Listed only to a caller the card is
 addressed to — the person who asked, as the approvals judge `X-User-Id` on
 this gateway — another user of the realm sees the conversation and no card:
 its arguments are the asker's. A card raised by a turn running *here* is in
@@ -263,11 +265,13 @@ catch `Refusal` there if an error response needs your header too.
 
 ## Several pods
 
-The hub also carries two routes of the engine's own, `POST /v1/internal/turns`
-and `POST /v1/internal/clicks`, under `REPLICA_TOKEN` (see
+The hub also carries three routes of the engine's own, `POST
+/v1/internal/turns`, `POST /v1/internal/clicks` and `POST
+/v1/internal/may-answer`, under `REPLICA_TOKEN` (see
 [configuration.md](configuration.md), "Several engine processes"): what one
 engine process hands another — a turn for a conversation the other owns, a
-click on a card the other posted. They answer only that token; a caller's
+click on a card the other posted, the question whether a person may answer a
+card the other asked. They answer only that token; a caller's
 token is refused there. A caller's own turns are never forwarded: the pod a
 balancer pins a user to is where their conversation runs, and the conversation
 moves there when it was elsewhere.

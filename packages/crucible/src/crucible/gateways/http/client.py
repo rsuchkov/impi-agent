@@ -159,7 +159,7 @@ class HttpChatClient:
             # turn on another gateway (the conversation is live in both). The
             # conversation holds it for a client that asks what is pending;
             # the answer goes through the conversation's actions.
-            self._turns.hold(ref.conversation_id, post_id, card, tuple(actions))
+            await self._turns.hold(ref.conversation_id, post_id, self._agent, card, tuple(actions))
             return post_id
         # The card as data: a program draws the headline, a before → after
         # diff, a danger style and a countdown itself. Nothing rendered here.
@@ -181,14 +181,14 @@ class HttpChatClient:
         answers = tuple(actions or ())
         turn = self._turn_of_post(post_id)
         if turn is None:
-            conversation = self._turns.conversation_of(post_id)
+            conversation = await self._turns.conversation_of(post_id)
             if conversation is not None:
                 # Rewritten while held: with controls it still asks; with none
                 # the question is over and the conversation holds it no more.
                 if answers:
-                    self._turns.hold(conversation, post_id, card, answers)
+                    await self._turns.hold(conversation, post_id, self._agent, card, answers)
                 else:
-                    self._turns.release(post_id)
+                    await self._turns.release(post_id)
             return
         turn.journal.emit(
             EV_CONFIRMATION_UPDATED, postId=post_id, **wire_card(card),
@@ -213,7 +213,7 @@ class HttpChatClient:
     async def retract(self, post_id: str, text: str) -> None:
         turn = self._turn_of_post(post_id)
         if turn is None:
-            self._turns.release(post_id)
+            await self._turns.release(post_id)
             return
         turn.posted.pop(post_id, None)
         turn.blocking.discard(post_id)

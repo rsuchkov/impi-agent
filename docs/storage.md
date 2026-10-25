@@ -138,6 +138,7 @@ One per subject, named the way the SQLite tables are:
 | `sessions` | conversation → runtime session |
 | `pending_interactions` | widgets awaiting a click (one-shot) |
 | `pending_forms` | modal forms awaiting a submit |
+| `held_cards` | confirmation cards a conversation holds on a gateway outside any turn of that gateway's (raised on another gateway), until their verdict |
 | `processed_posts` | dedup, so a redelivered message is not answered twice; forgotten after `PROCESSED_POSTS_RETENTION_DAYS` |
 | `agents` | the registry, synced from profiles at boot |
 | `tasks` | scheduled work |

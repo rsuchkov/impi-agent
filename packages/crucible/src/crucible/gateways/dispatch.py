@@ -32,10 +32,10 @@ class GatewayDispatcher(Protocol):
         replica."""
         ...
 
-    def may_answer(self, token: str, user_id: str, *, gateway: str = "") -> bool:
+    async def may_answer(self, token: str, user_id: str, *, gateway: str = "") -> bool:
         """Whether the request is waiting and addressed to this person (as the
         gateway knows them) — asked before a card is shown, judged as a click
-        would be."""
+        would be. A coroutine: the question may be waiting in another replica."""
         ...
 
     async def resolve_pending(self, token: str, value: str) -> bool: ...

@@ -385,7 +385,7 @@ async def test_a_replica_owns_its_conversations_and_carries_the_internal_routes(
     for the replicas' own routes, every flow is served through ownership, the
     tokens the gate mints name this replica, and a heartbeat says it is alive."""
     from crucible.flows.owned import OwnedFlow
-    from crucible.gateways.http.internal import CLICKS_PATH, TURNS_PATH
+    from crucible.gateways.http.internal import CLICKS_PATH, MAY_ANSWER_PATH, TURNS_PATH
     from crucible.ports.replica import REPLICA_LEASE_PREFIX
 
     settings = _settings(tmp_path).model_copy(
@@ -395,7 +395,7 @@ async def test_a_replica_owns_its_conversations_and_carries_the_internal_routes(
     try:
         assert app.heartbeat is not None and app.forwarder is not None
         assert app.http_hub is not None and app.ws_hub is None
-        assert {r.path for r in app.http_hub._routes} == {TURNS_PATH, CLICKS_PATH}
+        assert {r.path for r in app.http_hub._routes} == {TURNS_PATH, CLICKS_PATH, MAY_ANSWER_PATH}
         unit = app.units[0]
         coalescer = app.sinks_by_agent["assistant"].sink
         assert isinstance(coalescer, MessageCoalescer)
@@ -438,6 +438,7 @@ async def test_build_app_puts_an_agent_on_the_http_hub(tmp_path: Path, monkeypat
         unit = app.units[0]
         assert isinstance(unit.gateways["http"], HttpGateway)
         assert unit.flow._tracer is app.http_hub.turns  # the journal, not ToolTrace
+        assert app.http_hub.turns._cards is app.sessions  # held cards go in the store: every replica shows them
         assert unit.flow._turns is not None  # a caller's TurnScope has somewhere to go
         sink, chat = app.http_hub._agents["assistant"]
         assert isinstance(chat, HttpChatClient)

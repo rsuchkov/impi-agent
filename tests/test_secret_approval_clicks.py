@@ -155,6 +155,10 @@ class _Clicks:
         self.sent.append((url, kind, token, value, user_id, gateway))
         return self.answer
 
+    async def ask_may_answer(self, url, token, user_id, gateway):
+        self.sent.append((url, "may_answer", token, user_id, gateway))
+        return self.answer is ForwardedClick.RESOLVED
+
 
 async def test_a_click_on_another_replicas_question_is_handed_to_that_replica(tmp_path: Path) -> None:
     """The token names the replica that minted it; nothing waits for it here,
@@ -178,7 +182,15 @@ async def test_a_click_on_another_replicas_question_is_handed_to_that_replica(tm
         assert clicks.sent[-1] == ("http://pod-b:8428", ClickKind.PENDING, "b2.tok2", "yes", "", "")
         clicks.answer = ForwardedClick.NOT_MINE
         assert await dispatcher.resolve_pending("b2.tok3", "yes") is False
+        # Whether a person may answer is asked the same way, before a card is shown.
+        clicks.answer = ForwardedClick.RESOLVED
+        assert await dispatcher.may_answer("b2.tok4", APPROVER, gateway="http") is True
+        assert clicks.sent[-1] == ("http://pod-b:8428", "may_answer", "b2.tok4", APPROVER, "http")
+        clicks.answer = ForwardedClick.NOT_ALLOWED
+        assert await dispatcher.may_answer("b2.tok4", STRANGER) is False
         sent = len(clicks.sent)
+        assert await dispatcher.may_answer("a1.tok", APPROVER) is False and await dispatcher.may_answer("c3.tok", APPROVER) is False
+        assert len(clicks.sent) == sent
         # Our own token nobody waits for, an untagged one, a gone replica's: not forwarded.
         assert await dispatcher.resolve_approval("a1.tok", ANSWER_ONCE, APPROVER) is ApprovalOutcome.NOT_MINE
         assert await dispatcher.resolve_approval("tok", ANSWER_ONCE, APPROVER) is ApprovalOutcome.NOT_MINE
@@ -211,7 +223,8 @@ async def test_the_dispatcher_forwards_to_the_registry(tmp_path: Path) -> None:
         )
         assert not future.done()
         # A gateway asks the same question before it shows the card.
-        assert dispatcher.may_answer("tok-1", APPROVER) is True and dispatcher.may_answer("tok-1", STRANGER) is False
+        assert await dispatcher.may_answer("tok-1", APPROVER) is True
+        assert await dispatcher.may_answer("tok-1", STRANGER) is False
         assert await dispatcher.resolve_approval("tok-1", ANSWER_DENY, APPROVER) is ApprovalOutcome.RESOLVED
         assert (await future).allowed is False
     finally:

@@ -63,7 +63,7 @@ class FakeDispatcher:
 
     answerers: set[str] | None = None  # who may answer any token; None = anyone
 
-    def may_answer(self, token, user_id, *, gateway=""):
+    async def may_answer(self, token, user_id, *, gateway=""):
         return self.answerers is None or user_id in self.answerers
 
     async def resolve_pending(self, token, value) -> bool:
@@ -100,7 +100,7 @@ class FakeDirectory:
         return [AgentInfo("helper", "helps", "a helper", "", "http:helper")]
 
 
-SERVICES = {"portal": ("tok-portal", None), "narrow": ("tok-narrow", ("scribe",))}
+SERVICES = {"portal": ("tok-portal", None), "narrow": ("tok-narrow", ("scribe",)), "other": ("tok-other", None)}
 AUTH = {"Authorization": "Bearer tok-portal", "X-User-Id": "u-7", "X-Username": "alice"}
 
 
@@ -1314,10 +1314,15 @@ async def test_a_card_from_a_turn_on_another_gateway_is_held_by_the_conversation
             _, other = await _get(s, 8512, "/v1/agents/helper/conversations/c1",
                                   headers={"Authorization": "Bearer tok-narrow", "X-User-Id": "u-7"})
             assert other.get("pendingCards", []) == [] or other.get("error")
-            # A click nobody knows is 404; the card's own control reaches the approvals as this caller, on http.
+            # A click nobody knows is 404, as is the post named from another realm's conversation;
+            # the card's own control reaches the approvals as this caller, on http.
             status, _ = await _post(s, 8512, "/v1/agents/helper/conversations/c1/actions",
                                     {"postId": post_id, "actionId": "maybe"})
             assert status == 404
+            status, _ = await _post(s, 8512, "/v1/agents/helper/conversations/c1/actions",
+                                    {"postId": post_id, "actionId": "yes"},
+                                    headers={"Authorization": "Bearer tok-other", "X-User-Id": "u-7"})
+            assert status == 404 and dispatcher.approvals == []
             status, answer = await _post(s, 8512, "/v1/agents/helper/conversations/c1/actions",
                                          {"postId": post_id, "actionId": "yes", "value": "ignored"})
             assert status == 200 and answer == {"outcome": "resolved"}
@@ -1342,3 +1347,63 @@ async def test_a_card_from_a_turn_on_another_gateway_is_held_by_the_conversation
             assert gone["pendingCards"] == []
     finally:
         await hub.stop()
+
+
+def test_a_card_and_its_controls_come_back_from_json_as_they_went() -> None:
+    from crucible.ports.chat.interactions import (
+        actions_from_json,
+        actions_to_json,
+        approval_card_from_json,
+        approval_card_to_json,
+    )
+    from crucible.ports.chat.types import ApprovalCard, Choice, PreviewRow
+
+    card = ApprovalCard(
+        agent="helper", headline="wants to run wipe", icon="⚠️", title="wipe (files)", tool="mcp__files__wipe",
+        fields=(PreviewRow("path", "/tmp", before="/"), PreviewRow("script", "a\nb", passage=True)),
+        block_label="Arguments", block="{}", danger=True, expires_at="2026-10-04T12:00:00+00:00",
+        verdict="", grant_s=0,
+    )
+    actions = (
+        Action(id="yes", label="Allow", value="Allow", style="primary", context={APPROVAL_KEY: "t1", "n": 2}),
+        Action(id="for", label="Allow for", kind="select", context={APPROVAL_KEY: "t1"},
+               options=(Choice("10 min", "grant:600"), Choice("1 h", "grant:3600"))),
+    )
+    assert approval_card_from_json(approval_card_to_json(card)) == card
+    assert actions_from_json(actions_to_json(actions)) == actions
+
+
+async def test_a_card_held_by_one_replica_is_shown_and_answered_on_another(tmp_path: Path) -> None:
+    """Two hubs — two replicas of the gateway — share one store: a card the
+    turn's replica holds is listed by the other, answered there (the approvals
+    forward the click to the replica that asked), and gone from both when the
+    verdict comes on the first."""
+    from crucible.ports.chat.types import ApprovalCard, ConversationRef
+    from crucible.store.sqlite import SqliteSessionStore
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    dispatcher = FakeDispatcher()
+    hub_a, _ = _hub(8513, dispatcher=dispatcher, turns=HttpTurns(cards=store))
+    hub_b, _ = _hub(8514, dispatcher=dispatcher, turns=HttpTurns(cards=store))
+    chat_a = HttpChatClient(hub_a.turns, "helper")
+    ref = ConversationRef(channel_id="portal:u-7", conversation_id="portal:c1", message_id="", thread_root_id="")
+    card = ApprovalCard(agent="helper", headline="wants to run dangerous", title="wipe (files)", tool="dangerous")
+    allow = Action(id="yes", label="Allow", value="Allow", context={APPROVAL_KEY: "a1.ap-1"})
+    await hub_a.start()
+    await hub_b.start()
+    try:
+        post_id = await chat_a.post_confirmation(ref, card, [allow], callback_url="")
+        async with aiohttp.ClientSession() as s:
+            _, on_b = await _get(s, 8514, "/v1/agents/helper/conversations/c1")
+            assert [c["postId"] for c in on_b["pendingCards"]] == [post_id]
+            status, answer = await _post(s, 8514, "/v1/agents/helper/conversations/c1/actions",
+                                         {"postId": post_id, "actionId": "yes"})
+            assert (status, answer) == (200, {"outcome": "resolved"})
+            assert dispatcher.approvals == [("a1.ap-1", "Allow", "u-7", "http")]
+            await chat_a.update_confirmation(post_id, replace(card, verdict="allowed_once"), [])  # the verdict, on a
+            _, after = await _get(s, 8514, "/v1/agents/helper/conversations/c1")
+            assert after["pendingCards"] == []
+    finally:
+        await hub_a.stop()
+        await hub_b.stop()
+        await store.close()
