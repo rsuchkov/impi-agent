@@ -144,7 +144,7 @@ what other people wrote.
 {"postId": "…", "actionId": "yes", "value": "Allow"}
 ```
 
-`200 {"outcome": "resolved" | "redrawn" | "not_mine" | "not_allowed"}`, and on
+`200 {"outcome": "resolved" | "redrawn" | "not_mine" | "not_allowed"}` (a card the conversation holds outside a turn is answered by the conversation's `actions`, below), and on
 a screen's control that tells the clicker something alone, `"privateNote"` with
 it — show it to this caller only; it is in no event. A
 button answers with its own value (the body's `value` is ignored for it); a menu
@@ -163,8 +163,32 @@ ended.
 
 ### `GET /v1/agents/{agent}/conversations/{conversation}`
 
-`200 {"conversationId", "activeTurn": {"turnId", "status", "cursor"} | null}` —
-for resuming after a page reload: poll the active turn from its cursor.
+`200 {"conversationId", "activeTurn": {"turnId", "status", "cursor"} | null,
+"pendingCards": [...]}` — for resuming after a page reload: poll the active
+turn from its cursor. `pendingCards` are the confirmation cards the
+conversation holds **outside any turn of this gateway's**: a conversation live
+on this gateway and on a chat platform too (one agent, several gateways) has
+its turn on the platform ask for a yes, and the card is forwarded here as to
+every gateway the conversation is live in. Each is the `confirmation` event's
+payload (`postId`, `headline`, `title`, `tool`, `fields`, `block`, `danger`,
+`expiresAt`, `actions[]`, …) and stays until its verdict comes or it is
+withdrawn; oldest first. A card raised by a turn running *here* is in that
+turn's journal instead, as before. Poll this when the program shows a
+conversation that may be live elsewhere too.
+
+### `POST /v1/agents/{agent}/conversations/{conversation}/actions`
+
+```json
+{"postId": "…", "actionId": "yes"}
+```
+
+The answer to a pending card of the conversation — the same body as a turn's
+actions. `200 {"outcome": "resolved" | "not_mine" | "not_allowed"}` with the
+same meaning as there: who may answer is the person the card is addressed to,
+as the approvals judge the caller's `X-User-Id` on this gateway; `not_mine`
+means it was answered elsewhere first (the card is let go). `404` when the
+conversation holds no such card or control — answered, expired, withdrawn —
+`409` for a control that is not a confirmation's.
 
 ### `GET /v1/agents/{agent}/conversations?startedSince=<ISO-8601>`
 

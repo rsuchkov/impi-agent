@@ -39,7 +39,8 @@ from crucible.ports.chat.types import (
 logger = logging.getLogger(__name__)
 
 
-def _wire_card(card: ApprovalCard) -> dict:
+def wire_card(card: ApprovalCard) -> dict:
+    """The card as the contract carries it: data, nothing rendered."""
     return {
         "agent": card.agent,
         "icon": card.icon,
@@ -58,7 +59,7 @@ def _wire_card(card: ApprovalCard) -> dict:
     }
 
 
-def _wire_action(action: Action) -> dict:
+def wire_action(action: Action) -> dict:
     return {
         "id": action.id,
         "label": action.label,
@@ -143,7 +144,7 @@ class HttpChatClient:
         turn.posted[post_id] = tuple(actions)
         turn.blocking.add(post_id)
         turn.journal.emit(
-            EV_ACTIONS, postId=post_id, text=text, actions=[_wire_action(a) for a in actions]
+            EV_ACTIONS, postId=post_id, text=text, actions=[wire_action(a) for a in actions]
         )
         turn.journal.set_status(STATUS_AWAITING_INPUT)
         return post_id
@@ -151,15 +152,20 @@ class HttpChatClient:
     async def post_confirmation(
         self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
     ) -> str:
-        turn = self._turn(ref, "a confirmation")
-        if turn is None:
-            return ""
         post_id = uuid.uuid4().hex
+        turn = self._turns.active(ref.conversation_id)
+        if turn is None:
+            # No turn of this gateway's is running here: the card comes from a
+            # turn on another gateway (the conversation is live in both). The
+            # conversation holds it for a client that asks what is pending;
+            # the answer goes through the conversation's actions.
+            self._turns.hold(ref.conversation_id, post_id, card, tuple(actions))
+            return post_id
         # The card as data: a program draws the headline, a before → after
         # diff, a danger style and a countdown itself. Nothing rendered here.
         turn.journal.emit(
-            EV_CONFIRMATION, postId=post_id, **_wire_card(card),
-            actions=[_wire_action(a) for a in actions],
+            EV_CONFIRMATION, postId=post_id, **wire_card(card),
+            actions=[wire_action(a) for a in actions],
         )
         self._settle(turn, post_id, tuple(actions))
         return post_id
@@ -172,13 +178,21 @@ class HttpChatClient:
         *,
         callback_url: str = "",
     ) -> None:
+        answers = tuple(actions or ())
         turn = self._turn_of_post(post_id)
         if turn is None:
+            held = self._turns.pending_post(post_id)
+            if held is not None:
+                # Rewritten while held: with controls it still asks; with none
+                # the question is over and the conversation holds it no more.
+                if answers:
+                    self._turns.hold(held[0], post_id, card, answers)
+                else:
+                    self._turns.release(post_id)
             return
-        answers = tuple(actions or ())
         turn.journal.emit(
-            EV_CONFIRMATION_UPDATED, postId=post_id, **_wire_card(card),
-            actions=[_wire_action(a) for a in answers],
+            EV_CONFIRMATION_UPDATED, postId=post_id, **wire_card(card),
+            actions=[wire_action(a) for a in answers],
         )
         self._settle(turn, post_id, answers)
 
@@ -199,6 +213,7 @@ class HttpChatClient:
     async def retract(self, post_id: str, text: str) -> None:
         turn = self._turn_of_post(post_id)
         if turn is None:
+            self._turns.release(post_id)
             return
         turn.posted.pop(post_id, None)
         turn.blocking.discard(post_id)
@@ -237,7 +252,7 @@ class HttpChatClient:
         turn.journal.emit(
             EV_CARDS, postId=post_id,
             cards=[
-                {"text": c.text, "accent": c.accent, "actions": [_wire_action(a) for a in c.actions]}
+                {"text": c.text, "accent": c.accent, "actions": [wire_action(a) for a in c.actions]}
                 for c in cards
             ],
         )

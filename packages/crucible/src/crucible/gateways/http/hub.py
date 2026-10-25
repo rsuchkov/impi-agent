@@ -28,7 +28,7 @@ from crucible.approvals import APPROVAL_KEY, ApprovalOutcome
 from crucible.attachments import AttachmentStore
 from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.http.auth import Caller, CallerAuthenticator, Refusal
-from crucible.gateways.http.client import HttpChatClient
+from crucible.gateways.http.client import HttpChatClient, wire_action, wire_card
 from crucible.gateways.http.journal import EV_ACTIONS_RETIRED, STATUS_RUNNING
 from crucible.gateways.http.turns import (
     STARTED_BY_ENGINE,
@@ -261,6 +261,7 @@ class HttpHub:
         app.router.add_get("/v1/agents/{agent}/conversations", self._list_conversations)
         app.router.add_get("/v1/agents/{agent}/conversations/{conversation}", self._get_conversation)
         app.router.add_post("/v1/agents/{agent}/conversations/{conversation}/cancel", self._cancel)
+        app.router.add_post("/v1/agents/{agent}/conversations/{conversation}/actions", self._conversation_action)
         app.router.add_get("/v1/turns/{turn}/events", self._events)
         app.router.add_post("/v1/turns/{turn}/actions", self._action)
         app.add_routes(self._routes)
@@ -546,11 +547,44 @@ class HttpHub:
         self._agent(request, caller)
         self._sweep()
         conversation_id = request.match_info["conversation"]
-        turn = self.turns.active(self.conversation_key(caller, conversation_id))
+        key = self.conversation_key(caller, conversation_id)
+        turn = self.turns.active(key)
         active = None
         if turn is not None and turn.owner == caller.owner:
             active = {"turnId": turn.id, "status": turn.journal.status, "cursor": turn.journal.cursor}
-        return web.json_response({"conversationId": conversation_id, "activeTurn": active})
+        # Cards the conversation holds outside any turn of this gateway's:
+        # raised by a turn on another gateway, forwarded here. Who may answer
+        # one is the approvals' call, made when the answer comes.
+        pending = [
+            {"postId": held.post_id, **wire_card(held.card), "actions": [wire_action(a) for a in held.actions]}
+            for held in self.turns.pending(key)
+        ]
+        return web.json_response({"conversationId": conversation_id, "activeTurn": active, "pendingCards": pending})
+
+    async def _conversation_action(self, request: web.Request) -> web.Response:
+        """An answer to a card the conversation holds outside a turn — a
+        confirmation raised on another gateway. The same body as a turn's
+        actions; the card's own token says what is answered."""
+        body = await self.body(request)
+        caller = await self.caller(request, body)
+        self._agent(request, caller)
+        if self._dispatcher is None:
+            raise Refusal(404, "not_found", "interactivity is off on this engine")
+        key = self.conversation_key(caller, request.match_info["conversation"])
+        post_id = str(body.get("postId") or "")
+        held = next((h for h in self.turns.pending(key) if h.post_id == post_id), None)
+        action_id = str(body.get("actionId") or "")
+        action = next((a for a in held.actions if a.id == action_id), None) if held is not None else None
+        if action is None:
+            raise Refusal(404, "not_found", "no such control; the card may have been answered")
+        token = str(action.context.get(APPROVAL_KEY) or "")
+        if not token:
+            raise Refusal(409, "not_available", "this control is not a confirmation's")
+        value = action.value if action.kind == ACTION_BUTTON else str(body.get("value") or "")
+        outcome = await self._dispatcher.resolve_approval(token, value, caller.user_id, gateway=GATEWAY_HTTP)
+        if outcome is ApprovalOutcome.NOT_MINE:
+            self.turns.release(post_id)
+        return web.json_response({"outcome": outcome.name.lower()})
 
     async def _cancel(self, request: web.Request) -> web.Response:
         caller = await self.caller(request, None)

@@ -166,7 +166,7 @@ async def test_a_message_becomes_a_turn_whose_journal_the_client_reads() -> None
 
             # Over: the conversation has no active turn, and the journal still answers.
             _, conv = await _get(s, 8480, "/v1/agents/helper/conversations/c1")
-            assert conv == {"conversationId": "c1", "activeTurn": None}
+            assert conv == {"conversationId": "c1", "activeTurn": None, "pendingCards": []}
             _, again = await _events(s, 8480, started["turnId"], after=3)
             assert again["events"] == [] and again["cursor"] == 3 and again["status"] == STATUS_DONE
     finally:
@@ -1269,8 +1269,67 @@ async def test_a_truncated_turn_finishes_done_and_says_so() -> None:
 
 
 def test_a_cards_fields_say_which_are_passages_on_the_wire() -> None:
-    from crucible.gateways.http.client import _wire_card
+    from crucible.gateways.http.client import wire_card
     from crucible.ports.chat.types import ApprovalCard, PreviewRow
 
-    wire = _wire_card(ApprovalCard(agent="a", headline="h", fields=(PreviewRow("Comment", "x", passage=True), PreviewRow("Issue", "y"))))
+    wire = wire_card(ApprovalCard(agent="a", headline="h", fields=(PreviewRow("Comment", "x", passage=True), PreviewRow("Issue", "y"))))
     assert [(f["label"], f["passage"]) for f in wire["fields"]] == [("Comment", True), ("Issue", False)]
+
+
+async def test_a_card_from_a_turn_on_another_gateway_is_held_by_the_conversation_and_answered_there() -> None:
+    """The conversation is live on Slack and on the panel; a turn runs on Slack
+    and its tool asks for a yes. The card is forwarded to the panel's gateway,
+    where no turn runs — so the conversation holds it: a client asking the
+    conversation sees it and answers it by the conversation, not by a turn."""
+    from crucible.ports.chat.types import ApprovalCard, ConversationRef
+
+    dispatcher = FakeDispatcher()
+    hub, _ = _hub(8512, dispatcher=dispatcher)
+    chat = HttpChatClient(hub.turns, "helper")
+    ref = ConversationRef(channel_id="portal:u-7", conversation_id="portal:c1", message_id="", thread_root_id="")
+    card = ApprovalCard(agent="helper", headline="wants to run dangerous", title="wipe (files)", tool="dangerous",
+                        expires_at="2026-10-04T12:00:00+00:00")
+    allow = Action(id="yes", label="Allow", value="Allow", context={APPROVAL_KEY: "ap-1"})
+    deny = Action(id="no", label="Deny", value="Deny", context={APPROVAL_KEY: "ap-1"})
+    await hub.start()
+    try:
+        post_id = await chat.post_confirmation(ref, card, [allow, deny], callback_url="")
+        assert post_id  # held, not dropped
+        async with aiohttp.ClientSession() as s:
+            _, seen = await _get(s, 8512, "/v1/agents/helper/conversations/c1")
+            assert seen["activeTurn"] is None
+            [pending] = seen["pendingCards"]
+            assert pending["postId"] == post_id and pending["tool"] == "dangerous" and pending["verdict"] == ""
+            assert [a["id"] for a in pending["actions"]] == ["yes", "no"]
+            # Another realm's conversation of the same name holds nothing.
+            _, other = await _get(s, 8512, "/v1/agents/helper/conversations/c1",
+                                  headers={"Authorization": "Bearer tok-narrow", "X-User-Id": "u-7"})
+            assert other.get("pendingCards", []) == [] or other.get("error")
+            # A click nobody knows is 404; the card's own control reaches the approvals as this caller, on http.
+            status, _ = await _post(s, 8512, "/v1/agents/helper/conversations/c1/actions",
+                                    {"postId": post_id, "actionId": "maybe"})
+            assert status == 404
+            status, answer = await _post(s, 8512, "/v1/agents/helper/conversations/c1/actions",
+                                         {"postId": post_id, "actionId": "yes", "value": "ignored"})
+            assert status == 200 and answer == {"outcome": "resolved"}
+            assert dispatcher.approvals == [("ap-1", "Allow", "u-7", "http")]
+            # The verdict comes back as a card with nothing to click: the conversation holds it no more.
+            await chat.update_confirmation(post_id, replace(card, headline="— Allowed once", verdict="allowed_once"), [])
+            _, after = await _get(s, 8512, "/v1/agents/helper/conversations/c1")
+            assert after["pendingCards"] == []
+            status, _ = await _post(s, 8512, "/v1/agents/helper/conversations/c1/actions",
+                                    {"postId": post_id, "actionId": "yes"})
+            assert status == 404
+            # A card rewritten while still asking is replaced, not doubled; one answered elsewhere is let go.
+            second = await chat.post_confirmation(ref, card, [allow], callback_url="")
+            await chat.update_confirmation(second, replace(card, headline="still asking"), [allow])
+            _, again = await _get(s, 8512, "/v1/agents/helper/conversations/c1")
+            assert [c["headline"] for c in again["pendingCards"]] == ["still asking"]
+            dispatcher.approval_outcome = ApprovalOutcome.NOT_MINE
+            status, answer = await _post(s, 8512, "/v1/agents/helper/conversations/c1/actions",
+                                         {"postId": second, "actionId": "yes"})
+            assert (status, answer) == (200, {"outcome": "not_mine"})
+            _, gone = await _get(s, 8512, "/v1/agents/helper/conversations/c1")
+            assert gone["pendingCards"] == []
+    finally:
+        await hub.stop()

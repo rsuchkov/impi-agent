@@ -48,6 +48,14 @@ when a release is cut, and `impi update` shows the target version's section.
   the tools then, said once; a trusted server's snapshot follows at every
   check. An unreachable server is said once, and once more when reached again.
   `McpServers.recheck()` and `McpServers.run()` for an application.
+- **Added: a confirmation card raised on another gateway reaches the HTTP
+  gateway's client.** A conversation live on a chat platform and on an HTTP
+  panel has its card forwarded to both; on the HTTP side there was no turn to
+  put it in, and it was dropped. The conversation now holds such a card:
+  `GET /v1/agents/{agent}/conversations/{conversation}` lists them as
+  `pendingCards` and `POST …/conversations/{conversation}/actions` answers
+  one, with the approvals judging the caller as on a turn's card. The card
+  goes when its verdict comes.
 - **Breaks:** `SessionStore.touch` no longer takes `gateway=`; `get_or_create`
   takes `gateway=` beside `user_id=` and records both on arrival. An
   application with a store of its own moves the write. An untrusted MCP

@@ -9,6 +9,11 @@ turn. The turn's journal stays readable for a retention window after it ends.
 
 Also the flow's ``TurnTracer``: the runtime's tool events for a turn go into
 that turn's journal, which is how the client gets "searching…" while it waits.
+
+And the confirmation cards a conversation holds outside any turn of this
+gateway's: a card raised by a turn running on another gateway is forwarded
+here as to every gateway the conversation is live in, and a client with no
+turn to follow asks the conversation what it is waiting on.
 """
 
 import asyncio
@@ -29,7 +34,7 @@ from crucible.gateways.http.journal import (
 )
 from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.chat.flow import TurnOutcome
-from crucible.ports.chat.types import Action
+from crucible.ports.chat.types import Action, ApprovalCard
 
 logger = logging.getLogger(__name__)
 
@@ -94,12 +99,27 @@ class _Trace:
         return  # the ending is reported from the outcome, not from here
 
 
+@dataclass(eq=False)
+class PendingCard:
+    """A confirmation card a conversation holds outside any turn of this
+    gateway's, until its verdict arrives."""
+
+    post_id: str
+    card: ApprovalCard
+    actions: tuple[Action, ...]
+
+
+# How many cards one conversation holds outside a turn; the oldest goes first.
+PENDING_CARDS_PER_CONVERSATION = 50
+
+
 class HttpTurns:
     def __init__(self, *, journal_retention_s: float = 600.0, remembered: int = 10_000) -> None:
         self._retention = journal_retention_s
         self._remembered = remembered
         self._by_id: dict[str, Turn] = {}
         self._active: dict[str, Turn] = {}  # conversation -> its running turn
+        self._pending: dict[str, dict[str, PendingCard]] = {}  # conversation -> post id -> card
         # Set while nothing runs; what a hub draining before shutdown waits on.
         self.idle = asyncio.Event()
         self.idle.set()
@@ -170,6 +190,33 @@ class HttpTurns:
     def posted_in(self):
         """The running turns — where a post id can still be acted on."""
         return list(self._active.values())
+
+    # -- cards outside a turn ---------------------------------------------------
+
+    def hold(self, conversation: str, post_id: str, card: ApprovalCard, actions: tuple[Action, ...]) -> None:
+        """A card the conversation holds with no turn of this gateway's to
+        put it in; replaces the same post when it is rewritten."""
+        held = self._pending.setdefault(conversation, {})
+        held[post_id] = PendingCard(post_id, card, actions)
+        while len(held) > PENDING_CARDS_PER_CONVERSATION:
+            del held[next(iter(held))]
+
+    def pending(self, conversation: str) -> list[PendingCard]:
+        """The cards the conversation holds, oldest first."""
+        return list(self._pending.get(conversation, {}).values())
+
+    def pending_post(self, post_id: str) -> tuple[str, PendingCard] | None:
+        """(conversation, card) of a held post, or None."""
+        for conversation, held in self._pending.items():
+            if post_id in held:
+                return conversation, held[post_id]
+        return None
+
+    def release(self, post_id: str) -> None:
+        """The card's question is over: the verdict came, or it was withdrawn."""
+        for conversation, held in list(self._pending.items()):
+            if held.pop(post_id, None) is not None and not held:
+                del self._pending[conversation]
 
     def sweep(self, now: float) -> int:
         """Forget finished turns whose journals nobody should poll any more."""
