@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.30.0 — 2026-10-25
+
 - **Fixed: a runtime host that refused to start an agent with "the image or
   the mount is out of date" was logged as the model backend refusing a
   picture.** A host's refusal is not the model's word; the warning is kept
