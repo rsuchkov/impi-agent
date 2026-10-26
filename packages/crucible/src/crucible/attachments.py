@@ -8,16 +8,24 @@ here; from then on everything upstream (the flow, the runtime, the agent's own
 Layout::
 
     <root>/<agent>/<conversation>/<key>-<name>
+    <root>/<agent>/.<conversation>.received.jsonl   (what arrived, with digests)
 
 The conversation subdirectory keeps one thread's files together (an agent asked
 "the file I sent earlier" can list them), and ``key`` — the platform's own file
 id when there is one — makes a save idempotent: a chat platform that redelivers
 a message writes the same path instead of a second copy.
+
+Beside each conversation's directory — not inside it, where the agent's own
+process may write — the store keeps what arrived (``ports.attachments``): a
+line per file with its size and sha256, so a tool that hands a person's file
+on can tell it from one the agent made or changed.
 """
 
 import asyncio
 import hashlib
+import json
 import logging
+import os
 import re
 import time
 from collections.abc import Iterable
@@ -25,6 +33,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from crucible.ports.attachments import (
+    ReceivedFile,
+    ReceivedFileChanged,
+    ReceivedFileGone,
+    ReceivedFiles,
+)
 from crucible.ports.chat.types import Attachment
 from crucible.private_files import private_dir, private_file
 
@@ -168,6 +182,7 @@ class AttachmentStore:
         A file that can't be saved is logged and skipped: an oversized photo must
         not cost the user their message."""
         saved: list[Attachment] = []
+        arrived: list[ReceivedFile] = []
         for file in files:
             try:
                 stored = await self.save(
@@ -184,7 +199,72 @@ class AttachmentStore:
                     size=stored.size,
                 )
             )
+            arrived.append(ReceivedFile(
+                path=stored.path, name=stored.name, mime=file.mime, size=stored.size,
+                sha256=hashlib.sha256(file.data).hexdigest(),
+                received_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            ))
+        if arrived:
+            await asyncio.to_thread(self._record, self.conversation_dir(agent, conversation_id), arrived)
         return tuple(saved)
+
+    # -- what arrived --------------------------------------------------------------
+
+    def received(self, files_dir: Path) -> ReceivedFiles:
+        """The files the conversation with this directory received, as the
+        port a tool is handed."""
+        return _Received(self, files_dir)
+
+    @staticmethod
+    def _record_path(files_dir: Path) -> Path:
+        # Beside the directory, not in it: the agent's process writes there.
+        return files_dir.parent / f".{files_dir.name}.received.jsonl"
+
+    def _record(self, files_dir: Path, arrived: list[ReceivedFile]) -> None:
+        path = self._record_path(files_dir)
+        private_dir(path.parent)
+        known = {r.path for r in self._read_record(path)}
+        lines = [json.dumps(r.__dict__, ensure_ascii=False) for r in arrived if r.path not in known]
+        if not lines:
+            return  # a redelivery: the same files again
+        private_file(path)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("".join(line + "\n" for line in lines))
+
+    @staticmethod
+    def _read_record(path: Path) -> list[ReceivedFile]:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+        records: list[ReceivedFile] = []
+        for line in text.splitlines():
+            try:
+                data = json.loads(line)
+                records.append(ReceivedFile(
+                    path=str(data["path"]), name=str(data["name"]), mime=str(data.get("mime", "")),
+                    size=int(data["size"]), sha256=str(data["sha256"]), received_at=str(data.get("received_at", "")),
+                ))
+            except (ValueError, KeyError, TypeError):
+                continue  # a line nobody wrote whole
+        return records
+
+    @staticmethod
+    def _read_checked(file: ReceivedFile) -> bytes:
+        """The bytes at the recorded path, when they are still the recorded
+        file: a regular file (no symlink), the recorded size and digest."""
+        path = Path(file.path)
+        try:
+            stat = os.lstat(path)
+        except FileNotFoundError as exc:
+            raise ReceivedFileGone(file.name) from exc
+        if os.path.islink(path) or not os.path.isfile(path) or stat.st_size != file.size:
+            raise ReceivedFileChanged(file.name)
+        with path.open("rb") as handle:
+            data = handle.read(file.size + 1)
+        if len(data) != file.size or hashlib.sha256(data).hexdigest() != file.sha256:
+            raise ReceivedFileChanged(file.name)
+        return data
 
     def sweep(self) -> int:
         """Delete files past the retention window; return how many went. Empty
@@ -238,3 +318,19 @@ class AttachmentStore:
                     child.rmdir()
                 except OSError:  # not empty — that's the normal case
                     pass
+
+
+class _Received:
+    """``ReceivedFiles`` for one conversation's directory."""
+
+    def __init__(self, store: AttachmentStore, files_dir: Path) -> None:
+        self._store = store
+        self._files_dir = files_dir
+
+    async def list(self) -> tuple[ReceivedFile, ...]:
+        return tuple(await asyncio.to_thread(self._store._read_record, self._store._record_path(self._files_dir)))
+
+    async def read(self, file: ReceivedFile) -> bytes:
+        if file.path not in {r.path for r in await self.list()}:
+            raise ReceivedFileChanged(file.name)  # not a file this conversation received
+        return await asyncio.to_thread(self._store._read_checked, file)

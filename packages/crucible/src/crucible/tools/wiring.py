@@ -14,12 +14,13 @@ A convenience for composition roots; an app may wire the registry/server by hand
 
 import logging
 import secrets
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from pathlib import Path
 
 from crucible.approvals.ports import ToolApproving
 from crucible.config import ToolSettings
 from crucible.ports.agent import AgentSpec, TurnClock
+from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
@@ -297,6 +298,7 @@ class ToolWiring:
         task_svc: TaskService | None = None,
         dotenv_path: str,
         conversation_resolver: ConversationResolver | None = None,
+        received: Callable[[Path], ReceivedFiles] | None = None,
         connections: ConnectionAccessFactory | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
@@ -340,6 +342,7 @@ class ToolWiring:
             file_svc=file_svc,
             task_svc=task_svc,
             conversation_resolver=conversation_resolver,
+            received=received,
             connections=connections,
             tool_gate=tool_gate,
             clock=clock,

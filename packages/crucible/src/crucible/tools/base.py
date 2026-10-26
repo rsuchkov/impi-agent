@@ -13,6 +13,7 @@ from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from pydantic_settings import BaseSettings
 
+from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
@@ -111,6 +112,10 @@ class ToolContext:
     # Resolved the same way, so a tool never derives it; it may not exist yet.
     # None without attachments, or when the server can't resolve it.
     files_dir: Path | None = None
+    # What people sent in this conversation, as the engine recorded it — for a
+    # tool that hands a person's file on; ``read`` gives the bytes only while
+    # the file is the one that arrived. None without attachments.
+    received_files: ReceivedFiles | None = None
     # What belongs to this turn alone — a credential sent with the message, a
     # request id, a place to leave a note for the flow. None when the
     # application binds none (every chat gateway today).

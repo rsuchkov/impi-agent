@@ -154,3 +154,54 @@ def test_two_conversation_ids_never_share_a_directory(tmp_path: Path) -> None:
     # A platform id that is already a safe name stays as it is.
     assert store.conversation_dir("assistant", "q7x3k9m2p4").name == "q7x3k9m2p4"
     assert len(store.conversation_dir("assistant", "w:" + "x" * 300).name) <= 80
+
+
+async def test_what_arrived_is_recorded_beside_the_conversations_directory_with_its_digest(tmp_path: Path) -> None:
+    """A tool that hands a person's file on asks the record, not the directory:
+    the directory holds what tools wrote too, and the agent's process may write
+    there. The record lives beside it, where that process cannot."""
+    import hashlib
+
+    from crucible.ports.attachments import ReceivedFileChanged, ReceivedFileGone
+
+    store = _store(tmp_path)
+    saved = await store.save_many("assistant", "conv-1", [
+        IncomingFile(name="invoice.pdf", data=b"%PDF-1.4 hello", mime="application/pdf", key="f1"),
+        IncomingFile(name="photo.png", data=b"\x89PNG\r\n\x1a\nabc", mime="image/png", key="f2"),
+    ])
+    files_dir = store.conversation_dir("assistant", "conv-1")
+    received = store.received(files_dir)
+    listed = await received.list()
+    assert [(r.name, r.mime, r.size) for r in listed] == [("invoice.pdf", "application/pdf", 14), ("photo.png", "image/png", 11)]
+    assert listed[0].path == saved[0].path and listed[0].sha256 == hashlib.sha256(b"%PDF-1.4 hello").hexdigest()
+    assert listed[0].received_at
+    record = files_dir.parent / ".conv-1.received.jsonl"
+    assert record.is_file()  # beside the directory, not in it: the agent's process cannot write there
+    assert not any(child.name.endswith(".received.jsonl") for child in files_dir.iterdir())
+    # A redelivery (the same key) is not a second line.
+    await store.save_many("assistant", "conv-1", [IncomingFile(name="invoice.pdf", data=b"%PDF-1.4 hello", mime="application/pdf", key="f1")])
+    assert len(await received.list()) == 2
+    # Reading checks the file is still the one that arrived.
+    assert await received.read(listed[0]) == b"%PDF-1.4 hello"
+    Path(listed[0].path).write_bytes(b"%PDF-1.4 hellO")  # the agent's process rewrote it (same size)
+    with pytest.raises(ReceivedFileChanged):
+        await received.read(listed[0])
+    Path(listed[1].path).unlink()
+    with pytest.raises(ReceivedFileGone):
+        await received.read(listed[1])
+    # A file in the directory that nobody sent — a tool wrote it — is not a received file.
+    stray = files_dir / "made-by-a-tool.txt"
+    stray.write_bytes(b"x")
+    from crucible.ports.attachments import ReceivedFile
+
+    with pytest.raises(ReceivedFileChanged):
+        await received.read(ReceivedFile(str(stray), "made-by-a-tool.txt", "text/plain", 1, hashlib.sha256(b"x").hexdigest(), ""))
+    # A symlink standing where the file was: not the file.
+    Path(listed[0].path).unlink()
+    other = tmp_path / "elsewhere.pdf"
+    other.write_bytes(b"%PDF-1.4 hello")
+    os.symlink(other, listed[0].path)
+    with pytest.raises(ReceivedFileChanged):
+        await received.read(listed[0])
+    # A conversation that received nothing.
+    assert await store.received(store.conversation_dir("assistant", "conv-9")).list() == ()

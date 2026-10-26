@@ -887,11 +887,23 @@ async def test_server_resolves_conversation_into_context() -> None:
         parameters: ClassVar[dict] = {}
 
         async def execute(self, ctx, args):
-            return {"channel_id": ctx.channel_id, "user_id": ctx.user_id, "files_dir": str(ctx.files_dir)}
+            received = [r.name for r in await ctx.received_files.list()] if ctx.received_files is not None else None
+            return {"channel_id": ctx.channel_id, "user_id": ctx.user_id, "files_dir": str(ctx.files_dir), "received": received}
 
     reg = ToolRegistry((_Echo(),))  # type: ignore[arg-type]
 
     asked: list[tuple[str, str]] = []
+    from crucible.ports.attachments import ReceivedFile
+
+    class _Received:
+        def __init__(self, files_dir: Path) -> None:
+            self.files_dir = files_dir
+
+        async def list(self):
+            return (ReceivedFile(str(self.files_dir / "f1-note.txt"), "note.txt", "text/plain", 3, "d", "t"),)
+
+        async def read(self, file):
+            return b"abc"
 
     async def resolver(agent: str, rsid: str):
         asked.append((agent, rsid))
@@ -907,6 +919,7 @@ async def test_server_resolves_conversation_into_context() -> None:
         allowlists={"assistant": frozenset({"echo_ctx"})},
         port=8470,
         conversation_resolver=resolver,
+        received=_Received,
     )
     await server.start()
     try:
@@ -918,6 +931,7 @@ async def test_server_resolves_conversation_into_context() -> None:
                 body = (await resp.json())["result"]
         assert body == {
             "channel_id": "C-resolved", "user_id": "U-resolved", "files_dir": "/files/assistant/conv",
+            "received": ["note.txt"],  # the conversation's record, by its files directory
         }
         assert asked == [("assistant", "assistant--conv")]  # once per call, with the caller
     finally:

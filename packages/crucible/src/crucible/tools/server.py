@@ -15,7 +15,8 @@ the store it opens, and an agent reaches it over mutual TLS.
 import asyncio
 import contextlib
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -23,6 +24,7 @@ from aiohttp import web
 from crucible.approvals.ports import ConfirmOutcome, NotAsked, ToolApproving
 from crucible.constant_time import find_by_secret
 from crucible.ports.agent.runtime import TurnClock
+from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
@@ -118,6 +120,7 @@ class ToolServer:
         file_svc: FileService | None = None,
         task_svc: TaskService | None = None,
         conversation_resolver: ConversationResolver | None = None,
+        received: Callable[[Path], ReceivedFiles] | None = None,
         connections: ConnectionAccessFactory | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
@@ -155,6 +158,9 @@ class ToolServer:
         # calling agent and its proven session (ports/conversation.py): a plain
         # callable, so the tool layer never imports the store.
         self._conversation_resolver = conversation_resolver
+        # The files a conversation received, by its files directory (the
+        # attachment store's record); None when nothing keeps attachments.
+        self._received = received
         # The connected accounts of the person a call's turn acts for.
         self._connections = connections
         # Asks a human before a tool that declares it runs — the only gate there
@@ -279,6 +285,11 @@ class ToolServer:
             channel_id=conversation.channel_id if conversation else "",
             user_id=conversation.user_id if conversation else "",
             files_dir=conversation.files_dir if conversation else None,
+            received_files=(
+                self._received(conversation.files_dir)
+                if self._received is not None and conversation is not None and conversation.files_dir is not None
+                else None
+            ),
             conversation_kind=conversation.kind if conversation else "",
             direct=conversation.direct if conversation else False,
             connections=(

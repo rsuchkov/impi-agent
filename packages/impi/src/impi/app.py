@@ -841,6 +841,7 @@ def build_app(settings: ImpiSettings) -> App:
         # Tools get the turn's channel and last speaker (an ephemeral reply,
         # say) and its files directory, in one read of the session record.
         conversation_resolver=conversation_lookup(attachments, sessions),
+        received=attachments.received if attachments is not None else None,
         connections=connections.tool_access() if connections is not None else None,
         tool_gate=interactions.tool_gate,
         # While the gate waits for a person, the turn's timeout waits too.
