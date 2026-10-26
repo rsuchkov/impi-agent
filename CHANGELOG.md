@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.34.0 — 2026-10-26
+
 - **Added: a file the person attached can be an MCP tool's argument.** A
   server that takes a document says so in its pinned schema
   (`contentEncoding: base64` on a string argument); the model is shown that
