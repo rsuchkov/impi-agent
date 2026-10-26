@@ -206,3 +206,123 @@ async def test_a_long_or_multi_line_argument_is_shown_whole_as_a_passage() -> No
     assert (rows["script"].value, rows["script"].passage) == (script, True)  # whole, with its lines
     assert (rows["note"].value, rows["note"].passage) == (long, True)
     assert (rows["tags"].value, rows["tags"].passage) == ('["a", "b"]', False)
+
+
+RECOGNISE = ToolDefinition(
+    "recognise", "Recognise an invoice.",
+    {"type": "object", "properties": {
+        "document": {"type": "string", "contentEncoding": "base64", "contentMediaType": "application/pdf", "description": "The PDF"},
+        "filename": {"type": "string"},
+        "notes": {"type": "string", "contentEncoding": "base64"},
+    }, "required": ["document"]},
+    annotations={"readOnlyHint": True},
+)
+
+
+class _Received:
+    """What one conversation received, and the bytes behind it."""
+
+    def __init__(self, files: dict[str, bytes], *, mime: str = "application/pdf") -> None:
+        import hashlib
+
+        from crucible.ports.attachments import ReceivedFile
+
+        self.records = tuple(
+            ReceivedFile(path, f"name-of-{i}", mime, len(data), hashlib.sha256(data).hexdigest(), "2026-10-26T10:00:00+00:00")
+            for i, (path, data) in enumerate(files.items())
+        )
+        self._bytes = files
+        self.gone: set[str] = set()
+        self.changed: set[str] = set()
+        self.reads: list[str] = []
+
+    async def list(self):
+        return self.records
+
+    async def read(self, file):
+        from crucible.ports.attachments import ReceivedFileChanged, ReceivedFileGone
+
+        self.reads.append(file.path)
+        if file.path in self.gone:
+            raise ReceivedFileGone(file.name)
+        if file.path in self.changed:
+            raise ReceivedFileChanged(file.name)
+        return self._bytes[file.path]
+
+
+def test_an_argument_the_server_declares_as_content_asks_the_model_for_an_attached_files_path() -> None:
+    """``contentEncoding: base64`` in the pinned schema is the server saying
+    "this string is a file's content": the model is shown a path argument, the
+    engine supplies the content — and such a call is always confirmed, since a
+    person's file leaves the engine."""
+    from crucible.mcp import file_arguments
+
+    server = McpServer("invoices", url="https://x/mcp", safe=("recognise", "echo"), trust="trusted")
+    tool = McpTool(server, RECOGNISE, _Calls(CallResult("x")))
+    assert file_arguments(RECOGNISE) == ("document", "notes") and tool.file_arguments == ("document", "notes")
+    document = tool.parameters["properties"]["document"]
+    assert "contentEncoding" not in document and "contentMediaType" not in document
+    assert document["description"].startswith("The PDF A file the person attached") and "[attached]" in document["description"]
+    assert tool.parameters["properties"]["filename"] == {"type": "string"}  # untouched
+    assert tool.parameters["required"] == ["document"]
+    assert tool.requires_confirmation is True  # safe: and readOnlyHint notwithstanding
+    plain = McpTool(server, ECHO, _Calls(CallResult("x")))
+    assert plain.file_arguments == () and plain.parameters == ECHO.input_schema and plain.requires_confirmation is False
+
+
+async def test_the_engine_sends_the_persons_file_in_place_of_the_path_the_model_gave() -> None:
+    import base64
+
+    server = McpServer("invoices", url="https://x/mcp")
+    calls = _Calls(CallResult("ok"))
+    tool = McpTool(server, RECOGNISE, calls)
+    pdf = b"%PDF-1.4 hello"
+    received = _Received({"/files/assistant/c1/F1-invoice.pdf": pdf, "/files/assistant/c1/F2-photo.png": b"\x89PNG\r\n\x1a\nabc"})
+    ctx = _ctx(received_files=received)
+    assert await tool.execute(ctx, {"document": "/files/assistant/c1/F1-invoice.pdf", "filename": "invoice.pdf"}) == "ok"
+    (_, sent, _), = calls.seen
+    assert sent == {"document": base64.b64encode(pdf).decode(), "filename": "invoice.pdf"}  # content, not the path
+    assert received.reads == ["/files/assistant/c1/F1-invoice.pdf"]  # read once
+    # Not a file the person attached here: refused before anything is read.
+    with pytest.raises(ToolError, match="not a file the person attached in this conversation"):
+        await tool.execute(ctx, {"document": "/files/assistant/c1/made-by-a-tool.pdf"})
+    with pytest.raises(ToolError, match="not a file the person attached in this conversation"):
+        await tool.execute(ctx, {"document": "/etc/passwd"})
+    assert len(calls.seen) == 1
+    # The schema names a type; the bytes say otherwise.
+    with pytest.raises(ToolError, match="takes application/pdf for document; name-of-1 is image/png"):
+        await tool.execute(ctx, {"document": "/files/assistant/c1/F2-photo.png"})
+    # Gone or changed since it arrived: said, and the person is asked for it again.
+    received.gone.add("/files/assistant/c1/F1-invoice.pdf")
+    with pytest.raises(ToolError, match="no longer here.*attach it again"):
+        await tool.execute(ctx, {"document": "/files/assistant/c1/F1-invoice.pdf"})
+    received.gone.clear()
+    received.changed.add("/files/assistant/c1/F1-invoice.pdf")
+    with pytest.raises(ToolError, match="not the file the person attached any more"):
+        await tool.execute(ctx, {"document": "/files/assistant/c1/F1-invoice.pdf"})
+    # An engine that keeps no attachments cannot hand one on.
+    with pytest.raises(ToolError, match="takes a file, and this engine keeps none"):
+        await tool.execute(_ctx(), {"document": "/files/assistant/c1/F1-invoice.pdf"})
+    # A file argument the model left out is left out.
+    received.changed.clear()
+    assert await tool.execute(ctx, {"filename": "x"}) == "ok"
+    assert calls.seen[-1][1] == {"filename": "x"}
+    # A content argument without a named type takes any recognised or unrecognised bytes.
+    plain = McpTool(server, ToolDefinition("store", "", {"type": "object", "properties": {"blob": {"type": "string", "contentEncoding": "base64"}}}), calls)
+    text = _Received({"/files/assistant/c1/F3-notes.txt": b"just text"}, mime="text/plain")
+    assert await plain.execute(_ctx(received_files=text), {"blob": "/files/assistant/c1/F3-notes.txt"}) == "ok"
+    assert calls.seen[-1][1] == {"blob": base64.b64encode(b"just text").decode()}
+
+
+async def test_the_card_says_which_file_leaves_to_whom_and_its_digest() -> None:
+    server = McpServer("invoices", url="https://x/mcp")
+    tool = McpTool(server, RECOGNISE, _Calls(CallResult("x")))
+    received = _Received({"/files/assistant/c1/F1-invoice.pdf": b"%PDF-1.4 " + b"x" * 2048})
+    preview = await tool.describe(_ctx(received_files=received), {"document": "/files/assistant/c1/F1-invoice.pdf", "filename": "invoice.pdf"})
+    assert preview is not None
+    rows = {r.label: r.value for r in preview.rows}
+    assert rows["document (file to invoices)"] == f"name-of-0 — application/pdf, 2 KB, sha256 {received.records[0].sha256[:12]}"
+    assert rows["filename"] == "invoice.pdf"
+    # A path that is not a received file: the card says so instead of showing a file.
+    stray = await tool.describe(_ctx(received_files=received), {"document": "/files/assistant/c1/other.pdf"})
+    assert stray is not None and stray.rows[0].label == "document (file)" and "not a file the person attached" in stray.rows[0].value

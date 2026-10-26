@@ -6,7 +6,22 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Added: a file the person attached can be an MCP tool's argument.** A
+  server that takes a document says so in its pinned schema
+  (`contentEncoding: base64` on a string argument); the model is shown that
+  argument as the path from the file's `[attached]` line — the one thing it
+  has — and the engine sends the file's content in its place: read once,
+  checked against the engine's record of what the conversation received (name,
+  size, sha256, kept beside the files directory where the agent's process
+  cannot write), against `contentMediaType` by its bytes when the schema names
+  one, and sent as base64. Only a file the person attached in this
+  conversation; a path that is anything else, a file that is gone or changed,
+  or one of another type is refused in the engine's words. Such a call is
+  always confirmed, whatever `safe:` or the server's hints say — the card
+  names the file, its type, size and digest. `impi mcp add` and `show` mark
+  the tool `takes a file`. Nothing to configure. (`ports.attachments`:
+  `ReceivedFile`, `ReceivedFiles`; `ToolContext.received_files`;
+  `ToolWiring.build_server(received=)`.)
 
 ## v0.33.0 — 2026-10-26
 

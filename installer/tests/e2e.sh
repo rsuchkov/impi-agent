@@ -346,6 +346,10 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "wipe", "description": "Wipes everything.", "inputSchema": {"type": "object", "properties": {}},
      "annotations": {"destructiveHint": True}},
+    {"name": "size_of", "title": "Size of a document", "description": "Tells how many bytes a document has.",
+     "inputSchema": {"type": "object", "properties": {"document": {"type": "string", "contentEncoding": "base64",
+                                                                 "description": "The document"}},
+                     "required": ["document"]}},
 ]
 INFO = {"io.modelcontextprotocol/serverInfo": {"name": "e2e-probe", "version": "1"}}
 for line in sys.stdin:
@@ -362,6 +366,10 @@ for line in sys.stdin:
         result = {"tools": TOOLS}
     elif method == "tools/call" and params.get("name") == "echo":
         result = {"content": [{"type": "text", "text": "echo: " + str((params.get("arguments") or {}).get("text", ""))}]}
+    elif method == "tools/call" and params.get("name") == "size_of":
+        import base64
+        raw = base64.b64decode(str((params.get("arguments") or {}).get("document", "")))
+        result = {"content": [{"type": "text", "text": "size: %d bytes" % len(raw)}]}
     elif method == "tools/call":
         result = {"content": [{"type": "text", "text": "wiped"}]}
     else:
@@ -369,14 +377,22 @@ for line in sys.stdin:
         continue
     print(json.dumps({"jsonrpc": "2.0", "id": rid, "result": {"resultType": "complete", **result, "_meta": INFO}}), flush=True)
 PY
-check "impi mcp add probe (connects and pins the tools)" \
-    compose run --rm -T impi impi mcp add probe --command "python3 /app/agents/_mcp/probe_server.py" --confirm wipe --safe echo
+MCP_ADD_OUT="$E2E_HOME/mcp-add.out"
+mcp_added() {
+    compose run --rm -T impi impi mcp add probe --command "python3 /app/agents/_mcp/probe_server.py" --confirm wipe --safe echo \
+        >"$MCP_ADD_OUT" 2>&1
+}
+check "impi mcp add probe (connects and pins the tools)" mcp_added
 check "the server is declared in the agents dir" test -f "$E2E_HOME/agents/_mcp/probe.yaml"
-two_tools_pinned() {
-    python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if [t["name"] for t in d["tools"]] == ["echo", "wipe"] else 1)' \
+three_tools_pinned() {
+    python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if [t["name"] for t in d["tools"]] == ["echo", "size_of", "wipe"] else 1)' \
         "$E2E_HOME/agents/_mcp/probe.lock.json"
 }
-check "its two tools are pinned in the snapshot" two_tools_pinned
+check "its three tools are pinned in the snapshot" three_tools_pinned
+# The tool whose argument the server declares as content takes a person's file,
+# and a call that sends one is always confirmed — the CLI says both.
+takes_a_file() { grep 'mcp__probe__size_of ' "$MCP_ADD_OUT" | grep 'takes a file (document)' | grep -q 'needs confirmation'; }
+check "impi mcp add marks the tool that takes a file" takes_a_file
 mcp_listed() { compose run --rm -T impi impi mcp list 2>/dev/null | grep -q 'probe  \[untrusted\]'; }
 check "impi mcp list shows it untrusted" mcp_listed
 # Under `tools:` — the profile's last key is `skills:`, so an appended line would
@@ -395,8 +411,8 @@ for _ in $(seq 1 45); do
     if [ "$(engine_log_count 'app built:')" -gt "$built_before" ]; then break; fi
     sleep 2
 done
-mcp_connected() { engine_logged "mcp: probe(2 tools, untrusted)"; }
-check "the engine connected the server and advertises its two tools" mcp_connected
+mcp_connected() { engine_logged "mcp: probe(3 tools, untrusted)"; }
+check "the engine connected the server and advertises its three tools" mcp_connected
 
 # 5. The browser axis, when it was installed (BROWSER=1).
 #
@@ -650,6 +666,67 @@ call("/reactions", json.dumps({"user_id": os.environ["ME_ID"], "post_id": mine[-
     check "the agent called the MCP server's tool and relayed its answer" echoed_by_mcp
     mcp_ran() { engine_logged "tool mcp__probe__echo ran for agent assistant"; }
     check "the engine ran the MCP tool for the assistant" mcp_ran
+
+    # 6c. A person's file as an MCP tool's argument: the person attaches a file,
+    #     the model passes the path from its [attached] line, a card asks the
+    #     person (always — a file leaves the engine), and the engine sends the
+    #     file's content in place of the path. The click is the person's, through
+    #     Mattermost's own post-action API, as a button press would be.
+    ASK_STAMP=$(python3 -c 'import time; print(int(time.time() * 1000))')
+    export ASK_STAMP
+    attach_and_ask() { python3 -c '
+import json, os, urllib.request, uuid
+base, pat, chan = os.environ["BASE"], os.environ["ADMIN_PAT"], os.environ["CHAN"]
+boundary = uuid.uuid4().hex
+body = (("--%s\r\nContent-Disposition: form-data; name=\"channel_id\"\r\n\r\n%s\r\n" % (boundary, chan)).encode()
+        + ("--%s\r\nContent-Disposition: form-data; name=\"files\"; filename=\"probe.pdf\"\r\n"
+           "Content-Type: application/pdf\r\n\r\n" % boundary).encode()
+        + b"%PDF-1.4 hello" + ("\r\n--%s--\r\n" % boundary).encode())
+request = urllib.request.Request(base + "/files", data=body, method="POST")
+request.add_header("Authorization", "Bearer " + pat)
+request.add_header("Content-Type", "multipart/form-data; boundary=" + boundary)
+uploaded = json.load(urllib.request.urlopen(request, timeout=20))
+file_ids = [f["id"] for f in uploaded["file_infos"]]
+text = ("Call your tool mcp__probe__size_of with document set to the path of the file I attached "
+        "(take it from the [attached] line), then reply with exactly the text the tool returned and nothing else.")
+post = json.dumps({"channel_id": chan, "message": text, "file_ids": file_ids}).encode()
+request = urllib.request.Request(base + "/posts", data=post, method="POST")
+request.add_header("Authorization", "Bearer " + pat)
+request.add_header("Content-Type", "application/json")
+urllib.request.urlopen(request, timeout=10).read()
+'; }
+    check "a file is attached to a message for the assistant" attach_and_ask
+    # The card: the assistant's post with actions, since we asked; press Allow.
+    allow_the_card() { python3 -c '
+import json, os, sys, time, urllib.request
+base, pat, chan = os.environ["BASE"], os.environ["ADMIN_PAT"], os.environ["CHAN"]
+since = int(os.environ["ASK_STAMP"])
+def call(path, body=None):
+    request = urllib.request.Request(base + path, data=body, method="POST" if body is not None else "GET")
+    request.add_header("Authorization", "Bearer " + pat)
+    request.add_header("Content-Type", "application/json")
+    return json.load(urllib.request.urlopen(request, timeout=10))
+for _ in range(60):
+    posts = call("/channels/" + chan + "/posts")["posts"].values()
+    # The card: a post by the assistant, since we asked, with an "Allow once"
+    # control (the tool-trace widget has a control too, but not that one).
+    for post in sorted((p for p in posts if p["user_id"] == os.environ["ASSISTANT_ID"] and p["create_at"] > since),
+                       key=lambda p: p["create_at"]):
+        attachments = (post.get("props") or {}).get("attachments") or []
+        allow = next((a for att in attachments for a in att.get("actions") or [] if a.get("name") == "Allow once"), None)
+        if allow is None:
+            continue
+        text = post["message"] + json.dumps(attachments)
+        if "probe.pdf" not in text or "size_of" not in text:
+            sys.stderr.write("card without the file or the tool: " + text[:300] + chr(10)); sys.exit(1)
+        call("/posts/" + post["id"] + "/actions/" + allow["id"], b"{}")
+        sys.exit(0)
+    time.sleep(2)
+sys.stderr.write("no card appeared" + chr(10)); sys.exit(1)
+'; }
+    check "the card names the file and the server, and the person allows it" allow_the_card
+    sized_by_mcp() { waits_for "size: 14 bytes" 90; }
+    check "the server got the file's 14 bytes, not a path, and the agent relayed its answer" sized_by_mcp
 
     # With a live model AND containers, the two things the dummy model cannot
     # show: a turn the engine counts as complete, and the memory of it landing in

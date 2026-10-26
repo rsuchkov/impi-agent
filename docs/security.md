@@ -178,7 +178,10 @@ the first one a shell.
 
 What crosses: the arguments of a call the model made, the headers the server's
 entry names (a deployment credential from the `MCP_` family — the only family
-an entry may name — or the token of the person whose turn it is), and back, the server's answer. Nothing else: the
+an entry may name — or the token of the person whose turn it is), the content
+of a file the person attached in the conversation when the server's pinned
+schema declares an argument as content (`contentEncoding: base64`) and a
+person confirmed the card, and back, the server's answer. Nothing else: the
 engine asks a server for `tools/list` and `tools/call` only, and answers a
 request the server sends back with "method not found".
 
@@ -190,8 +193,12 @@ wrapped as a stranger's text; a tool waits for a person's card unless the
 operator put it in `safe:` or a trusted server marked it read-only or not
 destructive — an untrusted server's hints decide nothing, a tool it says
 nothing about is destructive by the protocol's default; the token of a person is
-fetched for the call and sent on a connection of that call alone. The runtime
-never meets a server: `--no-mcp` stays on every process.
+fetched for the call and sent on a connection of that call alone; a file goes
+only after a card, only one the person attached in this conversation (the
+engine's own record of what arrived, with its digest, decides — not a path the
+model wrote, and not a file the agent's process made or changed), and its
+bytes reach no log, trace or card. The runtime never meets a server:
+`--no-mcp` stays on every process.
 
 Does not hold against: what the server does with a call it was allowed to
 receive — it is a service the deployment chose, as a tool's own code is. A

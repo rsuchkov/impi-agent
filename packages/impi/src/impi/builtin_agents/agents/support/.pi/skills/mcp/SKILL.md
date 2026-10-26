@@ -81,7 +81,17 @@ many. An operator whose reads all raise cards adds `--safe 'get_*'` (or a
 A description is text the model reads as an instruction; that is why the
 default pins it.
 
-## 4. Diagnosing
+## 4. A person's file
+
+A tool whose argument the server declares as content (`contentEncoding:
+base64` in the schema, pinned in the snapshot) takes a file the person
+attached: the model gives the path from the `[attached]` line and the engine
+sends the content. `impi mcp show` marks such a tool `takes a file (<arg>)`;
+every call of it is confirmed, whatever `safe:` says — the card names the
+file, its type, size and digest. Nothing to configure. A stdio server may take
+a plain path and read the file itself instead. Upload-by-id is not supported.
+
+## 5. Diagnosing
 
 Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, unreachable)`.
 
@@ -141,5 +151,12 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
 - a tool with a `${connection:…}` header answers "works only in a direct
   message" in a channel or a thread in one — by design, as the connection
   tools; a thread inside the person's DM is a direct message for this.
+- `… is not a file the person attached in this conversation` — the model gave
+  a path that is not from an `[attached]` line of this conversation (a file a
+  tool wrote, another conversation's); `… is no longer here` — retention or a
+  restart took it, the person attaches it again; `… is not the file the person
+  attached any more` — it was changed on disk since it arrived; `… takes
+  application/pdf for document; … is image/png` — the bytes are not the type
+  the schema names. All by design.
 
 What is not there: resources, prompts, sampling, OAuth sign-in at a server.

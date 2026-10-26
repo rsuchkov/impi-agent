@@ -168,6 +168,37 @@ expired answers the same status, and from the status alone the two cannot be
 told apart); a `403` is the server's refusal of a live token and changes nothing.
 The model never sees the token.
 
+## A person's file as an argument
+
+A server that takes a document says so in its schema, the JSON Schema way:
+
+```json
+"document": {"type": "string", "contentEncoding": "base64", "contentMediaType": "application/pdf"}
+```
+
+That schema is in the pinned snapshot like the rest, so the operator saw it.
+The model cannot produce a file's content — it has the path from the
+`[attached]` line, as it has for any file a person sends — so the engine shows
+it the argument as that path ("a file the person attached: give the path from
+its `[attached]` line") and, when the call comes, puts the file's content in
+its place: read once, checked against the record of what the conversation
+received (name, size, sha256 — kept outside the files directory, which the
+agent's process may write to), checked against `contentMediaType` by its bytes
+when the schema names one, and sent as base64. A path that is not a file the
+person attached in this conversation, a file that is gone or was changed since
+it arrived, or one of another type is refused in the engine's words, and the
+model asks the person to attach it again.
+
+Such a call is **always confirmed**, whatever `safe:` or the server's hints
+say: a person's file leaves the engine. The card names the argument, the
+server, the file, its type, size and digest — the bytes sent are the ones the
+record describes. `impi mcp add` and `show` mark the tool `takes a file`.
+
+A server on stdio runs beside the engine and may instead take the path as a
+plain string and read the file itself, as a filesystem server does; what the
+schema says is what the engine does. Sending a file by upload and id, for
+sizes base64 does not suit, is not supported yet.
+
 ## What a result is
 
 Whatever a server answers is a stranger's text: every MCP tool is

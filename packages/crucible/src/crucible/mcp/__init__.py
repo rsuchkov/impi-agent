@@ -31,6 +31,7 @@ from crucible.mcp.snapshot import Snapshot
 from crucible.mcp.tools import (
     McpTool,
     destructive,
+    file_arguments,
     mcp_tool_name,
     requires_confirmation,
     split_tool_name,
@@ -55,6 +56,7 @@ __all__ = [
     "ToolDefinition",
     "VALUES_FAMILY",
     "destructive",
+    "file_arguments",
     "mcp_tool_name",
     "requires_confirmation",
     "server_from_yaml",

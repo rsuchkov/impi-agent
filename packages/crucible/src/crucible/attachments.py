@@ -38,6 +38,7 @@ from crucible.ports.attachments import (
     ReceivedFileChanged,
     ReceivedFileGone,
     ReceivedFiles,
+    sniff_content_type,
 )
 from crucible.ports.chat.types import Attachment
 from crucible.private_files import private_dir, private_file
@@ -68,31 +69,14 @@ _FALLBACK_NAME = "file"
 _SWEEP_INTERVAL_S = 3600.0
 
 
-# What the image formats a model backend accepts actually start with. Used to
-# check bytes against the media type the platform claimed: a runtime session
-# replays its history on every later turn, so one picture the backend rejects
-# would keep failing the conversation, not merely the turn it arrived in.
-_IMAGE_MAGIC: tuple[tuple[bytes, str], ...] = (
-    (b"\x89PNG\r\n\x1a\n", "image/png"),
-    (b"\xff\xd8\xff", "image/jpeg"),
-    (b"GIF87a", "image/gif"),
-    (b"GIF89a", "image/gif"),
-)
-
-
 class AttachmentTooLarge(Exception):
     """The file exceeds the configured per-file limit and was not saved."""
 
 
 def sniff_image(data: bytes) -> str:
     """The image type these bytes really are, or "" if they are not an image."""
-    for magic, mime in _IMAGE_MAGIC:
-        if data.startswith(magic):
-            return mime
-    # WebP is a RIFF container; the format only shows up at offset 8.
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    return ""
+    found = sniff_content_type(data)
+    return found if found.startswith("image/") else ""
 
 
 def safe_name(name: str) -> str:

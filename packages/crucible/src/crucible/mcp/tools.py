@@ -8,6 +8,7 @@ harmless, the trace — and executed by calling the server. Its result is a
 stranger's text and comes wrapped as such.
 """
 
+import base64
 import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
@@ -24,6 +25,12 @@ from crucible.mcp.protocol import (
     CallResult,
     McpError,
     ToolDefinition,
+)
+from crucible.ports.attachments import (
+    ReceivedFile,
+    ReceivedFileChanged,
+    ReceivedFileGone,
+    sniff_content_type,
 )
 from crucible.ports.chat.types import CallPreview, PreviewRow
 from crucible.ports.connections import (
@@ -50,6 +57,17 @@ _FAILED = {
 }
 # The request reached the server and no answer came: it may have run.
 _UNANSWERED = "{server} did not answer in time; the call may have run — check before repeating it"
+# A server's schema saying "this string is a file's content" — JSON Schema's
+# own word for it, pinned in the snapshot like the rest of the schema.
+CONTENT_ENCODING = "contentEncoding"
+CONTENT_MEDIA_TYPE = "contentMediaType"
+BASE64 = "base64"
+# What the model is told of such an argument instead of "a base64 string".
+_FILE_ARGUMENT_NOTE = (
+    "A file the person attached in this conversation: give the path from its [attached] line; "
+    "the engine sends the file's content."
+)
+_FILE_ARGUMENT_TYPES = {"string"}
 # The server would not take the person's token any more: their connection is over.
 _TOKEN_REFUSED = (
     "{server} no longer accepts the user's connection, so it has ended; ask them to "
@@ -125,12 +143,16 @@ class McpTool:
     def definition(self, definition: ToolDefinition) -> None:
         self._definition = definition
         self.description = definition.description or f"{definition.name} on {self.server.name}"
-        self.parameters = dict(definition.input_schema)
+        self.file_arguments = file_arguments(definition)
+        self.parameters = _parameters_for_model(definition.input_schema, self.file_arguments)
         self.display_name = definition.title or definition.name
-        self.requires_confirmation = requires_confirmation(self.server, definition)
+        # A call that carries a person's file out to a server is always asked
+        # about, whatever the entry's safe: list or the server's hints say.
+        self.requires_confirmation = bool(self.file_arguments) or requires_confirmation(self.server, definition)
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         headers, grants = await self._credentials(ctx)
+        args = await self._with_files(ctx, args)
         try:
             result = await self._call(self._definition.name, args, headers)
         except McpError as exc:
@@ -205,16 +227,119 @@ class McpTool:
     async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None:
         # A short argument is a fact on one line; a long or multi-line one — a
         # script, a comment's body — is a passage the person reads whole: a
-        # card that cut it would ask them to approve what they cannot see.
-        rows = tuple(_argument_row(key, _text(value)) for key, value in args.items())
+        # card that cut it would ask them to approve what they cannot see. A
+        # file argument says which of the person's files leaves, to whom, and
+        # its digest — the bytes sent are the ones the record describes.
+        rows: list[PreviewRow] = []
+        for key, value in args.items():
+            if key in self.file_arguments:
+                rows.append(await self._file_row(ctx, key, _text(value)))
+            else:
+                rows.append(_argument_row(key, _text(value)))
         return CallPreview(
             title=f"{self.display_name} ({self.server.name})",
-            rows=rows,
+            rows=tuple(rows),
             danger=destructive(self._definition),
         )
 
     def caption(self, args: Mapping[str, Any]) -> str | None:
         return self.display_name
+
+    # -- a person's file as an argument ------------------------------------------
+
+    async def _with_files(self, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+        """The arguments the server declared as content, with the person's file
+        in place of the path the model gave — read once, checked against the
+        record of what arrived, and against the type the schema names."""
+        if not self.file_arguments:
+            return args
+        filled = dict(args)
+        for key in self.file_arguments:
+            if key not in filled:
+                continue
+            received = await self._received(ctx, _text(filled[key]))
+            try:
+                data = await self._read(ctx, received)
+            except ReceivedFileGone as exc:
+                raise ToolError(
+                    f"{received.name} is no longer here (files are kept for a while, not forever); "
+                    "ask the person to attach it again"
+                ) from exc
+            except ReceivedFileChanged as exc:
+                raise ToolError(f"{received.name} is not the file the person attached any more; ask them to attach it again") from exc
+            wanted = str((self._definition.input_schema.get("properties") or {}).get(key, {}).get(CONTENT_MEDIA_TYPE) or "")
+            found = sniff_content_type(data)
+            if wanted and found != wanted:
+                raise ToolError(
+                    f"{self.name} takes {wanted} for {key}; {received.name} is "
+                    f"{found or 'not a type the engine recognises'}"
+                )
+            filled[key] = base64.b64encode(data).decode("ascii")
+        return filled
+
+    async def _received(self, ctx: ToolContext, path: str) -> ReceivedFile:
+        """The record of the file at ``path`` among what this conversation
+        received — the only files a tool may hand on."""
+        if ctx.received_files is None:
+            raise ToolError(f"{self.name} takes a file, and this engine keeps none")
+        for record in await ctx.received_files.list():
+            if record.path == path:
+                return record
+        raise ToolError(
+            f"{path!r} is not a file the person attached in this conversation; give the path "
+            "from an [attached] line of this conversation, and nothing else"
+        )
+
+    @staticmethod
+    async def _read(ctx: ToolContext, received: ReceivedFile) -> bytes:
+        assert ctx.received_files is not None
+        return await ctx.received_files.read(received)
+
+    async def _file_row(self, ctx: ToolContext, key: str, path: str) -> PreviewRow:
+        try:
+            received = await self._received(ctx, path)
+        except ToolError as exc:
+            return PreviewRow(label=f"{key} (file)", value=one_line(str(exc), limit=_ARG_LIMIT))
+        return PreviewRow(
+            label=f"{key} (file to {self.server.name})",
+            value=f"{received.name} — {received.mime or 'unknown type'}, {_size(received.size)}, sha256 {received.sha256[:12]}",
+        )
+
+
+def file_arguments(definition: ToolDefinition) -> tuple[str, ...]:
+    """The top-level arguments the server's schema declares as a file's content
+    (``contentEncoding: base64`` on a string), in schema order."""
+    properties = definition.input_schema.get("properties") or {}
+    return tuple(
+        name for name, schema in properties.items()
+        if isinstance(schema, Mapping) and schema.get(CONTENT_ENCODING) == BASE64
+        and schema.get("type", "string") in _FILE_ARGUMENT_TYPES
+    )
+
+
+def _parameters_for_model(schema: Mapping[str, Any], files: tuple[str, ...]) -> dict[str, Any]:
+    """The schema as the model is shown it: a content argument asks for the
+    path of an attached file, since content is what the engine supplies."""
+    if not files:
+        return dict(schema)
+    properties = {}
+    for name, prop in (schema.get("properties") or {}).items():
+        if name in files and isinstance(prop, Mapping):
+            shown = {k: v for k, v in prop.items() if k not in (CONTENT_ENCODING, CONTENT_MEDIA_TYPE)}
+            described = str(shown.get("description") or "").strip()
+            shown["description"] = f"{described} {_FILE_ARGUMENT_NOTE}".strip()
+            properties[name] = shown
+        else:
+            properties[name] = prop
+    return {**schema, "properties": properties}
+
+
+def _size(size: int) -> str:
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    if size >= 1024:
+        return f"{size / 1024:.0f} KB"
+    return f"{size} B"
 
 
 def _text(value: Any) -> str:
