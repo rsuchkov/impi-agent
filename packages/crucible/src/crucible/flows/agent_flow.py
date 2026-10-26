@@ -15,8 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from crucible.attachments import sniff_image
 from crucible.containment import one_line, quoted, speaker
+from crucible.content_types import format_size, sniff_image
 from crucible.ports.agent import (
     AgentBusy,
     AgentError,
@@ -134,18 +134,10 @@ def _format_time(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _format_size(size: int) -> str:
-    if size >= 1024 * 1024:
-        return f"{size / (1024 * 1024):.1f} MB"
-    if size >= 1024:
-        return f"{size / 1024:.0f} KB"
-    return f"{size} B"
-
-
-async def _adopt_all(files: FileKeeper, agent: str, key: str, msg: IncomingMessage) -> IncomingMessage:
+async def _adopt_all(keeper: FileKeeper, agent: str, key: str, msg: IncomingMessage) -> IncomingMessage:
     if not msg.attachments:
         return msg
-    adopted = tuple([await files.adopt(agent, key, a) for a in msg.attachments])
+    adopted = tuple([await keeper.adopt(agent, key, a) for a in msg.attachments])
     return replace(msg, attachments=adopted)
 
 
@@ -157,7 +149,7 @@ def _attachment_line(attachment: Attachment) -> str:
     kind = one_line(attachment.mime, limit=80) or "unknown type"
     return (
         f"{_ATTACHMENT_MARKER} {one_line(attachment.name, limit=120)} — {kind}, "
-        f"{_format_size(attachment.size)} — {attachment.path}"
+        f"{format_size(attachment.size)} — {attachment.path}"
     )
 
 
@@ -259,7 +251,7 @@ class AgentFlow:
         captions: CallCaptions | None = None,
         keying: ConversationKey | None = None,
         posting_tools: Collection[str] = (),
-        files: FileKeeper | None = None,
+        file_keeper: FileKeeper | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
         if (entitlements is None) != (conversation_profiles is None):
@@ -279,7 +271,7 @@ class AgentFlow:
         self._posting_tools = frozenset(posting_tools)
         # Where the conversation's files are kept: a file a gateway saved under
         # the key it could compute is taken into the conversation as keyed here.
-        self._files = files
+        self._file_keeper = file_keeper
         # Where a message's TurnScope is bound for the length of its turn, so the
         # tools the turn calls can read it. None = messages here carry none.
         self._turns = turns
@@ -380,11 +372,11 @@ class AgentFlow:
         if not fresh:
             return TurnOutcome.DUPLICATE
         key = self._keying.key(self._agent_name, fresh[-1])
-        if self._files is not None:
+        if self._file_keeper is not None:
             # The gateway saved what people attached under the key it could
             # compute; the conversation's key is settled here, so the files
             # follow it — a tool's directory and the prompt's path then agree.
-            fresh = [await _adopt_all(self._files, self._agent_name, key, m) for m in fresh]
+            fresh = [await _adopt_all(self._file_keeper, self._agent_name, key, m) for m in fresh]
         anchor = fresh[-1]
 
         record, created = await self._sessions.get_or_create(

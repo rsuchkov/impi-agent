@@ -16,6 +16,7 @@ from fnmatch import fnmatchcase
 from typing import Any
 
 from crucible.containment import one_line
+from crucible.content_types import KNOWN_CONTENT_TYPES, format_size, sniff_content_type
 from crucible.mcp.library import CONNECTION_REF, McpServer
 from crucible.mcp.protocol import (
     PROTOCOL,
@@ -30,7 +31,6 @@ from crucible.ports.attachments import (
     ReceivedFile,
     ReceivedFileChanged,
     ReceivedFileGone,
-    sniff_content_type,
 )
 from crucible.ports.chat.types import CallPreview, PreviewRow
 from crucible.ports.connections import (
@@ -59,15 +59,14 @@ _FAILED = {
 _UNANSWERED = "{server} did not answer in time; the call may have run — check before repeating it"
 # A server's schema saying "this string is a file's content" — JSON Schema's
 # own word for it, pinned in the snapshot like the rest of the schema.
-CONTENT_ENCODING = "contentEncoding"
-CONTENT_MEDIA_TYPE = "contentMediaType"
-BASE64 = "base64"
+_CONTENT_ENCODING = "contentEncoding"
+_CONTENT_MEDIA_TYPE = "contentMediaType"
+_BASE64_ENCODING = "base64"
 # What the model is told of such an argument instead of "a base64 string".
 _FILE_ARGUMENT_NOTE = (
     "A file the person attached in this conversation: give the path from its [attached] line; "
     "the engine sends the file's content."
 )
-_FILE_ARGUMENT_TYPES = {"string"}
 # The server would not take the person's token any more: their connection is over.
 _TOKEN_REFUSED = (
     "{server} no longer accepts the user's connection, so it has ended; ask them to "
@@ -103,12 +102,15 @@ def destructive(definition: ToolDefinition) -> bool:
 
 
 def requires_confirmation(server: McpServer, definition: ToolDefinition) -> bool:
-    """Whether a person must confirm a call. The operator's word first:
-    ``confirm:`` patterns always ask, ``safe:`` patterns never do. Then the
-    server's — but only a trusted server's annotations are a decision's basis
-    (the protocol says a client must not decide by an untrusted server's
-    hints); an untrusted server's tool the operator did not name is asked
-    about."""
+    """Whether a person must confirm a call. A tool that takes a person's file
+    always asks — the file leaves the engine — whatever else says. Then the
+    operator's word: ``confirm:`` patterns always ask, ``safe:`` patterns never
+    do. Then the server's — but only a trusted server's annotations are a
+    decision's basis (the protocol says a client must not decide by an
+    untrusted server's hints); an untrusted server's tool the operator did not
+    name is asked about."""
+    if file_arguments(definition):
+        return True
     name = definition.name
     if any(fnmatchcase(name, pattern) for pattern in server.confirm):
         return True
@@ -146,9 +148,7 @@ class McpTool:
         self.file_arguments = file_arguments(definition)
         self.parameters = _parameters_for_model(definition.input_schema, self.file_arguments)
         self.display_name = definition.title or definition.name
-        # A call that carries a person's file out to a server is always asked
-        # about, whatever the entry's safe: list or the server's hints say.
-        self.requires_confirmation = bool(self.file_arguments) or requires_confirmation(self.server, definition)
+        self.requires_confirmation = requires_confirmation(self.server, definition)
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         headers, grants = await self._credentials(ctx)
@@ -257,9 +257,10 @@ class McpTool:
         for key in self.file_arguments:
             if key not in filled:
                 continue
-            received = await self._received(ctx, _text(filled[key]))
+            received = await self._record_of(ctx, _text(filled[key]))
+            assert ctx.received_files is not None  # _record_of said so
             try:
-                data = await self._read(ctx, received)
+                data = await ctx.received_files.read(received)
             except ReceivedFileGone as exc:
                 raise ToolError(
                     f"{received.name} is no longer here (files are kept for a while, not forever); "
@@ -267,17 +268,13 @@ class McpTool:
                 ) from exc
             except ReceivedFileChanged as exc:
                 raise ToolError(f"{received.name} is not the file the person attached any more; ask them to attach it again") from exc
-            wanted = str((self._definition.input_schema.get("properties") or {}).get(key, {}).get(CONTENT_MEDIA_TYPE) or "")
-            found = sniff_content_type(data)
-            if wanted and found != wanted:
-                raise ToolError(
-                    f"{self.name} takes {wanted} for {key}; {received.name} is "
-                    f"{found or 'not a type the engine recognises'}"
-                )
+            wanted = str((self._definition.input_schema.get("properties") or {}).get(key, {}).get(_CONTENT_MEDIA_TYPE) or "")
+            if wanted:
+                _check_type(self.name, key, received, data, wanted)
             filled[key] = base64.b64encode(data).decode("ascii")
         return filled
 
-    async def _received(self, ctx: ToolContext, path: str) -> ReceivedFile:
+    async def _record_of(self, ctx: ToolContext, path: str) -> ReceivedFile:
         """The record of the file at ``path`` among what this conversation
         received — the only files a tool may hand on."""
         if ctx.received_files is None:
@@ -290,19 +287,14 @@ class McpTool:
             "from an [attached] line of this conversation, and nothing else"
         )
 
-    @staticmethod
-    async def _read(ctx: ToolContext, received: ReceivedFile) -> bytes:
-        assert ctx.received_files is not None
-        return await ctx.received_files.read(received)
-
     async def _file_row(self, ctx: ToolContext, key: str, path: str) -> PreviewRow:
         try:
-            received = await self._received(ctx, path)
+            received = await self._record_of(ctx, path)
         except ToolError as exc:
             return PreviewRow(label=f"{key} (file)", value=one_line(str(exc), limit=_ARG_LIMIT))
         return PreviewRow(
             label=f"{key} (file to {self.server.name})",
-            value=f"{received.name} — {received.mime or 'unknown type'}, {_size(received.size)}, sha256 {received.sha256[:12]}",
+            value=f"{received.name} — {received.mime or 'unknown type'}, {format_size(received.size)}, sha256 {received.sha256[:12]}",
         )
 
 
@@ -312,9 +304,32 @@ def file_arguments(definition: ToolDefinition) -> tuple[str, ...]:
     properties = definition.input_schema.get("properties") or {}
     return tuple(
         name for name, schema in properties.items()
-        if isinstance(schema, Mapping) and schema.get(CONTENT_ENCODING) == BASE64
-        and schema.get("type", "string") in _FILE_ARGUMENT_TYPES
+        if isinstance(schema, Mapping) and schema.get(_CONTENT_ENCODING) == _BASE64_ENCODING and _is_string(schema)
     )
+
+
+def _is_string(schema: Mapping[str, Any]) -> bool:
+    """Whether the schema admits a string: ``"type": "string"`` or a list that
+    names it (``["string", "null"]`` — an optional argument); no type at all
+    admits anything."""
+    declared = schema.get("type", "string")
+    types = declared if isinstance(declared, list) else [declared]
+    return "string" in types
+
+
+def _check_type(tool: str, key: str, received: ReceivedFile, data: bytes, wanted: str) -> None:
+    """The schema names a media type: the bytes decide where the engine can
+    tell one (an image, a PDF); where it cannot, the type the platform
+    claimed for the file stands in."""
+    found = sniff_content_type(data)
+    if found:
+        if found != wanted:
+            raise ToolError(f"{tool} takes {wanted} for {key}; {received.name} is {found}")
+        return
+    if wanted in KNOWN_CONTENT_TYPES:
+        raise ToolError(f"{tool} takes {wanted} for {key}; {received.name} is not that by its bytes")
+    if received.mime and received.mime != wanted:
+        raise ToolError(f"{tool} takes {wanted} for {key}; {received.name} is {received.mime}, the platform says")
 
 
 def _parameters_for_model(schema: Mapping[str, Any], files: tuple[str, ...]) -> dict[str, Any]:
@@ -325,7 +340,7 @@ def _parameters_for_model(schema: Mapping[str, Any], files: tuple[str, ...]) -> 
     properties = {}
     for name, prop in (schema.get("properties") or {}).items():
         if name in files and isinstance(prop, Mapping):
-            shown = {k: v for k, v in prop.items() if k not in (CONTENT_ENCODING, CONTENT_MEDIA_TYPE)}
+            shown = {k: v for k, v in prop.items() if k not in (_CONTENT_ENCODING, _CONTENT_MEDIA_TYPE)}
             described = str(shown.get("description") or "").strip()
             shown["description"] = f"{described} {_FILE_ARGUMENT_NOTE}".strip()
             properties[name] = shown
@@ -333,13 +348,6 @@ def _parameters_for_model(schema: Mapping[str, Any], files: tuple[str, ...]) -> 
             properties[name] = prop
     return {**schema, "properties": properties}
 
-
-def _size(size: int) -> str:
-    if size >= 1024 * 1024:
-        return f"{size / (1024 * 1024):.1f} MB"
-    if size >= 1024:
-        return f"{size / 1024:.0f} KB"
-    return f"{size} B"
 
 
 def _text(value: Any) -> str:

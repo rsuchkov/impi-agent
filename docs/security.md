@@ -196,9 +196,11 @@ nothing about is destructive by the protocol's default; the token of a person is
 fetched for the call and sent on a connection of that call alone; a file goes
 only after a card, only one the person attached in this conversation (the
 engine's own record of what arrived, with its digest, decides — not a path the
-model wrote, and not a file the agent's process made or changed), and its
-bytes reach no log, trace or card. The runtime never meets a server:
-`--no-mcp` stays on every process.
+model wrote, and not a file the agent's process made or changed; the record
+lives under `<attachments>/.received/`, outside every directory a confinement
+level grants an agent's process — with confinement `off` the process can
+rewrite it, as it can anything), and its bytes reach no log, trace or card.
+The runtime never meets a server: `--no-mcp` stays on every process.
 
 Does not hold against: what the server does with a call it was allowed to
 receive — it is a service the deployment chose, as a tool's own code is. A

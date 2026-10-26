@@ -8,25 +8,28 @@ here; from then on everything upstream (the flow, the runtime, the agent's own
 Layout::
 
     <root>/<agent>/<conversation>/<key>-<name>
-    <root>/<agent>/.<conversation>.received.jsonl   (what arrived, with digests)
+    <root>/.received/<agent>/<conversation>.jsonl   (what arrived, with digests)
 
 The conversation subdirectory keeps one thread's files together (an agent asked
 "the file I sent earlier" can list them), and ``key`` — the platform's own file
 id when there is one — makes a save idempotent: a chat platform that redelivers
 a message writes the same path instead of a second copy.
 
-Beside each conversation's directory — not inside it, where the agent's own
-process may write — the store keeps what arrived (``ports.attachments``): a
-line per file with its size and sha256, so a tool that hands a person's file
-on can tell it from one the agent made or changed.
+Outside every agent's tree — no confinement level grants ``<root>/.received``
+to an agent's process, whatever directory it may write — the store keeps what
+arrived (``ports.attachments``): a line per file with its size and sha256, so a
+tool that hands a person's file on can tell it from one the agent made or
+changed.
 """
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import re
+import stat
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -38,7 +41,6 @@ from crucible.ports.attachments import (
     ReceivedFileChanged,
     ReceivedFileGone,
     ReceivedFiles,
-    sniff_content_type,
 )
 from crucible.ports.chat.types import Attachment
 from crucible.private_files import private_dir, private_file
@@ -71,12 +73,6 @@ _SWEEP_INTERVAL_S = 3600.0
 
 class AttachmentTooLarge(Exception):
     """The file exceeds the configured per-file limit and was not saved."""
-
-
-def sniff_image(data: bytes) -> str:
-    """The image type these bytes really are, or "" if they are not an image."""
-    found = sniff_content_type(data)
-    return found if found.startswith("image/") else ""
 
 
 def safe_name(name: str) -> str:
@@ -227,23 +223,27 @@ class AttachmentStore:
         moving = [r for r in records if r.path == old_path]
         staying = [r for r in records if r.path != old_path]
         if moving:
-            private_file(source_record)
-            source_record.write_text("".join(json.dumps(r.__dict__, ensure_ascii=False) + "\n" for r in staying), encoding="utf-8")
+            if staying:
+                private_file(source_record)
+                source_record.write_text("".join(json.dumps(r.__dict__, ensure_ascii=False) + "\n" for r in staying), encoding="utf-8")
+            else:
+                source_record.unlink(missing_ok=True)
             self._record(to_dir, [ReceivedFile(**{**m.__dict__, "path": new_path}) for m in moving])
-        if from_dir.is_dir():
-            self._prune_empty(from_dir)  # the gateway's directory, emptied by the move
+        with contextlib.suppress(OSError):
+            from_dir.rmdir()  # the gateway's directory, when the move emptied it
 
     # -- what arrived --------------------------------------------------------------
 
-    def received(self, files_dir: Path) -> ReceivedFiles:
+    def received_files_for(self, files_dir: Path) -> ReceivedFiles:
         """The files the conversation with this directory received, as the
         port a tool is handed."""
         return _Received(self, files_dir)
 
-    @staticmethod
-    def _record_path(files_dir: Path) -> Path:
-        # Beside the directory, not in it: the agent's process writes there.
-        return files_dir.parent / f".{files_dir.name}.received.jsonl"
+    def _record_path(self, files_dir: Path) -> Path:
+        # Outside every agent's tree: ``dir_for`` never covers ``.received``
+        # (an agent's name cannot start with a dot after ``safe_name``), so no
+        # confinement level hands an agent's process this file.
+        return self.root / ".received" / files_dir.parent.name / f"{files_dir.name}.jsonl"
 
     def _record(self, files_dir: Path, arrived: list[ReceivedFile]) -> None:
         path = self._record_path(files_dir)
@@ -277,16 +277,30 @@ class AttachmentStore:
     @staticmethod
     def _read_checked(file: ReceivedFile) -> bytes:
         """The bytes at the recorded path, when they are still the recorded
-        file: a regular file (no symlink), the recorded size and digest."""
-        path = Path(file.path)
+        file: a regular file (no symlink, no pipe), the recorded size and
+        digest — all judged on the one descriptor the bytes are read from, so
+        nothing swapped in between a check and the read is read."""
         try:
-            stat = os.lstat(path)
+            fd = os.open(file.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         except FileNotFoundError as exc:
             raise ReceivedFileGone(file.name) from exc
-        if os.path.islink(path) or not os.path.isfile(path) or stat.st_size != file.size:
-            raise ReceivedFileChanged(file.name)
-        with path.open("rb") as handle:
-            data = handle.read(file.size + 1)
+        except OSError as exc:  # a symlink (ELOOP), a directory, a device
+            raise ReceivedFileChanged(file.name) from exc
+        try:
+            status = os.fstat(fd)
+            if not stat.S_ISREG(status.st_mode) or status.st_size != file.size:
+                raise ReceivedFileChanged(file.name)
+            chunks: list[bytes] = []
+            wanted = file.size + 1
+            while wanted > 0:
+                chunk = os.read(fd, wanted)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                wanted -= len(chunk)
+        finally:
+            os.close(fd)
+        data = b"".join(chunks)
         if len(data) != file.size or hashlib.sha256(data).hexdigest() != file.sha256:
             raise ReceivedFileChanged(file.name)
         return data

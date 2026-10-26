@@ -741,7 +741,7 @@ def _print_tools(server: McpServer, snapshot: Snapshot) -> None:
             marks.append("⚠ destructive")
         if file_arguments(tool):
             marks.append(f"takes a file ({', '.join(file_arguments(tool))})")
-        if requires_confirmation(server, tool) or file_arguments(tool):
+        if requires_confirmation(server, tool):
             marks.append("needs confirmation")
         hint = f"  {', '.join(marks)}" if marks else ""
         print(f"  {mcp_tool_name(snapshot.server, tool.name)}{hint}")
@@ -751,7 +751,7 @@ def _print_tools(server: McpServer, snapshot: Snapshot) -> None:
 
 def _print_confirmed(server: McpServer, snapshot: Snapshot) -> None:
     """How many of the pinned tools a person confirms, and how to say otherwise."""
-    confirmed = sum(requires_confirmation(server, tool) or bool(file_arguments(tool)) for tool in snapshot.tools)
+    confirmed = sum(requires_confirmation(server, tool) for tool in snapshot.tools)
     if confirmed and not server.trusted:
         print(
             f"{confirmed} of {len(snapshot.tools)} tools need a person's confirmation before they run "

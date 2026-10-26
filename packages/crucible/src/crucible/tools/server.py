@@ -120,7 +120,7 @@ class ToolServer:
         file_svc: FileService | None = None,
         task_svc: TaskService | None = None,
         conversation_resolver: ConversationResolver | None = None,
-        received: Callable[[Path], ReceivedFiles] | None = None,
+        received_files_for: Callable[[Path], ReceivedFiles] | None = None,
         connections: ConnectionAccessFactory | None = None,
         tool_gate: ToolApproving | None = None,
         clock: TurnClock | None = None,
@@ -160,7 +160,7 @@ class ToolServer:
         self._conversation_resolver = conversation_resolver
         # The files a conversation received, by its files directory (the
         # attachment store's record); None when nothing keeps attachments.
-        self._received = received
+        self._received_files_for = received_files_for
         # The connected accounts of the person a call's turn acts for.
         self._connections = connections
         # Asks a human before a tool that declares it runs — the only gate there
@@ -286,8 +286,8 @@ class ToolServer:
             user_id=conversation.user_id if conversation else "",
             files_dir=conversation.files_dir if conversation else None,
             received_files=(
-                self._received(conversation.files_dir)
-                if self._received is not None and conversation is not None and conversation.files_dir is not None
+                self._received_files_for(conversation.files_dir)
+                if self._received_files_for is not None and conversation is not None and conversation.files_dir is not None
                 else None
             ),
             conversation_kind=conversation.kind if conversation else "",

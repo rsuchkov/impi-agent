@@ -11,8 +11,8 @@ from crucible.attachments import (
     AttachmentTooLarge,
     IncomingFile,
     safe_name,
-    sniff_image,
 )
+from crucible.content_types import sniff_image
 from crucible.ports.chat.types import Attachment
 
 MB = 1024 * 1024
@@ -171,14 +171,15 @@ async def test_what_arrived_is_recorded_beside_the_conversations_directory_with_
         IncomingFile(name="photo.png", data=b"\x89PNG\r\n\x1a\nabc", mime="image/png", key="f2"),
     ])
     files_dir = store.conversation_dir("assistant", "conv-1")
-    received = store.received(files_dir)
+    received = store.received_files_for(files_dir)
     listed = await received.list()
     assert [(r.name, r.mime, r.size) for r in listed] == [("invoice.pdf", "application/pdf", 14), ("photo.png", "image/png", 11)]
     assert listed[0].path == saved[0].path and listed[0].sha256 == hashlib.sha256(b"%PDF-1.4 hello").hexdigest()
     assert listed[0].received_at
-    record = files_dir.parent / ".conv-1.received.jsonl"
-    assert record.is_file()  # beside the directory, not in it: the agent's process cannot write there
-    assert not any(child.name.endswith(".received.jsonl") for child in files_dir.iterdir())
+    record = store.root / ".received" / "assistant" / "conv-1.jsonl"
+    assert record.is_file()  # outside every agent's tree: no confinement level hands an agent's process this file
+    assert not record.is_relative_to(store.dir_for("assistant"))
+    assert not any(child.name.endswith(".jsonl") for child in files_dir.iterdir())
     # A redelivery (the same key) is not a second line.
     await store.save_many("assistant", "conv-1", [IncomingFile(name="invoice.pdf", data=b"%PDF-1.4 hello", mime="application/pdf", key="f1")])
     assert len(await received.list()) == 2
@@ -205,7 +206,7 @@ async def test_what_arrived_is_recorded_beside_the_conversations_directory_with_
     with pytest.raises(ReceivedFileChanged):
         await received.read(listed[0])
     # A conversation that received nothing.
-    assert await store.received(store.conversation_dir("assistant", "conv-9")).list() == ()
+    assert await store.received_files_for(store.conversation_dir("assistant", "conv-9")).list() == ()
 
 
 async def test_a_file_saved_under_one_key_is_adopted_into_the_conversation_as_keyed_with_its_record(tmp_path: Path) -> None:
@@ -216,12 +217,33 @@ async def test_a_file_saved_under_one_key_is_adopted_into_the_conversation_as_ke
     assert (adopted.name, adopted.mime, adopted.size) == ("notes.txt", "text/plain", 3) and Path(adopted.path).read_bytes() == b"abc"
     assert not Path(saved.path).exists()
     # The record moved with it: the new conversation received it, the old one no longer lists it.
-    assert [r.path for r in await store.received(store.conversation_dir("assistant", "task-7")).list()] == [adopted.path]
-    assert await store.received(store.conversation_dir("assistant", "D1")).list() == ()
-    assert await store.received(store.conversation_dir("assistant", "task-7")).read((await store.received(store.conversation_dir("assistant", "task-7")).list())[0]) == b"abc"
+    assert [r.path for r in await store.received_files_for(store.conversation_dir("assistant", "task-7")).list()] == [adopted.path]
+    assert await store.received_files_for(store.conversation_dir("assistant", "D1")).list() == ()
+    assert not store.conversation_dir("assistant", "D1").exists()  # the gateway's directory, emptied by the move, is gone
+    assert not (store.root / ".received" / "assistant" / "D1.jsonl").exists()  # and its record with it
+    assert await store.received_files_for(store.conversation_dir("assistant", "task-7")).read((await store.received_files_for(store.conversation_dir("assistant", "task-7")).list())[0]) == b"abc"
     # Already there: itself. Not this store's: itself.
     assert await store.adopt("assistant", "task-7", adopted) == adopted
     (tmp_path / "elsewhere.txt").write_bytes(b"not the store's")
     elsewhere = Attachment(name="x", path=str(tmp_path / "elsewhere.txt"), mime="", size=15)
     assert await store.adopt("assistant", "task-7", elsewhere) == elsewhere
     assert (tmp_path / "elsewhere.txt").is_file()  # left where it was, not pulled into a conversation
+
+
+async def test_a_pipe_or_a_directory_standing_where_the_file_was_is_not_read(tmp_path: Path) -> None:
+    """The checks and the read happen on one descriptor: a FIFO swapped in
+    where the file was cannot hold the engine, a directory is not a file."""
+    from crucible.ports.attachments import ReceivedFileChanged
+
+    store = _store(tmp_path)
+    (saved,) = await store.save_many("assistant", "conv-1", [IncomingFile(name="a.txt", data=b"abc", mime="text/plain", key="f1")])
+    received = store.received_files_for(store.conversation_dir("assistant", "conv-1"))
+    (record,) = await received.list()
+    Path(saved.path).unlink()
+    os.mkfifo(saved.path)
+    with pytest.raises(ReceivedFileChanged):
+        await received.read(record)
+    os.unlink(saved.path)
+    Path(saved.path).mkdir()
+    with pytest.raises(ReceivedFileChanged):
+        await received.read(record)

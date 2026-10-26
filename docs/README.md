@@ -16,7 +16,7 @@ people. Keep them accurate to the code.
 - **[skills.md](skills.md)** — the shared skill library: installing from a
   directory or a repository, giving skills to agents, `/skills`, and what
   carries over from other tools' skill formats.
-- **[mcp.md](mcp.md)** — tools from MCP servers: declaring one with `impi mcp
+- **[mcp.md](mcp.md)** — tools from MCP servers, a person's file as an argument: declaring one with `impi mcp
   add`, the pinned snapshot and trust, confirmations, a person's token in a
   header, what is not supported.
 - **[tasks.md](tasks.md)** — scheduled and recurring work: writing a schedule,

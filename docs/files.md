@@ -41,8 +41,9 @@ volume — attachments survive `impi update` and a rollback like the rest of the
 engine's state. Per agent, per conversation: an agent can list what a thread has
 accumulated, and no agent can reach another's files. `<conversation>` is the
 conversation as the application keys it (`ConversationKey`) — the same key the
-flow's record carries, so a tool's files directory is where the gateway saved
-the file; with the default keying it is the platform's own id.
+flow's record carries, so a tool's files directory is where the file is once
+the flow keyed the conversation (a gateway that saved it under another key has
+it moved there, below); with the default keying it is the platform's own id.
 
 Files are swept after `ATTACHMENT_RETENTION_DAYS` (default 14; `0` keeps them
 forever). A message redelivered by the platform — a reconnect, a retry — writes
@@ -150,12 +151,13 @@ A gateway saves under the conversation's key as far as it can compute it
 (`GatewayFactory(keying=…)`); when the application's key needs what only its
 own sink learns later, the gateway's key is the platform's id, and the flow —
 which settles the key when it opens the conversation's record — takes the file
-into that conversation (`AgentFlow(files=store)`, `FileKeeper.adopt`), record
-and all, before the model sees the path.
+into that conversation (`AgentFlow(file_keeper=store)`, `FileKeeper.adopt`),
+record and all, before the model sees the path.
 
-Beside each conversation's directory the engine keeps a record of what arrived
-(`.<conversation>.received.jsonl`: name, size, sha256) — outside the
-directory, where the agent's process may write. A tool that hands a person's
-file on (an MCP tool whose argument the server declares as content, see
-[mcp.md](mcp.md)) asks that record, and gets the bytes only while the file is
-the one that arrived.
+Under `<attachments>/.received/<agent>/<conversation>.jsonl` the engine keeps
+a record of what arrived (name, size, sha256) — outside every agent's tree,
+which no confinement level (`conversation`, `agent`) hands an agent's process;
+with confinement `off` nothing is kept from a process, the known limit. A tool
+that hands a person's file on (an MCP tool whose argument the server declares
+as content, see [mcp.md](mcp.md)) asks that record, and gets the bytes only
+while the file is the one that arrived.

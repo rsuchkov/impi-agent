@@ -71,6 +71,10 @@ adapter; everything else depends inward on ports.
 
 Ports are Protocol contracts under `crucible.ports`. The important ones:
 
+- **Attachments** (`ports/attachments`): `ReceivedFiles` (what a conversation
+  received — name, size, sha256 — with `read` handing bytes over only while the
+  file is the one that arrived), `FileKeeper` (the flow takes a gateway-saved
+  file into the conversation as keyed).
 - **Agent** (`ports/agent`): `AgentRuntime` (drives a conversation), `AgentSpec`
   (an agent's neutral config), `AgentProfile` (opaque per-agent runtime config),
   `UiBridge` (surface a mid-turn confirm/select to a human), `TurnClock` (stop a

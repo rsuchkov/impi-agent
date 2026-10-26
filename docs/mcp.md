@@ -123,8 +123,9 @@ live in, with "allow for…" windows and the ledger — unless somebody the engi
 believes said it is harmless. Who may say so:
 
 - the operator, in the server's entry: a tool matching `confirm:` (patterns
-  with `*`) always asks, one matching `safe:` never does; `confirm:` wins when
-  both match;
+  with `*`) always asks, one matching `safe:` never does — except a tool that
+  takes a person's file, which always asks (below); `confirm:` wins when both
+  match;
 - a **trusted** server, through its annotations, read with the protocol's own
   defaults: a tool is destructive unless it is marked `readOnlyHint: true` or
   `destructiveHint: false` — a server that says nothing about a tool has said
@@ -136,13 +137,13 @@ believes said it is harmless. Who may say so:
 
 `impi mcp add`, `show` and `refresh` say which tools are confirmed and how
 many; a server whose reads all ask is one `--safe 'get_*'` (and a restart)
-away. The card shows the
+away — a tool that takes a file stays confirmed. The card shows the
 tool's title, the server and the arguments: a short one as a fact on one line,
 a long or multi-line one — a script, a comment's body — whole, as a passage,
 so the person approves what they can read; a destructive tool gets the warning
 mark. Where nothing can confirm (`INTEGRATIONS_ENABLED=false`) a confirmed
 tool is not advertised at all — for an untrusted server that is everything
-outside `safe:`.
+outside `safe:`, and for any server a tool that takes a file.
 
 ## Acting as the person
 
@@ -176,23 +177,32 @@ A server that takes a document says so in its schema, the JSON Schema way:
 "document": {"type": "string", "contentEncoding": "base64", "contentMediaType": "application/pdf"}
 ```
 
-That schema is in the pinned snapshot like the rest, so the operator saw it.
-The model cannot produce a file's content — it has the path from the
-`[attached]` line, as it has for any file a person sends — so the engine shows
-it the argument as that path ("a file the person attached: give the path from
-its `[attached]` line") and, when the call comes, puts the file's content in
-its place: read once, checked against the record of what the conversation
-received (name, size, sha256 — kept outside the files directory, which the
-agent's process may write to), checked against `contentMediaType` by its bytes
-when the schema names one, and sent as base64. A path that is not a file the
-person attached in this conversation, a file that is gone or was changed since
-it arrived, or one of another type is refused in the engine's words, and the
-model asks the person to attach it again.
+That schema is in the pinned snapshot like the rest, so the operator saw it;
+a top-level string argument counts (one nested in an object or an array is
+passed as the model wrote it). The model cannot produce a file's content — it
+has the path from the `[attached]` line, as it has for any file a person sends
+— so the engine shows it the argument as that path, with the note "A file the
+person attached in this conversation: give the path from its [attached] line;
+the engine sends the file's content", and, when the call comes, puts the
+content in its place: read once, checked against the engine's record of what
+the conversation received (name, size, sha256 — kept under
+`<attachments>/.received/`, outside every agent's tree, which no confinement
+level hands an agent's process), checked against `contentMediaType` when the
+schema names one, and sent as base64. The type check reads the bytes where
+the engine can tell a type by them (PNG, JPEG, GIF, WebP, PDF); for any other
+type the one the platform claimed for the file stands in. A path that is not a
+file the person attached in this conversation, a file that is gone or was
+changed since it arrived, or one of another type is refused in the engine's
+words, and the model asks the person to attach it again. A file attached
+before this record existed has no line in it and is refused the same way —
+attach it again.
 
 Such a call is **always confirmed**, whatever `safe:` or the server's hints
 say: a person's file leaves the engine. The card names the argument, the
-server, the file, its type, size and digest — the bytes sent are the ones the
-record describes. `impi mcp add` and `show` mark the tool `takes a file`.
+server, the file, the type the platform claimed, its size and digest — the
+bytes sent are the ones the record describes. `impi mcp add`, `show` and
+`refresh` mark the tool `takes a file`. Nothing to configure beyond attachments
+and integrations being on (`ATTACHMENTS_ENABLED`, `INTEGRATIONS_ENABLED`).
 
 A server on stdio runs beside the engine and may instead take the path as a
 plain string and read the file itself, as a filesystem server does; what the

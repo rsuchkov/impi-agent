@@ -66,6 +66,8 @@ for the complete version.
 
 ```python
 from crucible import builtin_tools
+from crucible.attachments import AttachmentStore
+from crucible.conversation_files import conversation_lookup
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.gateways import GatewayConfig, GatewayFactory, needs_http_receiver
@@ -82,6 +84,7 @@ from my_app import my_tools  # your own tool module: each Tool class marked @too
 def build_app(settings, registry, loop_guard):  # registry implements AgentDirectory
     profiles = FsProfileStore(settings.agents_path)
     sessions = open_store(settings.store_backend,
+    attachments = AttachmentStore(settings.attachments_dir, max_bytes=20 * 1024 * 1024, retention_days=14)
                           name=settings.resolved_db_name, url=settings.db_url)
 
     specs = profiles.list()
@@ -125,7 +128,7 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
         # silent turn gets the "came back without an answer" notice.
         posting = [n for n in registry.names() if (t := registry.get(n)) and (t.speaks_to_user or t.posts_to_user)]
         flow = AgentFlow(runtime, profile, sessions, agent_name=spec.name, posting_tools=posting,
-                         files=attachments)  # a file saved under another key follows the conversation
+                         file_keeper=attachments)  # a file saved under another key follows the conversation
         coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
         kind = configs[spec.name].kind
         sinks_by_agent[spec.name] = AgentSink(sink=coalescer, gateways={kind: handle.chat}, default=kind)
@@ -134,6 +137,8 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
     tool_server = tools.build_server(
         directory=registry, interaction_svc=interactions.interaction_svc,
         dotenv_path=settings.dotenv_path,
+        conversation_resolver=conversation_lookup(attachments, sessions),
+        received_files_for=attachments.received_files_for,  # what a conversation received, for a tool that hands a file on
     )
     return units, tool_server, interactions.receiver, runtime, sessions
 ```
@@ -175,10 +180,13 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   enforces uniqueness), so an application may key whatever it holds per
   running turn by that id and resolve it from a tool. What a tool usually
   needs is already resolved — `ToolContext.channel_id`, `user_id` (who spoke
-  last) and `files_dir` (where what people sent was saved) — when the server
-  was built with `conversation_resolver=conversation_lookup(attachments,
-  store)` (`crucible.conversation_files`): one read of the session record per
-  call, and nothing for a session that is not the calling agent's. Do not
+  last), `files_dir` (where what people sent was saved) and `received_files`
+  (what the conversation received, with digests; `read` hands the bytes over
+  only while the file is the one that arrived) — when the server was built
+  with `conversation_resolver=conversation_lookup(attachments, store)`
+  (`crucible.conversation_files`) and `received_files_for=attachments.
+  received_files_for`: one read of the session record per call, and nothing
+  for a session that is not the calling agent's. Do not
   derive the files directory from a conversation id yourself:
   `AttachmentStore` renames an id it cannot use as a directory name.
 - **Name a confirmed tool for a person.** `display_name = "Add a comment"` on
@@ -567,6 +575,14 @@ credential, is another user's credential.
   stop, `await mcp.stop()`. A tool
   whose header is `${connection:<provider>}` needs `connections` on the tool
   server and acts only in a direct message.
+- **A person's file in an MCP call.** A tool whose argument the server's
+  schema declares as content (`contentEncoding: base64`) takes a file the
+  person attached ([mcp.md](mcp.md)). Two wires carry it: `build_server(
+  received_files_for=attachments.received_files_for)` gives the tool the
+  record of what the conversation received, and `AgentFlow(file_keeper=
+  attachments)` moves a file a gateway saved under another key into the
+  conversation as the flow keys it. Without the first, such a tool answers
+  that the engine keeps no files.
 - **Several engine processes.** A chat connection the platform pushes events
   into — a bot's websocket, Slack's Socket Mode — must be open in one process
   at a time: the platform hands each event to one of its open connections by

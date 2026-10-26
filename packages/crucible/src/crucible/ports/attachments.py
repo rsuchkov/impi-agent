@@ -14,28 +14,6 @@ from typing import Protocol
 
 from crucible.ports.chat.types import Attachment
 
-# What the common file formats start with: the type a file's bytes really are,
-# against the one its name or the platform claims.
-_MAGIC: tuple[tuple[bytes, str], ...] = (
-    (b"\x89PNG\r\n\x1a\n", "image/png"),
-    (b"\xff\xd8\xff", "image/jpeg"),
-    (b"GIF87a", "image/gif"),
-    (b"GIF89a", "image/gif"),
-    (b"%PDF-", "application/pdf"),
-)
-
-
-def sniff_content_type(data: bytes) -> str:
-    """The media type these bytes really are, or "" when they are none this
-    engine recognises (an image, a PDF)."""
-    for magic, mime in _MAGIC:
-        if data.startswith(magic):
-            return mime
-    # WebP is a RIFF container; the format only shows up at offset 8.
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    return ""
-
 
 @dataclass(frozen=True)
 class ReceivedFile:

@@ -86,3 +86,18 @@ async def _run(main, argv: list[str]) -> int:
     import asyncio
 
     return await asyncio.to_thread(main, argv)
+
+
+async def test_add_marks_a_tool_that_takes_a_persons_file(agents_dir: Path, capsys) -> None:
+    from tests.fakes.mcp_http import ECHO as ECHO_WIRE
+
+    recognise = {"name": "recognise", "description": "Recognise an invoice.",
+                 "inputSchema": {"type": "object", "properties": {"document": {"type": "string", "contentEncoding": "base64"}}}}
+    server = await _server(8587, tools=[ECHO_WIRE, recognise])
+    try:
+        assert await _run(cli.main, ["mcp", "add", "invoices", "--url", server.url, "--safe", "*", "--trusted"]) == 0
+        out = capsys.readouterr().out
+        assert "mcp__invoices__recognise  ⚠ destructive, takes a file (document), needs confirmation" in out  # safe: and trust notwithstanding
+        assert "mcp__invoices__echo  ⚠ destructive\n" in out and "1 of 2 tools need a person's confirmation" in out
+    finally:
+        await server.stop()

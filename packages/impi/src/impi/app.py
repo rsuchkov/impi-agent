@@ -367,7 +367,7 @@ def _build_unit(
     turns: TurnRegistry,
     captions: CallCaptions,
     posting_tools: Collection[str] = (),
-    files: FileKeeper | None = None,
+    file_keeper: FileKeeper | None = None,
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
@@ -375,7 +375,7 @@ def _build_unit(
     profile = profiles.build(spec)
     flow = AgentFlow(
         runtime, profile, sessions,
-        agent_name=spec.name, posting_tools=posting_tools, files=files,
+        agent_name=spec.name, posting_tools=posting_tools, file_keeper=file_keeper,
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
         turns=turns,
@@ -418,7 +418,7 @@ def _build_units(
     gateway_factory: GatewayFactory,
     tools: ToolWiring,
     captions: CallCaptions,
-    files: FileKeeper | None = None,
+    file_keeper: FileKeeper | None = None,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
@@ -475,7 +475,7 @@ def _build_units(
             turns=turns,
             captions=captions,
             posting_tools=_posting_tools(tools),
-            files=files,
+            file_keeper=file_keeper,
             replica=replica, replicas=replicas, forwarder=forwarder,
         )
         for kind in handles:
@@ -783,7 +783,7 @@ def build_app(settings: ImpiSettings) -> App:
     units = _build_units(
         specs, configs, engine_names,
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
-        gateway_factory=gateway_factory, tools=tools, files=attachments,
+        gateway_factory=gateway_factory, tools=tools, file_keeper=attachments,
         leases=sessions, instance=f"{socket.gethostname()}:{os.getpid()}",
         # Who captions a call for the person watching: the deployment's tools
         # themselves, then the runtime's own built-ins.
@@ -845,7 +845,7 @@ def build_app(settings: ImpiSettings) -> App:
         # Tools get the turn's channel and last speaker (an ephemeral reply,
         # say) and its files directory, in one read of the session record.
         conversation_resolver=conversation_lookup(attachments, sessions),
-        received=attachments.received if attachments is not None else None,
+        received_files_for=attachments.received_files_for if attachments is not None else None,
         connections=connections.tool_access() if connections is not None else None,
         tool_gate=interactions.tool_gate,
         # While the gate waits for a person, the turn's timeout waits too.

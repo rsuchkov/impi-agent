@@ -86,10 +86,16 @@ default pins it.
 A tool whose argument the server declares as content (`contentEncoding:
 base64` in the schema, pinned in the snapshot) takes a file the person
 attached: the model gives the path from the `[attached]` line and the engine
-sends the content. `impi mcp show` marks such a tool `takes a file (<arg>)`;
-every call of it is confirmed, whatever `safe:` says — the card names the
-file, its type, size and digest. Nothing to configure. A stdio server may take
-a plain path and read the file itself instead. Upload-by-id is not supported.
+sends the content (a top-level string argument; one nested in an object is
+passed as written). `impi mcp add`, `show` and `refresh` mark such a tool
+`takes a file (<arg>)`; every call of it is confirmed, whatever `safe:` says —
+the card names the file, the type the platform claimed, size and digest.
+Nothing to configure beyond `ATTACHMENTS_ENABLED` and `INTEGRATIONS_ENABLED`
+being on. The type check: PNG, JPEG, GIF, WebP and PDF by their bytes; another
+`contentMediaType` is judged by what the platform said of the file. A file
+attached before v0.34.0 has no record and is refused — attach it again. A
+stdio server may take a plain path and read the file itself instead.
+Upload-by-id is not supported.
 
 ## 5. Diagnosing
 
@@ -126,7 +132,8 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
   pinned count; the tool must be in the snapshot under exactly that name
   (`impi mcp show <name>`); a confirmed tool needs `INTEGRATIONS_ENABLED=true`
   — and on an untrusted server every tool not in `safe:` is confirmed, so
-  with integrations off such a server advertises only its `safe:` tools;
+  with integrations off such a server advertises only its `safe:` tools, and
+  no server a tool that takes a file;
 - every call raises a card, reads included — the server is untrusted and the
   entry has no `safe:`; the operator reviews the read-only tools and names
   them (`--safe 'get_*'`), or declares the server `--trusted` when their own

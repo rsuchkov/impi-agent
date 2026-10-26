@@ -266,6 +266,13 @@ def test_an_argument_the_server_declares_as_content_asks_the_model_for_an_attach
     assert tool.parameters["properties"]["filename"] == {"type": "string"}  # untouched
     assert tool.parameters["required"] == ["document"]
     assert tool.requires_confirmation is True  # safe: and readOnlyHint notwithstanding
+    from crucible.mcp import requires_confirmation
+
+    assert requires_confirmation(server, RECOGNISE) is True  # the one rule, where the CLI reads it too
+    # An optional argument is spelled ["string", "null"]; a stranger's schema must never crash the build.
+    optional = ToolDefinition("t", "", {"type": "object", "properties": {"doc": {"type": ["string", "null"], "contentEncoding": "base64"},
+                                                                          "n": {"type": "integer", "contentEncoding": "base64"}}})
+    assert file_arguments(optional) == ("doc",)
     plain = McpTool(server, ECHO, _Calls(CallResult("x")))
     assert plain.file_arguments == () and plain.parameters == ECHO.input_schema and plain.requires_confirmation is False
 
@@ -292,6 +299,21 @@ async def test_the_engine_sends_the_persons_file_in_place_of_the_path_the_model_
     # The schema names a type; the bytes say otherwise.
     with pytest.raises(ToolError, match="takes application/pdf for document; name-of-1 is image/png"):
         await tool.execute(ctx, {"document": "/files/assistant/c1/F2-photo.png"})
+    # A type the engine can tell by bytes, and bytes that are not it.
+    plain_text = _Received({"/files/assistant/c1/F4-not.pdf": b"just text"}, mime="application/pdf")
+    with pytest.raises(ToolError, match="is not that by its bytes"):
+        await tool.execute(_ctx(received_files=plain_text), {"document": "/files/assistant/c1/F4-not.pdf"})
+    # A type nobody can tell by bytes (text/csv): the platform's claim stands in.
+    csv_tool = McpTool(server, ToolDefinition("load", "", {"type": "object", "properties": {
+        "table": {"type": "string", "contentEncoding": "base64", "contentMediaType": "text/csv"}}}), calls)
+    csv = _Received({"/files/assistant/c1/F5-rows.csv": b"a,b\n1,2\n"}, mime="text/csv")
+    assert await csv_tool.execute(_ctx(received_files=csv), {"table": "/files/assistant/c1/F5-rows.csv"}) == "ok"
+    claimed_otherwise = _Received({"/files/assistant/c1/F6-rows.csv": b"a,b\n"}, mime="text/plain")
+    with pytest.raises(ToolError, match="is text/plain, the platform says"):
+        await csv_tool.execute(_ctx(received_files=claimed_otherwise), {"table": "/files/assistant/c1/F6-rows.csv"})
+    png_as_csv = _Received({"/files/assistant/c1/F7-rows.csv": b"\x89PNG\r\n\x1a\nabc"}, mime="text/csv")
+    with pytest.raises(ToolError, match="is image/png"):
+        await csv_tool.execute(_ctx(received_files=png_as_csv), {"table": "/files/assistant/c1/F7-rows.csv"})
     # Gone or changed since it arrived: said, and the person is asked for it again.
     received.gone.add("/files/assistant/c1/F1-invoice.pdf")
     with pytest.raises(ToolError, match="no longer here.*attach it again"):

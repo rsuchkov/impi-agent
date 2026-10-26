@@ -340,7 +340,7 @@ fi
 #     next start. Plumbing only here; the live leg below asks the model to call it.
 mkdir -p "$E2E_HOME/agents/_mcp"
 cat >"$E2E_HOME/agents/_mcp/probe_server.py" <<'PY'
-import json, sys
+import base64, json, sys
 TOOLS = [
     {"name": "echo", "title": "Echo", "description": "Echoes the text back.",
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
@@ -367,7 +367,6 @@ for line in sys.stdin:
     elif method == "tools/call" and params.get("name") == "echo":
         result = {"content": [{"type": "text", "text": "echo: " + str((params.get("arguments") or {}).get("text", ""))}]}
     elif method == "tools/call" and params.get("name") == "size_of":
-        import base64
         raw = base64.b64decode(str((params.get("arguments") or {}).get("document", "")))
         result = {"content": [{"type": "text", "text": "size: %d bytes" % len(raw)}]}
     elif method == "tools/call":

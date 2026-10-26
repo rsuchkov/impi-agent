@@ -919,7 +919,7 @@ async def test_server_resolves_conversation_into_context() -> None:
         allowlists={"assistant": frozenset({"echo_ctx"})},
         port=8470,
         conversation_resolver=resolver,
-        received=_Received,
+        received_files_for=_Received,
     )
     await server.start()
     try:

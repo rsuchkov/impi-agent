@@ -12,16 +12,22 @@ when a release is cut, and `impi update` shows the target version's section.
   argument as the path from the file's `[attached]` line — the one thing it
   has — and the engine sends the file's content in its place: read once,
   checked against the engine's record of what the conversation received (name,
-  size, sha256, kept beside the files directory where the agent's process
-  cannot write), against `contentMediaType` by its bytes when the schema names
-  one, and sent as base64. Only a file the person attached in this
-  conversation; a path that is anything else, a file that is gone or changed,
-  or one of another type is refused in the engine's words. Such a call is
-  always confirmed, whatever `safe:` or the server's hints say — the card
-  names the file, its type, size and digest. `impi mcp add` and `show` mark
-  the tool `takes a file`. Nothing to configure. (`ports.attachments`:
-  `ReceivedFile`, `ReceivedFiles`; `ToolContext.received_files`;
-  `ToolWiring.build_server(received=)`.)
+  size, sha256, kept under `<attachments>/.received/`, outside every directory
+  a confinement level grants an agent's process), against `contentMediaType`
+  when the schema names one (by the bytes for PNG, JPEG, GIF, WebP and PDF; by
+  what the platform said of the file for any other type), and sent as base64.
+  Only a file the person attached in this conversation, and only a top-level
+  string argument; a path that is anything else, a file that is gone or
+  changed, or one of another type is refused in the engine's words. A file
+  attached before this version has no record and is refused the same way —
+  attach it again. Such a call is always confirmed, whatever `safe:` or the
+  server's hints say — the card names the file, the type the platform
+  claimed, its size and digest. `impi mcp add`, `show` and `refresh` mark the
+  tool `takes a file`. Nothing to configure beyond attachments and integrations
+  being on. (`ports.attachments`: `ReceivedFile`, `ReceivedFiles`,
+  `FileKeeper`; `ToolContext.received_files`;
+  `ToolWiring.build_server(received_files_for=)`; `crucible.content_types` for
+  what bytes are.)
 - **Fixed: a file saved by a gateway under the platform's conversation id
   stayed there when the application's key could only be settled later.** The
   gateways save under `keying.key(agent, msg)` since v0.33.0, but a key that
@@ -29,7 +35,7 @@ when a release is cut, and `impi update` shows the target version's section.
   account, the conversation it belongs to) is the platform's id at that
   moment. The flow, which settles the key when it opens the record, now takes
   such a file into the conversation as keyed — the file moves, its record with
-  it — before the model sees the path (`AgentFlow(files=store)`,
+  it — before the model sees the path (`AgentFlow(file_keeper=store)`,
   `ports.attachments.FileKeeper.adopt`, implemented by `AttachmentStore`).
 
 ## v0.33.0 — 2026-10-26
