@@ -110,3 +110,32 @@ async def test_the_tool_server_sees_the_place_the_turn_is_in_not_where_the_conve
         assert back is not None and back.kind == KIND_DM
     finally:
         await store.close()
+
+
+async def test_a_thread_inside_a_direct_message_is_answered_in_the_thread_and_acted_in_as_private(tmp_path: Path) -> None:
+    """``kind`` says where the reply goes, ``direct`` who reads it: a thread in
+    a direct message with the bot is a thread to answer in and a private place
+    to act as the person in. An address recorded before the flag existed is
+    direct when its kind says so."""
+    from crucible.conversation_files import conversation_lookup
+    from crucible.ports.chat.types import KIND_THREAD
+    from crucible.store.base import GatewayAddress, SessionRecord, gateway_addresses
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        record, _ = await store.get_or_create("assistant", "D1", "1700.1", KIND_THREAD, user_id="U1", gateway="slack")
+        await store.set_gateway_address("assistant", "1700.1", "slack", GatewayAddress("D1", "1700.1", KIND_THREAD, direct=True))
+        lookup = conversation_lookup(None, store)
+        place = await lookup("assistant", record.runtime_session_id)
+        assert place is not None and (place.kind, place.direct) == (KIND_THREAD, True)
+        # A shared thread stays shared; a record without an address: by its kind.
+        await store.set_gateway_address("assistant", "1700.1", "slack", GatewayAddress("C1", "1700.1", KIND_THREAD))
+        shared = await lookup("assistant", record.runtime_session_id)
+        assert shared is not None and (shared.kind, shared.direct) == (KIND_THREAD, False)
+        old = SessionRecord(agent="a", channel_id="c", conversation_id="x", kind=KIND_DM, runtime_session_id="r", created_at="t", last_active="t",
+                            gateways='{"slack": {"channel_id": "D1", "conversation_id": "D1", "kind": "dm"}}')
+        assert gateway_addresses(old)["slack"].direct is True
+        bare = await conversation_lookup(None, store)("assistant", (await store.get_or_create("assistant", "D9", "D9", KIND_DM))[0].runtime_session_id)
+        assert bare is not None and bare.direct is True
+    finally:
+        await store.close()

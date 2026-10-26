@@ -527,9 +527,11 @@ credential, is another user's credential.
   the conversation's own gateway on every call. Log every gateway in and give
   the flow each identity (`add_identity`). When a thread in one chat and a
   dialog in another are one conversation to the person, say so with a
-  `ConversationKey` (`ports.chat.keying`) given to both the flow and the
-  coalescer; the engine then runs them through one runtime session and keeps
-  the conversation's address on each gateway. The same person also carries a
+  `ConversationKey` (`ports.chat.keying`) given to the flow, the coalescer and
+  the gateways (`GatewayFactory(keying=…)`, `InternalRoutes(keying=…)`); the
+  engine then runs them through one runtime session, keeps the conversation's
+  address on each gateway and saves what people attach under that key, where a
+  tool's files directory is. The same person also carries a
   different id on each gateway; `PersonKey.key(gateway, user_id)` (same module,
   given to `InteractionWiring(people=)` or straight to `ToolGate` and
   `InteractionDispatcher`) says which ids are one person — the one place the

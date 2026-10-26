@@ -6,7 +6,36 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a thread inside a direct message counted as a shared conversation
+  for a tool that acts as the person.** A conversation's `kind` answered two
+  questions with one word — where the reply goes and who reads it — so a Slack
+  thread in the person's direct message with the bot (`thread`) refused a
+  `${connection:…}` MCP tool and the `connected_api_*` tools. The place now
+  says both: `kind` stays where the reply goes, `direct` says only the person
+  and the agent read it (`GatewayAddress.direct`, recorded from the message's
+  `is_dm`; `SessionConversation.direct`; `ToolContext.direct`), and the tools
+  that act as the person ask `direct`.
+- **Fixed: a file attached on Slack or Mattermost landed outside the
+  conversation's directory when the application keys conversations itself.**
+  The gateways saved under the platform's conversation id before the
+  conversation was keyed, while a tool's `files_dir` is the keyed record's — two
+  directories, and `read_attachment` found nothing. The gateways (and the
+  forwarded-turn route between replicas) now take the `ConversationKey` the flow
+  uses (`GatewayFactory(keying=…)`, `InternalRoutes(keying=…)`) and save under it.
+- **Fixed: a turn that called tools and wrote nothing ended silently whatever
+  the tools were.** Any tool call made the turn `acted`, although only a tool
+  that speaks to the person (a widget, a form) has answered for it; a support
+  agent that searched seven times and stopped left the person with nothing,
+  and the application never heard. The flow is told the speaking tools
+  (`AgentFlow(speaks_to_user=…)`, `impi` collects them from the registry); a
+  turn whose calls were none of them ends as `empty` with the notice "I looked
+  things up but came back without an answer — please ask again".
+- **Breaks:** an application that builds `AgentFlow` without `speaks_to_user`
+  gets a notice on every tool-only silent turn — pass the names of its tools
+  that speak. `GatewayAddress`, `SessionConversation` and `ToolContext` gain
+  `direct`; a tool that checked `conversation_kind == KIND_DM` to act as the
+  person should check `direct`. `MattermostGateway`, `SlackGateway` and
+  `InternalRoutes` take `keying=`; without it the platform's id, as before.
 
 ## v0.32.0 — 2026-10-25
 

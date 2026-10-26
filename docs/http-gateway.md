@@ -130,7 +130,7 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | `actions.retired` | `postId`, `text` | the controls of an `actions` post are gone; show `text` in their place |
 | `cards` | `postId`, `cards[{text, accent, actions[]}]` | a message built from cards; the same `postId` again means redraw it |
 | `file` | `name`, `mime`, `data` (base64), `text` | a file the agent sent (the caption rides with the first) |
-| `turn.finished` | `outcome` | the last event: `replied`, `acted` (a tool answered for it), `truncated` (the answer hit the model's length limit; what there was came as `message`, then a `notice`), `empty`, `duplicate`, `timeout`, `error` |
+| `turn.finished` | `outcome` | the last event: `replied`, `acted` (a speaking tool — a widget, a form — answered for it), `truncated` (the answer hit the model's length limit; what there was came as `message`, then a `notice`), `empty`, `duplicate`, `timeout`, `error` |
 
 An action: `{id, label, value, style, kind, options[{label, value}]}`. `kind` is
 `button`, `select`, `user_select` or `channel_select`; a button echoes its

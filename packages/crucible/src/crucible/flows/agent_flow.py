@@ -9,7 +9,7 @@ import asyncio
 import contextlib
 import logging
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -63,6 +63,7 @@ logger = logging.getLogger(__name__)
 
 LOADING_REACTION = "eyes"
 EMPTY_ANSWER_MESSAGE = "I thought about it but produced no answer — please try rephrasing."
+SILENT_TOOLS_MESSAGE = "I looked things up but came back without an answer — please ask again."
 # The model ran out of room. Two sentences for the two cases, because what the
 # person just saw differs: a reply that stops mid-way, or nothing at all.
 TRUNCATED_MESSAGE = "That answer hit the model's length limit and stops where it does."
@@ -248,6 +249,7 @@ class AgentFlow:
         conversation_profiles: ConversationProfiles | None = None,
         captions: CallCaptions | None = None,
         keying: ConversationKey | None = None,
+        speaks_to_user: Collection[str] = (),
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
         if (entitlements is None) != (conversation_profiles is None):
@@ -260,6 +262,10 @@ class AgentFlow:
         self._sessions = sessions
         self._agent_name = agent_name
         self._tracer = tracer
+        # The tools whose call IS a message to the person (a widget, a form, a
+        # panel): a turn that called one and wrote nothing has answered. Any
+        # other tool-only turn has not.
+        self._speaks_to_user = frozenset(speaks_to_user)
         # Where a message's TurnScope is bound for the length of its turn, so the
         # tools the turn calls can read it. None = messages here carry none.
         self._turns = turns
@@ -371,7 +377,7 @@ class AgentFlow:
             # through: the platform's ids, kept so a card or an engine-started
             # turn can reach it there — written once per gateway, and again
             # when the address moved.
-            address = GatewayAddress(anchor.channel_id, anchor.conversation_id, anchor.kind)
+            address = GatewayAddress(anchor.channel_id, anchor.conversation_id, anchor.kind, direct=anchor.is_dm)
             if gateway_addresses(record).get(anchor.gateway) != address:
                 await self._sessions.set_gateway_address(self._agent_name, key, anchor.gateway, address)
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
@@ -518,13 +524,19 @@ class AgentFlow:
             # telling the person to rephrase would blame the question.
             await chat.post_notice(anchor.ref, TRUNCATED_EMPTY_MESSAGE, code=NOTICE_TRUNCATED)
             return TurnOutcome.TRUNCATED
-        if result.tool_calls:
+        if any(call in self._speaks_to_user for call in result.tool_calls):
+            # The silence is deliberate: a tool that declares it speaks to the
+            # user has already put the message there (buttons, a form, a
+            # panel), and a fallback here would double up on it.
             return TurnOutcome.ACTED
+        if result.tool_calls:
+            # The agent looked things up and stopped without a word: to the
+            # person that is an unanswered question, and the application
+            # hears of it the way it hears of an empty turn.
+            await chat.post_notice(anchor.ref, SILENT_TOOLS_MESSAGE, code=NOTICE_EMPTY_ANSWER)
+            return TurnOutcome.EMPTY
         # No text AND no tool call: the turn produced nothing at all — nudge the
-        # user to rephrase. When the agent DID call a tool, the silence is
-        # deliberate: a tool that declares it speaks to the user has already put
-        # the message there (buttons, a form, a panel), and a fallback here would
-        # double up on the already-visible action.
+        # user to rephrase.
         await chat.post_notice(anchor.ref, EMPTY_ANSWER_MESSAGE, code=NOTICE_EMPTY_ANSWER)
         return TurnOutcome.EMPTY
 

@@ -35,6 +35,7 @@ from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink, TrackedSink
 from crucible.ports.chat.gateway import GATEWAY_KINDS, Gateway
+from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.tools.base import CAP_EPHEMERAL, CAP_FORMS, CAP_WIDGETS
 
 logger = logging.getLogger(__name__)
@@ -106,14 +107,19 @@ class GatewayFactory:
         ws_hub: WsHub | None = None,
         http_hub: HttpHub | None = None,
         attachments: AttachmentStore | None = None,
+        keying: ConversationKey | None = None,
     ) -> None:
         self._directory = directory
         self._loop_guard = loop_guard
         self._dispatcher = dispatcher
         self._ws_hub = ws_hub
         self._http_hub = http_hub
-        # Where a gateway saves what a sender attached (None = files are ignored).
+        # Where a gateway saves what a sender attached (None = files are ignored),
+        # under the conversation as the application keys it — the same key the
+        # flow and the coalescer use, so a tool finds the file in the
+        # conversation's directory.
         self._attachments = attachments
+        self._keying: ConversationKey = keying or PlatformKey()
         self._builders: dict[str, Callable[[str, GatewayConfig], GatewayHandle | None]] = {
             "mattermost": self._mattermost,
             "slack": self._slack,
@@ -145,7 +151,7 @@ class GatewayFactory:
                 dispatcher=self._dispatcher,
                 directory=self._directory, loop_guard=self._loop_guard,
                 reply_to_agents=config.reply_to_agents,
-                attachments=self._attachments,
+                attachments=self._attachments, keying=self._keying,
                 reaction_commands=config.reaction_commands,
             )
 
@@ -166,7 +172,7 @@ class GatewayFactory:
                 directory=self._directory, loop_guard=self._loop_guard,
                 reply_to_agents=config.reply_to_agents,
                 command_prefix=config.slack_command_prefix,
-                attachments=self._attachments,
+                attachments=self._attachments, keying=self._keying,
                 reaction_commands=config.reaction_commands,
             )
 

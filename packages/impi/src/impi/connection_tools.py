@@ -33,7 +33,7 @@ from crucible.connections import (
     NotConnected,
     ProviderUnavailable,
 )
-from crucible.ports.chat.types import KIND_DM, CallPreview, PreviewRow
+from crucible.ports.chat.types import CallPreview, PreviewRow
 from crucible.ports.connections import TokenGrant
 from crucible.tools.base import CAP_CONNECTIONS, Tool, ToolContext, ToolError
 from crucible.tools.registry import tool
@@ -86,7 +86,7 @@ def _settings(ctx: ToolContext) -> ConnectedApiSettings:
 
 
 def _require_direct(ctx: ToolContext) -> None:
-    if ctx.conversation_kind != KIND_DM:
+    if not ctx.direct:
         raise ToolError(
             "acting as someone's connected account works only in a direct message with them. "
             "Tell the user to ask you there, and do not retry here"

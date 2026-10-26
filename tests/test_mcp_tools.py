@@ -138,16 +138,16 @@ async def test_a_header_that_is_the_persons_token_is_filled_per_call_from_their_
     connections = _Connections({"gitlab": "glpat-xyz"})
     with pytest.raises(ToolError, match="only in a direct message"):
         await tool.execute(_ctx(connections=connections, conversation_kind="thread"), {"text": "x"})
-    assert await tool.execute(_ctx(connections=connections, conversation_kind="dm"), {"text": "x"}) == "ok"
+    assert await tool.execute(_ctx(connections=connections, conversation_kind="dm", direct=True), {"text": "x"}) == "ok"
     assert calls.seen[0][2] == {"Authorization": "Bearer glpat-xyz"}  # the call's own header; X-Team is the server's
     assert connections.granted == ["gitlab"]
     with pytest.raises(ToolError, match="not a provider anyone can connect here"):
-        await tool.execute(_ctx(connections=_Connections({"github": "t"}), conversation_kind="dm"), {"text": "x"})
+        await tool.execute(_ctx(connections=_Connections({"github": "t"}), conversation_kind="dm", direct=True), {"text": "x"})
     with pytest.raises(ToolError, match="not a provider anyone can connect here"):
-        await tool.execute(_ctx(conversation_kind="dm"), {"text": "x"})
+        await tool.execute(_ctx(conversation_kind="dm", direct=True), {"text": "x"})
     # Not connected: the model is told what the person has to do — not a 500 from the tool server.
     with pytest.raises(ToolError, match="^the user has not connected their gitlab account.*never ask them for a token"):
-        await tool.execute(_ctx(connections=_Connections({"gitlab": None}), conversation_kind="dm"), {"text": "x"})
+        await tool.execute(_ctx(connections=_Connections({"gitlab": None}), conversation_kind="dm", direct=True), {"text": "x"})
     assert len(calls.seen) == 1  # nothing was sent without the token
 
 
@@ -159,11 +159,11 @@ async def test_a_token_the_server_no_longer_takes_ends_the_connection() -> None:
     connections = _Connections({"gitlab": "glpat-xyz"})
     unauthorized = McpTool(server, ECHO, _Calls(McpError("refused", "https://x/mcp: 401", status=401)))
     with pytest.raises(ToolError, match="^gitlab no longer accepts the user's connection, so it has ended; ask them to connect their gitlab account again"):
-        await unauthorized.execute(_ctx(connections=connections, conversation_kind="dm"), {})
+        await unauthorized.execute(_ctx(connections=connections, conversation_kind="dm", direct=True), {})
     assert connections.forgotten == ["gitlab"]
     forbidden = McpTool(server, ECHO, _Calls(McpError("refused", "https://x/mcp: 403", status=403)))
     with pytest.raises(ToolError, match="^gitlab refused the call$"):
-        await forbidden.execute(_ctx(connections=connections, conversation_kind="dm"), {})
+        await forbidden.execute(_ctx(connections=connections, conversation_kind="dm", direct=True), {})
     assert connections.forgotten == ["gitlab"]  # unchanged
     # A 401 on the server's own connection (no person's token) is a plain refusal.
     plain = McpTool(McpServer("github", url="https://x/mcp"), ECHO, _Calls(McpError("refused", "401", status=401)))

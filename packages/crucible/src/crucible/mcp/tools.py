@@ -25,7 +25,7 @@ from crucible.mcp.protocol import (
     McpError,
     ToolDefinition,
 )
-from crucible.ports.chat.types import KIND_DM, CallPreview, PreviewRow
+from crucible.ports.chat.types import CallPreview, PreviewRow
 from crucible.ports.connections import (
     ConnectionsError,
     NotConnected,
@@ -171,7 +171,7 @@ class McpTool:
             if match is None:
                 continue
             provider = match.group(1)
-            if ctx.conversation_kind != KIND_DM:
+            if not ctx.direct:
                 # Whose turn it is in a shared conversation is not settled
                 # enough to act as anyone — the rule the connection tools keep.
                 raise ToolError(

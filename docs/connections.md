@@ -117,8 +117,9 @@ a provider allows that run there.
 | `mcp__<server>__<tool>` of a server whose header is `${connection:<provider>}` ([mcp.md](mcp.md)) | the server's tool, called with the person's token | as the server's entry says (`confirm:`, `safe:`) and, for a trusted server, its annotations |
 
 - **Direct messages only**, for now: in a shared conversation, whose turn it is
-  is not settled enough to act as anyone. A thread inside the direct message
-  counts as shared too, for now.
+  is not settled enough to act as anyone. A thread inside the direct message is
+  a direct message for this (only the person and the agent read it), though the
+  reply still goes to the thread.
 - The path stays under the provider's API address: another host, a scheme, a
   step up (`..`), a backslash or a control character is refused before any
   call. A redirect is answered, not followed — following it would carry the

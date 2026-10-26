@@ -116,9 +116,12 @@ class ToolContext:
     # application binds none (every chat gateway today).
     turn: TurnScope | None = None
     # Which kind of conversation the call runs in (KIND_DM, KIND_THREAD,
-    # KIND_CHANNEL; "" when unknown) — a tool that answers with one person's
-    # data may decline anywhere others read the answer.
+    # KIND_CHANNEL; "" when unknown): where a reply goes.
     conversation_kind: str = ""
+    # Whether only the person and the agent read it — a direct message, or a
+    # thread inside one. A tool that answers with one person's data, or acts as
+    # them, declines where it is False.
+    direct: bool = False
     # The connected accounts of the person this turn acts for (None = the
     # deployment connects none, or the turn acts for nobody it can name).
     connections: ConnectionAccess | None = None

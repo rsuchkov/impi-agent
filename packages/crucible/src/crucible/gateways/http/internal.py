@@ -33,6 +33,7 @@ from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.http.auth import Refusal
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import MessageSink, TrackedSink, TurnOutcome
+from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import (
     Attachment,
     ConversationRef,
@@ -193,6 +194,7 @@ class InternalRoutes:
         *,
         dispatcher: GatewayDispatcher | None = None,
         attachments: AttachmentStore | None = None,
+        keying: ConversationKey | None = None,
     ) -> None:
         if not token:
             raise ValueError("the internal routes need a shared secret")
@@ -200,6 +202,7 @@ class InternalRoutes:
         self._presence = presence
         self._dispatcher = dispatcher
         self._attachments = attachments
+        self._keying: ConversationKey = keying or PlatformKey()  # the conversation a forwarded file belongs to
 
     @property
     def routes(self) -> list[web.RouteDef]:
@@ -237,7 +240,7 @@ class InternalRoutes:
             saved: tuple[Attachment, ...] = ()
             files = wire_files(data)
             if files and self._attachments is not None:
-                saved = await self._attachments.save_many(agent, str(data["ref"]["conversation_id"]), files)
+                saved = await self._attachments.save_many(agent, self._keying.key(agent, message_from_wire(data)), files)
             msg = message_from_wire(data, saved)
             waits.append(sink.sink.submit_tracked(msg, sink.chat_for(msg.gateway)))
         logger.info("replica: %d forwarded message(s) for %s taken", len(waits), agent)

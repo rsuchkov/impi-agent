@@ -254,7 +254,7 @@ def _posted_frame(files: list[dict] | None = None, *, message: str = "look") -> 
     )
 
 
-def _files_gateway(driver_files: FakeFiles, store: AttachmentStore) -> tuple[MattermostGateway, SinkSpy]:
+def _files_gateway(driver_files: FakeFiles, store: AttachmentStore, keying=None) -> tuple[MattermostGateway, SinkSpy]:
     driver = FakeDriver({})
     driver.files = driver_files
     sink = SinkSpy()
@@ -265,6 +265,7 @@ def _files_gateway(driver_files: FakeFiles, store: AttachmentStore) -> tuple[Mat
         agent="assistant",
         directory=FakeDirectory({ME}),
         attachments=store,
+        keying=keying,
     )
     gw._own_user_id = ME
     return gw, sink
@@ -286,6 +287,26 @@ async def test_attached_files_are_downloaded_and_travel_with_the_message(
     assert attachment.name == "screen.png"
     assert attachment.mime == "image/png"
     assert Path(attachment.path).read_bytes() == b"PNGDATA"
+    assert Path(attachment.path).parent == store.conversation_dir("assistant", msg.conversation_id)
+
+
+async def test_a_file_is_saved_under_the_conversation_as_the_application_keys_it(tmp_path: Path) -> None:
+    """The gateway saves where the flow's record will be: the application's
+    key for the conversation, which is where a tool looks for the file."""
+
+    class _TaskKey:
+        def key(self, agent: str, msg) -> str:
+            return "task-7"
+
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    gw, sink = _files_gateway(FakeFiles({"f1": b"PNGDATA"}), store, keying=_TaskKey())
+
+    await gw._on_ws_message(_posted_frame([{"id": "f1", "name": "screen.png", "mime_type": "image/png"}]))
+
+    (msg,) = sink.submitted
+    (attachment,) = msg.attachments
+    assert Path(attachment.path).parent == store.conversation_dir("assistant", "task-7")
+    assert msg.conversation_id != "task-7"
 
 
 async def test_bare_file_ids_are_described_by_a_metadata_lookup(tmp_path: Path) -> None:

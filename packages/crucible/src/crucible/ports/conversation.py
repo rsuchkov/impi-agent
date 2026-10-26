@@ -21,6 +21,10 @@ class SessionConversation:
     user_id: str  # who spoke last ("" when nobody has)
     files_dir: Path | None = None  # what people sent in it is kept here; may not exist yet
     kind: str = ""  # KIND_DM, KIND_THREAD, KIND_CHANNEL; "" when not known
+    # Whether only the person and the agent see it — a direct message, or a
+    # thread inside one. ``kind`` says where a reply goes; this says who reads
+    # it, which is what a tool that acts as the person asks.
+    direct: bool = False
     # The gateway the conversation last spoke through, and every gateway it is
     # live in — what a tool's call may do depends on the first; where a card
     # goes, on the second.

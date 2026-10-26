@@ -96,7 +96,7 @@ def _ctx(service: OAuthConnections, settings: ConnectedApiSettings, *, kind: str
          allowed: tuple[str, ...] = ("gitlab",)) -> ToolContext:
     return ToolContext(
         agent_name="assistant", directory=FakeDirectory(AGENTS), settings=settings,
-        conversation_kind=kind, connections=NarrowedConnections(service.for_owner(OWNER), allowed),
+        conversation_kind=kind, direct=kind == KIND_DM, connections=NarrowedConnections(service.for_owner(OWNER), allowed),
     )
 
 
@@ -344,7 +344,7 @@ async def test_not_connected_posts_the_connect_offer_and_the_connect_redraws_it(
         dm, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM, user_id="u1")
         ctx = ToolContext(
             agent_name="assistant", directory=FakeDirectory(AGENTS), settings=_settings(tmp_path, monkeypatch),
-            conversation_kind=KIND_DM, runtime_session_id=dm.runtime_session_id, user_id="u1",
+            conversation_kind=KIND_DM, direct=True, runtime_session_id=dm.runtime_session_id, user_id="u1",
             interaction_svc=interactions, connections=NarrowedConnections(service.for_owner(OWNER), ("gitlab",)),
         )
 

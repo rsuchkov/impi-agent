@@ -288,8 +288,11 @@ ways and the fourth never said it at all. The flag marks a tool that carries the
 REPLY, not merely one that posts: `send_file` and `send_ephemeral` are
 deliberately unflagged, because "here is the report, look at section 2" is an
 addition rather than a repetition. Nothing is suppressed — the engine posts
-whatever the agent writes, and `TurnOutcome.ACTED` already covers a turn that
-ends silently on a tool call.
+whatever the agent writes; a turn that wrote nothing ends as `TurnOutcome.ACTED`
+only when one of its calls was a speaking tool's (the flow is told their names,
+`AgentFlow(speaks_to_user=…)`), and as `EMPTY`, with a notice, when the agent
+only looked things up and stopped — to the person that is an unanswered
+question, and the application hears of it.
 
 **Untrusted results:** a tool may declare `returns_untrusted` — what it returns
 is text other people wrote (the messages in a channel, a document, a ticket),

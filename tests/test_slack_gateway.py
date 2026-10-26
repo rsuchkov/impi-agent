@@ -161,9 +161,33 @@ async def test_slack_attachment_is_downloaded_with_the_bot_token(
     (attachment,) = msg.attachments
     assert attachment.name == "screen.png"
     assert Path(attachment.path).read_bytes() == b"PNGDATA"
+    assert Path(attachment.path).parent == store.conversation_dir("assistant", msg.conversation_id)  # the platform's key
     url, headers = http.requests[0]
     assert url == "https://files.slack.com/f/F1"
     assert headers["Authorization"] == "Bearer xoxb-fake"
+
+
+async def test_a_file_is_saved_under_the_conversation_as_the_application_keys_it(tmp_path, monkeypatch) -> None:
+    """An application that keys a Slack thread and a panel as one conversation
+    gives the gateway its key: the file lands where the flow's record — and so
+    the tool's files directory — says, not under the Slack id."""
+
+    class _TaskKey:
+        def key(self, agent: str, msg) -> str:
+            return "task-7"
+
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    http = FakeHttpSession(FakeHttpResponse(body=b"PNGDATA"))
+    monkeypatch.setattr("crucible.gateways.slack.gateway.ClientSession", http)
+    sink = FakeSink()
+    gw = _gateway(sink, agent="assistant", attachments=store, keying=_TaskKey())
+
+    await gw._handle_message(_file_event())
+
+    (msg,) = sink.submitted
+    (attachment,) = msg.attachments
+    assert Path(attachment.path).parent == store.conversation_dir("assistant", "task-7")
+    assert msg.conversation_id != "task-7"  # the message still names the platform's conversation
 
 
 async def test_a_login_page_instead_of_a_file_leaves_the_message_intact(

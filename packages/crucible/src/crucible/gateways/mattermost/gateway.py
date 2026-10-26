@@ -34,6 +34,7 @@ from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
 from crucible.ports.chat.gateway import AgentIdentity
+from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ class MattermostGateway:
         loop_guard: LoopGuard | None = None,
         reply_to_agents: bool = True,
         attachments: AttachmentStore | None = None,
+        keying: ConversationKey | None = None,
         reaction_commands: ReactionCommands | None = None,
     ) -> None:
         self._driver = driver
@@ -64,6 +66,7 @@ class MattermostGateway:
         self._loop_guard = loop_guard
         self._reply_to_agents = reply_to_agents
         self._attachments = attachments
+        self._keying: ConversationKey = keying or PlatformKey()  # the conversation a file belongs to
         self._own_user_id = ""
         # Reactions that are commands — only with a map and somebody to run
         # a command (the clicks' dispatcher; Mattermost's own callbacks come
@@ -139,7 +142,7 @@ class MattermostGateway:
             if file is not None:
                 fetched.append(file)
         stored = await self._attachments.save_many(
-            self._agent, msg.conversation_id, fetched
+            self._agent, self._keying.key(self._agent, msg), fetched
         )
         return replace(msg, attachments=stored) if stored else msg
 

@@ -102,7 +102,7 @@ def _thread_msg(*, root: str = "root1", post: str = "p2") -> IncomingMessage:
 
 def _flow(tmp_path: Path, runtime: FakeRuntime) -> tuple[AgentFlow, SqliteSessionStore]:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
-    return AgentFlow(runtime, PROFILE, store, agent_name="assistant"), store
+    return AgentFlow(runtime, PROFILE, store, agent_name="assistant", speaks_to_user=("ask_user_buttons",)), store
 
 
 async def test_happy_path_replies_in_conversation(tmp_path: Path) -> None:
@@ -664,12 +664,34 @@ async def test_a_turn_that_answers_reports_replied(tmp_path: Path) -> None:
 
 async def test_a_turn_that_only_used_tools_reports_acted(tmp_path: Path) -> None:
     # A posted widget IS the reply; the flow stays silent and so must the caller.
-    runtime = FakeRuntime(result=PiResult(text="", tool_calls=["ask_user_buttons"]))
+    runtime = FakeRuntime(result=PiResult(text="", tool_calls=["search_knowledge_base", "ask_user_buttons"]))
     flow, store = _flow(tmp_path, runtime)
     chat = FakeChat()
 
     assert await flow.handle(_dm(), chat) is TurnOutcome.ACTED
     assert chat.notices == []
+    await store.close()
+
+
+async def test_a_turn_that_only_looked_things_up_and_said_nothing_is_told_as_empty(tmp_path: Path) -> None:
+    """Seven searches and no answer is, to the person, a question nobody
+    answered: the notice says so, and the application hears an empty turn —
+    not a silent `acted` that only a widget tool earns."""
+    from crucible.flows.agent_flow import NOTICE_EMPTY_ANSWER, SILENT_TOOLS_MESSAGE
+
+    runtime = FakeRuntime(result=PiResult(text="", tool_calls=["search_knowledge_base", "read_source"]))
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+
+    assert await flow.handle(_dm(), chat) is TurnOutcome.EMPTY
+    assert [n[1] for n in chat.notices] == [SILENT_TOOLS_MESSAGE] and NOTICE_EMPTY_ANSWER == "empty_answer"
+    assert chat.replies == []
+    # A flow told of no speaking tool treats every tool-only turn the same.
+    from dataclasses import replace
+
+    quiet = AgentFlow(runtime, PROFILE, store, agent_name="assistant")
+    again = replace(_dm(text="again"), ref=replace(_dm().ref, message_id="p2"))  # another message, not a redelivery
+    assert await quiet.handle(again, FakeChat()) is TurnOutcome.EMPTY
     await store.close()
 
 
@@ -1706,7 +1728,7 @@ async def test_messages_from_two_gateways_run_one_session_when_the_application_k
     assert {sid for sid, _ in runtime.calls} == {records[0].runtime_session_id}
     assert gateway_addresses(records[0]) == {
         "slack": GatewayAddress("C1", "slack:task-7", KIND_THREAD),
-        "http": GatewayAddress("portal:u1", "portal:task-7", KIND_DM),
+        "http": GatewayAddress("portal:u1", "portal:task-7", KIND_DM, direct=True),
     }
     assert records[0].last_gateway == "http"
     await store.close()

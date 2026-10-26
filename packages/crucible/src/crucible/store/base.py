@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from crucible.ports.chat.directory import AgentInfo
+from crucible.ports.chat.types import KIND_DM
 from crucible.ports.held_cards import HeldCards
 from crucible.ports.lease import Leases
 from crucible.ports.replica import Replicas
@@ -89,11 +90,16 @@ class SessionRecord:
 
 @dataclass(frozen=True)
 class GatewayAddress:
-    """Where a conversation is on one gateway: the platform's own ids."""
+    """Where a conversation is on one gateway: the platform's own ids. ``kind``
+    says where a reply goes (a thread, a channel, a direct message's root);
+    ``direct`` says who sees it — only the person and the agent, whatever the
+    kind: a thread inside a direct message is a thread to answer in and a
+    direct message to act in."""
 
     channel_id: str
     conversation_id: str
     kind: str
+    direct: bool = False
 
 
 def gateway_addresses(record: "SessionRecord") -> dict[str, GatewayAddress]:
@@ -105,16 +111,25 @@ def gateway_addresses(record: "SessionRecord") -> dict[str, GatewayAddress]:
     except json.JSONDecodeError:
         return {}
     return {
-        name: GatewayAddress(str(a.get("channel_id", "")), str(a.get("conversation_id", "")), str(a.get("kind", "")))
+        name: GatewayAddress(
+            str(a.get("channel_id", "")), str(a.get("conversation_id", "")), str(a.get("kind", "")),
+            # An address from before the flag was recorded: direct when its kind says so.
+            direct=bool(a.get("direct", a.get("kind") == KIND_DM)),
+        )
         for name, a in raw.items() if isinstance(a, dict)
     }
 
 
 def with_gateway_address(record: "SessionRecord", gateway: str, address: GatewayAddress) -> str:
     """The record's ``gateways`` JSON with ``gateway`` set to ``address``."""
-    current = {name: {"channel_id": a.channel_id, "conversation_id": a.conversation_id, "kind": a.kind}
-               for name, a in gateway_addresses(record).items()}
-    current[gateway] = {"channel_id": address.channel_id, "conversation_id": address.conversation_id, "kind": address.kind}
+    current = {
+        name: {"channel_id": a.channel_id, "conversation_id": a.conversation_id, "kind": a.kind, "direct": a.direct}
+        for name, a in gateway_addresses(record).items()
+    }
+    current[gateway] = {
+        "channel_id": address.channel_id, "conversation_id": address.conversation_id, "kind": address.kind,
+        "direct": address.direct,
+    }
     return json.dumps(current, ensure_ascii=False, sort_keys=True)
 
 

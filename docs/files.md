@@ -39,7 +39,10 @@ $DATA_DIR/attachments/<agent>/<conversation>/<file id>-<name>
 In a containerized deployment `DATA_DIR` is `/app/data`, i.e. the `impi-data`
 volume — attachments survive `impi update` and a rollback like the rest of the
 engine's state. Per agent, per conversation: an agent can list what a thread has
-accumulated, and no agent can reach another's files.
+accumulated, and no agent can reach another's files. `<conversation>` is the
+conversation as the application keys it (`ConversationKey`) — the same key the
+flow's record carries, so a tool's files directory is where the gateway saved
+the file; with the default keying it is the platform's own id.
 
 Files are swept after `ATTACHMENT_RETENTION_DAYS` (default 14; `0` keeps them
 forever). A message redelivered by the platform — a reconnect, a retry — writes

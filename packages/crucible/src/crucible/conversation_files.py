@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from crucible.attachments import AttachmentStore
+from crucible.ports.chat.types import KIND_DM
 from crucible.ports.conversation import (
     ConversationResolver,
     EngineTurn,
@@ -38,9 +39,12 @@ def conversation_lookup(attachments: AttachmentStore | None, sessions: SessionSt
         # wrote from — a direct message there, a thread elsewhere.
         addresses = gateway_addresses(record)
         place = addresses.get(record.last_gateway)
-        channel_id, kind = (place.channel_id, place.kind) if place else (record.channel_id, record.kind)
+        if place is not None:
+            channel_id, kind, direct = place.channel_id, place.kind, place.direct
+        else:
+            channel_id, kind, direct = record.channel_id, record.kind, record.kind == KIND_DM
         return SessionConversation(
-            channel_id, record.last_user_id, files_dir, kind,
+            channel_id, record.last_user_id, files_dir, kind, direct=direct,
             gateway=record.last_gateway, gateways=tuple(sorted(addresses)),
         )
 

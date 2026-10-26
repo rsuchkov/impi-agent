@@ -74,6 +74,7 @@ async def _hub(port: int, tmp_path: Path, token: str = "shared", **kw) -> tuple[
     internal = InternalRoutes(
         token, presence, dispatcher=dispatcher,  # type: ignore[arg-type]  # structural test double
         attachments=AttachmentStore(tmp_path / "files", max_bytes=1024, retention_days=1),
+        keying=kw.pop("keying", None),
     )
     hub = HttpHub("127.0.0.1", port, TokenCallers({}), directory=FakeDirectory(), max_wait_s=0.2, routes=internal.routes)
     await hub.start()
@@ -163,6 +164,23 @@ async def test_whether_a_person_may_answer_is_asked_of_the_replica_that_holds_th
         dispatcher.answerers = {"U9"}
         assert await forwarder.ask_may_answer("http://127.0.0.1:8573", "a1.tok", "U9", "slack") is True
         assert await forwarder.ask_may_answer("http://127.0.0.1:8573", "a1.tok", "U8", "slack") is False
+    finally:
+        await forwarder.aclose()
+        await hub.stop()
+
+
+async def test_a_forwarded_file_is_saved_under_the_conversation_as_the_owner_keys_it(tmp_path: Path) -> None:
+    class _TaskKey:
+        def key(self, agent: str, msg) -> str:
+            return "task-7"
+
+    hub, sink, _, _ = await _hub(8574, tmp_path, keying=_TaskKey())
+    forwarder = HubForwarder("shared")
+    try:
+        assert await forwarder.forward_turn("http://127.0.0.1:8574", "helper", [_message(tmp_path)]) is TurnOutcome.ACTED
+        got = sink.submitted[-1]
+        store = AttachmentStore(tmp_path / "files", max_bytes=1024, retention_days=1)
+        assert Path(got.attachments[0].path).parent == store.conversation_dir("helper", "task-7")
     finally:
         await forwarder.aclose()
         await hub.stop()

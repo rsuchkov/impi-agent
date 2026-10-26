@@ -1373,7 +1373,7 @@ async def test_a_tool_is_handed_the_connections_of_the_person_its_turn_acts_for(
 
     async def resolver(agent: str, rsid: str):
         user = "u-7" if rsid == "assistant--conv" else ""
-        return SessionConversation("C1", user, kind="dm")
+        return SessionConversation("C1", user, kind="dm", direct=True)
 
     server = ToolServer(
         ToolRegistry((_Uses(),)),  # type: ignore[arg-type]
