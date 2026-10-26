@@ -102,7 +102,7 @@ def _thread_msg(*, root: str = "root1", post: str = "p2") -> IncomingMessage:
 
 def _flow(tmp_path: Path, runtime: FakeRuntime) -> tuple[AgentFlow, SqliteSessionStore]:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
-    return AgentFlow(runtime, PROFILE, store, agent_name="assistant", speaks_to_user=("ask_user_buttons",)), store
+    return AgentFlow(runtime, PROFILE, store, agent_name="assistant", posting_tools=("ask_user_buttons", "send_file")), store
 
 
 async def test_happy_path_replies_in_conversation(tmp_path: Path) -> None:
@@ -686,12 +686,45 @@ async def test_a_turn_that_only_looked_things_up_and_said_nothing_is_told_as_emp
     assert await flow.handle(_dm(), chat) is TurnOutcome.EMPTY
     assert [n[1] for n in chat.notices] == [SILENT_TOOLS_MESSAGE] and NOTICE_EMPTY_ANSWER == "empty_answer"
     assert chat.replies == []
-    # A flow told of no speaking tool treats every tool-only turn the same.
+    # A flow told of no posting tool treats every tool-only turn the same.
     from dataclasses import replace
 
     quiet = AgentFlow(runtime, PROFILE, store, agent_name="assistant")
     again = replace(_dm(text="again"), ref=replace(_dm().ref, message_id="p2"))  # another message, not a redelivery
     assert await quiet.handle(again, FakeChat()) is TurnOutcome.EMPTY
+    await store.close()
+
+
+async def test_a_turn_that_only_sent_a_file_has_reached_the_person(tmp_path: Path) -> None:
+    """``send_file`` does not speak for the agent, but the person has the file:
+    a turn that ends on it is not empty, and no notice doubles it."""
+    runtime = FakeRuntime(result=PiResult(text="", tool_calls=["read", "send_file"]))
+    flow, store = _flow(tmp_path, runtime)
+    chat = FakeChat()
+    assert await flow.handle(_dm(), chat) is TurnOutcome.ACTED
+    assert chat.notices == [] and chat.replies == []
+    await store.close()
+
+
+async def test_a_message_the_engine_makes_does_not_say_who_reads_the_place(tmp_path: Path) -> None:
+    """A click, a command, a form or an engine-started turn arrives as a
+    synthetic message with no word on whether the place is direct; it must
+    not turn a direct message's recorded address into a shared one."""
+    from dataclasses import replace
+
+    from crucible.store.base import gateway_addresses
+
+    flow, store = _flow(tmp_path, FakeRuntime())
+    typed = replace(_dm(), gateway="mattermost")
+    await flow.handle(typed, FakeChat())
+    assert gateway_addresses((await store.list())[0])["mattermost"].direct is True
+    clicked = replace(typed, ref=replace(typed.ref, message_id="click-1"), text="Yes", is_dm=False, synthetic=True)
+    await flow.handle(clicked, FakeChat())
+    assert gateway_addresses((await store.list())[0])["mattermost"].direct is True  # kept
+    # A person's message from a shared place does say so.
+    shared = replace(typed, ref=replace(typed.ref, message_id="p3"), is_dm=False, kind=KIND_THREAD)
+    await flow.handle(shared, FakeChat())
+    assert gateway_addresses((await store.list())[0])["mattermost"].direct is False
     await store.close()
 
 

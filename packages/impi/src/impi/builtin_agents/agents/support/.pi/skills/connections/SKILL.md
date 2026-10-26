@@ -57,7 +57,7 @@ redirect URI to register) and `!` lines for what is wrong.
 | Page: "your chat account shows no email to compare it with" | `CONNECTION_MATCH_EMAIL__<NAME>` on, and the chat hides emails (Mattermost privacy settings, Slack without `users:read.email`) | show emails, or set it to `false` and accept that anyone may bind any account they can log into |
 | Page: "its email is not the one your chat account has" | they logged in as another account at the provider | log in as their own |
 | Agent says the tool is missing | not in `runtime.tools`, the tool server off, or no provider configured (the tools are advertised only then) | engine-diagnostics §3 |
-| Tool: "works only in a direct message" | the agent was asked in a channel or a thread | by design, for now |
+| Tool: "works only in a direct message" | the agent was asked in a channel, or a thread in one (a thread inside the DM is fine) | by design, for now |
 | Tool: "there is no person here whose connected accounts a tool could use" | a scheduled turn (it acts for nobody), or an agent on the ws/http gateway (`impi health`: `… is not offered to …`) | by design: those turns have no person the engine can name |
 | Tool: "has not connected their … account" (an `mcp__<server>__…` tool says the same, naming the server) | they never connected, or a 401 ended it | the Connect button the engine posted, or `/connections` in the DM |
 | No Connect button appeared | interactivity off (`INTEGRATIONS_ENABLED`): there is then no button and no panel, and nobody can connect | turn interactivity on |
@@ -76,6 +76,6 @@ a token or a code.
 - Scheduled tasks act as nobody, even one scheduled in somebody's DM.
 - Agents on the ws/http gateway are offered no connected accounts: the user id
   there is whatever the calling program says.
-- Channels, shared threads and threads inside a DM: not designed yet; DM only.
+- Channels and shared threads: not designed yet. A thread inside the person's DM works (only they and the agent read it).
 - Someone who leaves keeps their connection until they disconnect or the
   provider revokes the application; there is no `impi` command for it yet.

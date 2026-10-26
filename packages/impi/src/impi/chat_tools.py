@@ -171,6 +171,7 @@ _AGENT_MESSAGE_HOP = 1
 @tool
 class SendMessage(Tool):
     name: ClassVar[str] = "send_message"
+    posts_to_user: ClassVar[bool] = True  # the file/message reaches a person; the turn may end on it
     requires: ClassVar[frozenset[str]] = frozenset({CAP_CHAT_ADMIN})
     description: ClassVar[str] = (
         "Post a message to a channel by its channel_id (e.g. one you created). "

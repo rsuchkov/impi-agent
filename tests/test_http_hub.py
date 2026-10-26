@@ -1432,3 +1432,29 @@ async def test_a_held_card_whose_time_is_up_is_let_go_when_the_conversation_is_a
         assert await hub.turns.held(stale) is None and await hub.turns.held(live) is not None
     finally:
         await hub.stop()
+
+
+async def test_an_http_file_is_saved_under_the_conversation_as_the_application_keys_it(tmp_path: Path) -> None:
+    class _TaskKey:
+        def key(self, agent: str, msg) -> str:
+            return "task-7"
+
+    seen: list = []
+
+    async def looks(msg, chat):
+        seen.append(msg)
+        return TurnOutcome.ACTED
+
+    store = AttachmentStore(tmp_path, max_bytes=1_000_000, retention_days=1)
+    hub, _ = _hub(8516, script=looks, attachments=store, keying=_TaskKey())
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8516, MESSAGES, {
+                "clientMessageId": "m1", "text": "",
+                "files": [{"name": "note.txt", "mime": "text/plain", "data": base64.b64encode(b"hello").decode()}],
+            })
+            await _drain(s, 8516, started["turnId"])
+        assert Path(seen[0].attachments[0].path).parent == store.conversation_dir("helper", "task-7")
+    finally:
+        await hub.stop()

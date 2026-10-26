@@ -32,6 +32,7 @@ from crucible.gateways.ws.events import (
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
+from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import OutgoingFile
 
 logger = logging.getLogger(__name__)
@@ -48,11 +49,13 @@ class WsHub:
         *,
         directory: AgentDirectory | None = None,
         attachments: AttachmentStore | None = None,
+        keying: ConversationKey | None = None,
     ) -> None:
         # services: name -> (bearer token, agent allowlist or None = all ws agents)
         self._host = host
         self._port = port
         self._attachments = attachments
+        self._keying: ConversationKey = keying or PlatformKey()  # the conversation a file belongs to
         self._by_token: dict[str, tuple[str, tuple[str, ...] | None]] = {
             token: (name, allow) for name, (token, allow) in services.items() if token
         }
@@ -218,7 +221,7 @@ class WsHub:
             msg = frame_to_incoming(service, data)
             if files and self._attachments is not None:
                 stored = await self._attachments.save_many(
-                    agent, msg.conversation_id, files
+                    agent, self._keying.key(agent, msg), files
                 )
                 msg = replace(msg, attachments=stored)
             # Fire-and-forget: a long agent turn must never block the socket.

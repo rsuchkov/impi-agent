@@ -21,8 +21,8 @@ class TurnOutcome(Enum):
     """
 
     REPLIED = auto()  # the agent produced text and it was posted
-    ACTED = auto()  # no text, but tools ran — a posted widget IS the reply
-    EMPTY = auto()  # neither: the user was nudged to rephrase
+    ACTED = auto()  # no text, but a tool that posts to the person ran — its post IS the reply
+    EMPTY = auto()  # no text and no such call (nothing, or only lookups): the user got a notice
     # The answer hit the model's length limit: what came out, if anything, was
     # posted, then a notice saying so. Not a failure of the engine's.
     TRUNCATED = auto()

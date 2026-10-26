@@ -338,13 +338,17 @@ class _NoTrace:
         return None
 
 
-def speaking_tools(tools: ToolWiring) -> frozenset[str]:
-    """The registry's tools whose call is itself a message to the person
-    (``speaks_to_user``): a turn that called one and wrote nothing has answered."""
+def _posting_tools(tools: ToolWiring) -> frozenset[str]:
+    """The registry's tools whose call puts something in front of a person
+    (``speaks_to_user`` or ``posts_to_user``): a turn that called one and wrote
+    nothing has reached them."""
     registry = tools.registry
     if registry is None:
         return frozenset()
-    return frozenset(name for name in registry.names() if (tool := registry.get(name)) is not None and tool.speaks_to_user)
+    return frozenset(
+        name for name in registry.names()
+        if (tool := registry.get(name)) is not None and (tool.speaks_to_user or tool.posts_to_user)
+    )
 
 
 def _build_unit(
@@ -361,7 +365,7 @@ def _build_unit(
     tracer: ToolTrace | HttpTurns | _TracerByChat | None,
     turns: TurnRegistry,
     captions: CallCaptions,
-    speaks_to_user: Collection[str] = (),
+    posting_tools: Collection[str] = (),
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
@@ -369,7 +373,7 @@ def _build_unit(
     profile = profiles.build(spec)
     flow = AgentFlow(
         runtime, profile, sessions,
-        agent_name=spec.name, speaks_to_user=speaks_to_user,
+        agent_name=spec.name, posting_tools=posting_tools,
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
         turns=turns,
@@ -467,7 +471,7 @@ def _build_units(
             ),
             turns=turns,
             captions=captions,
-            speaks_to_user=speaking_tools(tools),
+            posting_tools=_posting_tools(tools),
             replica=replica, replicas=replicas, forwarder=forwarder,
         )
         for kind in handles:

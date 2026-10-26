@@ -105,6 +105,7 @@ class McpTool:
 
     settings_cls = None
     speaks_to_user = False
+    posts_to_user = False
     returns_untrusted = True
 
     def __init__(self, server: McpServer, definition: ToolDefinition, call: Caller) -> None:

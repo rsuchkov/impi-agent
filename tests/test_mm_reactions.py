@@ -134,7 +134,7 @@ async def test_a_reaction_on_a_reply_runs_the_command_on_its_thread_and_quotes_t
     assert call[5] == "/done"  # the word is the reactor's; the post is the author's
     assert call[6] == HUMAN and call[7] == "roman"
     assert dispatcher.quoted == [QuotedMessage(author="mallory", text="fix the build")]
-    assert driver.calls == [("get_post", "p1")]  # a reply's channel type is not asked
+    assert driver.calls == [("get_post", "p1"), ("get_channel", "ch1")]  # the channel still says who reads the thread
 
 
 async def test_a_reaction_on_a_top_level_channel_post_answers_in_a_thread_under_it() -> None:

@@ -208,6 +208,12 @@ class Tool(Protocol):
     # notice still leaves the agent something worth saying, and telling it not to
     # repeat itself there would be wrong advice.
     speaks_to_user: ClassVar[bool] = False
+    # When True, the call itself puts something in front of a person — a file, a
+    # message, a notice — without being the reply: a turn that ends on it has
+    # reached somebody, and the flow does not call it empty. Every tool that
+    # speaks to the user posts to them too; this flag is for the ones that post
+    # without speaking.
+    posts_to_user: ClassVar[bool] = False
     # When True, what this tool returns is text other people wrote — messages
     # in a channel, a document, a ticket — and the model must read it as data,
     # not as instructions. Declared, like speaks_to_user: the registry appends

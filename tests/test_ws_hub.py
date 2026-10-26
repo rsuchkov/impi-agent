@@ -345,3 +345,31 @@ async def test_a_token_that_is_not_ascii_is_refused_not_crashed() -> None:
                 assert exc.status == 401
     finally:
         await hub.stop()
+
+
+async def test_a_ws_file_is_saved_under_the_conversation_as_the_application_keys_it(tmp_path) -> None:
+    class _TaskKey:
+        def key(self, agent: str, msg) -> str:
+            return "task-7"
+
+    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    hub = WsHub(
+        "127.0.0.1", 8479, {"probe": ("tok", None)},
+        directory=FakeDirectory(), attachments=store, keying=_TaskKey(),
+    )
+    sink = FakeSink()
+    hub.register_agent("helper", sink, WsChatClient(hub, "helper"))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            ws = await _connect(session, 8479, "tok")
+            await ws.send_json({
+                "type": "message", "agent": "helper", "conversation_id": "user-1", "text": "",
+                "files": [{"name": "photo.jpg", "mime": "image/jpeg", "data": base64.b64encode(b"JPEGDATA").decode()}],
+            })
+            await _wait_until(lambda: sink.submitted)
+            msg, _ = sink.submitted[0]
+            assert Path(msg.attachments[0].path).parent == store.conversation_dir("helper", "task-7")
+            await ws.close()
+    finally:
+        await hub.stop()

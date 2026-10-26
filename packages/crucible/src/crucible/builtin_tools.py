@@ -247,6 +247,7 @@ class OpenForm(Tool):
 @tool
 class SendEphemeral(Tool):
     name: ClassVar[str] = "send_ephemeral"
+    posts_to_user: ClassVar[bool] = True  # the file/message reaches a person; the turn may end on it
     requires: ClassVar[frozenset[str]] = frozenset({CAP_EPHEMERAL})
     description: ClassVar[str] = (
         "Post a message in THIS conversation visible ONLY to one user (an "
@@ -298,6 +299,7 @@ class SendEphemeral(Tool):
 @tool
 class SendFile(Tool):
     name: ClassVar[str] = "send_file"
+    posts_to_user: ClassVar[bool] = True  # the file/message reaches a person; the turn may end on it
     requires: ClassVar[frozenset[str]] = frozenset({CAP_FILES})
     description: ClassVar[str] = (
         "Send a file from disk to the person you are talking to — a picture, a "

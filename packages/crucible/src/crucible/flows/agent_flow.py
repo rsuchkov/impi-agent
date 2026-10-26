@@ -39,6 +39,7 @@ from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
+    KIND_DM,
     KIND_THREAD,
     Attachment,
     ConversationRef,
@@ -249,7 +250,7 @@ class AgentFlow:
         conversation_profiles: ConversationProfiles | None = None,
         captions: CallCaptions | None = None,
         keying: ConversationKey | None = None,
-        speaks_to_user: Collection[str] = (),
+        posting_tools: Collection[str] = (),
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
         if (entitlements is None) != (conversation_profiles is None):
@@ -262,10 +263,11 @@ class AgentFlow:
         self._sessions = sessions
         self._agent_name = agent_name
         self._tracer = tracer
-        # The tools whose call IS a message to the person (a widget, a form, a
-        # panel): a turn that called one and wrote nothing has answered. Any
-        # other tool-only turn has not.
-        self._speaks_to_user = frozenset(speaks_to_user)
+        # The tools whose call puts something in front of a person (a widget, a
+        # form, a panel, a file, a message — ``speaks_to_user`` or
+        # ``posts_to_user``): a turn that called one and wrote nothing has
+        # reached them. Any other tool-only turn has not.
+        self._posting_tools = frozenset(posting_tools)
         # Where a message's TurnScope is bound for the length of its turn, so the
         # tools the turn calls can read it. None = messages here carry none.
         self._turns = turns
@@ -377,8 +379,16 @@ class AgentFlow:
             # through: the platform's ids, kept so a card or an engine-started
             # turn can reach it there — written once per gateway, and again
             # when the address moved.
-            address = GatewayAddress(anchor.channel_id, anchor.conversation_id, anchor.kind, direct=anchor.is_dm)
-            if gateway_addresses(record).get(anchor.gateway) != address:
+            prior = gateway_addresses(record).get(anchor.gateway)
+            # Who reads the place: what the gateway said of the person's message.
+            # A message the engine made (a click, a command, a form, a turn it
+            # started) says nothing about it and leaves the flag as it stands.
+            direct = (
+                prior.direct if anchor.synthetic and prior is not None
+                else anchor.is_dm or anchor.kind == KIND_DM
+            )
+            address = GatewayAddress(anchor.channel_id, anchor.conversation_id, anchor.kind, direct=direct)
+            if prior != address:
                 await self._sessions.set_gateway_address(self._agent_name, key, anchor.gateway, address)
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         outcome = await self._turn(fresh, anchor, record, created, chat)
@@ -524,10 +534,10 @@ class AgentFlow:
             # telling the person to rephrase would blame the question.
             await chat.post_notice(anchor.ref, TRUNCATED_EMPTY_MESSAGE, code=NOTICE_TRUNCATED)
             return TurnOutcome.TRUNCATED
-        if any(call in self._speaks_to_user for call in result.tool_calls):
-            # The silence is deliberate: a tool that declares it speaks to the
-            # user has already put the message there (buttons, a form, a
-            # panel), and a fallback here would double up on it.
+        if any(call in self._posting_tools for call in result.tool_calls):
+            # The silence is deliberate: a tool that posts to the person has
+            # already put something there (buttons, a form, a panel, a file),
+            # and a fallback here would double up on it.
             return TurnOutcome.ACTED
         if result.tool_calls:
             # The agent looked things up and stopped without a word: to the

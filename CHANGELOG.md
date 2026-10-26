@@ -19,23 +19,31 @@ when a release is cut, and `impi update` shows the target version's section.
   conversation's directory when the application keys conversations itself.**
   The gateways saved under the platform's conversation id before the
   conversation was keyed, while a tool's `files_dir` is the keyed record's — two
-  directories, and `read_attachment` found nothing. The gateways (and the
-  forwarded-turn route between replicas) now take the `ConversationKey` the flow
-  uses (`GatewayFactory(keying=…)`, `InternalRoutes(keying=…)`) and save under it.
+  directories, and `read_attachment` found nothing. The gateways, the hubs and
+  the forwarded-turn route between replicas now take the `ConversationKey` the
+  flow uses (`GatewayFactory(keying=…)`, `HttpHub(keying=…)`, `WsHub(keying=…)`,
+  `InternalRoutes(keying=…)`) and save under it. A message the engine makes (a
+  click, a command, a form, a turn it starts) leaves the recorded `direct` as
+  it stands.
 - **Fixed: a turn that called tools and wrote nothing ended silently whatever
   the tools were.** Any tool call made the turn `acted`, although only a tool
   that speaks to the person (a widget, a form) has answered for it; a support
   agent that searched seven times and stopped left the person with nothing,
-  and the application never heard. The flow is told the speaking tools
-  (`AgentFlow(speaks_to_user=…)`, `impi` collects them from the registry); a
-  turn whose calls were none of them ends as `empty` with the notice "I looked
-  things up but came back without an answer — please ask again".
-- **Breaks:** an application that builds `AgentFlow` without `speaks_to_user`
+  and the application never heard. The flow is told the tools whose call
+  reaches a person (`AgentFlow(posting_tools=…)` — every tool that
+  `speaks_to_user`, and the ones that post without speaking, `send_file`,
+  `send_ephemeral`, `send_message`, which now declare `Tool.posts_to_user`;
+  `impi` collects them from the registry); a turn whose calls were none of
+  them ends as `empty` with the notice "I looked things up but came back
+  without an answer — please ask again".
+- **Breaks:** an application that builds `AgentFlow` without `posting_tools`
   gets a notice on every tool-only silent turn — pass the names of its tools
-  that speak. `GatewayAddress`, `SessionConversation` and `ToolContext` gain
-  `direct`; a tool that checked `conversation_kind == KIND_DM` to act as the
-  person should check `direct`. `MattermostGateway`, `SlackGateway` and
-  `InternalRoutes` take `keying=`; without it the platform's id, as before.
+  that speak or post to the person (`Tool.speaks_to_user` or the new
+  `Tool.posts_to_user`). `GatewayAddress`, `SessionConversation` and
+  `ToolContext` gain `direct`; a tool that checked `conversation_kind ==
+  KIND_DM` to act as the person should check `direct`. `MattermostGateway`,
+  `SlackGateway`, `HttpHub`, `WsHub` and `InternalRoutes` take `keying=`;
+  without it the platform's id, as before.
 
 ## v0.32.0 — 2026-10-25
 

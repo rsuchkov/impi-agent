@@ -120,7 +120,11 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
             continue
         tools.enroll(spec, handle.admin)  # before building the profile
         profile = build_pi_profile(spec)  # + apply tools.profile_env(spec) / the prompt hint
-        flow = AgentFlow(runtime, profile, sessions, agent_name=spec.name)
+        # The tools whose call reaches the person (a widget, a form, a file):
+        # a turn that ends on one is not empty. Without them every tool-only
+        # silent turn gets the "came back without an answer" notice.
+        posting = [n for n in registry.names() if (t := registry.get(n)) and (t.speaks_to_user or t.posts_to_user)]
+        flow = AgentFlow(runtime, profile, sessions, agent_name=spec.name, posting_tools=posting)
         coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
         kind = configs[spec.name].kind
         sinks_by_agent[spec.name] = AgentSink(sink=coalescer, gateways={kind: handle.chat}, default=kind)

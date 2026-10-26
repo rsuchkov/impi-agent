@@ -94,7 +94,7 @@ Run statuses and what each one means:
 | Status | What happened |
 |---|---|
 | `ok` | the agent answered |
-| `empty` | the turn produced neither text nor a tool call |
+| `empty` | the turn produced no text and no call that reaches a person (nothing, or only lookups) |
 | `timeout` | the turn ran past its time limit, the model stalled, or the engine was full; the conversation already got a notice saying which |
 | `error` | the runtime or the dispatch path failed |
 | `deadline` | the engine stopped waiting (`SCHEDULER_RUN_DEADLINE_S`); the turn may still be running |

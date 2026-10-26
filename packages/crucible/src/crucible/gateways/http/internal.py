@@ -20,6 +20,7 @@ import asyncio
 import base64
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -239,9 +240,10 @@ class InternalRoutes:
                 raise Refusal(422, "validation", "every message must be a JSON object")
             saved: tuple[Attachment, ...] = ()
             files = wire_files(data)
+            msg = message_from_wire(data)
             if files and self._attachments is not None:
-                saved = await self._attachments.save_many(agent, self._keying.key(agent, message_from_wire(data)), files)
-            msg = message_from_wire(data, saved)
+                saved = await self._attachments.save_many(agent, self._keying.key(agent, msg), files)
+                msg = replace(msg, attachments=saved)
             waits.append(sink.sink.submit_tracked(msg, sink.chat_for(msg.gateway)))
         logger.info("replica: %d forwarded message(s) for %s taken", len(waits), agent)
         outcomes: list[TurnOutcome] = list(await asyncio.gather(*waits))

@@ -43,6 +43,7 @@ from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import TrackedSink, TurnOutcome
 from crucible.ports.chat.gateway import GATEWAY_HTTP
 from crucible.ports.chat.interactions import actions_from_json, approval_card_from_json
+from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import (
     ACTION_BUTTON,
     KIND_DM,
@@ -128,10 +129,12 @@ class HttpHub:
         middlewares: Sequence[Middleware] = (),
         readiness_probes: Sequence[ReadinessProbe] = (),
         engine_turns: EngineTurnsSince | None = None,
+        keying: ConversationKey | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._callers = callers
+        self._keying: ConversationKey = keying or PlatformKey()  # the conversation a file belongs to
         # Shared with the agents' chat clients and handed to their flows as the
         # tracer: one object knows every running turn on this gateway.
         self.turns = turns or HttpTurns()
@@ -451,11 +454,27 @@ class HttpHub:
                 409, "turn_in_progress", "this conversation already has a turn running",
                 turnId=running.id,
             )
-        # Saved before the turn exists: a failure here must leave no turn behind
-        # that is active and will never finish.
+        message = IncomingMessage(
+            ref=ConversationRef(
+                channel_id=conversation, conversation_id=conversation,
+                # Namespaced like the conversation, so the store's dedup of a
+                # replayed id cannot collide across realms.
+                message_id=f"{caller.realm}{_SEP}{client_message_id}", thread_root_id="",
+            ),
+            text=text,
+            user_id=caller.user_id,
+            username=caller.username or caller.user_id,
+            kind=KIND_DM,
+            is_dm=True,
+            mentioned=True,
+            gateway=GATEWAY_HTTP,
+        )
+        # Saved before the turn exists — a failure here must leave no turn behind
+        # that is active and will never finish — under the conversation as the
+        # application keys it, where a tool's files directory is.
         stored = ()
         if files and self._attachments is not None:
-            stored = await self._attachments.save_many(agent, conversation, files)
+            stored = await self._attachments.save_many(agent, self._keying.key(agent, message), files)
         # Checked again past the only await above: a drain that began while the
         # files were saved must not be followed by a turn `idle()` never saw.
         if self._draining and self.turns.known(conversation, client_message_id) is None:
@@ -474,20 +493,8 @@ class HttpHub:
         if not created:
             return web.json_response(answer, status=200)  # the retry of a message we have
 
-        message = IncomingMessage(
-            ref=ConversationRef(
-                channel_id=conversation, conversation_id=conversation,
-                # Namespaced like the conversation, so the store's dedup of a
-                # replayed id cannot collide across realms.
-                message_id=f"{caller.realm}{_SEP}{client_message_id}", thread_root_id="",
-            ),
-            text=text,
-            user_id=caller.user_id,
-            username=caller.username or caller.user_id,
-            kind=KIND_DM,
-            is_dm=True,
-            mentioned=True,
-            gateway=GATEWAY_HTTP,
+        message = replace(
+            message,
             # When the hub accepted it: the speaker line's time is how the
             # model knows what "now" is.
             timestamp=datetime.now(timezone.utc),

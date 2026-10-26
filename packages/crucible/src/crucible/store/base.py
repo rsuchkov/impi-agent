@@ -266,7 +266,7 @@ STATE_DONE = "done"
 # ``TaskRunRecord.detail``, so "why didn't it run" is always greppable.
 RUN_RUNNING = "running"  # claimed and in flight
 RUN_OK = "ok"  # the agent answered
-RUN_EMPTY = "empty"  # the turn produced neither text nor a tool call
+RUN_EMPTY = "empty"  # the turn produced no text and no call that reaches a person (nothing, or only lookups)
 RUN_TIMEOUT = "timeout"  # the runtime timed out (the user got the fallback)
 RUN_ERROR = "error"  # the runtime or the dispatch path failed
 RUN_DEADLINE = "deadline"  # we stopped waiting; the turn may still be running

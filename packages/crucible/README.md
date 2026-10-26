@@ -97,7 +97,8 @@ runtime  = PiRuntime(pi_bin=..., extra_extensions=[EXTENSION_PATH, ...], ui_brid
 store    = CompositeProfileStore([FsProfileStore(agents_dir), FsProfileStore(builtin_dir)])
 for spec in store.list():
     profile   = build_pi_profile(spec)                 # AgentSpec -> the pi driver's profile
-    flow      = AgentFlow(runtime, profile, sessions, agent_name=spec.name)
+    flow      = AgentFlow(runtime, profile, sessions, agent_name=spec.name,
+                          posting_tools=[...])              # the tools whose call reaches the person
     coalescer = MessageCoalescer(flow)
     gateway   = MattermostGateway(driver, coalescer, chat, ...)  # or SlackGateway
 ```

@@ -62,6 +62,13 @@ and the `agent.yaml` key behind it:
   seconds (120 by default; not counted while a tool runs or a card is up); the
   log says `pi reported nothing for Ns; aborting the stalled turn`. A hang,
   not long work: raising `timeout` would not have helped.
+- "I thought about it but produced no answer — please try rephrasing" /
+  "I looked things up but came back without an answer — please ask again"
+  (`empty_answer`) — the model ended the turn with no text: the first when it
+  called nothing, the second when it called tools, none of which puts anything
+  in front of a person (a search, a read), and wrote nothing after. The turn
+  ends `empty`. A model or prompt matter, not an engine fault; the tool trace
+  shows what it called.
 - "That answer hit the model's length limit" / "hit its length limit before it
   had answered" (`truncated`) — the model's output limit went on reasoning or
   on a long answer. Lower `runtime.thinking`, or ask for a shorter answer.

@@ -139,6 +139,7 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
   the server wanted a question answered mid-call (elicitation); not supported,
   by design.
 - a tool with a `${connection:…}` header answers "works only in a direct
-  message" in a channel or thread — by design, as the connection tools.
+  message" in a channel or a thread in one — by design, as the connection
+  tools; a thread inside the person's DM is a direct message for this.
 
 What is not there: resources, prompts, sampling, OAuth sign-in at a server.

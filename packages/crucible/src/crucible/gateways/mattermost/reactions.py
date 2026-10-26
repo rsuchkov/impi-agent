@@ -70,9 +70,9 @@ class MattermostReactions:
             return
         channel_id = str(post.get("channel_id") or reaction.channel_id)
         root_id = str(post.get("root_id") or "")
-        # A reply's conversation is its thread whatever the channel; the type
-        # is asked only when it decides something.
-        is_dm = not root_id and await self._channel_type(channel_id) == DIRECT_CHANNEL_TYPE
+        # A reply's conversation is its thread whatever the channel; whether
+        # the channel is a direct one still says who reads the thread.
+        is_dm = await self._channel_type(channel_id) == DIRECT_CHANNEL_TYPE
         conversation_id, kind, _ = conversation_of(reaction.message_id, root_id, channel_id, is_dm=is_dm)
         quoted = None
         text = str(post.get("message") or "")
