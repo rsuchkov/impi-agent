@@ -22,6 +22,15 @@ when a release is cut, and `impi update` shows the target version's section.
   the tool `takes a file`. Nothing to configure. (`ports.attachments`:
   `ReceivedFile`, `ReceivedFiles`; `ToolContext.received_files`;
   `ToolWiring.build_server(received=)`.)
+- **Fixed: a file saved by a gateway under the platform's conversation id
+  stayed there when the application's key could only be settled later.** The
+  gateways save under `keying.key(agent, msg)` since v0.33.0, but a key that
+  needs what the application's own sink learns after the gateway (a person's
+  account, the conversation it belongs to) is the platform's id at that
+  moment. The flow, which settles the key when it opens the record, now takes
+  such a file into the conversation as keyed — the file moves, its record with
+  it — before the model sees the path (`AgentFlow(files=store)`,
+  `ports.attachments.FileKeeper.adopt`, implemented by `AttachmentStore`).
 
 ## v0.33.0 — 2026-10-26
 

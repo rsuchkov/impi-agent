@@ -12,6 +12,8 @@ when the file is still the one recorded.
 from dataclasses import dataclass
 from typing import Protocol
 
+from crucible.ports.chat.types import Attachment
+
 # What the common file formats start with: the type a file's bytes really are,
 # against the one its name or the platform claims.
 _MAGIC: tuple[tuple[bytes, str], ...] = (
@@ -68,4 +70,19 @@ class ReceivedFiles(Protocol):
         """The file's bytes, read once and checked against the record — raises
         ``ReceivedFileGone`` or ``ReceivedFileChanged`` rather than hand over
         anything else."""
+        ...
+
+
+class FileKeeper(Protocol):
+    """Where a conversation's files are kept, for the flow that settles which
+    conversation a message belongs to. A gateway saves a file before the
+    application has keyed the conversation — under the platform's id when the
+    key needs what only the application's sink learns later — so the flow,
+    which opens the record, asks the keeper to take the file into the
+    conversation as it is keyed."""
+
+    async def adopt(self, agent: str, conversation_id: str, attachment: Attachment) -> Attachment:
+        """The attachment as kept under ``conversation_id``: moved there, with
+        its record, when it was saved under another; itself when it already is
+        there or is not this keeper's to move."""
         ...

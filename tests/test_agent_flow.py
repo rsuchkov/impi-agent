@@ -1837,3 +1837,30 @@ async def test_a_host_that_refused_the_spawn_is_not_a_backend_refusing_a_picture
         assert "refused a picture" in caplog.text
     finally:
         await store.close()
+
+
+async def test_a_file_the_gateway_saved_under_the_platforms_id_follows_the_conversations_key(tmp_path: Path) -> None:
+    """An application whose key needs what its own sink learns later cannot
+    give the gateway the key in time: the gateway saves under the platform's
+    id, and the flow — which settles the key when it opens the record — takes
+    the file into that conversation. The prompt names the path a tool will find."""
+    from crucible.attachments import AttachmentStore, IncomingFile
+    from crucible.ports.chat.types import KIND_THREAD
+
+    store = AttachmentStore(tmp_path / "files", max_bytes=1024, retention_days=14)
+    (saved,) = await store.save_many("assistant", "slack:task-7", [IncomingFile(name="notes.txt", data=b"hello", mime="text/plain", key="F1")])
+    runtime = FakeRuntime()
+    sessions = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, sessions, agent_name="assistant", keying=_TaskKey(), files=store)
+    msg = IncomingMessage(
+        ref=ConversationRef(channel_id="C1", conversation_id="slack:task-7", message_id="1700.1", thread_root_id="slack:task-7"),
+        text="look", user_id="u1", username="roman", kind=KIND_THREAD, gateway="slack", mentioned=True,
+        attachments=(saved,),
+    )
+    await flow.handle(msg, FakeChat())
+    expected_dir = store.conversation_dir("assistant", "task-7")
+    assert str(expected_dir) in runtime.calls[0][1] and "notes.txt" in runtime.calls[0][1]  # the prompt names the adopted path
+    assert saved.path not in runtime.calls[0][1]
+    assert (expected_dir / Path(saved.path).name).read_bytes() == b"hello"
+    assert [r.name for r in await store.received(expected_dir).list()] == ["notes.txt"]
+    await sessions.close()

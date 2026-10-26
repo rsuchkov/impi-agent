@@ -192,6 +192,47 @@ class AttachmentStore:
             await asyncio.to_thread(self._record, self.conversation_dir(agent, conversation_id), arrived)
         return tuple(saved)
 
+    async def adopt(self, agent: str, conversation_id: str, attachment: Attachment) -> Attachment:
+        """The attachment under the conversation as the flow keys it. A gateway
+        saved it under the key it could compute; when the flow's key differs,
+        the file moves into that conversation's directory and its record line
+        with it, so a tool's files directory and the record agree with the
+        prompt's path. A file outside this store is left where it is."""
+        source = Path(attachment.path)
+        target_dir = self.conversation_dir(agent, conversation_id)
+        if source.parent == target_dir:
+            return attachment
+        if not source.is_relative_to(self.dir_for(agent)):
+            return attachment  # not ours to move (another agent's, or nobody's)
+        target = target_dir / source.name
+        try:
+            await asyncio.to_thread(self._move, source, target)
+        except OSError as exc:
+            logger.warning("attachment %s could not be moved into its conversation: %s", attachment.name, exc)
+            return attachment
+        await asyncio.to_thread(self._move_record, source.parent, target_dir, str(source), str(target))
+        return Attachment(name=attachment.name, path=str(target), mime=attachment.mime, size=attachment.size)
+
+    @staticmethod
+    def _move(source: Path, target: Path) -> None:
+        private_dir(target.parent)
+        if target.exists() and target.stat().st_size == source.stat().st_size:
+            source.unlink()  # a redelivery already adopted
+            return
+        os.replace(source, target)
+
+    def _move_record(self, from_dir: Path, to_dir: Path, old_path: str, new_path: str) -> None:
+        source_record = self._record_path(from_dir)
+        records = self._read_record(source_record)
+        moving = [r for r in records if r.path == old_path]
+        staying = [r for r in records if r.path != old_path]
+        if moving:
+            private_file(source_record)
+            source_record.write_text("".join(json.dumps(r.__dict__, ensure_ascii=False) + "\n" for r in staying), encoding="utf-8")
+            self._record(to_dir, [ReceivedFile(**{**m.__dict__, "path": new_path}) for m in moving])
+        if from_dir.is_dir():
+            self._prune_empty(from_dir)  # the gateway's directory, emptied by the move
+
     # -- what arrived --------------------------------------------------------------
 
     def received(self, files_dir: Path) -> ReceivedFiles:

@@ -33,6 +33,7 @@ from crucible.ports.agent import (
     notice_for,
 )
 from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.attachments import FileKeeper
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.context import ContextSource, HistorySource
 from crucible.ports.chat.flow import TurnOutcome
@@ -139,6 +140,13 @@ def _format_size(size: int) -> str:
     if size >= 1024:
         return f"{size / 1024:.0f} KB"
     return f"{size} B"
+
+
+async def _adopt_all(files: FileKeeper, agent: str, key: str, msg: IncomingMessage) -> IncomingMessage:
+    if not msg.attachments:
+        return msg
+    adopted = tuple([await files.adopt(agent, key, a) for a in msg.attachments])
+    return replace(msg, attachments=adopted)
 
 
 def _attachment_line(attachment: Attachment) -> str:
@@ -251,6 +259,7 @@ class AgentFlow:
         captions: CallCaptions | None = None,
         keying: ConversationKey | None = None,
         posting_tools: Collection[str] = (),
+        files: FileKeeper | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
         if (entitlements is None) != (conversation_profiles is None):
@@ -268,6 +277,9 @@ class AgentFlow:
         # ``posts_to_user``): a turn that called one and wrote nothing has
         # reached them. Any other tool-only turn has not.
         self._posting_tools = frozenset(posting_tools)
+        # Where the conversation's files are kept: a file a gateway saved under
+        # the key it could compute is taken into the conversation as keyed here.
+        self._files = files
         # Where a message's TurnScope is bound for the length of its turn, so the
         # tools the turn calls can read it. None = messages here carry none.
         self._turns = turns
@@ -367,9 +379,14 @@ class AgentFlow:
         ]
         if not fresh:
             return TurnOutcome.DUPLICATE
+        key = self._keying.key(self._agent_name, fresh[-1])
+        if self._files is not None:
+            # The gateway saved what people attached under the key it could
+            # compute; the conversation's key is settled here, so the files
+            # follow it — a tool's directory and the prompt's path then agree.
+            fresh = [await _adopt_all(self._files, self._agent_name, key, m) for m in fresh]
         anchor = fresh[-1]
 
-        key = self._keying.key(self._agent_name, anchor)
         record, created = await self._sessions.get_or_create(
             self._agent_name, anchor.channel_id, key, anchor.kind,
             user_id=anchor.user_id, gateway=anchor.gateway,

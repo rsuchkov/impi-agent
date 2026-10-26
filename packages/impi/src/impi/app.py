@@ -72,6 +72,7 @@ from crucible.ports.agent import (
     ChainedCaptions,
     RuntimeControl,
 )
+from crucible.ports.attachments import FileKeeper
 from crucible.ports.chat.flow import Flow
 from crucible.ports.chat.gateway import (
     GATEWAY_HTTP,
@@ -366,6 +367,7 @@ def _build_unit(
     turns: TurnRegistry,
     captions: CallCaptions,
     posting_tools: Collection[str] = (),
+    files: FileKeeper | None = None,
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
@@ -373,7 +375,7 @@ def _build_unit(
     profile = profiles.build(spec)
     flow = AgentFlow(
         runtime, profile, sessions,
-        agent_name=spec.name, posting_tools=posting_tools,
+        agent_name=spec.name, posting_tools=posting_tools, files=files,
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
         turns=turns,
@@ -416,6 +418,7 @@ def _build_units(
     gateway_factory: GatewayFactory,
     tools: ToolWiring,
     captions: CallCaptions,
+    files: FileKeeper | None = None,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
@@ -472,6 +475,7 @@ def _build_units(
             turns=turns,
             captions=captions,
             posting_tools=_posting_tools(tools),
+            files=files,
             replica=replica, replicas=replicas, forwarder=forwarder,
         )
         for kind in handles:
@@ -779,7 +783,7 @@ def build_app(settings: ImpiSettings) -> App:
     units = _build_units(
         specs, configs, engine_names,
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
-        gateway_factory=gateway_factory, tools=tools,
+        gateway_factory=gateway_factory, tools=tools, files=attachments,
         leases=sessions, instance=f"{socket.gethostname()}:{os.getpid()}",
         # Who captions a call for the person watching: the deployment's tools
         # themselves, then the runtime's own built-ins.

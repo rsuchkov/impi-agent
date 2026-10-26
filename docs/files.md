@@ -146,6 +146,13 @@ batches them (Mattermost's own per-post limit).
 A failure with one file never costs the user their message — the download error
 is logged and the turn runs with whatever else arrived.
 
+A gateway saves under the conversation's key as far as it can compute it
+(`GatewayFactory(keying=…)`); when the application's key needs what only its
+own sink learns later, the gateway's key is the platform's id, and the flow —
+which settles the key when it opens the conversation's record — takes the file
+into that conversation (`AgentFlow(files=store)`, `FileKeeper.adopt`), record
+and all, before the model sees the path.
+
 Beside each conversation's directory the engine keeps a record of what arrived
 (`.<conversation>.received.jsonl`: name, size, sha256) — outside the
 directory, where the agent's process may write. A tool that hands a person's

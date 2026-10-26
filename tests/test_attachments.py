@@ -13,6 +13,7 @@ from crucible.attachments import (
     safe_name,
     sniff_image,
 )
+from crucible.ports.chat.types import Attachment
 
 MB = 1024 * 1024
 
@@ -205,3 +206,22 @@ async def test_what_arrived_is_recorded_beside_the_conversations_directory_with_
         await received.read(listed[0])
     # A conversation that received nothing.
     assert await store.received(store.conversation_dir("assistant", "conv-9")).list() == ()
+
+
+async def test_a_file_saved_under_one_key_is_adopted_into_the_conversation_as_keyed_with_its_record(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    (saved,) = await store.save_many("assistant", "D1", [IncomingFile(name="notes.txt", data=b"abc", mime="text/plain", key="F1")])
+    adopted = await store.adopt("assistant", "task-7", saved)
+    assert Path(adopted.path).parent == store.conversation_dir("assistant", "task-7")
+    assert (adopted.name, adopted.mime, adopted.size) == ("notes.txt", "text/plain", 3) and Path(adopted.path).read_bytes() == b"abc"
+    assert not Path(saved.path).exists()
+    # The record moved with it: the new conversation received it, the old one no longer lists it.
+    assert [r.path for r in await store.received(store.conversation_dir("assistant", "task-7")).list()] == [adopted.path]
+    assert await store.received(store.conversation_dir("assistant", "D1")).list() == ()
+    assert await store.received(store.conversation_dir("assistant", "task-7")).read((await store.received(store.conversation_dir("assistant", "task-7")).list())[0]) == b"abc"
+    # Already there: itself. Not this store's: itself.
+    assert await store.adopt("assistant", "task-7", adopted) == adopted
+    (tmp_path / "elsewhere.txt").write_bytes(b"not the store's")
+    elsewhere = Attachment(name="x", path=str(tmp_path / "elsewhere.txt"), mime="", size=15)
+    assert await store.adopt("assistant", "task-7", elsewhere) == elsewhere
+    assert (tmp_path / "elsewhere.txt").is_file()  # left where it was, not pulled into a conversation

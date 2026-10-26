@@ -124,7 +124,8 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
         # a turn that ends on one is not empty. Without them every tool-only
         # silent turn gets the "came back without an answer" notice.
         posting = [n for n in registry.names() if (t := registry.get(n)) and (t.speaks_to_user or t.posts_to_user)]
-        flow = AgentFlow(runtime, profile, sessions, agent_name=spec.name, posting_tools=posting)
+        flow = AgentFlow(runtime, profile, sessions, agent_name=spec.name, posting_tools=posting,
+                         files=attachments)  # a file saved under another key follows the conversation
         coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
         kind = configs[spec.name].kind
         sinks_by_agent[spec.name] = AgentSink(sink=coalescer, gateways={kind: handle.chat}, default=kind)
