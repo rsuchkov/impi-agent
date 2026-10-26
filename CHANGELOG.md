@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.33.0 — 2026-10-26
+
 - **Fixed: a thread inside a direct message counted as a shared conversation
   for a tool that acts as the person.** A conversation's `kind` answered two
   questions with one word — where the reply goes and who reads it — so a Slack
