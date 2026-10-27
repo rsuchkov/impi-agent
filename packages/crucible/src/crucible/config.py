@@ -505,6 +505,10 @@ class Settings(BaseSettings):
     tasks_command: str = "tasks"
 
     log_level: str = "INFO"
+    # Whether the engine's telemetry (a turn ended, a tool ran — see
+    # docs/telemetry.md) is written to the log as JSON lines. An application
+    # with a receiver of its own turns this off.
+    telemetry_log: bool = True
 
     def enabled_agent_names(self) -> list[str] | None:
         """Parsed agents_enabled; None means "all agents found in the repo"."""

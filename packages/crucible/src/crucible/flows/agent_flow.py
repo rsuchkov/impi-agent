@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import logging
 import secrets
+import time
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import replace
 from datetime import datetime
@@ -22,6 +23,7 @@ from crucible.ports.agent import (
     AgentError,
     AgentEvent,
     AgentProfile,
+    AgentResult,
     AgentRuntime,
     AgentStalled,
     AgentTimeout,
@@ -52,6 +54,7 @@ from crucible.ports.entitlement import (
     EntitlementSource,
     shared_entitlement,
 )
+from crucible.ports.telemetry import Telemetry, TurnEnded
 from crucible.ports.turn import TurnBinding
 from crucible.store.base import (
     GatewayAddress,
@@ -132,6 +135,15 @@ def _format_time(dt: datetime) -> str:
     """Render a message time for the prompt envelope. UTC keeps it unambiguous; the
     newest message is ~now, so the agent can reason about when things were said."""
     return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+
+class _TurnFacts:
+    """What a turn leaves for its telemetry: the runtime's result when there
+    was one, and the notice code the person got when there was one."""
+
+    def __init__(self) -> None:
+        self.result: AgentResult | None = None
+        self.notice: str = ""
 
 
 async def _adopt_all(keeper: FileKeeper, agent: str, key: str, msg: IncomingMessage) -> IncomingMessage:
@@ -252,6 +264,7 @@ class AgentFlow:
         keying: ConversationKey | None = None,
         posting_tools: Collection[str] = (),
         file_keeper: FileKeeper | None = None,
+        telemetry: Telemetry | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
         if (entitlements is None) != (conversation_profiles is None):
@@ -272,6 +285,8 @@ class AgentFlow:
         # Where the conversation's files are kept: a file a gateway saved under
         # the key it could compute is taken into the conversation as keyed here.
         self._file_keeper = file_keeper
+        # Where a turn's telemetry goes (None = nobody listens).
+        self._telemetry = telemetry
         # Where a message's TurnScope is bound for the length of its turn, so the
         # tools the turn calls can read it. None = messages here carry none.
         self._turns = turns
@@ -400,7 +415,11 @@ class AgentFlow:
             if prior != address:
                 await self._sessions.set_gateway_address(self._agent_name, key, anchor.gateway, address)
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
-        outcome = await self._turn(fresh, anchor, record, created, chat)
+        started = time.monotonic()
+        facts = _TurnFacts()
+        outcome = await self._turn(fresh, anchor, record, created, chat, facts)
+        if self._telemetry is not None:
+            self._report_turn(fresh, anchor, key, outcome, facts, time.monotonic() - started)
         if anchor.turn is not None and anchor.turn.flags:
             # After the answer or the failure notice: a tool's note about the turn
             # ("your session expired") reads as the footnote it is.
@@ -410,6 +429,27 @@ class AgentFlow:
                 )
         return outcome
 
+    def _report_turn(
+        self, fresh: list[IncomingMessage], anchor: IncomingMessage, key: str,
+        outcome: TurnOutcome, facts: "_TurnFacts", duration_s: float,
+    ) -> None:
+        assert self._telemetry is not None
+        result = facts.result
+        try:
+            self._telemetry.record(TurnEnded(
+                agent=self._agent_name, gateway=anchor.gateway, user_id=anchor.user_id, conversation_id=key,
+                kind=anchor.kind, direct=anchor.is_dm or anchor.kind == KIND_DM, synthetic=anchor.synthetic,
+                messages=len(fresh), attachments=sum(len(m.attachments) for m in fresh),
+                outcome=outcome.name.lower(), notice=facts.notice, duration_s=duration_s,
+                model=result.model if result is not None else "",
+                stop_reason=(result.stop_reason or "") if result is not None else "",
+                tool_calls=tuple(result.tool_calls) if result is not None else (),
+                truncated=result.truncated if result is not None else False,
+                usage=result.usage if result is not None else None,
+            ))
+        except Exception:  # noqa: BLE001 - telemetry must never cost the turn
+            logger.warning("telemetry failed to record a turn", exc_info=True)
+
     async def _turn(
         self,
         fresh: list[IncomingMessage],
@@ -417,6 +457,7 @@ class AgentFlow:
         record: SessionRecord,
         created: bool,
         chat: ChatClient,
+        facts: "_TurnFacts",
     ) -> TurnOutcome:
         # A first turn for the runtime is not only a conversation the store has
         # never seen: a session the runtime has forgotten (evicted, wiped with
@@ -484,11 +525,13 @@ class AgentFlow:
                     on_event=self._observer(trace, log),
                 )
             interrupted = False
+            facts.result = result
         except AgentBusy as exc:
             # Nothing ran: the engine was full. Said as such, and nothing for
             # the next turn to be told — there was no turn.
             logger.warning("agent turn could not start for %s: %s", record.runtime_session_id, exc)
             code, text = notice_for(exc)
+            facts.notice = code
             await chat.post_notice(anchor.ref, text, code=code)
             return TurnOutcome.TIMEOUT
         except AgentTimeout as exc:
@@ -502,6 +545,7 @@ class AgentFlow:
                 self._agent_name, anchor.conversation_id, log.cut_short_note(exc)
             )
             code, text = notice_for(exc)
+            facts.notice = code
             await chat.post_notice(anchor.ref, text, code=code)
             return TurnOutcome.TIMEOUT
         except AgentError as exc:
@@ -511,6 +555,7 @@ class AgentFlow:
             logger.exception("agent run failed for %s", record.runtime_session_id)
             self._warn_if_picture_rejected(exc, record)
             code, text = notice_for(exc)
+            facts.notice = code
             await chat.post_notice(anchor.ref, text, code=code)
             return TurnOutcome.ERROR
         finally:
@@ -535,12 +580,14 @@ class AgentFlow:
             if truncated:
                 # Said after the reply, so the person reads what there is first
                 # and then why it stops where it does.
+                facts.notice = NOTICE_TRUNCATED
                 await chat.post_notice(anchor.ref, TRUNCATED_MESSAGE, code=NOTICE_TRUNCATED)
                 return TurnOutcome.TRUNCATED
             return TurnOutcome.REPLIED
         if truncated:
             # Not an empty turn: the model had no room left to answer, and
             # telling the person to rephrase would blame the question.
+            facts.notice = NOTICE_TRUNCATED
             await chat.post_notice(anchor.ref, TRUNCATED_EMPTY_MESSAGE, code=NOTICE_TRUNCATED)
             return TurnOutcome.TRUNCATED
         if any(call in self._posting_tools for call in result.tool_calls):
@@ -552,10 +599,12 @@ class AgentFlow:
             # The agent looked things up and stopped without a word: to the
             # person that is an unanswered question, and the application
             # hears of it the way it hears of an empty turn.
+            facts.notice = NOTICE_EMPTY_ANSWER
             await chat.post_notice(anchor.ref, SILENT_TOOLS_MESSAGE, code=NOTICE_EMPTY_ANSWER)
             return TurnOutcome.EMPTY
         # No text AND no tool call: the turn produced nothing at all — nudge the
         # user to rephrase.
+        facts.notice = NOTICE_EMPTY_ANSWER
         await chat.post_notice(anchor.ref, EMPTY_ANSWER_MESSAGE, code=NOTICE_EMPTY_ANSWER)
         return TurnOutcome.EMPTY
 

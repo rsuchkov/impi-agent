@@ -32,6 +32,7 @@ from crucible.ports.agent.runtime import (
     RuntimeControl,
     RuntimeStats,
     SessionProofs,
+    TokenUsage,
     TurnClock,
 )
 from crucible.ports.agent.spec import (
@@ -60,6 +61,7 @@ __all__ = [
     "AgentEvent",
     "AgentProfile",
     "AgentResult",
+    "TokenUsage",
     "AgentRuntime",
     "AgentSpec",
     "EventCallback",

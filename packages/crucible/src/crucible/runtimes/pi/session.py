@@ -8,7 +8,12 @@ from dataclasses import dataclass, field
 
 from crucible.confinement import ProcessScope
 from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
-from crucible.ports.agent.runtime import WRAP_UP_NOTE, AgentEvent, PromptImage
+from crucible.ports.agent.runtime import (
+    WRAP_UP_NOTE,
+    AgentEvent,
+    PromptImage,
+    TokenUsage,
+)
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 from crucible.runtimes.pi import protocol
 from crucible.runtimes.pi.errors import (
@@ -55,6 +60,9 @@ class PiResult:
     # the text stops where the limit fell, or is missing because the limit went on what came
     # before it.
     truncated: bool = False
+    # Tokens and pi's own cost estimate, summed over the run's answers; None
+    # when pi reported none.
+    usage: TokenUsage | None = None
 
 
 class _Turn:
@@ -484,6 +492,7 @@ class PiRpcSession:
             stop_reason=stop_reason,
             model=_model_from_agent_end(event),
             truncated=stop_reason == STOP_LENGTH,
+            usage=_usage_from_agent_end(event),
         )
         if not turn.future.done():
             turn.future.set_result(result)
@@ -598,6 +607,29 @@ def _assistant_messages(event: PiEvent) -> list[dict]:
     if not isinstance(messages, list):
         return []
     return [m for m in messages if isinstance(m, dict) and m.get("role") == "assistant"]
+
+
+def _usage_from_agent_end(event: PiEvent) -> TokenUsage | None:
+    """What the run's answers cost, summed — pi puts ``usage`` on each
+    assistant message; None when no message carried one."""
+    total: TokenUsage | None = None
+    for message in _assistant_messages(event):
+        usage = message.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        raw_cost = usage.get("cost")
+        cost = raw_cost if isinstance(raw_cost, dict) else {}
+        one = TokenUsage(
+            input=_count(usage.get("input")), output=_count(usage.get("output")),
+            cache_read=_count(usage.get("cacheRead")), cache_write=_count(usage.get("cacheWrite")),
+            total=_count(usage.get("totalTokens")), cost_usd=float(cost.get("total") or 0.0),
+        )
+        total = one if total is None else total + one
+    return total
+
+
+def _count(value: object) -> int:
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
 
 
 def _model_from_agent_end(event: PiEvent) -> str:

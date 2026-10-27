@@ -162,6 +162,7 @@ source_modules = [
     "crucible.ports.engine_turn",
     "crucible.ports.held_cards",
     "crucible.ports.lease",
+    "crucible.ports.telemetry",
     "crucible.ports.replica",
 ]
 forbidden_modules = [

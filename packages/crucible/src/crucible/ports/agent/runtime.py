@@ -46,9 +46,29 @@ class AgentEvent(Protocol):
 EventCallback = Callable[[AgentEvent], Awaitable[None] | None]
 
 
+@dataclass(frozen=True)
+class TokenUsage:
+    """What a turn cost at the model, as the runtime reported it: tokens by
+    kind and the runtime's own estimate of the price, in US dollars — an
+    estimate from the runtime's price table, not a bill."""
+
+    input: int = 0
+    output: int = 0
+    cache_read: int = 0
+    cache_write: int = 0
+    total: int = 0
+    cost_usd: float = 0.0
+
+    def __add__(self, other: "TokenUsage") -> "TokenUsage":
+        return TokenUsage(
+            self.input + other.input, self.output + other.output, self.cache_read + other.cache_read,
+            self.cache_write + other.cache_write, self.total + other.total, self.cost_usd + other.cost_usd,
+        )
+
+
 class AgentResult(Protocol):
     """A single turn's outcome. Flows read the final text and whether any tool
-    was called; concrete results may carry more (duration, stop reason)."""
+    was called; what the turn cost and who answered it are for the meter."""
 
     text: str
     # Names of the tools invoked this turn. A turn with no text but a non-empty
@@ -60,6 +80,11 @@ class AgentResult(Protocol):
     # because the limit went on what came before the answer. Not an empty turn
     # — the person is told what happened rather than asked to rephrase.
     truncated: bool
+    # The model that answered, as provider/model ("" when the runtime did not
+    # say), how it stopped, and what it cost (None when not reported).
+    model: str
+    stop_reason: str | None
+    usage: TokenUsage | None
 
 
 class AgentProfile(Protocol):

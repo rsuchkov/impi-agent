@@ -1056,3 +1056,26 @@ async def test_a_reload_reviews_the_mcp_servers_before_the_profiles_are_re_read(
     app.mcp_servers = None
     await _reload(app, {})
     assert order == ["profiles []"]
+
+
+def test_impis_telemetry_writes_one_json_line_per_event(caplog) -> None:
+    import json
+    import logging
+
+    from crucible.ports.agent import TokenUsage
+    from crucible.ports.telemetry import TurnEnded
+    from impi.telemetry import LogTelemetry
+
+    event = TurnEnded(
+        agent="assistant", gateway="slack", user_id="U1", conversation_id="c1", kind="thread", direct=False,
+        synthetic=False, messages=1, attachments=0, outcome="replied", notice="", duration_s=1.5,
+        model="openai/gpt-5.5", stop_reason="stop", tool_calls=("read",), truncated=False,
+        usage=TokenUsage(input=10, output=5, total=15, cost_usd=0.0002),
+    )
+    with caplog.at_level(logging.INFO, logger="impi.telemetry"):
+        LogTelemetry().record(event)
+    (record,) = [r for r in caplog.records if r.name == "impi.telemetry"]
+    line = json.loads(record.getMessage())
+    assert line["event"] == "turn_ended" and line["agent"] == "assistant" and line["tool_calls"] == ["read"]
+    assert line["usage"] == {"input": 10, "output": 5, "cache_read": 0, "cache_write": 0, "total": 15, "cost_usd": 0.0002}
+    assert Settings(_env_file=None, dotenv_path="x").telemetry_log is True  # pyright: ignore[reportCallIssue]

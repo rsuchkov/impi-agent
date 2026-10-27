@@ -1864,3 +1864,56 @@ async def test_a_file_the_gateway_saved_under_the_platforms_id_follows_the_conve
     assert (expected_dir / Path(saved.path).name).read_bytes() == b"hello"
     assert [r.name for r in await store.received_files_for(expected_dir).list()] == ["notes.txt"]
     await sessions.close()
+
+
+async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> None:
+    """The telemetry gets one record per turn with flat fields — who, where, how
+    it ended, what it cost — and never the people's text; telemetry that fails
+    costs the turn nothing."""
+    from crucible.ports.agent import TokenUsage
+    from crucible.ports.telemetry import TurnEnded
+
+    class _Telemetry:
+        def __init__(self) -> None:
+            self.events: list = []
+
+        def record(self, event) -> None:
+            self.events.append(event)
+
+    class _Broken:
+        def record(self, event) -> None:
+            raise RuntimeError("the exporter is down")
+
+    usage = TokenUsage(input=10, output=5, total=15, cost_usd=0.0002)
+    runtime = FakeRuntime(result=PiResult(text="answer", tool_calls=["read"], model="openai/gpt-5.5", stop_reason="stop", usage=usage))
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    telemetry = _Telemetry()
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=telemetry)
+    msg = _with_files(tmp_path, ("note.txt", "text/plain", b"hi"))
+    msg.gateway = "mattermost"
+    assert await flow.handle(msg, FakeChat()) is TurnOutcome.REPLIED
+    (event,) = telemetry.events
+    assert isinstance(event, TurnEnded)
+    assert (event.agent, event.gateway, event.user_id, event.conversation_id) == ("assistant", "mattermost", "u1", "dm1")
+    assert (event.kind, event.direct, event.synthetic, event.messages, event.attachments) == (KIND_DM, True, False, 1, 1)
+    assert (event.outcome, event.notice, event.model, event.stop_reason) == ("replied", "", "openai/gpt-5.5", "stop")
+    assert event.tool_calls == ("read",) and event.truncated is False and event.usage == usage
+    assert event.duration_s >= 0 and "look at this" not in repr(event)  # no text of anybody's
+    # An empty turn carries its notice; a failed turn its outcome and no result.
+    from dataclasses import replace
+
+    def another(text: str, message_id: str) -> IncomingMessage:
+        return replace(_dm(text=text), ref=replace(_dm().ref, message_id=message_id))  # not a redelivery
+
+    silent = AgentFlow(FakeRuntime(result=PiResult(text="", tool_calls=[])), PROFILE, store, agent_name="assistant", telemetry=telemetry)
+    await silent.handle(another("again", "p2"), FakeChat())
+    assert (telemetry.events[-1].outcome, telemetry.events[-1].notice, telemetry.events[-1].usage) == ("empty", "empty_answer", None)
+    from crucible.ports.agent.errors import AgentError
+
+    failing = AgentFlow(FakeRuntime(error=AgentError("boom")), PROFILE, store, agent_name="assistant", telemetry=telemetry)
+    await failing.handle(another("third", "p3"), FakeChat())
+    assert telemetry.events[-1].outcome == "error" and telemetry.events[-1].model == ""
+    # A broken telemetry is logged, not felt.
+    unhurt = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=_Broken())
+    assert await unhurt.handle(another("fourth", "p4"), FakeChat()) is TurnOutcome.REPLIED
+    await store.close()

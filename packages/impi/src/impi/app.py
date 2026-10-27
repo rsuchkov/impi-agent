@@ -83,6 +83,7 @@ from crucible.ports.chat.gateway import (
 )
 from crucible.ports.lease import Leases
 from crucible.ports.replica import Replica, Replicas
+from crucible.ports.telemetry import Telemetry
 from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.profiles.errors import ProfileError
@@ -132,6 +133,7 @@ from impi.registry import RegistryService
 from impi.scheduling import PresenceNotifier, RuntimePromptRunner, SinkTurnDispatcher
 from impi.skill_screen import SkillScreen
 from impi.task_screen import TaskScreen
+from impi.telemetry import LogTelemetry
 
 logger = logging.getLogger(__name__)
 
@@ -368,6 +370,7 @@ def _build_unit(
     captions: CallCaptions,
     posting_tools: Collection[str] = (),
     file_keeper: FileKeeper | None = None,
+    telemetry: Telemetry | None = None,
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
@@ -375,7 +378,7 @@ def _build_unit(
     profile = profiles.build(spec)
     flow = AgentFlow(
         runtime, profile, sessions,
-        agent_name=spec.name, posting_tools=posting_tools, file_keeper=file_keeper,
+        agent_name=spec.name, posting_tools=posting_tools, file_keeper=file_keeper, telemetry=telemetry,
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
         turns=turns,
@@ -419,6 +422,7 @@ def _build_units(
     tools: ToolWiring,
     captions: CallCaptions,
     file_keeper: FileKeeper | None = None,
+    telemetry: Telemetry | None = None,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
@@ -475,7 +479,7 @@ def _build_units(
             turns=turns,
             captions=captions,
             posting_tools=_posting_tools(tools),
-            file_keeper=file_keeper,
+            file_keeper=file_keeper, telemetry=telemetry,
             replica=replica, replicas=replicas, forwarder=forwarder,
         )
         for kind in handles:
@@ -784,6 +788,7 @@ def build_app(settings: ImpiSettings) -> App:
         specs, configs, engine_names,
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools, file_keeper=attachments,
+        telemetry=LogTelemetry() if settings.telemetry_log else None,
         leases=sessions, instance=f"{socket.gethostname()}:{os.getpid()}",
         # Who captions a call for the person watching: the deployment's tools
         # themselves, then the runtime's own built-ins.

@@ -651,6 +651,43 @@ async def test_the_result_names_the_model_that_answered() -> None:
     assert (await session.prompt("x", timeout=1.0)).model == "openai-codex/gpt-5.5"
 
 
+async def test_the_result_sums_what_the_runs_answers_cost() -> None:
+    """pi puts ``usage`` on every assistant message; a turn that moved to a
+    fallback has two, and the turn cost both. None when pi reported none."""
+    from crucible.ports.agent import TokenUsage
+
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        transport.emit({"type": "agent_end", "messages": [
+            {"role": "assistant", "content": "", "stopReason": "error", "provider": "a", "model": "m1",
+             "usage": {"input": 100, "output": 0, "cacheRead": 50, "cacheWrite": 0, "totalTokens": 150,
+                       "cost": {"input": 0.001, "output": 0, "cacheRead": 0.0001, "cacheWrite": 0, "total": 0.0011}}},
+            {"role": "user", "content": "retry"},
+            {"role": "assistant", "content": "ok", "provider": "b", "model": "m2",
+             "usage": {"input": 200, "output": 40, "cacheRead": 0, "cacheWrite": 10, "totalTokens": 250,
+                       "cost": {"input": 0.002, "output": 0.0008, "cacheRead": 0, "cacheWrite": 0.0001, "total": 0.0029}}},
+            {"role": "assistant", "content": "no usage here"},
+        ]})
+        transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    result = await session.prompt("x", timeout=1.0)
+    assert result.usage == TokenUsage(input=300, output=40, cache_read=50, cache_write=10, total=400, cost_usd=0.004)
+    transport2 = FakeTransport()
+
+    def quiet(command: dict) -> None:
+        transport2.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "ok"}]})
+        transport2.emit({"type": "agent_settled", "aborted": False})
+
+    transport2._reactor = quiet
+    session2 = PiRpcSession(transport2)
+    session2.start()
+    assert (await session2.prompt("x", timeout=1.0)).usage is None
+
+
 async def test_a_result_without_a_named_model_says_none() -> None:
     transport = FakeTransport()
     def react(command: dict) -> None:

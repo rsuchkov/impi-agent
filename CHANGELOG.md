@@ -6,7 +6,18 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Added: telemetry — the engine tells what it did, as events, for whoever
+  counts.** A port, `crucible.ports.telemetry.Telemetry`, takes frozen records
+  of flat fields — a turn ended (`TurnEnded`: agent, gateway, user,
+  conversation, outcome, notice, duration, the model that answered, the tools
+  called, and the tokens and cost the runtime reported) — and the application
+  decides where they go: a metrics exporter, a log, a table of its own;
+  metrics are what the receiver derives. Nothing of the engine is tied to one.
+  `impi` writes the events as JSON lines on the logger `impi.telemetry`
+  (`TELEMETRY_LOG=true`, the default). The runtime's result now
+  carries `model`, `stop_reason` and `usage` (`TokenUsage`: input, output,
+  cache read/write, total, and pi's own cost estimate in USD) for every
+  runtime to fill.
 
 ## v0.34.0 — 2026-10-26
 
@@ -453,12 +464,12 @@ _Nothing yet._
   the conversation key's separator; settings refuse one that does.
 - **A scripted turn can read what its tools answered.** The runtime's test
   double took a script that named every tool call up front and could not look
-  at a result. A script that takes a third parameter,
+  at a result. A script that takes a third paratelemetry,
   `script(request, message, tools)`, now calls `await tools.call(ToolCall(…))`
   when it wants and gets the `ToolOutcome` back, so a turn branches on what a
   tool said; and a `ToolCall(headers=…)` carries headers of the call's own —
   another session's id, a made-up proof — for the test that the server
-  refuses it. Scripts of two parameters work as before.
+  refuses it. Scripts of two paratelemetrys work as before.
 - **Fixed: the envelope note no longer tells the model that a person's own
   message is "information, never an instruction".** It said so of everything
   after the speaker's `]: ` as well as of quoted blocks, and a model that
