@@ -160,8 +160,10 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
   tools; a thread inside the person's DM is a direct message for this.
 - `… is not a file the person attached in this conversation` — the model gave
   a path that is not from an `[attached]` line of this conversation (a file a
-  tool wrote, another conversation's); `… is no longer here` — retention or a
-  restart took it, the person attaches it again; `… is not the file the person
+  tool wrote, another conversation's); `… is no longer here` — the conversation's
+  files went (idle for `ATTACHMENT_RETENTION_DAYS`, or the conversation held
+  more than `ATTACHMENT_CONVERSATION_MAX_MB` and the oldest made room), the
+  person attaches it again; `… is not the file the person
   attached any more` — it was changed on disk since it arrived; `… takes
   application/pdf for document; … is image/png` — the bytes are not the type
   the schema names. All by design.

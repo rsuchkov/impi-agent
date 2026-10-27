@@ -639,8 +639,8 @@ def build_app(settings: ImpiSettings) -> App:
     attachments: AttachmentStore | None = None
     if settings.attachments_enabled:
         attachments = AttachmentStore(
-            settings.resolved_attachments_dir, max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
-            conversation_max_bytes=int(settings.attachment_conversation_max_mb * 1024 * 1024),
+            settings.resolved_attachments_dir, max_bytes=settings.attachment_max_bytes,
+            conversation_max_bytes=settings.attachment_conversation_max_bytes,
         )
     # What each agent's process may touch: its profile and the skill library to
     # read, its files and its own scratch space to write. support is part of
@@ -825,7 +825,7 @@ def build_app(settings: ImpiSettings) -> App:
                 )
                 for spec in specs
             },
-            max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
+            max_bytes=settings.attachment_max_bytes,
         )
     # Creating tasks needs only the store, so it is ready before the tool
     # server; the ticker that fires them needs the units and comes after.
@@ -999,7 +999,7 @@ def stop_on_sigterm(task: asyncio.Task | None = None) -> None:
 async def run(settings: ImpiSettings) -> None:
     app = build_app(settings)
     if app.tracer is not None:
-        # Like the attachment sweep: old traces go at boot, not on a timer.
+        # Old traces go at boot, not on a timer (the attachment sweep is the loop below).
         await app.tracer.sweep()
     if settings.processed_posts_retention_days > 0:
         cutoff = datetime.now(timezone.utc) - timedelta(days=settings.processed_posts_retention_days)
@@ -1081,9 +1081,9 @@ async def run(settings: ImpiSettings) -> None:
         if app.heartbeat is not None:
             loops.append(_supervise("replica heartbeat", app.heartbeat.run))
         if app.attachments is not None and settings.attachment_retention_days > 0:
-            files, sessions = app.attachments, app.sessions
+            attachments, sessions = app.attachments, app.sessions
             loops.append(_supervise("attachment sweep", lambda: run_attachment_sweeps(
-                files, sessions, days=settings.attachment_retention_days,
+                attachments, sessions, days=settings.attachment_retention_days,
             )))
         if app.mcp_servers is not None and app.tools is not None:
             mcp, tools = app.mcp_servers, app.tools

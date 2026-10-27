@@ -34,10 +34,13 @@ at rest; that is the volume's or the disk's to do.
 
 **Conversation memory is kept until somebody deletes it**, unless you say
 otherwise: `SESSION_RETENTION_DAYS=N` makes the engine forget, at startup,
-every conversation idle for N days or more — its record and the runtime's
-files for it, exactly what `impi sessions purge-idle --days N` does by hand.
-An agent in a container of its own keeps its files in that container's volume;
-only its record is forgotten there.
+every conversation idle for N days or more — its record, the runtime's files
+for it and the files it received, exactly what `impi sessions purge-idle --days N`
+does by hand. An agent in a container of its own keeps its memory in that
+container's volume; only its record and its attachments are forgotten there.
+The attachments alone have a shorter life: `ATTACHMENT_RETENTION_DAYS`
+([files.md](files.md)) takes a conversation's files once it has been idle that
+long, record or no record.
 
 ## Choosing a backend
 

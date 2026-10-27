@@ -45,10 +45,23 @@ flow's record carries, so a tool's files directory is where the file is once
 the flow keyed the conversation (a gateway that saved it under another key has
 it moved there, below); with the default keying it is the platform's own id.
 
-Files are swept after `ATTACHMENT_RETENTION_DAYS` (default 14; `0` keeps them
-forever). A message redelivered by the platform — a reconnect, a retry — writes
-the same path again rather than a second copy, because the platform's own file
-id names the file.
+A conversation's files live as long as the conversation. `ATTACHMENT_RETENTION_DAYS`
+(default 14; `0` keeps them forever) counts from the conversation's last
+activity, not from each file's age: a file sent two weeks ago to a conversation
+still going is where the prompt said it was, and a conversation nobody has
+touched for that long loses its directory — the files people sent, the files
+the agent wrote there, and the record of what arrived — in one motion. The same
+happens at once when the conversation is forgotten by age (`SESSION_RETENTION_DAYS`)
+or by hand (`impi sessions delete`, `purge-idle`). A directory the engine has no
+conversation for goes once nothing has written to it for the retention. The
+sweep runs at startup and hourly.
+
+A conversation also holds at most `ATTACHMENT_CONVERSATION_MAX_MB` (200; `0`
+no cap), the agent's own files in its directory counted: past it the oldest
+files there make room for the one just received — never that one — and a tool
+that is handed one of them afterwards is told it is no longer here. A message
+redelivered by the platform — a reconnect, a retry — writes the same path again
+rather than a second copy, because the platform's own file id names the file.
 
 ## Sending a file to the user
 
@@ -123,7 +136,8 @@ See [ws-gateway.md](ws-gateway.md) for the rest of the protocol.
 |---|---|---|
 | `ATTACHMENTS_ENABLED` | `true` | off = attachments are ignored entirely |
 | `ATTACHMENT_MAX_MB` | `20` | per file, both directions; a bigger incoming one is skipped (logged), the message still arrives |
-| `ATTACHMENT_RETENTION_DAYS` | `14` | `0` = keep forever |
+| `ATTACHMENT_CONVERSATION_MAX_MB` | `200` | what one conversation holds in all, the agent's files counted; the oldest go first; `0` = no cap; not below `ATTACHMENT_MAX_MB` |
+| `ATTACHMENT_RETENTION_DAYS` | `14` | days since the conversation's last activity after which its files go, record and all; `0` = keep forever |
 | `INLINE_IMAGE_MAX_MB` | `4` | above this a picture is not shown to the model, only named by path |
 | `ATTACHMENTS_DIR` | `{DATA_DIR}/attachments` | where they land |
 

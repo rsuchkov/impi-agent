@@ -95,8 +95,12 @@ async def test_the_engine_moves_old_memory_then_forgets_idle_conversations_at_st
         kept = agent_dir / "2026-01-01T00-00-00-000Z_assistant--other.jsonl"
         kept.write_text("{}")
 
-        await prepare_runtime_storage(settings, store)
+        files = AttachmentStore(tmp_path / "files", max_bytes=1024)
+        (attachment,) = await files.save_many("assistant", "old", [IncomingFile("a.pdf", b"a", "application/pdf", key="f1")])
+
+        await prepare_runtime_storage(settings, store, attachments=files)
         assert not flat.exists() and not (agent_dir / old.runtime_session_id).exists()  # moved, then forgotten
+        assert not Path(attachment.path).exists()  # the store was handed through: the files went too
         assert (agent_dir / "assistant--other" / kept.name).is_file()  # moved, kept
         assert await store.list("assistant") == []
         # ...and the runtime's agent directory holds what a confined process reads.
@@ -232,5 +236,17 @@ async def test_deleting_a_conversation_by_hand_takes_its_manifest_too(tmp_path: 
         assert not manifest.exists()
         assert not Path(attachment.path).exists()  # the files it received went with it
         assert "deleted assistant/dm1" in capsys.readouterr().out
+        # purge-idle by hand takes the files of what it forgets, the same way.
+        from crucible.sessions_cli import cmd_purge_idle
+
+        idle, _ = await store.get_or_create("assistant", "idle", "idle", KIND_DM)
+        long_ago = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat(timespec="seconds")
+        await asyncio.to_thread(
+            store._conn.execute, "UPDATE sessions SET last_active = ? WHERE conversation_id = ?", (long_ago, "idle"),
+        )
+        (kept_until_idle,) = await files.save_many("assistant", "idle", [IncomingFile("b.pdf", b"b", "application/pdf", key="f2")])
+        await cmd_purge_idle(settings, store, argparse.Namespace(days=30, agent=None))
+        assert not Path(kept_until_idle.path).exists()
+        assert "purged 1 session(s)" in capsys.readouterr().out
     finally:
         await store.close()

@@ -19,7 +19,9 @@ when a release is cut, and `impi update` shows the target version's section.
   (`run_attachment_sweeps`, hourly), as `impi` does beside its heartbeat.
   Forgetting a conversation by age (`purge_idle`, `SESSION_RETENTION_DAYS`) or
   by hand (`sessions_cli delete`, `purge-idle`) now takes its files too, where
-  it used to leave the directory behind. **Breaks:** `AttachmentStore.sweep()`
+  it used to leave the directory behind. A directory the agent's process closed
+  to itself (a mode it set) is opened and removed all the same, and what could
+  not be removed is said in the log, not counted as gone. **Breaks:** `AttachmentStore.sweep()`
   and the hourly sweep a save used to trigger are gone, with the store's
   `retention_days` argument — an application on crucible runs
   `run_attachment_sweeps` itself; `idle_before` moved to `store.base`.

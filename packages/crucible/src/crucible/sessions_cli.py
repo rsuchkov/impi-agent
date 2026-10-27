@@ -36,7 +36,10 @@ def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
 def _attachments(settings: Settings) -> AttachmentStore | None:
     if not settings.attachments_enabled:
         return None
-    return AttachmentStore(settings.resolved_attachments_dir, max_bytes=int(settings.attachment_max_mb * 1024 * 1024))
+    return AttachmentStore(
+        settings.resolved_attachments_dir, max_bytes=settings.attachment_max_bytes,
+        conversation_max_bytes=settings.attachment_conversation_max_bytes,
+    )
 
 
 def _forget_memory(settings: Settings, record: SessionRecord) -> int:

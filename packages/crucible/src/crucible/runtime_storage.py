@@ -9,8 +9,9 @@ What every application that runs the runtime needs at startup, in one call:
   directory on a read-only root (EROFS);
 - conversation memory kept before each conversation had a directory of its own
   moves into one;
-- conversations idle past ``SESSION_RETENTION_DAYS`` are forgotten, record and
-  memory together (``session_retention.py``).
+- conversations idle past ``SESSION_RETENTION_DAYS`` are forgotten — record,
+  memory and, given the attachment store, the files they received, together
+  (``session_retention.py``).
 
 Like ``session_retention``, it knows where the runtime keeps things. The
 process's umask is not set here: the application sets it before anything — a

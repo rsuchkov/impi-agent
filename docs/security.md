@@ -244,7 +244,7 @@ deployment configured; the engine makes no model calls itself.
 | data | goes to | kept where | for how long |
 |---|---|---|---|
 | messages the agent is given (its own conversation, replayed history, the sender's name) | the provider, inside the prompt | the runtime's session file, per conversation | until deleted (`impi sessions`), or `SESSION_RETENTION_DAYS` when set |
-| attachments people send | the provider only if the runtime shows them (images, inline); otherwise the path | the engine's data volume | `ATTACHMENT_RETENTION_DAYS`, 14 by default |
+| attachments people send | the provider only if the runtime shows them (images, inline); otherwise the path | the engine's data volume | `ATTACHMENT_RETENTION_DAYS` idle days of the conversation, 14 by default; at most `ATTACHMENT_CONVERSATION_MAX_MB` per conversation |
 | tool results (a channel's posts, a ticket, a file's content) | the provider, as the model reads them | the session file, as part of the conversation | as above |
 | tool **arguments** | nowhere beyond the engine | the inventory, as the [tool trace](tool-trace.md) | `TOOL_TRACE_RETENTION_DAYS`, 14 by default |
 | tool **results** | — | **never stored** by the engine | — |

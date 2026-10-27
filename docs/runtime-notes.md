@@ -249,5 +249,5 @@ reads both as a cancel, never as a provider failure.)
 delete `<session_dir>/<agent>/<session_id>/` — its files and the directory — so
 the next turn starts from nothing. `has_memory(agent, session_id)` reads the
 same place. The layout lives in `runtimes/pi/spawn` (`conversation_memory_dir`
-and the functions beside it), which the cleanup CLI and the retention sweep use
-too.
+and the functions beside it), which the cleanup CLI and the session retention
+(`purge_idle`) use too.

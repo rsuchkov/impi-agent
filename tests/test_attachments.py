@@ -1,6 +1,7 @@
 """AttachmentStore: where files that arrive with a message land on disk."""
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -117,8 +118,8 @@ async def test_forgetting_a_conversation_takes_its_files_its_record_and_nothing_
     assert Path(kept[0].path).is_file() and (record_of_gone.parent / "new-conv.jsonl").is_file()
     assert await store.forget("assistant", "old-conv") == 0  # nothing left to take
     assert await store.forget("assistant", "new-conv") == 1
-    assert not (tmp_path / "attachments" / "assistant").exists()  # the agent's directory emptied
-    assert not (tmp_path / "attachments" / ".received" / "assistant").exists()
+    assert (tmp_path / "attachments" / "assistant").is_dir()  # the agent's own directory stays: the engine named it to the process
+    assert not (tmp_path / "attachments" / ".received" / "assistant").exists()  # the records' directory went
 
 
 async def test_a_conversation_over_its_cap_loses_its_oldest_files_never_the_new_one(tmp_path: Path) -> None:
@@ -161,30 +162,69 @@ async def test_a_conversation_over_its_cap_loses_its_oldest_files_never_the_new_
 def test_a_conversation_cap_below_the_file_cap_is_refused() -> None:
     from crucible.config import Settings
 
-    with pytest.raises(ValueError, match="ATTACHMENT_CONVERSATION_MAX_MB .* must be at least ATTACHMENT_MAX_MB"):
+    with pytest.raises(ValueError, match="ATTACHMENT_CONVERSATION_MAX_MB .* or at least ATTACHMENT_MAX_MB"):
         Settings(_env_file=None, attachment_max_mb=20, attachment_conversation_max_mb=10)  # pyright: ignore[reportCallIssue]
     assert Settings(_env_file=None, attachment_max_mb=20, attachment_conversation_max_mb=0).attachment_conversation_max_mb == 0  # pyright: ignore[reportCallIssue]
+    with pytest.raises(ValueError, match="must be 0 .no cap. or at least"):
+        Settings(_env_file=None, attachment_conversation_max_mb=-1)  # pyright: ignore[reportCallIssue]
+    assert Settings(_env_file=None, attachment_max_mb=1).attachment_max_bytes == 1024 * 1024  # pyright: ignore[reportCallIssue]
     assert Settings(_env_file=None).attachment_conversation_max_mb == 200.0  # pyright: ignore[reportCallIssue]
+
+
+async def test_a_directory_the_agent_closed_to_itself_is_still_forgotten_and_counted_truly(tmp_path: Path) -> None:
+    """An agent's process runs as the engine's user; a mode it set on its
+    conversation directory (or a subdirectory it hid files in) does not keep
+    the files past forgetting, and the count says what went, not what was there."""
+    store = _store(tmp_path)
+    (saved,) = await store.save_many("assistant", "dm", [IncomingFile("a.pdf", b"a", "application/pdf", key="f1")])
+    hidden = Path(saved.path).parent / "kept" / "deep"
+    hidden.mkdir(parents=True)
+    (hidden / "b.txt").write_text("b")
+    os.chmod(hidden, 0o000)
+    os.chmod(hidden.parent, 0o500)
+    os.chmod(Path(saved.path).parent, 0o500)
+    try:
+        assert await store.forget("assistant", "dm") == 2
+    finally:
+        for d in (Path(saved.path).parent, hidden.parent, hidden):
+            if d.exists():
+                os.chmod(d, 0o700)
+    assert not Path(saved.path).parent.exists()
+    assert not (tmp_path / "attachments" / ".received" / "assistant" / "dm.jsonl").exists()
+
+
+async def test_what_could_not_be_removed_is_not_counted_as_forgotten(tmp_path: Path, monkeypatch, caplog) -> None:
+    import crucible.attachments as module
+
+    store = _store(tmp_path)
+    (saved,) = await store.save_many("assistant", "dm", [IncomingFile("a.pdf", b"a", "application/pdf", key="f1")])
+    monkeypatch.setattr(module.shutil, "rmtree", lambda *args, **kwargs: None)  # a removal that silently fails
+    with caplog.at_level(logging.WARNING):
+        assert await store.forget("assistant", "dm") == 0
+    assert "1 file(s) of" in caplog.text and "could not be removed" in caplog.text
+    assert Path(saved.path).is_file()
 
 
 async def test_the_store_lists_its_conversation_directories_and_when_each_was_last_written(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    assert store.conversation_dirs() == []
+    assert await store.conversation_dirs() == []
     a = await store.save("assistant", "c:1", "a.png", b"x", key="f1")  # a digest in the name
     (b,) = await store.save_many("support", "dm", [IncomingFile("b.png", b"y", "image/png", key="f2")])  # with a record
-    dirs = store.conversation_dirs()
+    dirs = await store.conversation_dirs()
     assert dirs == sorted([Path(a.path).parent, Path(b.path).parent])
     assert ".received" not in {d.parent.name for d in dirs}
     aged = time.time() - 30 * 86400
     os.utime(Path(a.path), (aged, aged))
     os.utime(Path(a.path).parent, (aged, aged))
-    assert store.newest_mtime(Path(a.path).parent) == pytest.approx(aged, abs=2)
+    assert await store.newest_mtime(Path(a.path).parent) == pytest.approx(aged, abs=2)
     later = Path(a.path).parent / "fresh.txt"
     later.write_text("new")
-    assert store.newest_mtime(Path(a.path).parent) > aged + 86400  # the newest file counts
-    assert store.forget_dir(Path(a.path).parent) == 2
-    with pytest.raises(ValueError):
-        store.forget_dir(tmp_path)  # not this store's
+    assert await store.newest_mtime(Path(a.path).parent) > aged + 86400  # the newest file counts
+    assert await store.forget_dir(Path(a.path).parent) == 2
+    for wrong in (tmp_path, tmp_path / "attachments", tmp_path / "attachments" / "assistant", tmp_path / "attachments" / ".received" / "x"):
+        with pytest.raises(ValueError):
+            await store.forget_dir(wrong)  # not a conversation's directory: nothing above one is ever removed
+    assert (tmp_path / "attachments" / "support").is_dir()
 
 
 @pytest.mark.parametrize(

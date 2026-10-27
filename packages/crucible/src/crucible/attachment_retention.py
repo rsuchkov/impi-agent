@@ -34,8 +34,8 @@ class SweptAttachments:
     """What one pass took: conversations the engine knows and found idle,
     directories it had no conversation for, files in all."""
 
-    idle: int = 0
-    orphans: int = 0
+    idle_conversations: int = 0
+    without_conversation: int = 0
     files: int = 0
 
 
@@ -48,22 +48,22 @@ async def sweep_attachments(attachments: AttachmentStore, sessions: SessionStore
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     records = await sessions.list()
     known = {attachments.conversation_dir(r.agent, r.conversation_id): r for r in records}
-    idle = orphans = files = 0
-    for directory in attachments.conversation_dirs():
+    idle = unowned = files = 0
+    for directory in await attachments.conversation_dirs():
         record = known.get(directory)
         if record is not None:
             if not idle_before(record, cutoff):
                 continue
             files += await attachments.forget(record.agent, record.conversation_id)
             idle += 1
-        elif await asyncio.to_thread(attachments.newest_mtime, directory) < cutoff.timestamp():
-            files += await asyncio.to_thread(attachments.forget_dir, directory)
-            orphans += 1
-    swept = SweptAttachments(idle=idle, orphans=orphans, files=files)
-    if swept.idle or swept.orphans:
+        elif await attachments.newest_mtime(directory) < cutoff.timestamp():
+            files += await attachments.forget_dir(directory)
+            unowned += 1
+    swept = SweptAttachments(idle_conversations=idle, without_conversation=unowned, files=files)
+    if swept.idle_conversations or swept.without_conversation:
         logger.info(
             "attachments: forgot %d file(s) of %d conversation(s) idle for %d+ days and %d directory(ies) of none",
-            swept.files, swept.idle, days, swept.orphans,
+            swept.files, swept.idle_conversations, days, swept.without_conversation,
         )
     return swept
 

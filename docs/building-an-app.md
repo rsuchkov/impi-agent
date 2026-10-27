@@ -84,8 +84,9 @@ from my_app import my_tools  # your own tool module: each Tool class marked @too
 def build_app(settings, registry, loop_guard):  # registry implements AgentDirectory
     profiles = FsProfileStore(settings.agents_path)
     sessions = open_store(settings.store_backend,
-    attachments = AttachmentStore(settings.attachments_dir, max_bytes=20 * 1024 * 1024, retention_days=14)
                           name=settings.resolved_db_name, url=settings.db_url)
+    attachments = AttachmentStore(settings.attachments_dir, max_bytes=20 * 1024 * 1024,
+                                  conversation_max_bytes=200 * 1024 * 1024)
 
     specs = profiles.list()
     # Resolve gateway configs up front → know which agents run and whether the HTTP
@@ -301,7 +302,15 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
     process may only read them, so it could not create them itself;
   - it moves conversation memory kept side by side into a directory per
     conversation;
-  - it forgets conversations idle past `SESSION_RETENTION_DAYS`.
+  - it forgets conversations idle past `SESSION_RETENTION_DAYS` — their files
+    too, given `attachments=`.
+
+  A conversation's files have a life of their own besides:
+  `crucible.attachment_retention.run_attachment_sweeps(attachments, sessions,
+  days=settings.attachment_retention_days)` is a loop to supervise beside the
+  heartbeat (hourly; `sweep_attachments` is one pass). It forgets the files of
+  every conversation idle that long and every directory the store has no
+  conversation for; nothing sweeps them otherwise.
 
   Every step is housekeeping: a failure is logged and the application carries
   on. The runtime takes a lock beside its credential before every model call,
@@ -377,8 +386,9 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   source about each of them once and runs with what they are jointly entitled
   to — the tools all of them may use, instructions only where every answer is
   the same (`shared_entitlement`).
-  Pass `manifests_dir=` to `purge_idle` (or call `prepare_runtime_storage`,
-  which does) so a forgotten conversation's manifest goes with its memory.
+  Pass `manifests_dir=` and `attachments=` to `purge_idle` (or call
+  `prepare_runtime_storage`, which does) so a forgotten conversation's manifest
+  and files go with its memory.
 - **Turns the engine starts.** A person's message opens a turn through a
   gateway; the engine opens one by itself through a `TurnDispatcher`
   (`crucible.ports.engine_turn`) — the scheduler does for a `turn`-mode task,

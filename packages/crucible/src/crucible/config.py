@@ -353,9 +353,9 @@ class Settings(BaseSettings):
     # every slot from the rest.
     pi_max_sessions_per_agent: int = 0
     pi_session_idle_ttl: float = 1800.0
-    # Forget a conversation nobody has touched for this many days: its record
-    # and the runtime's files for it, at startup. 0 = never — memory is kept
-    # until somebody deletes it, which is what it always was.
+    # Forget a conversation nobody has touched for this many days: its record,
+    # the runtime's files for it and the files it received, at startup. 0 =
+    # never — memory is kept until somebody deletes it, which is what it always was.
     session_retention_days: int = 0
     # How far a runtime process is confined (crucible.ports.agent.confinement):
     # conversation, agent or off. Per agent: AGENTS_CONFINEMENT__<AGENT> or
@@ -458,9 +458,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _a_conversation_holds_at_least_one_file(self) -> Settings:
-        if 0 < self.attachment_conversation_max_mb < self.attachment_max_mb:
+        cap = self.attachment_conversation_max_mb
+        if cap < 0 or 0 < cap < self.attachment_max_mb:
             raise ValueError(
-                f"ATTACHMENT_CONVERSATION_MAX_MB ({self.attachment_conversation_max_mb:g}) must be at least "
+                f"ATTACHMENT_CONVERSATION_MAX_MB ({cap:g}) must be 0 (no cap) or at least "
                 f"ATTACHMENT_MAX_MB ({self.attachment_max_mb:g}): a conversation has to hold the one file "
                 "it just received"
             )
@@ -806,6 +807,14 @@ class Settings(BaseSettings):
             max_failures=self.scheduler_max_failures,
             max_tasks_per_agent=self.scheduler_max_tasks_per_agent,
         )
+
+    @property
+    def attachment_max_bytes(self) -> int:
+        return int(self.attachment_max_mb * 1024 * 1024)
+
+    @property
+    def attachment_conversation_max_bytes(self) -> int:
+        return int(self.attachment_conversation_max_mb * 1024 * 1024)
 
     @property
     def resolved_attachments_dir(self) -> Path:

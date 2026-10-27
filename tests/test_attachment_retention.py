@@ -2,10 +2,13 @@
 or when it has been idle for the retention."""
 
 import asyncio
+import contextlib
 import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 from crucible.attachment_retention import (
     SweptAttachments,
@@ -45,7 +48,7 @@ async def test_files_go_with_an_idle_conversation_an_old_orphan_and_nothing_else
         (fresh_orphan,) = await files.save_many("assistant", "nobody-new", [IncomingFile("d.pdf", b"d", "application/pdf", key="f4")])
         received = tmp_path / "files" / ".received" / "assistant"
 
-        assert await sweep_attachments(files, sessions, days=14) == SweptAttachments(idle=1, orphans=1, files=2)
+        assert await sweep_attachments(files, sessions, days=14) == SweptAttachments(idle_conversations=1, without_conversation=1, files=2)
         assert Path(old_in_live.path).is_file() and (received / "live.jsonl").is_file()
         assert not Path(fresh_in_idle.path).parent.exists() and not (received / "idle.jsonl").exists()
         assert not Path(old_orphan.path).parent.exists() and not (received / "nobody-old.jsonl").exists()
@@ -78,5 +81,12 @@ async def test_the_sweep_runs_now_and_every_period_and_a_retention_of_zero_does_
         assert not Path(saved.path).exists() and slept == [5.0, 5.0]  # swept before the first sleep
         await run_attachment_sweeps(files, sessions, days=0, sleep=sleep)
         assert slept == [5.0, 5.0]  # returned at once
-    finally:
+        # A pass that fails is logged and the loop goes on to the next period.
         await sessions.close()
+        slept.clear()
+        with pytest.raises(RuntimeError, match="stop"):
+            await run_attachment_sweeps(files, sessions, days=14, interval_s=7.0, sleep=sleep)  # the store is closed: list() raises
+        assert slept == [7.0, 7.0]
+    finally:
+        with contextlib.suppress(Exception):
+            await sessions.close()

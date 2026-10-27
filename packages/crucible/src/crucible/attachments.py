@@ -240,11 +240,26 @@ class AttachmentStore:
         the agent made in it included, and its record of what arrived — and
         say how many files went. Nothing of it is kept for a conversation the
         engine has forgotten or that nobody has touched in a while."""
-        return await asyncio.to_thread(self._forget_dir, self.conversation_dir(agent, conversation_id))
+        return await self.forget_dir(self.conversation_dir(agent, conversation_id))
 
-    def conversation_dirs(self) -> list[Path]:
+    async def conversation_dirs(self) -> list[Path]:
         """Every conversation directory the store holds, as ``conversation_dir``
         spells them — for a sweep to compare with what the engine still knows."""
+        return await asyncio.to_thread(self._conversation_dirs)
+
+    async def forget_dir(self, conversation_dir: Path) -> int:
+        """``forget`` for a directory ``conversation_dirs`` listed — one the
+        engine has no conversation for any more. The agent's own directory
+        stays: the engine made it and named it to the agent's process."""
+        return await asyncio.to_thread(self._forget_dir, conversation_dir)
+
+    @staticmethod
+    async def newest_mtime(conversation_dir: Path) -> float:
+        """When the conversation's directory was last written to: the newest of
+        its files, or the directory's own time when it holds none."""
+        return await asyncio.to_thread(_newest_mtime, conversation_dir)
+
+    def _conversation_dirs(self) -> list[Path]:
         if not self.root.is_dir():
             return []
         found: list[Path] = []
@@ -254,20 +269,26 @@ class AttachmentStore:
             found.extend(child for child in sorted(agent_dir.iterdir()) if child.is_dir())
         return found
 
-    def forget_dir(self, conversation_dir: Path) -> int:
-        """``forget`` for a directory ``conversation_dirs`` listed — one the
-        engine has no conversation for any more."""
-        return self._forget_dir(conversation_dir)
-
-    @staticmethod
-    def newest_mtime(conversation_dir: Path) -> float:
-        """When the conversation's directory was last written to: the newest of
-        its files, or the directory's own time when it holds none."""
-        times = [conversation_dir.stat().st_mtime]
-        for path in conversation_dir.rglob("*"):
-            with contextlib.suppress(OSError):
-                times.append(path.stat().st_mtime)
-        return max(times)
+    def _forget_dir(self, conversation_dir: Path) -> int:
+        # A conversation's directory and nothing above it: ``<root>/<agent>/<conversation>``.
+        if conversation_dir.parent.parent != self.root or conversation_dir.parent.name.startswith("."):
+            raise ValueError(f"{conversation_dir} is not a conversation directory of this store")
+        if conversation_dir.is_dir():
+            # The agent's process writes here as the engine's user, so a mode it
+            # set (a directory it closed to itself) is the engine's to open
+            # again: the files are forgotten whatever the agent did to keep them.
+            _open_tree(conversation_dir)
+        before = _count_files(conversation_dir)
+        if conversation_dir.is_dir():
+            shutil.rmtree(conversation_dir, onexc=_log_not_removed)
+        remaining = _count_files(conversation_dir)
+        if remaining:
+            logger.warning("attachments: %d file(s) of %s could not be removed", remaining, conversation_dir)
+        record = self._record_path(conversation_dir)
+        record.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            record.parent.rmdir()  # the agent's record directory, when this emptied it
+        return before - remaining
 
     def _make_room(self, kept: Path) -> list[Path]:
         """Evict the oldest files of ``kept``'s conversation, never ``kept``,
@@ -310,18 +331,6 @@ class AttachmentStore:
             path.write_text("".join(json.dumps(r.__dict__, ensure_ascii=False) + "\n" for r in staying), encoding="utf-8")
         else:
             path.unlink(missing_ok=True)
-
-    def _forget_dir(self, conversation_dir: Path) -> int:
-        if not conversation_dir.is_relative_to(self.root) or conversation_dir == self.root:
-            raise ValueError(f"{conversation_dir} is not a conversation directory of this store")
-        removed = sum(1 for p in conversation_dir.rglob("*") if p.is_file()) if conversation_dir.is_dir() else 0
-        shutil.rmtree(conversation_dir, ignore_errors=True)
-        record = self._record_path(conversation_dir)
-        record.unlink(missing_ok=True)
-        for parent in (conversation_dir.parent, record.parent):
-            with contextlib.suppress(OSError):
-                parent.rmdir()  # the agent's directory, when this emptied it
-        return removed
 
     # -- what arrived --------------------------------------------------------------
 
@@ -409,14 +418,35 @@ class AttachmentStore:
         private_file(target)
         target.write_bytes(data)
 
-    def _prune_empty(self, directory: Path) -> None:
-        for child in sorted(directory.iterdir(), reverse=True):
-            if child.is_dir():
-                self._prune_empty(child)
-                try:
-                    child.rmdir()
-                except OSError:  # not empty — that's the normal case
-                    pass
+
+def _count_files(directory: Path) -> int:
+    if not directory.is_dir():
+        return 0
+    return sum(1 for p in directory.rglob("*") if p.is_file())
+
+
+def _open_tree(directory: Path) -> None:
+    """Every directory under ``directory`` owner-writable and searchable, so
+    what is in it can be listed and unlinked. Each is opened before the walk
+    descends into it."""
+    with contextlib.suppress(OSError):
+        os.chmod(directory, 0o700)
+    for root, dirs, _files in os.walk(directory):
+        for name in dirs:
+            with contextlib.suppress(OSError):
+                os.chmod(Path(root) / name, 0o700)
+
+
+def _log_not_removed(_func: object, path: object, exc: BaseException) -> None:
+    logger.debug("could not remove %s: %s", path, exc)
+
+
+def _newest_mtime(directory: Path) -> float:
+    times = [directory.stat().st_mtime]
+    for path in directory.rglob("*"):
+        with contextlib.suppress(OSError):
+            times.append(path.stat().st_mtime)
+    return max(times)
 
 
 class _Received:

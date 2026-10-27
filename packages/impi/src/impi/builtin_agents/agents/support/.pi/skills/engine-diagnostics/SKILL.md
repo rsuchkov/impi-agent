@@ -394,7 +394,24 @@ tools and answers each call with the error. The check runs again every
 `MCP_RECHECK_S` seconds (300) and when a server says its tools changed, so the
 same `ERROR` can appear mid-life. The **mcp** skill has the whole list.
 
-## 8. Telemetry: counting what happened
+## 8. A file the person sent is gone
+
+Files live under `{DATA_DIR}/attachments/<agent>/<conversation>/`, with the
+record of what arrived under `attachments/.received/`. A conversation's files
+go together, in one motion, when: nobody has touched the conversation for
+`ATTACHMENT_RETENTION_DAYS` (14; counted from the conversation's last activity,
+not the file's age — hourly sweep); the conversation was forgotten by
+`SESSION_RETENTION_DAYS` or `impi sessions delete`/`purge-idle`; or the
+conversation held more than `ATTACHMENT_CONVERSATION_MAX_MB` (200) and the
+oldest files made room for a new one — the agent's own files in that directory
+count and go the same way. The log says which: `attachments: forgot N file(s)
+of M conversation(s) idle for D+ days …` (the sweep), `forgot N
+conversation(s) idle for D+ days` (`SESSION_RETENTION_DAYS` at startup) or
+`attachments: <conversation> over its <bytes>-byte cap; N oldest file(s)
+evicted`. A tool answering `… is no longer here` is this, not a bug: the person
+attaches the file again.
+
+## 9. Telemetry: counting what happened
 
 The engine writes one JSON line per event on the logger `impi.telemetry`
 (`TELEMETRY_LOG`, on by default; `docs/telemetry.md`): `turn_ended` (agent,
@@ -411,7 +428,7 @@ did it cost" only from lines you were given, never from a guess. An
 application with its own metrics receives the same events through the
 `Telemetry` port instead of the log.
 
-## 9. Reporting back
+## 10. Reporting back
 
 - Name the layer and the evidence: "the agent isn't running — no
   `AGENTS_MM_TOKEN__X` in the config", not "it seems the token may be missing".
