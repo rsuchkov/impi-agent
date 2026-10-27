@@ -686,6 +686,19 @@ async def test_the_result_sums_what_the_runs_answers_cost() -> None:
     session2 = PiRpcSession(transport2)
     session2.start()
     assert (await session2.prompt("x", timeout=1.0)).usage is None
+    # A number that is not one (a string, a null, a boolean) counts as 0 — the
+    # turn's result is not lost over a field the engine only reports.
+    transport3 = FakeTransport()
+
+    def odd(command: dict) -> None:
+        transport3.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "ok", "usage": {
+            "input": "many", "output": None, "totalTokens": True, "cost": {"total": "n/a"}}}]})
+        transport3.emit({"type": "agent_settled", "aborted": False})
+
+    transport3._reactor = odd
+    session3 = PiRpcSession(transport3)
+    session3.start()
+    assert (await session3.prompt("x", timeout=1.0)).usage == TokenUsage()
 
 
 async def test_a_result_without_a_named_model_says_none() -> None:

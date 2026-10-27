@@ -268,6 +268,10 @@ class McpServers:
     def _tell_checked(self, report: CheckReport) -> None:
         if self._telemetry is None:
             return
+        # One word per server, the most specific winning: a server that was
+        # reached and refreshed is told ``refreshed``, not ``connected``.
+        # Precedence, rising: connected < unreachable < unpinned < refreshed <
+        # withdrawn < restored.
         results: dict[str, str] = {name: "connected" for name in report.connected}
         results.update({name: "unreachable" for name in report.unreachable})
         results.update({name: "unpinned" for name in report.unpinned})

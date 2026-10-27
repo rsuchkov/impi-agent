@@ -620,16 +620,21 @@ def _usage_from_agent_end(event: PiEvent) -> TokenUsage | None:
         raw_cost = usage.get("cost")
         cost = raw_cost if isinstance(raw_cost, dict) else {}
         one = TokenUsage(
-            input=_count(usage.get("input")), output=_count(usage.get("output")),
-            cache_read=_count(usage.get("cacheRead")), cache_write=_count(usage.get("cacheWrite")),
-            total=_count(usage.get("totalTokens")), cost_usd=float(cost.get("total") or 0.0),
+            input=_int_or_zero(usage.get("input")), output=_int_or_zero(usage.get("output")),
+            cache_read=_int_or_zero(usage.get("cacheRead")), cache_write=_int_or_zero(usage.get("cacheWrite")),
+            total=_int_or_zero(usage.get("totalTokens")), cost_usd=_number_or_zero(cost.get("total")),
         )
         total = one if total is None else total + one
     return total
 
 
-def _count(value: object) -> int:
-    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+def _number_or_zero(value: object) -> float:
+    """A JSON number as a float; anything else — missing, null, a string — is 0."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
+def _int_or_zero(value: object) -> int:
+    return int(_number_or_zero(value))
 
 
 def _model_from_agent_end(event: PiEvent) -> str:

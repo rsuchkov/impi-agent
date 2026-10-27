@@ -64,9 +64,9 @@ Python packages under `$IMPI_ROOT/packages`:
 Read them when a question needs the real behaviour rather than the documented
 one. The docs themselves are at **`$IMPI_ROOT/docs`** — start from
 `docs/README.md`, which indexes every page (architecture, creating agents,
-skills, tasks, secrets, connected accounts, security, browsing, agent
-containers, storage, the tool trace, files, commands, the ws and http gateways, configuration, runtime notes,
-troubleshooting, installation).
+skills, tasks, secrets, connected accounts, MCP servers, security, browsing,
+agent containers, storage, the tool trace, telemetry, files, commands, the ws
+and http gateways, configuration, runtime notes, troubleshooting, installation).
 They are written to be read by you.
 
 `pi` is on `PATH`; `pi --help` shows its flags.

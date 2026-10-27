@@ -220,8 +220,9 @@ class ToolServer:
         return find_by_secret(self._tokens.items(), presented)
 
     async def _handle(self, request: web.Request) -> web.Response:
-        """Serve the call and tell the telemetry how it went: the outcome the
-        branches leave on the request, or the one the status says."""
+        """Serve the call and tell the telemetry how it went: the outcome word
+        the branch left, else ``ok`` for a 200 and ``refused_<status>`` for a
+        refusal no branch named (none today; a word for a branch to come)."""
         started = time.monotonic()
         call = _CallFacts()
         response = await self._serve(request, call)

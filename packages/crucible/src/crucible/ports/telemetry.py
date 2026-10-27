@@ -75,7 +75,7 @@ class McpCalled:
     tool: str  # the server's own name for it
     agent: str
     outcome: str  # ok, is_error, unreachable, unanswered, refused, token_refused, protocol, unsupported,
-    # no_file, file_gone, file_changed, file_type, not_connected, not_direct
+    # no_file, file_gone, file_changed, file_type, not_connected, not_direct, no_provider, provider_unavailable
     duration_s: float
     file_bytes: int  # a person's file sent with the call, in bytes (0 for none)
 
@@ -94,7 +94,7 @@ class TaskRan:
 
     agent: str
     task: str
-    outcome: str  # the run status: ok, empty, timeout, error, deadline, cancelled, gone
+    outcome: str  # the run's status word (store.base.RUN_STATUSES): ok, empty, timeout, error, deadline, no_agent, …
     duration_s: float
 
 
@@ -104,7 +104,8 @@ class ConnectionChanged:
 
     provider: str
     event: str  # connect_start, connect, refresh, forget, disconnect, grant
-    result: str  # ok, unavailable, rejected, not_connected, revoke_failed
+    result: str  # ok, unavailable, rejected, not_connected, revoke_failed; on a connect also the link's
+    # word: expired, foreign, denied, account_refused
 
 
 @dataclass(frozen=True)

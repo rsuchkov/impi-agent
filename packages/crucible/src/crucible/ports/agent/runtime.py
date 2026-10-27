@@ -68,7 +68,7 @@ class TokenUsage:
 
 class AgentResult(Protocol):
     """A single turn's outcome. Flows read the final text and whether any tool
-    was called; what the turn cost and who answered it are for the meter."""
+    was called; what the turn cost and who answered it are for the telemetry."""
 
     text: str
     # Names of the tools invoked this turn. A turn with no text but a non-empty

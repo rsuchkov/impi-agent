@@ -12,7 +12,12 @@ from crucible.mcp import (
     split_tool_name,
 )
 from crucible.mcp.protocol import CallResult, McpError
-from crucible.ports.connections import AccessToken, ProviderAccount, TokenGrant
+from crucible.ports.connections import (
+    AccessToken,
+    ProviderAccount,
+    ProviderUnavailable,
+    TokenGrant,
+)
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 from tests.test_tools import AGENTS, FakeDirectory
 
@@ -348,3 +353,56 @@ async def test_the_card_says_which_file_leaves_to_whom_and_its_digest() -> None:
     # A path that is not a received file: the card says so instead of showing a file.
     stray = await tool.describe(_ctx(received_files=received), {"document": "/files/assistant/c1/other.pdf"})
     assert stray is not None and stray.rows[0].label == "document (file)" and "not a file the person attached" in stray.rows[0].value
+
+
+async def test_every_way_a_call_is_turned_down_is_told_by_its_own_word() -> None:
+    """The outcome word comes from where the refusal is raised, not from the
+    message's wording: each refusal tells its word, and the model's error
+    text is the same as before."""
+    from crucible.ports.telemetry import McpCalled
+
+    class _Telemetry:
+        def __init__(self) -> None:
+            self.words: list[str] = []
+
+        def record(self, event) -> None:
+            assert isinstance(event, McpCalled)
+            self.words.append(event.outcome)
+
+    told = _Telemetry()
+    personal = McpServer("gitlab", url="https://x/mcp", headers={"Authorization": "${connection:gitlab}"})
+    tool = McpTool(personal, ECHO, _Calls(CallResult("ok")), telemetry=told)
+    for ctx, word in [
+        (_ctx(connections=_Connections({"gitlab": "t"}), conversation_kind="thread"), "not_direct"),
+        (_ctx(connections=_Connections({"github": "t"}), conversation_kind="dm", direct=True), "no_provider"),
+        (_ctx(connections=_Connections({"gitlab": None}), conversation_kind="dm", direct=True), "not_connected"),
+    ]:
+        with pytest.raises(ToolError):
+            await tool.execute(ctx, {"text": "x"})
+        assert told.words[-1] == word
+
+    class _Unavailable(_Connections):
+        async def grant(self, provider: str) -> TokenGrant:
+            raise ProviderUnavailable(provider)
+
+    with pytest.raises(ToolError, match="did not answer"):
+        await tool.execute(_ctx(connections=_Unavailable({"gitlab": "t"}), conversation_kind="dm", direct=True), {"text": "x"})
+    assert told.words[-1] == "provider_unavailable"
+
+    files = McpTool(McpServer("invoices", url="https://x/mcp"), RECOGNISE, _Calls(CallResult("ok")), telemetry=told)
+    pdf, png = b"%PDF-1.4 x", b"\x89PNG\r\n\x1a\nabc"
+    received = _Received({"/f/F1-a.pdf": pdf, "/f/F2-gone.pdf": pdf, "/f/F3-changed.pdf": pdf, "/f/F4-photo.png": png})
+    received.gone.add("/f/F2-gone.pdf")
+    received.changed.add("/f/F3-changed.pdf")
+    for ctx, path, word in [
+        (_ctx(), "/f/F1-a.pdf", "no_file"),  # the engine keeps no files
+        (_ctx(received_files=received), "/f/not-attached.pdf", "no_file"),
+        (_ctx(received_files=received), "/f/F2-gone.pdf", "file_gone"),
+        (_ctx(received_files=received), "/f/F3-changed.pdf", "file_changed"),
+        (_ctx(received_files=received), "/f/F4-photo.png", "file_type"),
+    ]:
+        with pytest.raises(ToolError):
+            await files.execute(ctx, {"document": path})
+        assert told.words[-1] == word
+    assert await files.execute(_ctx(received_files=received), {"document": "/f/F1-a.pdf"}) == "ok"
+    assert told.words[-1] == "ok"

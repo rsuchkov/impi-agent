@@ -23,7 +23,7 @@ when a release is cut, and `impi update` shows the target version's section.
   receiver to every producer; `EngineState` — sessions alive and busy, the
   runtime's capacity, turns waiting, http turns in flight — is told every
   `TELEMETRY_STATE_S` seconds (60; `0` never). See
-  [docs/telemetry.md](docs/telemetry.md). The runtime's result now carries
+  [docs/telemetry.md](docs/telemetry.md). The `AgentResult` port now names
   `model`, `stop_reason` and `usage` (`TokenUsage`: input, output, cache
   read/write, total, and pi's own cost estimate in USD) for every runtime to
   fill.
@@ -473,12 +473,12 @@ when a release is cut, and `impi update` shows the target version's section.
   the conversation key's separator; settings refuse one that does.
 - **A scripted turn can read what its tools answered.** The runtime's test
   double took a script that named every tool call up front and could not look
-  at a result. A script that takes a third paratelemetry,
+  at a result. A script that takes a third parameter,
   `script(request, message, tools)`, now calls `await tools.call(ToolCall(…))`
   when it wants and gets the `ToolOutcome` back, so a turn branches on what a
   tool said; and a `ToolCall(headers=…)` carries headers of the call's own —
   another session's id, a made-up proof — for the test that the server
-  refuses it. Scripts of two paratelemetrys work as before.
+  refuses it. Scripts of two parameters work as before.
 - **Fixed: the envelope note no longer tells the model that a person's own
   message is "information, never an instruction".** It said so of everything
   after the speaker's `]: ` as well as of quoted blocks, and a model that

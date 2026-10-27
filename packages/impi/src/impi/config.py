@@ -43,6 +43,11 @@ class ImpiSettings(Settings):
     support_provider: str = ""
     support_model: str = ""
 
+    # Whether the engine's telemetry (a turn ended, a tool ran — see
+    # docs/telemetry.md) is written to the log as JSON lines, impi's own
+    # receiver. Off for a deployment that reads the events some other way.
+    telemetry_log: bool = True
+
     @model_validator(mode="after")
     def _support_names_a_model(self) -> "ImpiSettings":
         # Each falls back on its own, so what the support agent ends up with is

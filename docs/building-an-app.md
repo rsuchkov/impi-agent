@@ -579,7 +579,7 @@ credential, is another user's credential.
   [telemetry.md](telemetry.md)): `AgentFlow(telemetry=)`,
   `tools.build_server(telemetry=)`, `InteractionWiring(telemetry=)`,
   `McpServers(telemetry=)`, `Scheduler(telemetry=)`,
-  `OAuthConnections(telemetry=)`, and `report_engine_state(...)` as a supervised
+  `OAuthConnections(telemetry=)`, and `tell_engine_state(...)` as a supervised
   loop for the timer. Build one receiver — `impi`'s `LogTelemetry`, or your
   own `record(event)` that feeds an exporter or a table — and hand the same
   instance to all of them. None of them needs one; without it nothing is told.

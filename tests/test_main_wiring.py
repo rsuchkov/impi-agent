@@ -1097,7 +1097,7 @@ def test_impi_hands_one_telemetry_to_every_producer(tmp_path: Path) -> None:
 
 
 async def test_the_engines_state_is_told_on_a_timer_from_what_the_runtime_says() -> None:
-    from crucible.engine_state import engine_state, report_engine_state
+    from crucible.engine_state import engine_state, tell_engine_state
     from crucible.ports.agent.runtime import RuntimeStats
     from crucible.ports.telemetry import EngineState
 
@@ -1123,8 +1123,8 @@ async def test_the_engines_state_is_told_on_a_timer_from_what_the_runtime_says()
             raise RuntimeError("stop")
 
     with pytest.raises(RuntimeError, match="stop"):
-        await report_engine_state(_Telemetry(), control=_Control(), agents=lambda: 2, interval_s=30.0, sleep=sleep)  # type: ignore[arg-type]
+        await tell_engine_state(_Telemetry(), control=_Control(), agents=lambda: 2, interval_s=30.0, sleep=sleep)  # type: ignore[arg-type]
     assert len(told) == 2 and slept == [30.0, 30.0]
-    await report_engine_state(_Telemetry(), control=None, agents=lambda: 1, interval_s=0, sleep=sleep)  # 0: told nothing, returns
+    await tell_engine_state(_Telemetry(), control=None, agents=lambda: 1, interval_s=0, sleep=sleep)  # 0: told nothing, returns
     assert len(told) == 2
     assert Settings(_env_file=None, dotenv_path="x").telemetry_state_s == 60.0  # pyright: ignore[reportCallIssue]

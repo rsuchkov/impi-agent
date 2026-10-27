@@ -15,7 +15,7 @@ receiver and a store, and no runtime at all.
 
 | Area | Package | Responsibility |
 |---|---|---|
-| Ports | `crucible.ports.agent`, `crucible.ports.chat`, `crucible.ports.connections` | The Protocol contracts everything depends on (no implementations). |
+| Ports | `crucible.ports.agent`, `crucible.ports.chat`, `crucible.ports.connections`, `crucible.ports.telemetry` | The Protocol contracts everything depends on (no implementations). |
 | Runtime | `crucible.runtimes.pi` | Drives `pi --mode rpc` over line-delimited JSON, one subprocess per conversation. |
 | Gateways | `crucible.gateways` | The platform adapters (`mattermost`, `slack`) — the only code that imports a platform SDK — and two for your own programs: `ws` (a duplex socket) and `http` (a request/turn API). |
 | Flows | `crucible.flows` | Conversation orchestration: `AgentFlow` (a batch → one reply), `MessageCoalescer`. |
@@ -60,6 +60,9 @@ An application depends only on these; concretes are swappable behind them.
 - `TaskService` (`crucible.ports.tasks`) — what a tool calls to schedule work
   for later, or to watch for something until it happens.
 - `AgentDirectory` — who our agents are (for dispatch decisions).
+- `Telemetry` (`crucible.ports.telemetry`) — `record(event)`: where the
+  engine's events (a turn ended, a tool called, a card answered, …) go; the
+  application's receiver, tied to no exporter.
 - `types` — the neutral vocabulary (`ConversationRef`, `IncomingMessage`,
   `Attachment`, `OutgoingFile`, `Action`, `Form`, …),
   including the control types a form may use (`FIELD_TYPES`) and the widget kinds

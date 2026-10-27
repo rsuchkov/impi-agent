@@ -178,9 +178,9 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "A replica's heartbeat is a port consumer — no runtime, gateway, flow or store machinery"
+name = "The engine's loops — a replica's heartbeat, the telemetry pulse — are port consumers: no runtime, gateway, flow or store machinery"
 type = "forbidden"
-source_modules = ["crucible.replica_heartbeat"]
+source_modules = ["crucible.replica_heartbeat", "crucible.engine_state"]
 forbidden_modules = [
     "crucible.runtimes",
     "crucible.gateways",

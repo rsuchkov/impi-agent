@@ -15,7 +15,7 @@ from crucible.ports.telemetry import EngineState, Telemetry
 logger = logging.getLogger(__name__)
 
 
-async def report_engine_state(
+async def tell_engine_state(
     telemetry: Telemetry,
     *,
     control: RuntimeControl | None,

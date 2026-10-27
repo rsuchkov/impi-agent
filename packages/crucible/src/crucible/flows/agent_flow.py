@@ -419,7 +419,7 @@ class AgentFlow:
         facts = _TurnFacts()
         outcome = await self._turn(fresh, anchor, record, created, chat, facts)
         if self._telemetry is not None:
-            self._report_turn(fresh, anchor, key, outcome, facts, time.monotonic() - started)
+            self._tell_turn(fresh, anchor, key, outcome, facts, time.monotonic() - started)
         if anchor.turn is not None and anchor.turn.flags:
             # After the answer or the failure notice: a tool's note about the turn
             # ("your session expired") reads as the footnote it is.
@@ -429,9 +429,9 @@ class AgentFlow:
                 )
         return outcome
 
-    def _report_turn(
+    def _tell_turn(
         self, fresh: list[IncomingMessage], anchor: IncomingMessage, key: str,
-        outcome: TurnOutcome, facts: "_TurnFacts", duration_s: float,
+        outcome: TurnOutcome, facts: _TurnFacts, duration_s: float,
     ) -> None:
         assert self._telemetry is not None
         result = facts.result
@@ -457,7 +457,7 @@ class AgentFlow:
         record: SessionRecord,
         created: bool,
         chat: ChatClient,
-        facts: "_TurnFacts",
+        facts: _TurnFacts,
     ) -> TurnOutcome:
         # A first turn for the runtime is not only a conversation the store has
         # never seen: a session the runtime has forgotten (evicted, wiped with

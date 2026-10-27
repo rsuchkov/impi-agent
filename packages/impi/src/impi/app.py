@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
 from pathlib import Path
-from typing import cast
 
 from crucible.approvals import PendingApprovals
 from crucible.attachments import AttachmentStore
@@ -34,7 +33,7 @@ from crucible.conversation_files import (
     conversation_lookup,
     engine_turns_lookup,
 )
-from crucible.engine_state import report_engine_state
+from crucible.engine_state import tell_engine_state
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.flows.owned import OwnedFlow
@@ -263,6 +262,9 @@ class App:
     forwarder: HubForwarder | None = None
     # Where the engine tells what it did (docs/telemetry.md); None tells nothing.
     telemetry: Telemetry | None = None
+    # The runtime's control side (its sessions, their state), for the loops
+    # that read it after the build.
+    control: RuntimeControl | None = None
     # The deployment's MCP servers, connected at start and closed at stop.
     mcp_servers: McpServers | None = None
 
@@ -936,6 +938,7 @@ def build_app(settings: ImpiSettings) -> App:
         forwarder=forwarder,
         mcp_servers=mcp if mcp.servers else None,
         telemetry=telemetry,
+        control=runtime,
     )
 
 
@@ -1081,9 +1084,9 @@ async def run(settings: ImpiSettings) -> None:
                 "mcp recheck", lambda: mcp.run(settings.mcp_recheck_s, lambda report: _apply_mcp_check(tools, report))
             ))
         if app.telemetry is not None and settings.telemetry_state_s > 0:
-            told, control = app.telemetry, cast(RuntimeControl, app.runtime)
+            told, control = app.telemetry, app.control
             turns = app.http_hub.turns if app.http_hub is not None else None
-            loops.append(_supervise("telemetry state", lambda: report_engine_state(
+            loops.append(_supervise("telemetry state", lambda: tell_engine_state(
                 told, control=control, agents=lambda: len(app.units),
                 http_turns_active=turns.active_count if turns is not None else (lambda: 0),
                 interval_s=settings.telemetry_state_s,

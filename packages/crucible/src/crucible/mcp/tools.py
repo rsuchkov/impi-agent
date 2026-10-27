@@ -159,20 +159,17 @@ class McpTool:
         started = time.monotonic()
         try:
             return await self._run(ctx, args, started)
-        except _Told as told:
-            self._tell(ctx, told.outcome, started, told.file_bytes)
-            raise told.error from told.error.__cause__
+        except _Ended as ended:
+            self._tell(ctx, ended.outcome, started, ended.file_bytes)
+            raise ended.error from ended.error.__cause__
 
     async def _run(self, ctx: ToolContext, args: dict[str, Any], started: float) -> Any:
         """The call, with every way it can end named for the telemetry."""
         try:
             headers, grants = await self._credentials(ctx)
-        except ToolError as exc:
-            raise _Told(exc, "not_direct" if "direct message" in str(exc) else "not_connected") from exc
-        try:
             args, file_bytes = await self._with_files(ctx, args)
-        except ToolError as exc:
-            raise _Told(exc, _file_outcome(str(exc))) from exc
+        except _Declined as exc:
+            raise _Ended(exc, exc.outcome) from exc
         try:
             result = await self._call(self._definition.name, args, headers)
         except McpError as exc:
@@ -190,12 +187,12 @@ class McpTool:
                 assert ctx.connections is not None
                 for grant in grants:
                     await ctx.connections.forget(grant)
-                raise _Told(ToolError(
+                raise _Ended(ToolError(
                     _TOKEN_REFUSED.format(server=self.server.name, provider=", ".join(g.provider for g in grants))
                 ), "token_refused", file_bytes) from exc
             if exc.code == UNREACHABLE and exc.sent:
-                raise _Told(ToolError(_UNANSWERED.format(server=self.server.name)), "unanswered", file_bytes) from exc
-            raise _Told(ToolError(_FAILED[exc.code].format(server=self.server.name)), exc.code, file_bytes) from exc
+                raise _Ended(ToolError(_UNANSWERED.format(server=self.server.name)), "unanswered", file_bytes) from exc
+            raise _Ended(ToolError(_FAILED[exc.code].format(server=self.server.name)), exc.code, file_bytes) from exc
         if result.is_error:
             # The server's refusal is data of the server's, wrapped as such by
             # the tool server (``returns_untrusted``), never raised as our own.
@@ -230,12 +227,14 @@ class McpTool:
             if not ctx.direct:
                 # Whose turn it is in a shared conversation is not settled
                 # enough to act as anyone — the rule the connection tools keep.
-                raise ToolError(
+                raise _Declined(
+                    "not_direct",
                     f"{self.server.name} acts as the person, which works only in a direct message "
                     "with them; tell them to ask there"
                 )
             if ctx.connections is None or provider not in ctx.connections.providers:
-                raise ToolError(
+                raise _Declined(
+                    "no_provider",
                     f"{self.server.name} acts as the person at {provider}, which is not a provider "
                     "anyone can connect here"
                 )
@@ -244,15 +243,16 @@ class McpTool:
             except NotConnected as exc:
                 # What the connection tools say: the model tells the person how
                 # to connect, and never asks them for a token.
-                raise ToolError(
+                raise _Declined(
+                    "not_connected",
                     f"the user has not connected their {provider} account, which {self.server.name} acts "
                     "as them at. Ask them to connect it in a direct message with you (the connections "
                     "command); never ask them for a token or a password"
                 ) from exc
             except ProviderUnavailable as exc:
-                raise ToolError(f"{provider} did not answer; try again in a minute") from exc
+                raise _Declined("provider_unavailable", f"{provider} did not answer; try again in a minute") from exc
             except ConnectionsError as exc:
-                raise ToolError(str(exc)) from exc
+                raise _Declined("not_connected", str(exc)) from exc
             grants.append(grant)
             headers[key] = f"Bearer {grant.token.reveal()}"
         return headers, tuple(grants)
@@ -297,12 +297,15 @@ class McpTool:
             try:
                 data = await ctx.received_files.read(received)
             except ReceivedFileGone as exc:
-                raise ToolError(
+                raise _Declined(
+                    "file_gone",
                     f"{received.name} is no longer here (files are kept for a while, not forever); "
                     "ask the person to attach it again"
                 ) from exc
             except ReceivedFileChanged as exc:
-                raise ToolError(f"{received.name} is not the file the person attached any more; ask them to attach it again") from exc
+                raise _Declined(
+                    "file_changed", f"{received.name} is not the file the person attached any more; ask them to attach it again"
+                ) from exc
             wanted = str((self._definition.input_schema.get("properties") or {}).get(key, {}).get(_CONTENT_MEDIA_TYPE) or "")
             if wanted:
                 _check_type(self.name, key, received, data, wanted)
@@ -314,11 +317,12 @@ class McpTool:
         """The record of the file at ``path`` among what this conversation
         received — the only files a tool may hand on."""
         if ctx.received_files is None:
-            raise ToolError(f"{self.name} takes a file, and this engine keeps none")
+            raise _Declined("no_file", f"{self.name} takes a file, and this engine keeps none")
         for record in await ctx.received_files.list():
             if record.path == path:
                 return record
-        raise ToolError(
+        raise _Declined(
+            "no_file",
             f"{path!r} is not a file the person attached in this conversation; give the path "
             "from an [attached] line of this conversation, and nothing else"
         )
@@ -334,26 +338,26 @@ class McpTool:
         )
 
 
-class _Told(Exception):
-    """A tool error with the outcome word the telemetry gets for it."""
+class _Declined(ToolError):
+    """A tool error raised where the engine declined the call itself — the
+    server never saw it; ``REFUSED`` is the server's word — with the outcome
+    word the telemetry gets for it, named where the reason is known, never
+    read back from the message."""
+
+    def __init__(self, outcome: str, message: str) -> None:
+        super().__init__(message)
+        self.outcome = outcome
+
+
+class _Ended(Exception):
+    """How a call ended short of a result: the error the model gets, the
+    outcome word the telemetry gets, and the bytes of files that went in."""
 
     def __init__(self, error: ToolError, outcome: str, file_bytes: int = 0) -> None:
         super().__init__(str(error))
         self.error = error
         self.outcome = outcome
         self.file_bytes = file_bytes
-
-
-def _file_outcome(message: str) -> str:
-    if "keeps none" in message:
-        return "no_file"
-    if "no longer here" in message:
-        return "file_gone"
-    if "not the file the person attached any more" in message:
-        return "file_changed"
-    if "not a file the person attached" in message:
-        return "no_file"
-    return "file_type"
 
 
 def file_arguments(definition: ToolDefinition) -> tuple[str, ...]:
@@ -382,12 +386,14 @@ def _check_type(tool: str, key: str, received: ReceivedFile, data: bytes, wanted
     found = sniff_content_type(data)
     if found:
         if found != wanted:
-            raise ToolError(f"{tool} takes {wanted} for {key}; {received.name} is {found}")
+            raise _Declined("file_type", f"{tool} takes {wanted} for {key}; {received.name} is {found}")
         return
     if wanted in KNOWN_CONTENT_TYPES:
-        raise ToolError(f"{tool} takes {wanted} for {key}; {received.name} is not that by its bytes")
+        raise _Declined("file_type", f"{tool} takes {wanted} for {key}; {received.name} is not that by its bytes")
     if received.mime and received.mime != wanted:
-        raise ToolError(f"{tool} takes {wanted} for {key}; {received.name} is {received.mime}, the platform says")
+        raise _Declined(
+            "file_type", f"{tool} takes {wanted} for {key}; {received.name} is {received.mime}, the platform says"
+        )
 
 
 def _parameters_for_model(schema: Mapping[str, Any], files: tuple[str, ...]) -> dict[str, Any]:

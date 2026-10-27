@@ -402,11 +402,14 @@ gateway, user, outcome, notice, duration, the model that answered, the tools
 called, `usage` with tokens and pi's cost estimate), `tool_called` (with the
 outcome word — `ok`, `error`, `denied`, `not_allowed`, …), `card_answered`,
 `mcp_called`, `mcp_checked`, `task_ran`, `connection_changed`, and
-`engine_state` every `TELEMETRY_STATE_S` seconds. `impi logs | grep '"event":
-"turn_ended"'` is how to count turns, errors or tokens by hand; a question
-about "how many", "how often" or "how much did it cost" is answered from these
-lines, not guessed. An application with its own metrics receives the same
-events through the `Telemetry` port instead of the log.
+`engine_state` every `TELEMETRY_STATE_S` seconds. They are INFO lines: with
+`LOG_LEVEL=WARNING` there are none. You cannot read the log yourself (§0): to
+count turns, errors or tokens, ask the operator for
+`impi logs | grep '"event": "turn_ended"'` (a source checkout: the same grep
+over `data/logs/engine.log`), and answer "how many", "how often" or "how much
+did it cost" only from lines you were given, never from a guess. An
+application with its own metrics receives the same events through the
+`Telemetry` port instead of the log.
 
 ## 9. Reporting back
 
