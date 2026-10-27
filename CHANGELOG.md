@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.36.0 — 2026-10-27
+
 - **A conversation's files live as long as the conversation.**
   `ATTACHMENT_RETENTION_DAYS` now counts from the conversation's last activity,
   not from each file's own age: a two-week-old file in a conversation still
