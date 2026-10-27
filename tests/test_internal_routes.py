@@ -73,7 +73,7 @@ async def _hub(port: int, tmp_path: Path, token: str = "shared", **kw) -> tuple[
     presence = MappingPresence({"helper": AgentSink(sink=sink, gateways={"slack": chat, "mattermost": FakeChat()}, default="mattermost")})
     internal = InternalRoutes(
         token, presence, dispatcher=dispatcher,  # type: ignore[arg-type]  # structural test double
-        attachments=AttachmentStore(tmp_path / "files", max_bytes=1024, retention_days=1),
+        attachments=AttachmentStore(tmp_path / "files", max_bytes=1024),
         keying=kw.pop("keying", None),
     )
     hub = HttpHub("127.0.0.1", port, TokenCallers({}), directory=FakeDirectory(), max_wait_s=0.2, routes=internal.routes)
@@ -179,7 +179,7 @@ async def test_a_forwarded_file_is_saved_under_the_conversation_as_the_owner_key
     try:
         assert await forwarder.forward_turn("http://127.0.0.1:8574", "helper", [_message(tmp_path)]) is TurnOutcome.ACTED
         got = sink.submitted[-1]
-        store = AttachmentStore(tmp_path / "files", max_bytes=1024, retention_days=1)
+        store = AttachmentStore(tmp_path / "files", max_bytes=1024)
         assert Path(got.attachments[0].path).parent == store.conversation_dir("helper", "task-7")
     finally:
         await forwarder.aclose()

@@ -20,6 +20,11 @@ to an agent's process, whatever directory it may write — the store keeps what
 arrived (``ports.attachments``): a line per file with its size and sha256, so a
 tool that hands a person's file on can tell it from one the agent made or
 changed.
+
+A conversation's files live as long as the conversation does: ``forget`` takes
+the directory and its record together, and who calls it when — the retention
+sweep (``attachment_retention``), a conversation forgotten by age or by hand
+(``session_retention``, ``sessions_cli``) — is not the store's to know.
 """
 
 import asyncio
@@ -29,8 +34,8 @@ import json
 import logging
 import os
 import re
+import shutil
 import stat
-import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -67,9 +72,6 @@ _MAX_NAME = 80
 # Hex characters of the digest that keeps two conversation ids apart.
 _DIGEST_CHARS = 12
 _FALLBACK_NAME = "file"
-# How often a save may trigger a retention sweep (the sweep also runs at startup).
-_SWEEP_INTERVAL_S = 3600.0
-
 
 class AttachmentTooLarge(Exception):
     """The file exceeds the configured per-file limit and was not saved."""
@@ -94,17 +96,9 @@ def safe_name(name: str) -> str:
 
 
 class AttachmentStore:
-    def __init__(
-        self,
-        root: str | Path,
-        *,
-        max_bytes: int,
-        retention_days: int,
-    ) -> None:
+    def __init__(self, root: str | Path, *, max_bytes: int) -> None:
         self.root = Path(root)
         self.max_bytes = max_bytes
-        self.retention_days = retention_days
-        self._last_sweep = 0.0
 
     def dir_for(self, agent: str) -> Path:
         """This agent's own attachment tree — the root it may send files from."""
@@ -147,7 +141,6 @@ class AttachmentStore:
         filename = f"{safe_name(stamp)}-{safe_name(name)}"
         target = self.conversation_dir(agent, conversation_id) / filename
         await asyncio.to_thread(self._write, target, data)
-        self._maybe_sweep()
         return Attachment(
             name=Path(name.replace("\\", "/")).name or filename,
             path=str(target),
@@ -232,6 +225,54 @@ class AttachmentStore:
         with contextlib.suppress(OSError):
             from_dir.rmdir()  # the gateway's directory, when the move emptied it
 
+    # -- a conversation's lifetime -----------------------------------------------
+
+    async def forget(self, agent: str, conversation_id: str) -> int:
+        """Remove everything the conversation has here — its directory, files
+        the agent made in it included, and its record of what arrived — and
+        say how many files went. Nothing of it is kept for a conversation the
+        engine has forgotten or that nobody has touched in a while."""
+        return await asyncio.to_thread(self._forget_dir, self.conversation_dir(agent, conversation_id))
+
+    def conversation_dirs(self) -> list[Path]:
+        """Every conversation directory the store holds, as ``conversation_dir``
+        spells them — for a sweep to compare with what the engine still knows."""
+        if not self.root.is_dir():
+            return []
+        found: list[Path] = []
+        for agent_dir in sorted(self.root.iterdir()):
+            if not agent_dir.is_dir() or agent_dir.name.startswith("."):
+                continue  # ``.received`` is the store's own, not a conversation's
+            found.extend(child for child in sorted(agent_dir.iterdir()) if child.is_dir())
+        return found
+
+    def forget_dir(self, conversation_dir: Path) -> int:
+        """``forget`` for a directory ``conversation_dirs`` listed — one the
+        engine has no conversation for any more."""
+        return self._forget_dir(conversation_dir)
+
+    @staticmethod
+    def newest_mtime(conversation_dir: Path) -> float:
+        """When the conversation's directory was last written to: the newest of
+        its files, or the directory's own time when it holds none."""
+        times = [conversation_dir.stat().st_mtime]
+        for path in conversation_dir.rglob("*"):
+            with contextlib.suppress(OSError):
+                times.append(path.stat().st_mtime)
+        return max(times)
+
+    def _forget_dir(self, conversation_dir: Path) -> int:
+        if not conversation_dir.is_relative_to(self.root) or conversation_dir == self.root:
+            raise ValueError(f"{conversation_dir} is not a conversation directory of this store")
+        removed = sum(1 for p in conversation_dir.rglob("*") if p.is_file()) if conversation_dir.is_dir() else 0
+        shutil.rmtree(conversation_dir, ignore_errors=True)
+        record = self._record_path(conversation_dir)
+        record.unlink(missing_ok=True)
+        for parent in (conversation_dir.parent, record.parent):
+            with contextlib.suppress(OSError):
+                parent.rmdir()  # the agent's directory, when this emptied it
+        return removed
+
     # -- what arrived --------------------------------------------------------------
 
     def received_files_for(self, files_dir: Path) -> ReceivedFiles:
@@ -305,30 +346,6 @@ class AttachmentStore:
             raise ReceivedFileChanged(file.name)
         return data
 
-    def sweep(self) -> int:
-        """Delete files past the retention window; return how many went. Empty
-        directories are pruned so the tree doesn't grow a skeleton of dead
-        conversations. ``retention_days <= 0`` keeps everything."""
-        self._last_sweep = time.monotonic()
-        if self.retention_days <= 0 or not self.root.is_dir():
-            return 0
-        cutoff = time.time() - self.retention_days * 86400
-        removed = 0
-        for path in self.root.rglob("*"):
-            if not path.is_file():
-                continue
-            try:
-                if path.stat().st_mtime < cutoff:
-                    path.unlink()
-                    removed += 1
-            except OSError as exc:  # a racing reader, a read-only mount
-                logger.debug("could not sweep %s: %s", path, exc)
-        self._prune_empty(self.root)
-        if removed:
-            logger.info("attachments: swept %d file(s) older than %d days",
-                        removed, self.retention_days)
-        return removed
-
     # -- internals ----------------------------------------------------------
 
     @staticmethod
@@ -341,13 +358,6 @@ class AttachmentStore:
             return
         private_file(target)
         target.write_bytes(data)
-
-    def _maybe_sweep(self) -> None:
-        if time.monotonic() - self._last_sweep >= _SWEEP_INTERVAL_S:
-            try:
-                self.sweep()
-            except OSError as exc:
-                logger.debug("attachment sweep failed: %s", exc)
 
     def _prune_empty(self, directory: Path) -> None:
         for child in sorted(directory.iterdir(), reverse=True):

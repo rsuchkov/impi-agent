@@ -22,6 +22,7 @@ import os
 import shutil
 from pathlib import Path
 
+from crucible.attachments import AttachmentStore
 from crucible.config import Settings
 from crucible.runtimes.pi.auth_file import (
     AUTH_FILE,
@@ -43,7 +44,8 @@ RUNTIME_AGENT_DIR_FILES = (AUTH_FILE, MODELS_STORE_FILE)
 
 
 async def prepare_runtime_storage(
-    settings: Settings, sessions: SessionStore, *, models_from: Path | None = None
+    settings: Settings, sessions: SessionStore, *, models_from: Path | None = None,
+    attachments: AttachmentStore | None = None,
 ) -> None:
     """Before anything runs, so nothing live is using what is touched. Every
     step is housekeeping: a failure is said in the log and the application
@@ -51,7 +53,8 @@ async def prepare_runtime_storage(
     definitions (a ``models.json`` shipped in its image), copied into the
     runtime's agent directory when that has none — the runtime reads the file
     from its agent directory alone, and on a read-only image that directory is
-    a writable volume the image's copy never reached."""
+    a writable volume the image's copy never reached. ``attachments``: the
+    files a forgotten conversation received go with it."""
     prepare_runtime_agent_dir(runtime_agent_dir())
     if models_from is not None:
         provide_model_definitions(runtime_agent_dir(), models_from)
@@ -64,7 +67,7 @@ async def prepare_runtime_storage(
     try:
         forgotten = await purge_idle(
             session_dir, sessions, days=settings.session_retention_days,
-            manifests_dir=manifests_dir(settings.data_dir),
+            manifests_dir=manifests_dir(settings.data_dir), attachments=attachments,
         )
     except Exception:
         # A store that cannot answer must not keep the application from serving.

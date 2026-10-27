@@ -9,7 +9,7 @@ from crucible.store.sqlite import SqliteSessionStore
 
 
 async def test_a_session_maps_to_its_own_conversations_directory_and_nobody_elses(tmp_path: Path) -> None:
-    attachments = AttachmentStore(tmp_path / "files", max_bytes=1024, retention_days=1)
+    attachments = AttachmentStore(tmp_path / "files", max_bytes=1024)
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     try:
         # An id the store has to rename on disk: the lookup gives the name it
@@ -33,7 +33,7 @@ async def test_a_session_maps_to_its_own_conversations_directory_and_nobody_else
 async def test_one_lookup_says_where_a_conversation_happens_and_for_whom(tmp_path: Path) -> None:
     from crucible.conversation_files import conversation_lookup
 
-    attachments = AttachmentStore(tmp_path / "files", max_bytes=1024, retention_days=1)
+    attachments = AttachmentStore(tmp_path / "files", max_bytes=1024)
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     try:
         record, _ = await store.get_or_create("assistant", "ch-9", "c1", KIND_DM, user_id="u-3")

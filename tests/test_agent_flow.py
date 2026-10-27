@@ -1847,7 +1847,7 @@ async def test_a_file_the_gateway_saved_under_the_platforms_id_follows_the_conve
     from crucible.attachments import AttachmentStore, IncomingFile
     from crucible.ports.chat.types import KIND_THREAD
 
-    store = AttachmentStore(tmp_path / "files", max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path / "files", max_bytes=1024)
     (saved,) = await store.save_many("assistant", "slack:task-7", [IncomingFile(name="notes.txt", data=b"hello", mime="text/plain", key="F1")])
     runtime = FakeRuntime()
     sessions = SqliteSessionStore(tmp_path / "db.sqlite")

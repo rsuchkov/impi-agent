@@ -274,7 +274,7 @@ def _files_gateway(driver_files: FakeFiles, store: AttachmentStore, keying=None)
 async def test_attached_files_are_downloaded_and_travel_with_the_message(
     tmp_path: Path,
 ) -> None:
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     files = FakeFiles({"f1": b"PNGDATA"})
     gw, sink = _files_gateway(files, store)
 
@@ -298,7 +298,7 @@ async def test_a_file_is_saved_under_the_conversation_as_the_application_keys_it
         def key(self, agent: str, msg) -> str:
             return "task-7"
 
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     gw, sink = _files_gateway(FakeFiles({"f1": b"PNGDATA"}), store, keying=_TaskKey())
 
     await gw._on_ws_message(_posted_frame([{"id": "f1", "name": "screen.png", "mime_type": "image/png"}]))
@@ -310,7 +310,7 @@ async def test_a_file_is_saved_under_the_conversation_as_the_application_keys_it
 
 
 async def test_bare_file_ids_are_described_by_a_metadata_lookup(tmp_path: Path) -> None:
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     files = FakeFiles(
         {"f1": b"PDF"}, infos={"f1": {"name": "отчёт.pdf", "mime_type": "application/pdf"}}
     )  # Non-ASCII on purpose
@@ -335,7 +335,7 @@ async def test_bare_file_ids_are_described_by_a_metadata_lookup(tmp_path: Path) 
 
 
 async def test_a_failed_download_never_costs_the_user_their_message(tmp_path: Path) -> None:
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     gw, sink = _files_gateway(FakeFiles({}), store)
 
     await gw._on_ws_message(

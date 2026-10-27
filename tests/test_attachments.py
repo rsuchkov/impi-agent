@@ -18,10 +18,8 @@ from crucible.ports.chat.types import Attachment
 MB = 1024 * 1024
 
 
-def _store(tmp_path: Path, *, max_bytes: int = MB, retention_days: int = 14) -> AttachmentStore:
-    return AttachmentStore(
-        tmp_path / "attachments", max_bytes=max_bytes, retention_days=retention_days
-    )
+def _store(tmp_path: Path, *, max_bytes: int = MB) -> AttachmentStore:
+    return AttachmentStore(tmp_path / "attachments", max_bytes=max_bytes)
 
 
 @pytest.mark.parametrize(
@@ -102,29 +100,44 @@ async def test_save_many_keeps_the_mime_and_skips_what_it_cannot_store(
     assert [(a.name, a.mime) for a in saved] == [("ok.png", "image/png")]
 
 
-async def test_sweep_removes_old_files_and_empty_directories(tmp_path: Path) -> None:
-    store = _store(tmp_path, retention_days=7)
-    old = await store.save("assistant", "old-conv", "a.png", b"x", key="f1")
-    fresh = await store.save("assistant", "new-conv", "b.png", b"y", key="f2")
-    aged = time.time() - 8 * 86400
-    os.utime(old.path, (aged, aged))
+async def test_forgetting_a_conversation_takes_its_files_its_record_and_nothing_else(tmp_path: Path) -> None:
+    """A conversation's directory, files the agent made in it included, and its
+    record of what arrived go together; the neighbour's stay. The agent's own
+    directory goes only when that emptied it."""
+    store = _store(tmp_path)
+    gone = await store.save_many("assistant", "old-conv", [IncomingFile("a.png", b"x", "image/png", key="f1")])
+    kept = await store.save_many("assistant", "new-conv", [IncomingFile("b.png", b"y", "image/png", key="f2")])
+    (Path(gone[0].path).parent / "made-by-the-agent.txt").write_text("report")
+    record_of_gone = tmp_path / "attachments" / ".received" / "assistant" / "old-conv.jsonl"
+    assert record_of_gone.is_file()
 
-    removed = store.sweep()
+    assert await store.forget("assistant", "old-conv") == 2
+    assert not Path(gone[0].path).parent.exists() and not record_of_gone.exists()
+    assert Path(kept[0].path).is_file() and (record_of_gone.parent / "new-conv.jsonl").is_file()
+    assert await store.forget("assistant", "old-conv") == 0  # nothing left to take
+    assert await store.forget("assistant", "new-conv") == 1
+    assert not (tmp_path / "attachments" / "assistant").exists()  # the agent's directory emptied
+    assert not (tmp_path / "attachments" / ".received" / "assistant").exists()
 
-    assert removed == 1
-    assert not Path(old.path).exists()
-    assert Path(fresh.path).exists()
-    assert not (tmp_path / "attachments" / "assistant" / "old-conv").exists()
 
-
-async def test_retention_zero_keeps_everything(tmp_path: Path) -> None:
-    store = _store(tmp_path, retention_days=0)
-    saved = await store.save("assistant", "conv-1", "a.png", b"x", key="f1")
-    aged = time.time() - 900 * 86400
-    os.utime(saved.path, (aged, aged))
-
-    assert store.sweep() == 0
-    assert Path(saved.path).exists()
+async def test_the_store_lists_its_conversation_directories_and_when_each_was_last_written(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    assert store.conversation_dirs() == []
+    a = await store.save("assistant", "c:1", "a.png", b"x", key="f1")  # a digest in the name
+    (b,) = await store.save_many("support", "dm", [IncomingFile("b.png", b"y", "image/png", key="f2")])  # with a record
+    dirs = store.conversation_dirs()
+    assert dirs == sorted([Path(a.path).parent, Path(b.path).parent])
+    assert ".received" not in {d.parent.name for d in dirs}
+    aged = time.time() - 30 * 86400
+    os.utime(Path(a.path), (aged, aged))
+    os.utime(Path(a.path).parent, (aged, aged))
+    assert store.newest_mtime(Path(a.path).parent) == pytest.approx(aged, abs=2)
+    later = Path(a.path).parent / "fresh.txt"
+    later.write_text("new")
+    assert store.newest_mtime(Path(a.path).parent) > aged + 86400  # the newest file counts
+    assert store.forget_dir(Path(a.path).parent) == 2
+    with pytest.raises(ValueError):
+        store.forget_dir(tmp_path)  # not this store's
 
 
 @pytest.mark.parametrize(

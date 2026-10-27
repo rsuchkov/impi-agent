@@ -149,7 +149,7 @@ def _file_event(**over) -> dict:
 async def test_slack_attachment_is_downloaded_with_the_bot_token(
     tmp_path, monkeypatch
 ) -> None:
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     http = FakeHttpSession(FakeHttpResponse(body=b"PNGDATA"))
     monkeypatch.setattr("crucible.gateways.slack.gateway.ClientSession", http)
     sink = FakeSink()
@@ -176,7 +176,7 @@ async def test_a_file_is_saved_under_the_conversation_as_the_application_keys_it
         def key(self, agent: str, msg) -> str:
             return "task-7"
 
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     http = FakeHttpSession(FakeHttpResponse(body=b"PNGDATA"))
     monkeypatch.setattr("crucible.gateways.slack.gateway.ClientSession", http)
     sink = FakeSink()
@@ -194,7 +194,7 @@ async def test_a_login_page_instead_of_a_file_leaves_the_message_intact(
     tmp_path, monkeypatch
 ) -> None:
     # Slack answers an unauthorized download with its sign-in HTML, not an error.
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     http = FakeHttpSession(FakeHttpResponse(body=b"<html>", content_type="text/html"))
     monkeypatch.setattr("crucible.gateways.slack.gateway.ClientSession", http)
     sink = FakeSink()

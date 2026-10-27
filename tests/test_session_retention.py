@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from crucible.attachments import AttachmentStore, IncomingFile
 from crucible.config import Settings
 from crucible.ports.chat.types import KIND_DM
 from crucible.runtime_storage import (
@@ -15,8 +16,8 @@ from crucible.runtime_storage import (
     prepare_runtime_agent_dir,
     prepare_runtime_storage,
 )
-from crucible.session_retention import idle_before, purge_idle
-from crucible.store.base import SessionRecord
+from crucible.session_retention import purge_idle
+from crucible.store.base import SessionRecord, idle_before
 from crucible.store.sqlite import SqliteSessionStore
 from impi.config import ImpiSettings
 
@@ -45,9 +46,14 @@ async def test_idle_conversations_are_forgotten_record_and_files(tmp_path: Path)
         old_file.write_text("{}")
         fresh_file.write_text("{}")
 
-        forgotten = await purge_idle(settings.resolved_pi_session_dir, store, days=30)
+        files = AttachmentStore(tmp_path / "files", max_bytes=1024)
+        (old_attachment,) = await files.save_many("assistant", "old", [IncomingFile("a.pdf", b"a", "application/pdf", key="f1")])
+        (fresh_attachment,) = await files.save_many("assistant", "fresh", [IncomingFile("b.pdf", b"b", "application/pdf", key="f2")])
+
+        forgotten = await purge_idle(settings.resolved_pi_session_dir, store, days=30, attachments=files)
         assert [r.conversation_id for r in forgotten] == ["old"]
         assert not old_file.parent.exists() and fresh_file.exists()
+        assert not Path(old_attachment.path).parent.exists() and Path(fresh_attachment.path).is_file()  # the files went too
         assert [r.conversation_id for r in await store.list("assistant")] == ["fresh"]
         assert await purge_idle(settings.resolved_pi_session_dir, store, days=30) == []
     finally:
@@ -218,10 +224,13 @@ async def test_deleting_a_conversation_by_hand_takes_its_manifest_too(tmp_path: 
         manifest = session_manifest_path(tmp_path / "data" / "tool-manifests", "assistant", record.runtime_session_id)
         manifest.parent.mkdir(parents=True)
         manifest.write_text("[]")
+        files = AttachmentStore(settings.resolved_attachments_dir, max_bytes=1024)
+        (attachment,) = await files.save_many("assistant", "dm1", [IncomingFile("a.pdf", b"a", "application/pdf", key="f1")])
 
         await cmd_delete(settings, store, argparse.Namespace(agent="assistant", conversation_id="dm1"))
 
         assert not manifest.exists()
+        assert not Path(attachment.path).exists()  # the files it received went with it
         assert "deleted assistant/dm1" in capsys.readouterr().out
     finally:
         await store.close()

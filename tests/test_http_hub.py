@@ -440,7 +440,7 @@ async def test_a_failed_turn_says_so_and_a_file_travels_inline(tmp_path: Path) -
         await chat.post_notice(msg.ref, "the model timed out", code="timeout")
         return TurnOutcome.TIMEOUT
 
-    hub, _ = _hub(8489, script=fails, attachments=AttachmentStore(tmp_path, max_bytes=1_000_000, retention_days=1))
+    hub, _ = _hub(8489, script=fails, attachments=AttachmentStore(tmp_path, max_bytes=1_000_000))
     await hub.start()
     try:
         async with aiohttp.ClientSession() as s:
@@ -508,7 +508,7 @@ async def test_a_body_too_large_is_a_413_in_the_envelope() -> None:
 
 
 async def test_the_body_cap_follows_the_attachment_limit(tmp_path: Path) -> None:
-    hub, _ = _hub(8492, attachments=AttachmentStore(tmp_path, max_bytes=3_000_000, retention_days=1))
+    hub, _ = _hub(8492, attachments=AttachmentStore(tmp_path, max_bytes=3_000_000))
     await hub.start()
     try:
         async with aiohttp.ClientSession() as s:
@@ -1445,7 +1445,7 @@ async def test_an_http_file_is_saved_under_the_conversation_as_the_application_k
         seen.append(msg)
         return TurnOutcome.ACTED
 
-    store = AttachmentStore(tmp_path, max_bytes=1_000_000, retention_days=1)
+    store = AttachmentStore(tmp_path, max_bytes=1_000_000)
     hub, _ = _hub(8516, script=looks, attachments=store, keying=_TaskKey())
     await hub.start()
     try:

@@ -6,7 +6,23 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A conversation's files live as long as the conversation.**
+  `ATTACHMENT_RETENTION_DAYS` now counts from the conversation's last activity,
+  not from each file's own age: a two-week-old file in a conversation still
+  going stays where the prompt said it was, and a conversation nobody has
+  touched for that long loses its files — all of them, the agent's own included,
+  and the record of what arrived — in one motion (`AttachmentStore.forget`). A
+  directory the engine has no conversation for (a gateway's key before the flow
+  adopted the file, a record deleted by hand) goes once nothing has written to
+  it for that long. The sweep is `crucible.attachment_retention` — one pass
+  (`sweep_attachments`) or a loop the application supervises
+  (`run_attachment_sweeps`, hourly), as `impi` does beside its heartbeat.
+  Forgetting a conversation by age (`purge_idle`, `SESSION_RETENTION_DAYS`) or
+  by hand (`sessions_cli delete`, `purge-idle`) now takes its files too, where
+  it used to leave the directory behind. **Breaks:** `AttachmentStore.sweep()`
+  and the hourly sweep a save used to trigger are gone, with the store's
+  `retention_days` argument — an application on crucible runs
+  `run_attachment_sweeps` itself; `idle_before` moved to `store.base`.
 
 ## v0.35.0 — 2026-10-27
 

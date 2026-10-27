@@ -1,9 +1,9 @@
 """Manual session cleanup: the ONLY way conversation memory gets deleted.
 
-Deletes both halves in one motion — the inventory row and the runtime's on-disk
-session files (`{pi_session_dir}/{agent}/{runtime_session_id}/`, as
-``runtimes.pi.spawn.conversation_memory_dir`` spells it). Deleting only one side silently
-resets or orphans memory, so don't.
+Deletes all of a conversation in one motion — the inventory row, the runtime's
+on-disk session files (`{pi_session_dir}/{agent}/{runtime_session_id}/`, as
+``runtimes.pi.spawn.conversation_memory_dir`` spells it) and the files it
+received. Deleting only one part silently resets or orphans memory, so don't.
 
 Usage:
     python -m crucible.sessions_cli list [--agent X]
@@ -20,6 +20,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
+from crucible.attachments import AttachmentStore
 from crucible.config import Settings, load_settings
 from crucible.runtimes.pi.spawn import forget_conversation_memory, session_files
 from crucible.session_retention import purge_idle
@@ -30,6 +31,12 @@ from crucible.tool_manifests import forget_session_manifest, manifests_dir
 
 def _session_files(settings: Settings, record: SessionRecord) -> list[Path]:
     return session_files(settings.resolved_pi_session_dir, record.agent, record.runtime_session_id)
+
+
+def _attachments(settings: Settings) -> AttachmentStore | None:
+    if not settings.attachments_enabled:
+        return None
+    return AttachmentStore(settings.resolved_attachments_dir, max_bytes=int(settings.attachment_max_mb * 1024 * 1024))
 
 
 def _forget_memory(settings: Settings, record: SessionRecord) -> int:
@@ -58,15 +65,17 @@ async def cmd_delete(settings: Settings, store: Store, args: argparse.Namespace)
     if record is None:
         print(f"not found: {args.agent}/{args.conversation_id}")
         return
-    # delete() already removed the row; the memory goes with it.
+    # delete() already removed the row; the memory and the files go with it.
     removed = _forget_memory(settings, record)
-    print(f"deleted {record.agent}/{record.conversation_id} (pi files removed: {removed})")
+    attachments = _attachments(settings)
+    files = await attachments.forget(record.agent, record.conversation_id) if attachments is not None else 0
+    print(f"deleted {record.agent}/{record.conversation_id} (pi files removed: {removed}, attachments: {files})")
 
 
 async def cmd_purge_idle(settings: Settings, store: Store, args: argparse.Namespace) -> None:
     victims = await purge_idle(
         settings.resolved_pi_session_dir, store, days=args.days, agent=args.agent,
-        manifests_dir=manifests_dir(settings.data_dir),
+        manifests_dir=manifests_dir(settings.data_dir), attachments=_attachments(settings),
     )
     if not victims:
         print(f"nothing idle for {args.days}+ days")

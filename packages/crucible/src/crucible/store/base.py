@@ -14,6 +14,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Protocol
 
 from crucible.ports.chat.directory import AgentInfo
@@ -86,6 +87,22 @@ class SessionRecord:
     # The gateway the last message came through: where a reply or a card goes
     # when nothing says otherwise.
     last_gateway: str = ""
+
+
+def idle_before(record: SessionRecord, cutoff: datetime) -> bool:
+    """Whether ``record`` was last active before ``cutoff``. A value that does
+    not parse is kept, not forgotten — and never stops a sweep; a naive one is
+    read as UTC, which is what the engine writes."""
+    value: object = record.last_active  # a string; a Mongo row may carry a datetime
+    try:
+        moment: datetime = (
+            value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+        )
+    except ValueError:
+        return False
+    if moment.tzinfo is None:
+        moment = datetime.combine(moment.date(), moment.time(), tzinfo=timezone.utc)
+    return moment < cutoff
 
 
 @dataclass(frozen=True)

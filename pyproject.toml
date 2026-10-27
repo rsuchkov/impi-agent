@@ -505,9 +505,9 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "Runtime storage and retention touch the runtime's files and the store — no chat or engine machinery"
+name = "Runtime storage and retention touch the runtime's files, the attachments and the store — no chat or engine machinery"
 type = "forbidden"
-source_modules = ["crucible.runtime_storage", "crucible.session_retention"]
+source_modules = ["crucible.runtime_storage", "crucible.session_retention", "crucible.attachment_retention"]
 forbidden_modules = [
     "crucible.approvals",
     "crucible.flows",

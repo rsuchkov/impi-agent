@@ -226,7 +226,7 @@ async def test_garbage_and_unknown_frames_answer_error_but_keep_the_socket() -> 
 
 
 async def test_inline_files_are_stored_and_travel_with_the_message(tmp_path) -> None:
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     hub = WsHub(
         "127.0.0.1", 8478, {"probe": ("tok", None)},
         directory=FakeDirectory(), attachments=store,
@@ -254,7 +254,7 @@ async def test_inline_files_are_stored_and_travel_with_the_message(tmp_path) -> 
 
 
 async def test_undecodable_file_answers_error_and_never_reaches_the_agent(tmp_path) -> None:
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     hub = WsHub(
         "127.0.0.1", 8479, {"probe": ("tok", None)},
         directory=FakeDirectory(), attachments=store,
@@ -352,7 +352,7 @@ async def test_a_ws_file_is_saved_under_the_conversation_as_the_application_keys
         def key(self, agent: str, msg) -> str:
             return "task-7"
 
-    store = AttachmentStore(tmp_path, max_bytes=1024, retention_days=14)
+    store = AttachmentStore(tmp_path, max_bytes=1024)
     hub = WsHub(
         "127.0.0.1", 8479, {"probe": ("tok", None)},
         directory=FakeDirectory(), attachments=store, keying=_TaskKey(),

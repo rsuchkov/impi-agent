@@ -26,6 +26,7 @@ from importlib import metadata
 from pathlib import Path
 
 from crucible.approvals import PendingApprovals
+from crucible.attachment_retention import run_attachment_sweeps
 from crucible.attachments import AttachmentStore
 from crucible.confinement import landlock_abi
 from crucible.conversation_files import (
@@ -265,6 +266,8 @@ class App:
     # The runtime's control side (its sessions, their state), for the loops
     # that read it after the build.
     control: RuntimeControl | None = None
+    # Where files land; None when attachments are off.
+    attachments: AttachmentStore | None = None
     # The deployment's MCP servers, connected at start and closed at stop.
     mcp_servers: McpServers | None = None
 
@@ -636,11 +639,8 @@ def build_app(settings: ImpiSettings) -> App:
     attachments: AttachmentStore | None = None
     if settings.attachments_enabled:
         attachments = AttachmentStore(
-            settings.resolved_attachments_dir,
-            max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
-            retention_days=settings.attachment_retention_days,
+            settings.resolved_attachments_dir, max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
         )
-        attachments.sweep()
     # What each agent's process may touch: its profile and the skill library to
     # read, its files and its own scratch space to write. support is part of
     # the engine (it reads the engine's own configuration) and runs
@@ -939,6 +939,7 @@ def build_app(settings: ImpiSettings) -> App:
         mcp_servers=mcp if mcp.servers else None,
         telemetry=telemetry,
         control=runtime,
+        attachments=attachments,
     )
 
 
@@ -1005,7 +1006,7 @@ async def run(settings: ImpiSettings) -> None:
         if forgotten:
             logger.info("forgot %d answered message(s) older than %d days", forgotten,
                         settings.processed_posts_retention_days)
-    await prepare_runtime_storage(settings, app.sessions)
+    await prepare_runtime_storage(settings, app.sessions, attachments=app.attachments)
     app.runtime.start()
     if app.mcp_servers is not None and app.tools is not None:
         # Before the tool server and the gateways: a tool whose definition is
@@ -1078,6 +1079,11 @@ async def run(settings: ImpiSettings) -> None:
             loops.append(_supervise("runtime login refresh", app.auth_refresher.run))
         if app.heartbeat is not None:
             loops.append(_supervise("replica heartbeat", app.heartbeat.run))
+        if app.attachments is not None and settings.attachment_retention_days > 0:
+            files, sessions = app.attachments, app.sessions
+            loops.append(_supervise("attachment sweep", lambda: run_attachment_sweeps(
+                files, sessions, days=settings.attachment_retention_days,
+            )))
         if app.mcp_servers is not None and app.tools is not None:
             mcp, tools = app.mcp_servers, app.tools
             loops.append(_supervise(

@@ -68,7 +68,7 @@ def test_a_tool_manifest_is_the_owners_alone(tmp_path: Path) -> None:
 
 
 async def test_what_people_sent_is_the_owners_alone(tmp_path: Path) -> None:
-    store = AttachmentStore(tmp_path / "files", max_bytes=1024, retention_days=0)
+    store = AttachmentStore(tmp_path / "files", max_bytes=1024)
     saved = await store.save("assistant", "dm1", "note.txt", b"hello", key="k1")
     assert _mode(Path(saved.path)) == 0o600
     assert _mode(Path(saved.path).parent) == 0o700
