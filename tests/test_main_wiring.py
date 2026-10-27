@@ -1087,9 +1087,44 @@ def test_impi_hands_one_telemetry_to_every_producer(tmp_path: Path) -> None:
     app = build_app(_settings(tmp_path))
     telemetry = app.units[0].flow._telemetry
     assert isinstance(telemetry, LogTelemetry)
+    assert app.telemetry is telemetry  # the state loop reads it from here
     assert app.tool_server is not None and app.tool_server._telemetry is telemetry
     gate = app.tool_server._tool_gate
     assert gate is None or getattr(gate, "_telemetry", None) is telemetry  # the gate, when confirmations are on
     assert app.mcp_servers is None or app.mcp_servers._telemetry is telemetry
     if app.scheduler is not None:
         assert app.scheduler._telemetry is telemetry
+
+
+async def test_the_engines_state_is_told_on_a_timer_from_what_the_runtime_says() -> None:
+    from crucible.engine_state import engine_state, report_engine_state
+    from crucible.ports.agent.runtime import RuntimeStats
+    from crucible.ports.telemetry import EngineState
+
+    class _Control:
+        def stats(self) -> RuntimeStats:
+            return RuntimeStats(alive=3, busy=1, capacity=8, waiting=2)
+
+    told: list = []
+
+    class _Telemetry:
+        def record(self, event) -> None:
+            told.append(event)
+
+    assert engine_state(control=_Control(), agents=2, http_turns_active=1) == EngineState(  # type: ignore[arg-type]
+        agents=2, sessions_alive=3, sessions_busy=1, capacity=8, turns_waiting=2, http_turns_active=1,
+    )
+    assert engine_state(control=None, agents=1, http_turns_active=0).sessions_alive == 0
+    slept: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        if len(slept) >= 2:
+            raise RuntimeError("stop")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        await report_engine_state(_Telemetry(), control=_Control(), agents=lambda: 2, interval_s=30.0, sleep=sleep)  # type: ignore[arg-type]
+    assert len(told) == 2 and slept == [30.0, 30.0]
+    await report_engine_state(_Telemetry(), control=None, agents=lambda: 1, interval_s=0, sleep=sleep)  # 0: told nothing, returns
+    assert len(told) == 2
+    assert Settings(_env_file=None, dotenv_path="x").telemetry_state_s == 60.0  # pyright: ignore[reportCallIssue]

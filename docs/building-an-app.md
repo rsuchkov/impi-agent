@@ -575,6 +575,14 @@ credential, is another user's credential.
   stop, `await mcp.stop()`. A tool
   whose header is `${connection:<provider>}` needs `connections` on the tool
   server and acts only in a direct message.
+- **Telemetry.** Every producer takes a `Telemetry` (`crucible.ports.telemetry`;
+  [telemetry.md](telemetry.md)): `AgentFlow(telemetry=)`,
+  `tools.build_server(telemetry=)`, `InteractionWiring(telemetry=)`,
+  `McpServers(telemetry=)`, `Scheduler(telemetry=)`,
+  `OAuthConnections(telemetry=)`, and `report_engine_state(...)` as a supervised
+  loop for the timer. Build one receiver — `impi`'s `LogTelemetry`, or your
+  own `record(event)` that feeds an exporter or a table — and hand the same
+  instance to all of them. None of them needs one; without it nothing is told.
 - **A person's file in an MCP call.** A tool whose argument the server's
   schema declares as content (`contentEncoding: base64`) takes a file the
   person attached ([mcp.md](mcp.md)). Two wires carry it: `build_server(

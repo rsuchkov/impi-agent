@@ -665,6 +665,14 @@ call("/reactions", json.dumps({"user_id": os.environ["ME_ID"], "post_id": mine[-
     check "the agent called the MCP server's tool and relayed its answer" echoed_by_mcp
     mcp_ran() { engine_logged "tool mcp__probe__echo ran for agent assistant"; }
     check "the engine ran the MCP tool for the assistant" mcp_ran
+    # Telemetry: the turn and the tool call went to the log as JSON lines, with
+    # the model that answered and the tool's outcome.
+    turn_told() { engine_logged '"event": "turn_ended"' && engine_logged '"outcome": "replied"'; }
+    check "the turn was told as telemetry" turn_told
+    tool_told() { engine_logged '"event": "tool_called", "agent": "assistant", "tool": "mcp__probe__echo"'; }
+    check "the tool call was told as telemetry" tool_told
+    mcp_told() { engine_logged '"event": "mcp_called", "server": "probe", "tool": "echo"'; }
+    check "the MCP call was told as telemetry" mcp_told
 
     # 6c. A person's file as an MCP tool's argument: the person attaches a file,
     #     the model passes the path from its [attached] line, a card asks the

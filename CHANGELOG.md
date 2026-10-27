@@ -20,10 +20,13 @@ when a release is cut, and `impi update` shows the target version's section.
   occurrence, as it finished) and `ConnectionChanged` (what the connections
   audit says, and every grant). `impi` writes the events as JSON lines on the
   logger `impi.telemetry` (`TELEMETRY_LOG=true`, the default) and hands one
-  receiver to every producer. The runtime's result now
-  carries `model`, `stop_reason` and `usage` (`TokenUsage`: input, output,
-  cache read/write, total, and pi's own cost estimate in USD) for every
-  runtime to fill.
+  receiver to every producer; `EngineState` — sessions alive and busy, the
+  runtime's capacity, turns waiting, http turns in flight — is told every
+  `TELEMETRY_STATE_S` seconds (60; `0` never). See
+  [docs/telemetry.md](docs/telemetry.md). The runtime's result now carries
+  `model`, `stop_reason` and `usage` (`TokenUsage`: input, output, cache
+  read/write, total, and pi's own cost estimate in USD) for every runtime to
+  fill.
 
 ## v0.34.0 — 2026-10-26
 

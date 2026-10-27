@@ -394,7 +394,21 @@ tools and answers each call with the error. The check runs again every
 `MCP_RECHECK_S` seconds (300) and when a server says its tools changed, so the
 same `ERROR` can appear mid-life. The **mcp** skill has the whole list.
 
-## 8. Reporting back
+## 8. Telemetry: counting what happened
+
+The engine writes one JSON line per event on the logger `impi.telemetry`
+(`TELEMETRY_LOG`, on by default; `docs/telemetry.md`): `turn_ended` (agent,
+gateway, user, outcome, notice, duration, the model that answered, the tools
+called, `usage` with tokens and pi's cost estimate), `tool_called` (with the
+outcome word — `ok`, `error`, `denied`, `not_allowed`, …), `card_answered`,
+`mcp_called`, `mcp_checked`, `task_ran`, `connection_changed`, and
+`engine_state` every `TELEMETRY_STATE_S` seconds. `impi logs | grep '"event":
+"turn_ended"'` is how to count turns, errors or tokens by hand; a question
+about "how many", "how often" or "how much did it cost" is answered from these
+lines, not guessed. An application with its own metrics receives the same
+events through the `Telemetry` port instead of the log.
+
+## 9. Reporting back
 
 - Name the layer and the evidence: "the agent isn't running — no
   `AGENTS_MM_TOKEN__X` in the config", not "it seems the token may be missing".

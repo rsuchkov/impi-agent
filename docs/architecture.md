@@ -71,6 +71,10 @@ adapter; everything else depends inward on ports.
 
 Ports are Protocol contracts under `crucible.ports`. The important ones:
 
+- **Telemetry** (`ports/telemetry`): `Telemetry.record(event)` — the engine
+  tells what it did as frozen events of flat fields (`TurnEnded`, `ToolCalled`,
+  `CardAnswered`, `McpCalled`, `McpChecked`, `TaskRan`, `ConnectionChanged`,
+  `EngineState`); where they go is the application's ([telemetry.md](telemetry.md)).
 - **Attachments** (`ports/attachments`): `ReceivedFiles` (what a conversation
   received — name, size, sha256 — with `read` handing bytes over only while the
   file is the one that arrived), `FileKeeper` (the flow takes a gateway-saved

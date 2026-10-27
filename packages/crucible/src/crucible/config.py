@@ -509,6 +509,9 @@ class Settings(BaseSettings):
     # docs/telemetry.md) is written to the log as JSON lines. An application
     # with a receiver of its own turns this off.
     telemetry_log: bool = True
+    # How often (seconds) the engine's state — sessions alive and busy, turns
+    # waiting — is told as telemetry; 0 = never.
+    telemetry_state_s: float = Field(default=60.0, ge=0)
 
     def enabled_agent_names(self) -> list[str] | None:
         """Parsed agents_enabled; None means "all agents found in the repo"."""

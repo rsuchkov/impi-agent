@@ -472,3 +472,5 @@ nobody at the screen is the usual case of the second.
 | Variable | Default | Purpose |
 |---|---|---|
 | `LOG_LEVEL` | `INFO` | root log level |
+| `TELEMETRY_LOG` | `true` | the engine's telemetry — a turn ended, a tool ran, a card was answered — as JSON lines on logger `impi.telemetry` ([telemetry.md](telemetry.md)); off for an application with a receiver of its own |
+| `TELEMETRY_STATE_S` | `60` | how often (s) the engine's state (sessions alive and busy, turns waiting) is told; `0` never |

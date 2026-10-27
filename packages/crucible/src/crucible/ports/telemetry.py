@@ -107,7 +107,22 @@ class ConnectionChanged:
     result: str  # ok, unavailable, rejected, not_connected, revoke_failed
 
 
-TelemetryEvent = TurnEnded | ToolCalled | CardAnswered | McpCalled | McpChecked | TaskRan | ConnectionChanged
+@dataclass(frozen=True)
+class EngineState:
+    """How the engine stands, told on a timer: what a gauge reads, where the
+    other events are what a counter sums."""
+
+    agents: int  # agents running in this process
+    sessions_alive: int  # runtime sessions with a process
+    sessions_busy: int  # of them, with a turn in flight
+    capacity: int  # how many the runtime admits at once
+    turns_waiting: int  # turns waiting for a slot
+    http_turns_active: int  # turns in flight on the http gateway (0 without one)
+
+
+TelemetryEvent = (
+    TurnEnded | ToolCalled | CardAnswered | McpCalled | McpChecked | TaskRan | ConnectionChanged | EngineState
+)
 
 
 class Telemetry(Protocol):
