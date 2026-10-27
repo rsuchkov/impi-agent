@@ -327,7 +327,12 @@ class Settings(BaseSettings):
     attachments_enabled: bool = True
     attachments_dir: str = ""  # default: {data_dir}/attachments
     attachment_max_mb: float = 20.0  # per file, both directions
-    attachment_retention_days: int = 14  # 0 = keep forever
+    # What one conversation may hold in all, the agent's own files included;
+    # past it the oldest files go to make room. 0 = no cap.
+    attachment_conversation_max_mb: float = 200.0
+    # Days since the conversation's last activity after which its files go,
+    # record and all (crucible.attachment_retention). 0 = keep forever.
+    attachment_retention_days: int = 14
     # How long the engine remembers having answered a message, so a redelivery
     # (a reconnect replaying recent posts) is not answered twice. Days; a replay
     # arrives within minutes, so this is generous. 0 = keep forever.
@@ -449,6 +454,16 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _a_provider_names_a_model(self) -> Settings:
         check_provider_has_model(self.default_provider, self.default_model, "DEFAULT_PROVIDER", "DEFAULT_MODEL")
+        return self
+
+    @model_validator(mode="after")
+    def _a_conversation_holds_at_least_one_file(self) -> Settings:
+        if 0 < self.attachment_conversation_max_mb < self.attachment_max_mb:
+            raise ValueError(
+                f"ATTACHMENT_CONVERSATION_MAX_MB ({self.attachment_conversation_max_mb:g}) must be at least "
+                f"ATTACHMENT_MAX_MB ({self.attachment_max_mb:g}): a conversation has to hold the one file "
+                "it just received"
+            )
         return self
 
     @model_validator(mode="after")

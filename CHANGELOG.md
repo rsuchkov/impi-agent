@@ -23,6 +23,11 @@ when a release is cut, and `impi update` shows the target version's section.
   and the hourly sweep a save used to trigger are gone, with the store's
   `retention_days` argument — an application on crucible runs
   `run_attachment_sweeps` itself; `idle_before` moved to `store.base`.
+- **A conversation holds at most `ATTACHMENT_CONVERSATION_MAX_MB`** (200; `0`
+  no cap), the agent's own files in its directory counted: past it the oldest
+  files there make room for the one just received — never that one — and their
+  lines leave the record of what arrived. A cap below `ATTACHMENT_MAX_MB` is
+  refused at startup: a conversation has to hold the one file it just got.
 
 ## v0.35.0 — 2026-10-27
 

@@ -96,9 +96,13 @@ def safe_name(name: str) -> str:
 
 
 class AttachmentStore:
-    def __init__(self, root: str | Path, *, max_bytes: int) -> None:
+    def __init__(self, root: str | Path, *, max_bytes: int, conversation_max_bytes: int = 0) -> None:
+        """``max_bytes`` caps one file; ``conversation_max_bytes`` caps what one
+        conversation holds — past it the oldest files make room for a new one
+        (0: no cap)."""
         self.root = Path(root)
         self.max_bytes = max_bytes
+        self.conversation_max_bytes = conversation_max_bytes
 
     def dir_for(self, agent: str) -> Path:
         """This agent's own attachment tree — the root it may send files from."""
@@ -128,7 +132,9 @@ class AttachmentStore:
         *,
         key: str = "",
     ) -> Attachment:
-        """Write one file and describe it. Raises AttachmentTooLarge past the cap.
+        """Write one file and describe it. Raises AttachmentTooLarge past the
+        per-file cap; past the conversation's cap the oldest files there go
+        to make room, the agent's own included.
 
         ``key`` names the file deterministically (the platform's file id); without
         one a timestamp is used, so an unkeyed redelivery would write a second
@@ -141,6 +147,8 @@ class AttachmentStore:
         filename = f"{safe_name(stamp)}-{safe_name(name)}"
         target = self.conversation_dir(agent, conversation_id) / filename
         await asyncio.to_thread(self._write, target, data)
+        if self.conversation_max_bytes > 0:
+            await asyncio.to_thread(self._make_room, target)
         return Attachment(
             name=Path(name.replace("\\", "/")).name or filename,
             path=str(target),
@@ -260,6 +268,48 @@ class AttachmentStore:
             with contextlib.suppress(OSError):
                 times.append(path.stat().st_mtime)
         return max(times)
+
+    def _make_room(self, kept: Path) -> list[Path]:
+        """Evict the oldest files of ``kept``'s conversation, never ``kept``,
+        until what is there fits the conversation's cap; their record lines go
+        with them. Returns what went."""
+        directory = kept.parent
+        files = [p for p in directory.rglob("*") if p.is_file() and p != kept]
+        held = sum(p.stat().st_size for p in files) + kept.stat().st_size
+        if held <= self.conversation_max_bytes:
+            return []
+        evicted: list[Path] = []
+        for path in sorted(files, key=lambda p: (p.stat().st_mtime, p.name)):
+            if held <= self.conversation_max_bytes:
+                break
+            size = path.stat().st_size
+            try:
+                path.unlink()
+            except OSError as exc:
+                logger.debug("could not evict %s: %s", path, exc)
+                continue
+            held -= size
+            evicted.append(path)
+        if evicted:
+            self._compact_record(directory, {str(p) for p in evicted})
+            logger.info(
+                "attachments: %s over its %d-byte cap; %d oldest file(s) evicted",
+                directory.name, self.conversation_max_bytes, len(evicted),
+            )
+        return evicted
+
+    def _compact_record(self, files_dir: Path, gone: set[str]) -> None:
+        """The record without the lines of files that are no longer there."""
+        path = self._record_path(files_dir)
+        records = self._read_record(path)
+        staying = [r for r in records if r.path not in gone]
+        if len(staying) == len(records):
+            return
+        if staying:
+            private_file(path)
+            path.write_text("".join(json.dumps(r.__dict__, ensure_ascii=False) + "\n" for r in staying), encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
 
     def _forget_dir(self, conversation_dir: Path) -> int:
         if not conversation_dir.is_relative_to(self.root) or conversation_dir == self.root:

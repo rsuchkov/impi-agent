@@ -1,5 +1,6 @@
 """AttachmentStore: where files that arrive with a message land on disk."""
 
+import json
 import os
 import time
 from pathlib import Path
@@ -118,6 +119,52 @@ async def test_forgetting_a_conversation_takes_its_files_its_record_and_nothing_
     assert await store.forget("assistant", "new-conv") == 1
     assert not (tmp_path / "attachments" / "assistant").exists()  # the agent's directory emptied
     assert not (tmp_path / "attachments" / ".received" / "assistant").exists()
+
+
+async def test_a_conversation_over_its_cap_loses_its_oldest_files_never_the_new_one(tmp_path: Path) -> None:
+    """The conversation's cap evicts by age: the oldest files go first, the
+    agent's own among them, their record lines with them; the file just saved
+    is never evicted, and a neighbour conversation is not touched."""
+    store = AttachmentStore(tmp_path / "attachments", max_bytes=100, conversation_max_bytes=250)
+    first, second = await store.save_many("assistant", "dm", [
+        IncomingFile("first.bin", b"1" * 100, "application/octet-stream", key="f1"),
+        IncomingFile("second.bin", b"2" * 100, "application/octet-stream", key="f2"),
+    ])
+    made = Path(first.path).parent / "made-by-the-agent.txt"
+    made.write_bytes(b"m" * 30)
+    for i, path in enumerate([first.path, made, second.path]):  # oldest first, whatever the clock said
+        os.utime(path, (1_700_000_000 + i, 1_700_000_000 + i))
+    (neighbour,) = await store.save_many("assistant", "other", [IncomingFile("n.bin", b"n" * 100, "application/octet-stream", key="f9")])
+    record = tmp_path / "attachments" / ".received" / "assistant" / "dm.jsonl"
+    assert record.read_text().count("\n") == 2
+
+    (third,) = await store.save_many("assistant", "dm", [IncomingFile("third.bin", b"3" * 100, "application/octet-stream", key="f3")])
+
+    assert not Path(first.path).exists()  # 330 held: the oldest goes, and 230 fits
+    assert made.is_file() and Path(second.path).is_file() and Path(third.path).is_file() and Path(neighbour.path).is_file()
+    lines = record.read_text().splitlines()
+    assert len(lines) == 2 and all("first.bin" not in line for line in lines)  # the record follows
+    # The cap is per conversation: what the agent writes there is counted and evicted the same way.
+    big = Path(third.path).parent / "big-report.bin"
+    big.write_bytes(b"r" * 100)
+    (fourth,) = await store.save_many("assistant", "dm", [IncomingFile("fourth.bin", b"4" * 100, "application/octet-stream", key="f4")])
+    assert not made.exists() and not Path(second.path).exists() and not Path(third.path).exists()  # 430: oldest first, until 200
+    assert big.is_file() and Path(fourth.path).is_file()
+    assert [json.loads(line)["name"] for line in record.read_text().splitlines()] == ["fourth.bin"]
+    # No cap: nothing is ever evicted.
+    free = AttachmentStore(tmp_path / "free", max_bytes=100)
+    for i in range(5):
+        await free.save("assistant", "dm", f"{i}.bin", b"x" * 100, key=f"k{i}")
+    assert len(list((tmp_path / "free" / "assistant" / "dm").iterdir())) == 5
+
+
+def test_a_conversation_cap_below_the_file_cap_is_refused() -> None:
+    from crucible.config import Settings
+
+    with pytest.raises(ValueError, match="ATTACHMENT_CONVERSATION_MAX_MB .* must be at least ATTACHMENT_MAX_MB"):
+        Settings(_env_file=None, attachment_max_mb=20, attachment_conversation_max_mb=10)  # pyright: ignore[reportCallIssue]
+    assert Settings(_env_file=None, attachment_max_mb=20, attachment_conversation_max_mb=0).attachment_conversation_max_mb == 0  # pyright: ignore[reportCallIssue]
+    assert Settings(_env_file=None).attachment_conversation_max_mb == 200.0  # pyright: ignore[reportCallIssue]
 
 
 async def test_the_store_lists_its_conversation_directories_and_when_each_was_last_written(tmp_path: Path) -> None:

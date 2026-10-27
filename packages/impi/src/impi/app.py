@@ -640,6 +640,7 @@ def build_app(settings: ImpiSettings) -> App:
     if settings.attachments_enabled:
         attachments = AttachmentStore(
             settings.resolved_attachments_dir, max_bytes=int(settings.attachment_max_mb * 1024 * 1024),
+            conversation_max_bytes=int(settings.attachment_conversation_max_mb * 1024 * 1024),
         )
     # What each agent's process may touch: its profile and the skill library to
     # read, its files and its own scratch space to write. support is part of
