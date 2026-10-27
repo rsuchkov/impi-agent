@@ -39,6 +39,7 @@ from crucible.ports.connections import (
     ConnectionAccessFactory,
     TokenGrant,
 )
+from crucible.ports.telemetry import Telemetry
 from crucible.ports.turn import ENGINE_TURN_ATTRIBUTE, TurnScope
 from crucible.store.base import Store
 from impi.config import ImpiSettings
@@ -185,6 +186,7 @@ def build_connections(
     chat_of_agent: Callable[[str], ChatClient | None],
     *,
     on_connected: Callable[[Connected], Awaitable[None]] | None = None,
+    telemetry: Telemetry | None = None,
 ) -> Connections | None:
     """None when no provider is configured. ``chat_of_agent(agent)`` is that
     agent's chat client, read when an email is checked; ``on_connected`` hears
@@ -222,6 +224,7 @@ def build_connections(
         sealer=FernetSealer(keys),
         policy=ChatEmailPolicy(providers, chat_on_gateway),
         on_connected=on_connected,
+        telemetry=telemetry,
     )
     return Connections(
         service=service,

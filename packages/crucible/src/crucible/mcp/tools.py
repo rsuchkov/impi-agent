@@ -11,6 +11,7 @@ stranger's text and comes wrapped as such.
 import base64
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from fnmatch import fnmatchcase
 from typing import Any
@@ -39,6 +40,7 @@ from crucible.ports.connections import (
     ProviderUnavailable,
     TokenGrant,
 )
+from crucible.ports.telemetry import McpCalled, Telemetry
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 
 logger = logging.getLogger(__name__)
@@ -128,9 +130,12 @@ class McpTool:
     posts_to_user = False
     returns_untrusted = True
 
-    def __init__(self, server: McpServer, definition: ToolDefinition, call: Caller) -> None:
+    def __init__(
+        self, server: McpServer, definition: ToolDefinition, call: Caller, *, telemetry: Telemetry | None = None
+    ) -> None:
         self.server = server
         self._call = call
+        self._telemetry = telemetry
         self.name = mcp_tool_name(server.name, definition.name)
         # The headers that are a person's token are filled per call: the tool
         # then needs the connections capability to be advertised at all.
@@ -151,8 +156,23 @@ class McpTool:
         self.requires_confirmation = requires_confirmation(self.server, definition)
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
-        headers, grants = await self._credentials(ctx)
-        args = await self._with_files(ctx, args)
+        started = time.monotonic()
+        try:
+            return await self._run(ctx, args, started)
+        except _Told as told:
+            self._tell(ctx, told.outcome, started, told.file_bytes)
+            raise told.error from told.error.__cause__
+
+    async def _run(self, ctx: ToolContext, args: dict[str, Any], started: float) -> Any:
+        """The call, with every way it can end named for the telemetry."""
+        try:
+            headers, grants = await self._credentials(ctx)
+        except ToolError as exc:
+            raise _Told(exc, "not_direct" if "direct message" in str(exc) else "not_connected") from exc
+        try:
+            args, file_bytes = await self._with_files(ctx, args)
+        except ToolError as exc:
+            raise _Told(exc, _file_outcome(str(exc))) from exc
         try:
             result = await self._call(self._definition.name, args, headers)
         except McpError as exc:
@@ -170,17 +190,30 @@ class McpTool:
                 assert ctx.connections is not None
                 for grant in grants:
                     await ctx.connections.forget(grant)
-                raise ToolError(
+                raise _Told(ToolError(
                     _TOKEN_REFUSED.format(server=self.server.name, provider=", ".join(g.provider for g in grants))
-                ) from exc
+                ), "token_refused", file_bytes) from exc
             if exc.code == UNREACHABLE and exc.sent:
-                raise ToolError(_UNANSWERED.format(server=self.server.name)) from exc
-            raise ToolError(_FAILED[exc.code].format(server=self.server.name)) from exc
+                raise _Told(ToolError(_UNANSWERED.format(server=self.server.name)), "unanswered", file_bytes) from exc
+            raise _Told(ToolError(_FAILED[exc.code].format(server=self.server.name)), exc.code, file_bytes) from exc
         if result.is_error:
             # The server's refusal is data of the server's, wrapped as such by
             # the tool server (``returns_untrusted``), never raised as our own.
+            self._tell(ctx, "is_error", started, file_bytes)
             return {"error": True, "text": result.text}
+        self._tell(ctx, "ok", started, file_bytes)
         return result.structured if result.structured is not None else result.text
+
+    def _tell(self, ctx: ToolContext, outcome: str, started: float, file_bytes: int) -> None:
+        if self._telemetry is None:
+            return
+        try:
+            self._telemetry.record(McpCalled(
+                server=self.server.name, tool=self._definition.name, agent=ctx.agent_name, outcome=outcome,
+                duration_s=time.monotonic() - started, file_bytes=file_bytes,
+            ))
+        except Exception:  # noqa: BLE001 - telemetry must never cost the call
+            logger.warning("telemetry failed to record an MCP call", exc_info=True)
 
     async def _credentials(self, ctx: ToolContext) -> tuple[dict[str, str], tuple[TokenGrant, ...]]:
         """The person's credentials for this call alone: the headers with their
@@ -247,12 +280,14 @@ class McpTool:
 
     # -- a person's file as an argument ------------------------------------------
 
-    async def _with_files(self, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    async def _with_files(self, ctx: ToolContext, args: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """The arguments the server declared as content, with the person's file
         in place of the path the model gave — read once, checked against the
-        record of what arrived, and against the type the schema names."""
+        record of what arrived, and against the type the schema names — and
+        how many bytes of files went in."""
         if not self.file_arguments:
-            return args
+            return args, 0
+        sent = 0
         filled = dict(args)
         for key in self.file_arguments:
             if key not in filled:
@@ -272,7 +307,8 @@ class McpTool:
             if wanted:
                 _check_type(self.name, key, received, data, wanted)
             filled[key] = base64.b64encode(data).decode("ascii")
-        return filled
+            sent += len(data)
+        return filled, sent
 
     async def _record_of(self, ctx: ToolContext, path: str) -> ReceivedFile:
         """The record of the file at ``path`` among what this conversation
@@ -296,6 +332,28 @@ class McpTool:
             label=f"{key} (file to {self.server.name})",
             value=f"{received.name} — {received.mime or 'unknown type'}, {format_size(received.size)}, sha256 {received.sha256[:12]}",
         )
+
+
+class _Told(Exception):
+    """A tool error with the outcome word the telemetry gets for it."""
+
+    def __init__(self, error: ToolError, outcome: str, file_bytes: int = 0) -> None:
+        super().__init__(str(error))
+        self.error = error
+        self.outcome = outcome
+        self.file_bytes = file_bytes
+
+
+def _file_outcome(message: str) -> str:
+    if "keeps none" in message:
+        return "no_file"
+    if "no longer here" in message:
+        return "file_gone"
+    if "not the file the person attached any more" in message:
+        return "file_changed"
+    if "not a file the person attached" in message:
+        return "no_file"
+    return "file_type"
 
 
 def file_arguments(definition: ToolDefinition) -> tuple[str, ...]:

@@ -878,3 +878,24 @@ async def test_an_answer_the_length_limit_ended_is_still_a_run_that_worked(store
 
     assert (await store.list_runs("tsk_1"))[0].status == RUN_OK
     assert kw["notifier"].posts == []
+
+
+class _Telemetry:
+    def __init__(self) -> None:
+        self.events: list = []
+
+    def record(self, event) -> None:
+        self.events.append(event)
+
+
+async def test_every_task_run_is_told(store) -> None:
+    from crucible.ports.telemetry import TaskRan
+
+    clock = Clock()
+    await store.create_task(_task(clock))
+    telemetry = _Telemetry()
+    sched, _ = _scheduler(store, clock, telemetry=telemetry)
+    await sched.tick()
+    await _settle()
+    (ran,) = [e for e in telemetry.events if isinstance(e, TaskRan)]
+    assert (ran.agent, ran.outcome) == ("assistant", RUN_OK) and ran.task and ran.duration_s >= 0

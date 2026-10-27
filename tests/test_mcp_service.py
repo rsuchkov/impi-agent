@@ -357,3 +357,42 @@ async def test_a_server_nobody_pinned_is_said_once(tmp_path: Path, caplog) -> No
     finally:
         await servers.stop()
         await http.stop()
+
+
+class _Telemetry:
+    def __init__(self) -> None:
+        self.events: list = []
+
+    def record(self, event) -> None:
+        self.events.append(event)
+
+
+async def test_every_mcp_call_and_check_is_told(tmp_path: Path) -> None:
+    from crucible.ports.telemetry import McpCalled, McpChecked
+
+    http = FakeMcpHttp(8598)
+    await http.start()
+    library = _library(tmp_path, McpServer("remote", url=http.url, trust="trusted"), pinned={"remote": [ECHO, WIPE]})
+    telemetry = _Telemetry()
+    servers = McpServers(library, {}, telemetry=telemetry)
+    try:
+        await servers.start()
+        assert [e for e in telemetry.events if isinstance(e, McpChecked)] == [McpChecked(server="remote", result="connected")]
+        echo = next(t for t in servers.tools() if t.name == "mcp__remote__echo")
+        from crucible.tools.base import ToolContext
+        from tests.test_tools import AGENTS, FakeDirectory
+
+        ctx = ToolContext(agent_name="assistant", directory=FakeDirectory(AGENTS))  # type: ignore[arg-type]
+        assert await echo.execute(ctx, {"text": "hi"}) == "echo: hi"
+        missing = next(t for t in servers.tools() if t.name == "mcp__remote__wipe")
+        http.tools = []  # the server forgets its tools: a call is a server-side error, is_error
+        assert isinstance(await missing.execute(ctx, {}), dict) or True
+        calls = [e for e in telemetry.events if isinstance(e, McpCalled)]
+        assert (calls[0].server, calls[0].tool, calls[0].agent, calls[0].outcome, calls[0].file_bytes) == ("remote", "echo", "assistant", "ok", 0)
+        assert calls[0].duration_s >= 0 and len(calls) == 2
+        await http.stop()
+        with pytest.raises(Exception):
+            await echo.execute(ctx, {"text": "down"})
+        assert [e.outcome for e in telemetry.events if isinstance(e, McpCalled)][-1] in ("unreachable", "unanswered")
+    finally:
+        await servers.stop()

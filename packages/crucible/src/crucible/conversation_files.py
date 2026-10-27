@@ -46,6 +46,7 @@ def conversation_lookup(attachments: AttachmentStore | None, sessions: SessionSt
         return SessionConversation(
             channel_id, record.last_user_id, files_dir, kind, direct=direct,
             gateway=record.last_gateway, gateways=tuple(sorted(addresses)),
+            conversation_id=record.conversation_id,
         )
 
     return conversation

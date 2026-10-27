@@ -58,6 +58,7 @@ from crucible.ports.chat.types import (
     CallPreview,
 )
 from crucible.ports.replica import tag_token
+from crucible.ports.telemetry import CardAnswered, Telemetry
 from crucible.store.base import (
     DECISION_ABANDONED,
     DECISION_APPROVED_GRANT,
@@ -105,8 +106,10 @@ class ToolGate:
         approvers: frozenset[str] = frozenset(),
         replica_id: str = "",
         people: PersonKey | None = None,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._presence = presence
+        self._telemetry = telemetry
         self._sessions = sessions
         self._ledger = ledger
         self._approvals = approvals
@@ -143,6 +146,7 @@ class ToolGate:
                 agent, scope, args, DECISION_REUSED_GRANT, started, request_id,
                 grant_id=grant.id,
             )
+            self._tell(agent, tool, "reused_grant", started)
             return ConfirmOutcome.ALLOWED
 
         try:
@@ -151,17 +155,20 @@ class ToolGate:
             # The caller hung up — the turn was aborted or timed out while the
             # card was up. Nothing may run on this card now, whatever is clicked.
             await self._record(agent, scope, args, DECISION_ABANDONED, started, request_id)
+            self._tell(agent, tool, "abandoned", started)
             raise
         if answer is None:
             # Nowhere to ask. Fail closed, and say so — an engine whose
             # interactivity is off should not be silently running gated tools.
             await self._record(agent, scope, args, DECISION_NO_APPROVER, started, request_id)
+            self._tell(agent, tool, "no_approver", started)
             return ConfirmOutcome.NO_APPROVER
         if not answer.allowed:
             decision = DECISION_TIMEOUT if answer.timed_out else DECISION_DENIED
             await self._record(
                 agent, scope, args, decision, started, request_id, approver=answer.approver
             )
+            self._tell(agent, tool, "unanswered" if answer.timed_out else "denied", started)
             return ConfirmOutcome.UNANSWERED if answer.timed_out else ConfirmOutcome.DENIED
 
         grant_id = ""
@@ -173,7 +180,19 @@ class ToolGate:
             agent, scope, args, decision, started, request_id,
             approver=answer.approver, grant_id=grant_id,
         )
+        self._tell(agent, tool, "allowed_for" if answer.grant_s > 0 else "allowed_once", started, answer.grant_s)
         return ConfirmOutcome.ALLOWED
+
+    def _tell(self, agent: str, tool: str, outcome: str, started: float, grant_s: int = 0) -> None:
+        if self._telemetry is None:
+            return
+        try:
+            self._telemetry.record(CardAnswered(
+                agent=agent, tool=tool, outcome=outcome,
+                wait_s=asyncio.get_running_loop().time() - started, grant_s=grant_s,
+            ))
+        except Exception:  # noqa: BLE001 - telemetry must never cost the card
+            logger.warning("telemetry failed to record a card", exc_info=True)
 
     async def _ask(
         self,

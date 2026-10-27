@@ -517,6 +517,9 @@ def build_app(settings: ImpiSettings) -> App:
     # that needs one gets a secret minted on its first start.
     receiver_needed = needs_receiver(cfg for cfgs in configs.values() for cfg in cfgs)
     settings = ensure_receiver_secret(settings, needs_receiver=receiver_needed)
+    # Where every event the engine tells goes (docs/telemetry.md): the log, by
+    # default; an application with a receiver of its own passes that instead.
+    telemetry: Telemetry | None = LogTelemetry() if settings.telemetry_log else None
 
     # The app owns the registry of live agent presences (agent -> AgentSink); the
     # loop fills it, the interaction collaborators read it lazily via MappingPresence.
@@ -531,7 +534,7 @@ def build_app(settings: ImpiSettings) -> App:
     connections = build_connections(
         settings, sessions, defaults,
         lambda agent: sink.chat if (sink := sinks_by_agent.get(agent)) is not None else None,
-        on_connected=redraw_on_connect,
+        on_connected=redraw_on_connect, telemetry=telemetry,
     )
     if connections is not None:
         report = connections_report(
@@ -601,7 +604,7 @@ def build_app(settings: ImpiSettings) -> App:
             "REPLICA_URL and REPLICA_TOKEN must both be set; conversations are not owned or forwarded"
         )
     interactions = InteractionWiring(
-        settings.integrations, sessions, presence,
+        settings.integrations, sessions, presence, telemetry=telemetry,
         codec=MattermostCallbackCodec(), needs_receiver=receiver_needed,
         command_tokens=settings.command_tokens_for,
         agents=lambda: runnable,
@@ -694,7 +697,7 @@ def build_app(settings: ImpiSettings) -> App:
     # The MCP servers the deployment declares: their pinned tools stand in the
     # registry beside the engine's own, and are called through them. The
     # servers themselves are connected when the app starts (``run``).
-    mcp = McpServers(McpLibrary(settings.resolved_mcp_path), settings.mcp_values())
+    mcp = McpServers(McpLibrary(settings.resolved_mcp_path), settings.mcp_values(), telemetry=telemetry)
     tools = ToolWiring(
         settings.tools, registry=engine_tool_registry(mcp.registry_tools()), data_dir=settings.data_dir,
         interactivity_on=settings.integrations.enabled,
@@ -788,7 +791,7 @@ def build_app(settings: ImpiSettings) -> App:
         specs, configs, engine_names,
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools, file_keeper=attachments,
-        telemetry=LogTelemetry() if settings.telemetry_log else None,
+        telemetry=telemetry,
         leases=sessions, instance=f"{socket.gethostname()}:{os.getpid()}",
         # Who captions a call for the person watching: the deployment's tools
         # themselves, then the runtime's own built-ins.
@@ -851,6 +854,7 @@ def build_app(settings: ImpiSettings) -> App:
         # say) and its files directory, in one read of the session record.
         conversation_resolver=conversation_lookup(attachments, sessions),
         received_files_for=attachments.received_files_for if attachments is not None else None,
+        telemetry=telemetry,
         connections=connections.tool_access() if connections is not None else None,
         tool_gate=interactions.tool_gate,
         # While the gate waits for a person, the turn's timeout waits too.
@@ -871,7 +875,7 @@ def build_app(settings: ImpiSettings) -> App:
             return unit.flow.profile if unit else None
 
         scheduler = Scheduler(
-            sessions,
+            sessions, telemetry=telemetry,
             dispatcher=SinkTurnDispatcher(sinks_by_agent, http=http_hub, sessions=sessions),
             prompts=RuntimePromptRunner(runtime, _profile_of),
             notifier=PresenceNotifier(presence),

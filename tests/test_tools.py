@@ -909,8 +909,16 @@ async def test_server_resolves_conversation_into_context() -> None:
         asked.append((agent, rsid))
         if rsid != "assistant--conv":
             return None
-        return SessionConversation("C-resolved", "U-resolved", Path(f"/files/{agent}/conv"))
+        return SessionConversation("C-resolved", "U-resolved", Path(f"/files/{agent}/conv"), conversation_id="conv")
 
+    class _Telemetry:
+        def __init__(self) -> None:
+            self.events: list = []
+
+        def record(self, event) -> None:
+            self.events.append(event)
+
+    telemetry = _Telemetry()
     server = ToolServer(
         reg,
         directory=FakeDirectory(AGENTS),
@@ -920,6 +928,7 @@ async def test_server_resolves_conversation_into_context() -> None:
         port=8470,
         conversation_resolver=resolver,
         received_files_for=_Received,
+        telemetry=telemetry,
     )
     await server.start()
     try:
@@ -934,6 +943,18 @@ async def test_server_resolves_conversation_into_context() -> None:
             "received": ["note.txt"],  # the conversation's record, by its files directory
         }
         assert asked == [("assistant", "assistant--conv")]  # once per call, with the caller
+        # Told once per call, resolved or refused: who, what, where, how.
+        async with aiohttp.ClientSession() as s:
+            async with s.post("http://127.0.0.1:8470/tool/echo_ctx", json={}, headers={"X-Tool-Token": "nope"}) as resp:
+                assert resp.status == 401
+            async with s.post("http://127.0.0.1:8470/tool/other", json={}, headers={"X-Tool-Token": "tok"}) as resp:
+                assert resp.status in (403, 404)
+        from crucible.ports.telemetry import ToolCalled
+
+        events = [e for e in telemetry.events if isinstance(e, ToolCalled)]
+        assert [(e.tool, e.outcome) for e in events] == [("echo_ctx", "ok"), ("echo_ctx", "unauthorized"), ("other", "unknown_tool")]
+        assert (events[0].agent, events[0].user_id, events[0].confirmed) == ("assistant", "U-resolved", False)
+        assert events[0].duration_s >= 0 and events[1].agent == ""
     finally:
         await server.stop()
 

@@ -13,8 +13,14 @@ when a release is cut, and `impi update` shows the target version's section.
   called, and the tokens and cost the runtime reported) — and the application
   decides where they go: a metrics exporter, a log, a table of its own;
   metrics are what the receiver derives. Nothing of the engine is tied to one.
-  `impi` writes the events as JSON lines on the logger `impi.telemetry`
-  (`TELEMETRY_LOG=true`, the default). The runtime's result now
+  Beside the turn: `ToolCalled` (every call through the tool server, resolved
+  or refused, with the outcome word and the time it took), `CardAnswered` (how
+  a confirmation ended and how long people took), `McpCalled` and `McpChecked`
+  (a server's tool called, a server's tools checked), `TaskRan` (a scheduled
+  occurrence, as it finished) and `ConnectionChanged` (what the connections
+  audit says, and every grant). `impi` writes the events as JSON lines on the
+  logger `impi.telemetry` (`TELEMETRY_LOG=true`, the default) and hands one
+  receiver to every producer. The runtime's result now
   carries `model`, `stop_reason` and `usage` (`TokenUsage`: input, output,
   cache read/write, total, and pi's own cost estimate in USD) for every
   runtime to fill.

@@ -28,6 +28,7 @@ from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver
 from crucible.ports.tasks import TaskService
+from crucible.ports.telemetry import Telemetry
 from crucible.ports.turn import TurnScopes
 from crucible.tool_manifests import MANIFEST_ENV, manifest_path, manifests_dir
 from crucible.tools.base import (
@@ -304,6 +305,7 @@ class ToolWiring:
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
         session_proofs: SessionProofBook | None = None,
+        telemetry: Telemetry | None = None,
     ) -> ToolServer | None:
         if self.registry is None:
             return None
@@ -347,5 +349,6 @@ class ToolWiring:
             tool_gate=tool_gate,
             clock=clock,
             turns=turns,
+            telemetry=telemetry,
             session_proofs=session_proofs,
         )

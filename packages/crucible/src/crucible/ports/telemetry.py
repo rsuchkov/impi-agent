@@ -40,7 +40,74 @@ class TurnEnded:
     usage: TokenUsage | None  # tokens and the runtime's own cost estimate, when it reported them
 
 
-TelemetryEvent = TurnEnded
+@dataclass(frozen=True)
+class ToolCalled:
+    """One call of a tool through the tool server, however it ended."""
+
+    agent: str
+    tool: str
+    conversation_id: str  # the conversation's key; "" when the call named no known session
+    user_id: str  # whose turn it was ("" when unknown)
+    gateway: str  # the gateway the conversation is on ("" when unknown)
+    outcome: str  # ok, error, crashed, unauthorized, unknown_tool, not_allowed, no_session,
+    # not_in_conversation, not_through_gateway, unconfirmable, not_asked, denied, unanswered,
+    # no_approver, abandoned
+    duration_s: float
+    confirmed: bool  # the tool is one a person confirms
+
+
+@dataclass(frozen=True)
+class CardAnswered:
+    """A confirmation asked for a tool call, and how it ended."""
+
+    agent: str
+    tool: str
+    outcome: str  # reused_grant, allowed_once, allowed_for, denied, unanswered, no_approver, abandoned
+    wait_s: float  # how long the call waited on people
+    grant_s: int  # the window opened, when one was
+
+
+@dataclass(frozen=True)
+class McpCalled:
+    """One call of an MCP server's tool by the engine."""
+
+    server: str
+    tool: str  # the server's own name for it
+    agent: str
+    outcome: str  # ok, is_error, unreachable, unanswered, refused, token_refused, protocol, unsupported,
+    # no_file, file_gone, file_changed, file_type, not_connected, not_direct
+    duration_s: float
+    file_bytes: int  # a person's file sent with the call, in bytes (0 for none)
+
+
+@dataclass(frozen=True)
+class McpChecked:
+    """One server's tools compared with their snapshot."""
+
+    server: str
+    result: str  # connected, unreachable, withdrawn, refreshed, restored, unpinned
+
+
+@dataclass(frozen=True)
+class TaskRan:
+    """One occurrence of a scheduled task, as it finished."""
+
+    agent: str
+    task: str
+    outcome: str  # the run status: ok, empty, timeout, error, deadline, cancelled, gone
+    duration_s: float
+
+
+@dataclass(frozen=True)
+class ConnectionChanged:
+    """A person's connected account moved: as the connections audit says it."""
+
+    provider: str
+    event: str  # connect_start, connect, refresh, forget, disconnect, grant
+    result: str  # ok, unavailable, rejected, not_connected, revoke_failed
+
+
+TelemetryEvent = TurnEnded | ToolCalled | CardAnswered | McpCalled | McpChecked | TaskRan | ConnectionChanged
 
 
 class Telemetry(Protocol):

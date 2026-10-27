@@ -81,6 +81,7 @@ async def test_a_conversation_is_addressed_on_the_gateway_asked_for(tmp_path: Pa
         assert conversation_ref(record, "mattermost") == plain
         found = await conversation_lookup(None, store)("assistant", record.runtime_session_id)
         assert found is not None and (found.gateway, found.gateways) == ("slack", ("slack",))
+        assert found.conversation_id == "task-7"  # the key, for whoever counts by conversation
     finally:
         await store.close()
 

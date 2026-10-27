@@ -40,6 +40,7 @@ from crucible.mcp.protocol import (
 )
 from crucible.mcp.snapshot import Snapshot, digest
 from crucible.mcp.tools import McpTool
+from crucible.ports.telemetry import McpChecked, Telemetry
 from crucible.tools.base import Tool
 
 logger = logging.getLogger(__name__)
@@ -86,8 +87,10 @@ class McpServers:
         values: Mapping[str, str],
         *,
         transport_factory: TransportFactory = default_transport,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._library = library
+        self._telemetry = telemetry  # where a call's and a check's events go (None = nobody listens)
         self._values = values  # what ${NAME} in a server entry is filled from
         self._transport_factory = transport_factory
         self._servers: dict[str, McpServer] = {}
@@ -106,7 +109,7 @@ class McpServers:
             self._servers[server.name] = server
             snapshot = library.snapshot(server.name)
             self._tools[server.name] = (
-                [McpTool(server, definition, self._caller(server.name)) for definition in snapshot.tools]
+                [McpTool(server, definition, self._caller(server.name), telemetry=telemetry) for definition in snapshot.tools]
                 if snapshot is not None
                 else []
             )
@@ -259,7 +262,23 @@ class McpServers:
                     "until they are reviewed and pinned again", name, len(report.withdrawn[name]),
                 )
         self._checked = True
+        self._tell_checked(report)
         return report
+
+    def _tell_checked(self, report: CheckReport) -> None:
+        if self._telemetry is None:
+            return
+        results: dict[str, str] = {name: "connected" for name in report.connected}
+        results.update({name: "unreachable" for name in report.unreachable})
+        results.update({name: "unpinned" for name in report.unpinned})
+        results.update({name: "refreshed" for name in report.refreshed})
+        results.update({name: "withdrawn" for name in report.withdrawn})
+        results.update({name: "restored" for name in report.restored})
+        for name, result in results.items():
+            try:
+                self._telemetry.record(McpChecked(server=name, result=result))
+            except Exception:  # noqa: BLE001 - telemetry must never cost the check
+                logger.warning("telemetry failed to record an MCP check", exc_info=True)
 
     async def run(self, interval_s: float, apply: Callable[[CheckReport], None]) -> None:
         """Recheck on a timer (``interval_s``; 0 for no timer) and at once when

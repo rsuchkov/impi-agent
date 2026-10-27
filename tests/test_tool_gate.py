@@ -192,6 +192,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         approvers=frozenset(over.pop("approvers", ())),
         replica_id=over.pop("replica_id", ""),
         people=over.pop("people", None),
+        telemetry=over.pop("telemetry", None),
     )
     dangerous, plain = Dangerous(), Harmless()
     clock = FakeClock()
@@ -911,5 +912,33 @@ async def test_the_card_is_posted_where_the_conversation_last_spoke(tmp_path: Pa
         pending.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await pending
+    finally:
+        await _close(rig)
+
+
+class _Telemetry:
+    def __init__(self) -> None:
+        self.events: list = []
+
+    def record(self, event) -> None:
+        self.events.append(event)
+
+
+async def test_every_card_is_told_with_how_it_ended_and_how_long_it_waited(tmp_path: Path) -> None:
+    from crucible.ports.telemetry import CardAnswered
+
+    telemetry = _Telemetry()
+    rig = await _rig(tmp_path, 8566, telemetry=telemetry)
+    try:
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer(rig, ANSWER_ONCE)
+        assert await pending == 200
+        (once,) = [e for e in telemetry.events if isinstance(e, CardAnswered)]
+        assert (once.agent, once.tool, once.outcome, once.grant_s) == ("assistant", "dangerous", "allowed_once", 0)
+        assert once.wait_s >= 0
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer(rig, ANSWER_DENY)
+        assert await pending == 403
+        assert [e.outcome for e in telemetry.events if isinstance(e, CardAnswered)] == ["allowed_once", "denied"]
     finally:
         await _close(rig)

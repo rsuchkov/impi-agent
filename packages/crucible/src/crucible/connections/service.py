@@ -78,6 +78,7 @@ from crucible.ports.connections import (
     ProviderUnavailable,
     TokenGrant,
 )
+from crucible.ports.telemetry import ConnectionChanged, Telemetry
 from crucible.ports.turn import TurnScope
 from crucible.store.base import (
     ConnectionLinkRecord,
@@ -133,6 +134,7 @@ class OAuthConnections:
         sealer: Sealer,
         policy: AccountPolicy | None = None,
         audit: ConnectionsAudit | None = None,
+        telemetry: Telemetry | None = None,
         link_ttl_s: float = 600.0,
         refresh_skew_s: float = 60.0,
         lease_s: float = 45.0,
@@ -147,6 +149,7 @@ class OAuthConnections:
         self._sealer = sealer
         self._policy = policy
         self._audit = audit or LoggingAudit()
+        self._telemetry = telemetry
         # How long a started connect waits for the person to come back.
         self._link_ttl_s = link_ttl_s
         # A token this close to its end is refreshed before it is handed out.
@@ -192,7 +195,7 @@ class OAuthConnections:
             expires_at=_iso(self._clock() + timedelta(seconds=self._link_ttl_s)),
             return_to=return_to,
         ))
-        self._audit.record(EVENT_CONNECT_START, RESULT_OK, owner=owner, provider=provider)
+        self._audit_and_tell(EVENT_CONNECT_START, RESULT_OK, owner=owner, provider=provider)
         return oauth.authorize_url(state=state, code_challenge=code_challenge(verifier))
 
     async def finish(
@@ -207,24 +210,24 @@ class OAuthConnections:
         about who came back, for its ``AccountPolicy`` to decide by."""
         link = await self._links.take_link(state_digest(state))
         if link is None or _parse(link.expires_at) <= self._clock():
-            self._audit.record(EVENT_CONNECT, LINK_EXPIRED, owner=owner or "")
+            self._audit_and_tell(EVENT_CONNECT, LINK_EXPIRED, owner=owner or "")
             raise LinkRefused(LINK_EXPIRED)
         where = {"owner": link.owner, "provider": link.provider}
         if owner is not None and link.owner != owner:
-            self._audit.record(EVENT_CONNECT, LINK_FOREIGN, **where)
+            self._audit_and_tell(EVENT_CONNECT, LINK_FOREIGN, **where)
             raise LinkRefused(LINK_FOREIGN, provider=link.provider)
         oauth = self._providers.get(link.provider)
         verifier = self._sealer.open(link.verifier_sealed)
         if oauth is None or verifier is None:
-            self._audit.record(EVENT_CONNECT, LINK_EXPIRED, **where)
+            self._audit_and_tell(EVENT_CONNECT, LINK_EXPIRED, **where)
             raise LinkRefused(LINK_EXPIRED, provider=link.provider)
         try:
             tokens = await oauth.exchange(code, verifier)
         except ProviderRejected as exc:
-            self._audit.record(EVENT_CONNECT, LINK_REJECTED, **where)
+            self._audit_and_tell(EVENT_CONNECT, LINK_REJECTED, **where)
             raise LinkRefused(LINK_REJECTED, provider=link.provider) from exc
         except ProviderUnavailable:
-            self._audit.record(EVENT_CONNECT, RESULT_UNAVAILABLE, **where)
+            self._audit_and_tell(EVENT_CONNECT, RESULT_UNAVAILABLE, **where)
             raise
         try:
             account = await oauth.identify(tokens.access_token)
@@ -235,11 +238,11 @@ class OAuthConnections:
         except BaseException:
             # Issued, and about to be dropped: nobody may keep using them.
             await self._revoke_tokens(oauth, tokens)
-            self._audit.record(EVENT_CONNECT, RESULT_UNAVAILABLE, **where)
+            self._audit_and_tell(EVENT_CONNECT, RESULT_UNAVAILABLE, **where)
             raise
         if refusal is not None:
             await self._revoke_tokens(oauth, tokens)
-            self._audit.record(EVENT_CONNECT, ACCOUNT_REFUSED, account=account.username, **where)
+            self._audit_and_tell(EVENT_CONNECT, ACCOUNT_REFUSED, account=account.username, **where)
             raise LinkRefused(ACCOUNT_REFUSED, provider=link.provider, account=account.username, detail=refusal)
         previous = await self._connections.get_connection(link.owner, link.provider)
         try:
@@ -249,7 +252,7 @@ class OAuthConnections:
             raise
         if previous is not None:
             await self._revoke_stored(previous)  # the grant this connect replaced
-        self._audit.record(EVENT_CONNECT, RESULT_OK, account=account.username, **where)
+        self._audit_and_tell(EVENT_CONNECT, RESULT_OK, account=account.username, **where)
         connected = Connected(owner=link.owner, provider=link.provider, account=account, return_to=link.return_to)
         if self._on_connected is not None:
             try:
@@ -263,7 +266,7 @@ class OAuthConnections:
         cannot be used again."""
         link = await self._links.take_link(state_digest(state))
         if link is not None:
-            self._audit.record(EVENT_CONNECT, LINK_DENIED, owner=link.owner, provider=link.provider)
+            self._audit_and_tell(EVENT_CONNECT, LINK_DENIED, owner=link.owner, provider=link.provider)
 
     # -- reading ------------------------------------------------------------
 
@@ -279,14 +282,31 @@ class OAuthConnections:
     async def grant(self, owner: str, provider: str) -> TokenGrant:
         """The token to act as ``owner`` at ``provider`` with — refreshed first
         when it is about to end. ``NotConnected`` when there is none to give."""
-        record, access = await self._load(owner, provider)
-        if not self._fresh(record):
-            record = await self._refresh(owner, provider)
-            access = self._sealer.open(record.access_sealed) or ""
+        try:
+            record, access = await self._load(owner, provider)
+            if not self._fresh(record):
+                record = await self._refresh(owner, provider)
+                access = self._sealer.open(record.access_sealed) or ""
+        except NotConnected:
+            self._tell(provider, "grant", RESULT_NOT_CONNECTED)
+            raise
+        self._tell(provider, "grant", RESULT_OK)
         return TokenGrant(
             provider=provider, token=AccessToken(access), account=_account(record),
             connect_id=record.connect_id, version=record.version,
         )
+
+    def _audit_and_tell(self, event: str, result: str, **fields: str) -> None:
+        self._audit.record(event, result, **fields)
+        self._tell(fields.get("provider", ""), event, result)
+
+    def _tell(self, provider: str, event: str, result: str) -> None:
+        if self._telemetry is None:
+            return
+        try:
+            self._telemetry.record(ConnectionChanged(provider=provider, event=event, result=result))
+        except Exception:  # noqa: BLE001 - telemetry must never cost the connection
+            logger.warning("telemetry failed to record a connection event", exc_info=True)
 
     async def forget(self, owner: str, grant: TokenGrant) -> None:
         """The provider answered a call made with ``grant`` with 401: that
@@ -297,7 +317,7 @@ class OAuthConnections:
         )
         if deleted and record is not None and _credential(record) == (grant.connect_id, grant.version):
             await self._revoke_stored(record)
-        self._audit.record(
+        self._audit_and_tell(
             EVENT_FORGET, RESULT_OK if deleted else RESULT_NOT_CONNECTED,
             owner=owner, provider=grant.provider, account=grant.account.username,
         )
@@ -308,7 +328,7 @@ class OAuthConnections:
         for _ in range(3):
             record = await self._connections.get_connection(owner, provider)
             if record is None:
-                self._audit.record(EVENT_DISCONNECT, RESULT_NOT_CONNECTED, owner=owner, provider=provider)
+                self._audit_and_tell(EVENT_DISCONNECT, RESULT_NOT_CONNECTED, owner=owner, provider=provider)
                 return None
             # The record seen, not whatever is there by then: a connect that
             # lands in between is somebody's new connection, not this one.
@@ -316,7 +336,7 @@ class OAuthConnections:
                 owner, provider, connect_id=record.connect_id, version=record.version,
             ):
                 revoked = await self._revoke_stored(record)
-                self._audit.record(
+                self._audit_and_tell(
                     EVENT_DISCONNECT, RESULT_OK if revoked else RESULT_REVOKE_FAILED,
                     owner=owner, provider=provider, account=record.account_username,
                 )
@@ -359,7 +379,7 @@ class OAuthConnections:
         if not refresh_token:
             # Nothing to refresh with: the connection has run its course.
             await self._connections.delete_connection(owner, provider, connect_id=record.connect_id, version=record.version)
-            self._audit.record(EVENT_REFRESH, RESULT_NOT_CONNECTED, **where)
+            self._audit_and_tell(EVENT_REFRESH, RESULT_NOT_CONNECTED, **where)
             raise NotConnected(owner, provider)
         try:
             fresh = await oauth.refresh(refresh_token)
@@ -368,13 +388,13 @@ class OAuthConnections:
             if latest is not None and _credential(latest) != _credential(record):
                 return latest  # another replica got there and rotated it
             await self._connections.delete_connection(owner, provider, connect_id=record.connect_id, version=record.version)
-            self._audit.record(EVENT_REFRESH, RESULT_REJECTED, **where)
+            self._audit_and_tell(EVENT_REFRESH, RESULT_REJECTED, **where)
             raise NotConnected(owner, provider) from exc
         except BaseException:
             # The lease would lapse anyway; ending it lets the next try in now.
             with contextlib.suppress(Exception):
                 await self._connections.release_refresh(owner, provider, connect_id=record.connect_id, version=record.version)
-            self._audit.record(EVENT_REFRESH, RESULT_UNAVAILABLE, **where)
+            self._audit_and_tell(EVENT_REFRESH, RESULT_UNAVAILABLE, **where)
             raise
         rotated = replace(
             record,
@@ -385,7 +405,7 @@ class OAuthConnections:
             version=record.version + 1,
         )
         if await self._connections.replace_connection(rotated, expected_version=record.version):
-            self._audit.record(EVENT_REFRESH, RESULT_OK, **where)
+            self._audit_and_tell(EVENT_REFRESH, RESULT_OK, **where)
             return rotated
         # Replaced or ended while the provider answered. A pair from a grant
         # that is gone is revoked; one from the same grant is not — revoking

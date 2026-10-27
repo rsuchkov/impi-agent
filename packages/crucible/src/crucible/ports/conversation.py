@@ -30,6 +30,7 @@ class SessionConversation:
     # goes, on the second.
     gateway: str = ""
     gateways: tuple[str, ...] = ()
+    conversation_id: str = ""  # the conversation's key, as the application keys it
 
 
 # (agent, runtime session id) -> its conversation, or None.

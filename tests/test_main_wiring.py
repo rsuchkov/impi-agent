@@ -1079,3 +1079,17 @@ def test_impis_telemetry_writes_one_json_line_per_event(caplog) -> None:
     assert line["event"] == "turn_ended" and line["agent"] == "assistant" and line["tool_calls"] == ["read"]
     assert line["usage"] == {"input": 10, "output": 5, "cache_read": 0, "cache_write": 0, "total": 15, "cost_usd": 0.0002}
     assert Settings(_env_file=None, dotenv_path="x").telemetry_log is True  # pyright: ignore[reportCallIssue]
+
+
+def test_impi_hands_one_telemetry_to_every_producer(tmp_path: Path) -> None:
+    from impi.telemetry import LogTelemetry
+
+    app = build_app(_settings(tmp_path))
+    telemetry = app.units[0].flow._telemetry
+    assert isinstance(telemetry, LogTelemetry)
+    assert app.tool_server is not None and app.tool_server._telemetry is telemetry
+    gate = app.tool_server._tool_gate
+    assert gate is None or getattr(gate, "_telemetry", None) is telemetry  # the gate, when confirmations are on
+    assert app.mcp_servers is None or app.mcp_servers._telemetry is telemetry
+    if app.scheduler is not None:
+        assert app.scheduler._telemetry is telemetry

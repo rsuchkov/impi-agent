@@ -538,3 +538,30 @@ async def test_what_the_application_knows_about_who_came_back_reaches_the_policy
     state, code = provider.consent(await service.begin("mattermost:u2", "gitlab"))
     await service.finish(state, code)
     assert policy.facts == {}  # nothing known is an empty mapping, not None
+
+
+class _Telemetry:
+    def __init__(self) -> None:
+        self.events: list = []
+
+    def record(self, event) -> None:
+        self.events.append(event)
+
+
+async def test_every_connection_event_is_told() -> None:
+    from crucible.ports.telemetry import ConnectionChanged
+
+    telemetry = _Telemetry()
+    provider = FakeProvider()
+    service = _service(provider, telemetry=telemetry)
+    with pytest.raises(NotConnected):
+        await service.grant(OWNER, "gitlab")
+    url = await service.begin(OWNER, "gitlab")
+    state, code = provider.consent(url)
+    await service.finish(state, code)
+    grant = await service.grant(OWNER, "gitlab")
+    await service.forget(OWNER, grant)
+    told = [(e.event, e.result) for e in telemetry.events if isinstance(e, ConnectionChanged)]
+    assert told[0] == ("grant", "not_connected") and ("connect", "ok") in told
+    assert ("grant", "ok") in told and told[-1] == ("forget", "ok")
+    assert all(e.provider == "gitlab" for e in telemetry.events if isinstance(e, ConnectionChanged))

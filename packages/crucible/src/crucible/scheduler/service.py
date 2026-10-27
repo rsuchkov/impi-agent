@@ -28,6 +28,7 @@ from datetime import datetime, timedelta
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import EventReport
 from crucible.ports.engine_turn import DispatchError, TurnDispatcher, TurnRequest
+from crucible.ports.telemetry import TaskRan, Telemetry
 from crucible.scheduler.ports import (
     Notifier,
     PromptRunner,
@@ -134,8 +135,10 @@ class Scheduler:
         retention_days: int = 30,
         version: str = "",
         clock: Callable[[], datetime] = utc_now,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._store = store
+        self._telemetry = telemetry
         self._dispatcher = dispatcher
         self._prompts = prompts
         self._notifier = notifier
@@ -467,6 +470,14 @@ class Scheduler:
         # ``final``: this was the task's last occurrence (a watch that found its
         # answer), whatever the record read before the claim said about a next run.
         release = STATE_PAUSED if paused else STATE_DONE if final else _released_state(task)
+        if self._telemetry is not None:
+            try:
+                self._telemetry.record(TaskRan(
+                    agent=task.agent, task=task.name, outcome=status,
+                    duration_s=(self._now() - started).total_seconds(),
+                ))
+            except Exception:  # noqa: BLE001 - telemetry must never cost the run
+                logger.warning("telemetry failed to record a task run", exc_info=True)
         await self._store.complete_run(
             run_id=run.run_id, task_id=task.id, status=status,
             finished_at=self._iso(), detail=detail,

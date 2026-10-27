@@ -15,6 +15,7 @@ the store it opens, and an agent reaches it over mutual TLS.
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -31,8 +32,9 @@ from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.chat.types import CallPreview
 from crucible.ports.connections import ConnectionAccessFactory
-from crucible.ports.conversation import ConversationResolver
+from crucible.ports.conversation import ConversationResolver, SessionConversation
 from crucible.ports.tasks import TaskService
+from crucible.ports.telemetry import Telemetry, ToolCalled
 from crucible.ports.turn import TurnScopes
 from crucible.tools.base import (
     SPEAKS_TO_USER_NOTE,
@@ -91,6 +93,17 @@ NOT_IN_CONVERSATION_ERROR = "not available in this conversation"
 NOT_THROUGH_GATEWAY_ERROR = "not available through this gateway"
 
 
+class _CallFacts:
+    """What a call leaves for the telemetry as it is served: the agent, the
+    tool, the conversation it resolved to and how it ended."""
+
+    def __init__(self) -> None:
+        self.agent = ""
+        self.tool: Tool | None = None
+        self.conversation: SessionConversation | None = None
+        self.outcome = ""
+
+
 def _log_if_orphaned(task: "asyncio.Future[Any]") -> None:
     """A tool that failed after its caller hung up has nobody to tell; say so
     in the log rather than let asyncio complain about an unread exception."""
@@ -126,6 +139,7 @@ class ToolServer:
         clock: TurnClock | None = None,
         turns: TurnScopes | None = None,
         session_proofs: SessionProofBook | None = None,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._registry = registry
         self._directory = directory
@@ -158,6 +172,7 @@ class ToolServer:
         # calling agent and its proven session (ports/conversation.py): a plain
         # callable, so the tool layer never imports the store.
         self._conversation_resolver = conversation_resolver
+        self._telemetry = telemetry  # where a call's ToolCalled goes (None = nobody listens)
         # The files a conversation received, by its files directory (the
         # attachment store's record); None when nothing keeps attachments.
         self._received_files_for = received_files_for
@@ -205,20 +220,47 @@ class ToolServer:
         return find_by_secret(self._tokens.items(), presented)
 
     async def _handle(self, request: web.Request) -> web.Response:
+        """Serve the call and tell the telemetry how it went: the outcome the
+        branches leave on the request, or the one the status says."""
+        started = time.monotonic()
+        call = _CallFacts()
+        response = await self._serve(request, call)
+        if self._telemetry is not None:
+            conversation = call.conversation
+            outcome = call.outcome or ("ok" if response.status == 200 else f"refused_{response.status}")
+            try:
+                self._telemetry.record(ToolCalled(
+                    agent=call.agent, tool=request.match_info.get("name", ""),
+                    conversation_id=conversation.conversation_id if conversation is not None else "",
+                    user_id=conversation.user_id if conversation is not None else "",
+                    gateway=conversation.gateway if conversation is not None else "",
+                    outcome=outcome, duration_s=time.monotonic() - started,
+                    confirmed=bool(call.tool.requires_confirmation) if call.tool is not None else False,
+                ))
+            except Exception:  # noqa: BLE001 - telemetry must never cost the call
+                logger.warning("telemetry failed to record a tool call", exc_info=True)
+        return response
+
+    async def _serve(self, request: web.Request, call: _CallFacts) -> web.Response:
         agent = self._agent_for_token(request.headers.get(_TOKEN_HEADER, ""))
         if agent is None:
+            call.outcome = "unauthorized"
             return web.json_response({"error": "unauthorized"}, status=401)
+        call.agent = agent
 
         name = request.match_info["name"]
         tool = self._registry.get(name)
         if tool is None:
+            call.outcome = "unknown_tool"
             return web.json_response({"error": "unknown tool"}, status=404)
+        call.tool = tool
 
         # A valid token authorizes ONLY the tools in that agent's allowlist. The
         # per-agent manifest gates what the runtime advertises, but this is the
         # enforced server-side gate — otherwise any agent with a token could POST
         # any tool.
         if name not in self._allowlists.get(agent, frozenset()):
+            call.outcome = "not_allowed"
             return web.json_response({"error": "forbidden"}, status=403)
 
         try:
@@ -235,6 +277,7 @@ class ToolServer:
             # one — a shell in the agent's container calling the server by
             # hand, with the token it found in the environment.
             logger.warning("tool %s: agent %s called without a session; refused", tool.name, agent)
+            call.outcome = "no_session"
             return web.json_response({"error": "session required"}, status=403)
         if runtime_session_id and self._proofs is not None:
             if not self._proofs.verify(runtime_session_id, request.headers.get(_PROOF_HEADER, "")):
@@ -242,6 +285,7 @@ class ToolServer:
                     "tool %s: agent %s named session %s without its proof; refused",
                     tool.name, agent, runtime_session_id,
                 )
+                call.outcome = "no_session"
                 return web.json_response({"error": "session not proven"}, status=403)
         scoped = self._session_allowlists.get(runtime_session_id) if runtime_session_id else None
         if scoped is not None and name not in scoped:
@@ -252,11 +296,13 @@ class ToolServer:
                 "tool %s: not in the set of conversation %s (agent %s); refused",
                 tool.name, runtime_session_id, agent,
             )
+            call.outcome = "not_in_conversation"
             return web.json_response({"error": NOT_IN_CONVERSATION_ERROR}, status=403)
         conversation = (
             await self._conversation_resolver(agent, runtime_session_id)
             if self._conversation_resolver is not None and runtime_session_id else None
         )
+        call.conversation = conversation
         turn = self._turns.current(runtime_session_id) if self._turns is not None else None
         # The gateway the conversation is in decides what this call may do and
         # with which admin client. May be None: a gateway without channel
@@ -271,6 +317,7 @@ class ToolServer:
                 "tool %s: conversation %s is on gateway %s, which lacks %s; refused",
                 tool.name, runtime_session_id, gateway or "-", ", ".join(sorted(tool.requires - caps)),
             )
+            call.outcome = "not_through_gateway"
             return web.json_response({"error": NOT_THROUGH_GATEWAY_ERROR}, status=403)
 
         ctx = ToolContext(
@@ -308,6 +355,7 @@ class ToolServer:
                 # Fail closed. A composition with no way to ask cannot answer
                 # "yes" on a human's behalf.
                 logger.warning("tool %s needs a confirmation and there is no gate", tool.name)
+                call.outcome = "unconfirmable"
                 return web.json_response({"error": "cannot be confirmed here"}, status=403)
             pause = (
                 self._clock.human_wait(runtime_session_id)
@@ -323,15 +371,18 @@ class ToolServer:
                     preview=preview, display_name=tool.display_name,
                 )
             if isinstance(outcome, NotAsked):
+                call.outcome = "not_asked"
                 return web.json_response(
                     {"error": NOT_ASKED_ERROR.format(reason=outcome.reason)}, status=403
                 )
             if outcome is not ConfirmOutcome.ALLOWED:
+                call.outcome = outcome.name.lower()
                 return web.json_response({"error": _REFUSALS[outcome]}, status=403)
             if request.transport is None or request.transport.is_closing():
                 # Approved, but for nobody: the caller left while the card was
                 # up and the cancellation has not reached this handler yet.
                 logger.warning("tool %s was approved after its caller hung up; not run", tool.name)
+                call.outcome = "abandoned"
                 return web.json_response({"error": "abandoned by the caller"}, status=403)
 
         try:
@@ -342,9 +393,11 @@ class ToolServer:
             running.add_done_callback(_log_if_orphaned)
             result = await asyncio.shield(running)
         except ToolError as exc:
+            call.outcome = "error"
             return web.json_response({"error": str(exc)}, status=400)
         except Exception:
             logger.exception("tool %s crashed (agent %s)", tool.name, agent)
+            call.outcome = "crashed"
             return web.json_response({"error": "internal tool error"}, status=500)
 
         logger.info("tool %s ran for agent %s", tool.name, agent)
