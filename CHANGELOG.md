@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.35.0 — 2026-10-27
+
 - **Added: telemetry — the engine tells what it did, as events, for whoever
   counts.** A port, `crucible.ports.telemetry.Telemetry`, takes frozen records
   of flat fields — a turn ended (`TurnEnded`: agent, gateway, user,
