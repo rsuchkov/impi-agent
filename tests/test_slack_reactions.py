@@ -283,3 +283,13 @@ async def test_the_gateway_has_reactions_only_with_a_map_and_a_dispatcher() -> N
     assert gateway(dispatcher=FakeDispatcher()).reactions is None  # no map
     assert gateway(dispatcher=FakeDispatcher(), reaction_commands=ReactionCommands()).reactions is None  # empty map
     assert gateway(dispatcher=FakeDispatcher(), reaction_commands=ReactionCommands({"eyes": "summarize"})).reactions is not None
+
+
+async def test_a_reaction_mapped_to_the_stop_word_stops_the_turn_instead_of_starting_one() -> None:
+    dispatcher = FakeDispatcher()
+    dispatcher.stop_command = "stop"
+    await _reactions(dispatcher, by_emoji={"octagonal_sign": "stop"}, messages=[_message(text="top level")]).handle_reaction(
+        _reaction(reaction="octagonal_sign")
+    )
+    assert dispatcher.stopped == [("assistant", "1782309753.848289")]  # the thread under the message
+    assert dispatcher.calls == []

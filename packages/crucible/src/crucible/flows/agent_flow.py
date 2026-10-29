@@ -19,6 +19,8 @@ from typing import Protocol
 from crucible.containment import one_line, quoted, speaker
 from crucible.content_types import format_size, sniff_image
 from crucible.ports.agent import (
+    NOTICE_STOPPED,
+    STOPPED_MESSAGE,
     AgentBusy,
     AgentError,
     AgentEvent,
@@ -138,12 +140,22 @@ def _format_time(dt: datetime) -> str:
 
 
 class _TurnFacts:
-    """What a turn leaves for its telemetry: the runtime's result when there
-    was one, and the notice code the person got when there was one."""
+    """What a turn leaves for its telemetry — the runtime's result when there
+    was one, the notice code the person got when there was one — and, while it
+    runs, what ``stop`` needs: the runtime session to interrupt, and whether it
+    was asked to."""
 
-    def __init__(self) -> None:
+    def __init__(self, runtime_session_id: str = "") -> None:
         self.result: AgentResult | None = None
         self.notice: str = ""
+        self.runtime_session_id = runtime_session_id
+        self.stopped = False
+
+
+STOPPED_NOTE = (
+    "The turn before this one was stopped by the person before it finished. "
+    "What it did up to then stands; what it was about to do did not happen."
+)
 
 
 async def _adopt_all(keeper: FileKeeper, agent: str, key: str, msg: IncomingMessage) -> IncomingMessage:
@@ -295,9 +307,11 @@ class AgentFlow:
         # reported, as itself — the code is what a program acts on.
         self._flag_notices = dict(flag_notices or {})
         # Asked, on a conversation the store already knows, whether the runtime
-        # still remembers it. None = trust the store: a known conversation is a
-        # remembered one.
+        # still remembers it, and told to interrupt a turn a person stops. None
+        # = trust the store, and nothing here can be stopped.
         self._control = control
+        # The turns in flight, by conversation key: what ``stop`` finds.
+        self._active: dict[str, _TurnFacts] = {}
         # Where the conversation is kept when the platform cannot hand it back
         # (a direct message over http has no thread to read). Consulted only on
         # a turn the runtime starts from nothing, and only when the platform
@@ -416,8 +430,12 @@ class AgentFlow:
                 await self._sessions.set_gateway_address(self._agent_name, key, anchor.gateway, address)
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         started = time.monotonic()
-        facts = _TurnFacts()
-        outcome = await self._turn(fresh, anchor, record, created, chat, facts)
+        facts = _TurnFacts(record.runtime_session_id)
+        self._active[key] = facts
+        try:
+            outcome = await self._turn(fresh, anchor, record, created, chat, facts)
+        finally:
+            self._active.pop(key, None)
         if self._telemetry is not None:
             self._tell_turn(fresh, anchor, key, outcome, facts, time.monotonic() - started)
         if anchor.turn is not None and anchor.turn.flags:
@@ -428,6 +446,32 @@ class AgentFlow:
                     anchor.ref, self._flag_notices.get(flag, flag), code=flag
                 )
         return outcome
+
+    async def stop(self, conversation_id: str) -> bool:
+        """Stop the turn running in this conversation (``StoppableSink``): the
+        runtime is told to interrupt it, and the turn ends as stopped — what it
+        had posted, a notice, a note for the next turn. False when no turn is
+        running here or the runtime cannot be told."""
+        facts = self._active.get(conversation_id)
+        if facts is None or self._control is None or not facts.runtime_session_id:
+            return False
+        facts.stopped = True
+        cancelled = await self._control.cancel(facts.runtime_session_id)
+        logger.info("turn in %s/%s stopped by request (%s)", self._agent_name, conversation_id,
+                    "interrupted" if cancelled else "nothing was running")
+        return cancelled
+
+    async def _end_stopped(
+        self, anchor: IncomingMessage, chat: ChatClient, facts: _TurnFacts, text: str,
+    ) -> TurnOutcome:
+        """A turn a person stopped: what the model had said is posted, then the
+        notice; the next turn is told the previous one did not finish."""
+        if text:
+            await chat.post_reply(anchor.ref, text)
+        await self._sessions.set_cut_short(self._agent_name, anchor.conversation_id, STOPPED_NOTE)
+        facts.notice = NOTICE_STOPPED
+        await chat.post_notice(anchor.ref, STOPPED_MESSAGE, code=NOTICE_STOPPED)
+        return TurnOutcome.STOPPED
 
     def _tell_turn(
         self, fresh: list[IncomingMessage], anchor: IncomingMessage, key: str,
@@ -535,6 +579,8 @@ class AgentFlow:
             await chat.post_notice(anchor.ref, text, code=code)
             return TurnOutcome.TIMEOUT
         except AgentTimeout as exc:
+            if facts.stopped:
+                return await self._end_stopped(anchor, chat, facts, "")
             logger.warning(
                 "agent turn timed out for %s: %s", record.runtime_session_id, exc
             )
@@ -549,6 +595,10 @@ class AgentFlow:
             await chat.post_notice(anchor.ref, text, code=code)
             return TurnOutcome.TIMEOUT
         except AgentError as exc:
+            if facts.stopped:
+                # The runtime may word the interruption as an error of its own;
+                # the person asked for it, and that is what it was.
+                return await self._end_stopped(anchor, chat, facts, "")
             # The cause goes to the log in full; what reaches the conversation is
             # which KIND of failure it was, because a notice is an ordinary
             # message everyone present can read.
@@ -571,6 +621,8 @@ class AgentFlow:
         await self._sessions.touch(
             self._agent_name, record.conversation_id, engine_turn=anchor.engine_started,
         )
+        if facts.stopped:
+            return await self._end_stopped(anchor, chat, facts, result.text)
         truncated = result.truncated
         if result.text:
             # One hop past the deepest message in the batch, so any agent we

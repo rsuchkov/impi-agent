@@ -46,7 +46,18 @@ class GatewayDispatcher(Protocol):
     async def open_screen(
         self, agent: str, command: str, *, channel_id: str, conversation_id: str,
         kind: str, user_id: str,
-    ) -> ScreenOpened: ...
+    ) -> ScreenOpened:
+        """A command the engine may own — a screen, or the word that stops the
+        turn — answered without an agent; ``owned`` False means route it on."""
+        ...
+
+    @property
+    def stop_command(self) -> str:
+        """The command word that stops a turn ("" = none), so a reaction mapped
+        to it stops the turn instead of starting one."""
+        ...
+
+    async def stop_turn(self, agent: str, conversation_id: str) -> object: ...
     async def redraw_screen(
         self, state_raw: str, value: str, *, post_id: str, user_id: str
     ) -> Redrawn | None: ...

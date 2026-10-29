@@ -17,7 +17,7 @@ from crucible.interactions.labels import humanize
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.ports import FormHandlers
 from crucible.interactions.presence import AgentPresence
-from crucible.interactions.results import ActionResult
+from crucible.interactions.results import TURN_STOP_ANSWERS, ActionResult, TurnStop
 from crucible.interactions.screens import (
     Redrawn,
     ScreenOpened,
@@ -27,7 +27,7 @@ from crucible.interactions.screens import (
     refusal,
 )
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.flow import MessageSink
+from crucible.ports.chat.flow import MessageSink, StoppableSink
 from crucible.ports.chat.interactions import form_from_json
 from crucible.ports.chat.keying import PersonKey, PlatformPerson
 from crucible.ports.chat.types import (
@@ -100,6 +100,7 @@ class InteractionDispatcher:
         replicas: Replicas | None = None,
         clicks: ClickForwarder | None = None,
         people: PersonKey | None = None,
+        stop_command: str = "",
     ) -> None:
         self._interactions = interactions
         self._presence = presence
@@ -123,6 +124,24 @@ class InteractionDispatcher:
         self._clicks = clicks
         # Who a platform id is, for the one click whose answer depends on it.
         self._people: PersonKey = people or PlatformPerson()
+        # The command word that stops the turn in flight ("stop" for /stop);
+        # "" = no such command, a turn is stopped some other way or not at all.
+        self._stop_command = stop_command
+
+    @property
+    def stop_command(self) -> str:
+        return self._stop_command
+
+    async def stop_turn(self, agent: str, conversation_id: str) -> TurnStop:
+        """Stop ``agent``'s turn in flight in ``conversation_id`` — the
+        conversation as the gateway names it, which is how the flow keys it
+        unless the application keys conversations itself (then it stops them
+        through its own gateway's cancel)."""
+        target = self._presence.sink(agent)
+        if target is None or not isinstance(target.sink, StoppableSink):
+            return TurnStop.UNAVAILABLE
+        stopped = await target.sink.stop(conversation_id)
+        return TurnStop.STOPPED if stopped else TurnStop.NOTHING_RUNNING
 
     async def resolve_approval(
         self, token: str, value: str, user_id: str, *, gateway: str = ""
@@ -316,6 +335,12 @@ class InteractionDispatcher:
         was posted, or a screen owns it and refused — in which case nothing was
         posted and the reason belongs to whoever asked, privately.
         """
+        if self._stop_command and command.lstrip("/") == self._stop_command:
+            # Acts, draws nothing: the conversation hears from the turn itself
+            # as it ends; the person who asked hears whether there was one.
+            stop = await self.stop_turn(agent, conversation_id)
+            logger.info("stop asked for %s in %s by %s: %s", agent, conversation_id, user_id, stop.name.lower())
+            return ScreenOpened(owned=True, answer=TURN_STOP_ANSWERS[stop])
         screen = self._screens.get(command) if self._screens else None
         target = self._presence.poster(agent)
         if screen is None or target is None:
@@ -334,7 +359,7 @@ class InteractionDispatcher:
             # Nothing is posted. Whatever the screen would have drawn, this
             # conversation is not where it may appear.
             logger.info("screen %s refused for %s: %s", screen.command, user_id, denial)
-            return ScreenOpened(owned=True, refused=denial)
+            return ScreenOpened(owned=True, answer=denial)
         await post_first_view(
             screen, target, ref,
             agent=agent, user_id=user_id, callback_url=self._callback_url,

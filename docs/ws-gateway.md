@@ -54,6 +54,10 @@ All frames are JSON text messages.
 
 // discovery: which agents can this service address?
 {"type": "agents"}
+
+// stop the turn running in a conversation (the turn posts what it had, then a
+// "stopped" notice; the next turn is told it did not finish)
+{"type": "cancel", "agent": "helper", "conversation_id": "user-42"}
 ```
 
 **Engine → service:**
@@ -63,6 +67,8 @@ All frames are JSON text messages.
 {"type": "notice", "agent": "helper", "conversation_id": "user-42", "text": "…",
  "code": "timeout"}                 // status/fallback; `code` names the kind when there is one
 {"type": "agents", "agents": [{"name": "helper", "role": "…", "description": "…"}]}
+{"type": "cancelled", "agent": "helper", "conversation_id": "user-42",
+ "cancelled": true}                 // false: nothing was running there
 {"type": "error",  "detail": "…"}   // bad frame / unknown agent; the socket stays open
 
 // a file the agent sent (one frame per file; the caption rides with the first)

@@ -69,6 +69,7 @@ command in that message's conversation, as a slash command or a shortcut would
 |---|---|---|
 | `REACTION_COMMANDS` | `""` | the **default agent's** emoji → command map: CSV of `emoji=command` or a bare `emoji` (the command is then the emoji's name); platform short names without colons. Every other agent's map is `AGENTS_REACTION_COMMANDS__<AGENT>` — per agent, because every agent in a channel sees every reaction there. An entry that is not `emoji=command` stops the engine at start, naming the key. Empty = reactions are not commands |
 | `REACTION_QUOTE_LIMIT` | `1500` | how much of the reacted message the agent is shown, quoted as its author's words |
+| `STOP_COMMAND` | `stop` | the command word that stops the agent's turn in flight (`/stop`, or a reaction mapped to it) — the engine's on Mattermost and Slack alike; without the slash; empty = no such command (the ws `cancel` frame and http `/cancel` stop a turn regardless). See [commands.md](commands.md) |
 
 ## Gateway selection
 

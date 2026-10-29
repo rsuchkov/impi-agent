@@ -195,6 +195,21 @@ Nothing to enable in `agent.yaml` — a command arrives as a message. Just say
 what it means in `.pi/SYSTEM.md`:
 
 ```markdown
+## Stopping a turn
+
+One command is the engine's on every platform: the **stop word**, `/stop` by
+default (`STOP_COMMAND`; empty turns it off). Typed in a conversation where
+the agent is working, it interrupts that turn: the model's words so far are
+posted, then a `stopped` notice, and the next turn is told the previous one did
+not finish. Whoever typed it hears privately whether anything was running.
+Mapped to an emoji in `REACTION_COMMANDS` (`octagonal_sign=stop`), a reaction
+on a message in that conversation does the same. The slash command still has
+to be declared on the platform like any other (`/stop` on Mattermost, a
+`/stop` command in the Slack app) — the engine answers it, the platform
+delivers it. A service on the ws gateway sends a `cancel` frame, one on the
+http gateway calls `/cancel` ([ws-gateway.md](ws-gateway.md),
+[http-gateway.md](http-gateway.md)); all four end the turn the same way.
+
 ## Commands
 
 When the message starts with `/summarize`, summarize THIS conversation:

@@ -624,6 +624,7 @@ def build_app(settings: ImpiSettings) -> App:
         tool_max_grant_s=settings.tools.max_grant_s,
         tool_approvers=settings.tools.approvers,
         replica=replica, clicks=forwarder,
+        stop_command=settings.stop_command,
     )
     redraw_on_connect.dispatcher = interactions.dispatcher
 

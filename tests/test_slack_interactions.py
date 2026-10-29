@@ -293,7 +293,7 @@ async def test_a_command_a_screen_owns_is_drawn_by_the_engine_and_answered_with_
 
 
 async def test_a_screen_s_refusal_reaches_only_the_person_who_typed_the_command() -> None:
-    dispatcher = FakeDispatcher(opened=ScreenOpened(owned=True, refused="This works in a direct message with me."))
+    dispatcher = FakeDispatcher(opened=ScreenOpened(owned=True, answer="This works in a direct message with me."))
     respond = Respond()
     await _interactions(dispatcher, agent="ward").handle_command(_command(channel="C77", channel_name="general"), respond)
     assert respond.said == ["This works in a direct message with me."]

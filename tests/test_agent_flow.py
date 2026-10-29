@@ -1917,3 +1917,89 @@ async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> 
     unhurt = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=_Broken())
     assert await unhurt.handle(another("fourth", "p4"), FakeChat()) is TurnOutcome.REPLIED
     await store.close()
+
+
+async def test_a_person_stops_the_turn_and_the_next_one_is_told(tmp_path: Path) -> None:
+    """``stop`` interrupts the turn in flight through the runtime's control; the
+    turn ends as STOPPED — what the model had said is posted, then a `stopped`
+    notice — and the record carries a note for the next turn. Telemetry says
+    `stopped`. Nothing running: False, and nothing changes."""
+    import asyncio
+
+    from crucible.ports.agent.errors import NOTICE_STOPPED
+    from crucible.ports.telemetry import TurnEnded
+
+    class _Interruptible(FakeRuntime):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.cancelled: list[str] = []
+            self.ended = asyncio.Event()
+
+        async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
+            self.calls.append((session_id, message))
+            self.started.set()
+            await self.ended.wait()  # until cancelled
+            return PiResult(text="half an answer", stop_reason="aborted")
+
+        async def cancel(self, session_id: str) -> bool:
+            self.cancelled.append(session_id)
+            self.ended.set()
+            return True
+
+        def has_memory(self, agent: str, session_id: str) -> bool:
+            return True
+
+        def memory_updated_at(self, agent: str, session_id: str):
+            return None
+
+        async def reset(self, agent: str, session_id: str) -> None:
+            pass
+
+        def stats(self):
+            raise AssertionError("not asked here")
+
+    class _Telemetry:
+        def __init__(self) -> None:
+            self.events: list = []
+
+        def record(self, event) -> None:
+            self.events.append(event)
+
+    runtime, telemetry = _Interruptible(), _Telemetry()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime, telemetry=telemetry)
+    chat = FakeChat()
+    assert await flow.stop("dm1") is False  # nothing running yet
+    turn = asyncio.ensure_future(flow.handle(_dm("do a long thing"), chat))
+    await asyncio.wait_for(runtime.started.wait(), 1.0)
+    assert await flow.stop("dm1") is True
+    assert await turn is TurnOutcome.STOPPED
+    assert runtime.cancelled == ["assistant--dm1"]
+    assert chat.replies == [(_dm().ref, "half an answer")]  # what it had
+    assert chat.notices[-1][1].startswith("Stopped at your request") and chat.notice_codes[-1] == NOTICE_STOPPED
+    record = (await store.list())[0]
+    assert "stopped by the person" in record.cut_short
+    (event,) = [e for e in telemetry.events if isinstance(e, TurnEnded)]
+    assert (event.outcome, event.notice, event.stop_reason) == ("stopped", NOTICE_STOPPED, "aborted")
+    assert await flow.stop("dm1") is False  # over: nothing to stop
+    # A runtime that words the interruption as an error: still the person's stop.
+    runtime.ended.clear()
+
+    async def failing(profile, session_id, message, *, on_event=None, cwd=None, images=()):
+        runtime.started.set()
+        await runtime.ended.wait()
+        raise PiProcessError("aborted by request")
+
+    runtime.run_stateful = failing  # type: ignore[method-assign]
+    runtime.started.clear()
+    chat2 = FakeChat()
+    turn = asyncio.ensure_future(flow.handle(dataclasses.replace(_dm("again"), ref=dataclasses.replace(_dm().ref, message_id="p2")), chat2))
+    await asyncio.wait_for(runtime.started.wait(), 1.0)
+    assert await flow.stop("dm1") is True
+    assert await turn is TurnOutcome.STOPPED
+    assert chat2.replies == [] and chat2.notice_codes == [NOTICE_STOPPED]
+    # Without a control there is nothing to stop with.
+    plain = AgentFlow(FakeRuntime(), PROFILE, store, agent_name="assistant")
+    assert await plain.stop("dm1") is False
+    await store.close()

@@ -82,7 +82,7 @@ async def test_a_command_with_a_screen_never_reaches_an_agent(tmp_path: Path) ->
             kind="channel", user_id="u1",
         )
 
-        assert opened.owned is True and opened.refused == ""
+        assert opened.owned is True and opened.answer == ""
         assert spy.submitted == []  # no turn: the engine answered
         ref, cards, _url = chat.posted_cards[0]
         assert cards[0].text == "page 0" and ref.channel_id == "ch1"
@@ -426,5 +426,47 @@ async def test_a_click_tells_the_screen_which_message_it_is_drawn_in(tmp_path: P
             state.encode(), "", post_id="p9", user_id="u1",
         )
         assert panel.renders[-1].post_id == "p9" and panel.renders[-1].data == {"focus": "x"}
+    finally:
+        await store.close()
+
+
+async def test_the_stop_command_ends_the_turn_and_answers_privately(tmp_path: Path) -> None:
+    """The stop word is a command the engine owns without a view: the turn in
+    flight is told to end through the agent's sink, and the person who asked
+    hears whether there was one. No stop word configured: it is an agent's
+    command like any other."""
+    from crucible.interactions.results import TURN_STOP_ANSWERS, TurnStop
+
+    class StoppableSpy(SinkSpy):
+        def __init__(self, running: bool) -> None:
+            super().__init__()
+            self.running = running
+            self.stopped: list[str] = []
+
+        async def stop(self, conversation_id: str) -> bool:
+            self.stopped.append(conversation_id)
+            return self.running
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat = FakeChat()
+    try:
+        spy = StoppableSpy(running=True)
+        dispatcher = InteractionDispatcher(
+            store, presence_of(chat, sink=spy), PendingUiRequests(), store, screens=ScreenRegistry(), stop_command="stop",
+        )
+        opened = await dispatcher.open_screen("assistant", "/stop", channel_id="ch1", conversation_id="th1", kind="thread", user_id="u1")
+        assert (opened.owned, opened.answer) == (True, TURN_STOP_ANSWERS[TurnStop.STOPPED])
+        assert spy.stopped == ["th1"] and spy.submitted == []  # no turn started
+        assert chat.posted_cards == [] and chat.replies == []  # nothing drawn: the turn says so itself
+        idle = StoppableSpy(running=False)
+        dispatcher = InteractionDispatcher(store, presence_of(chat, sink=idle), PendingUiRequests(), store, stop_command="stop")
+        opened = await dispatcher.open_screen("assistant", "stop", channel_id="dm1", conversation_id="dm1", kind="dm", user_id="u1")
+        assert opened.answer == TURN_STOP_ANSWERS[TurnStop.NOTHING_RUNNING]
+        # A sink that cannot stop a turn, and no stop word at all.
+        plain = InteractionDispatcher(store, presence_of(chat, sink=SinkSpy()), PendingUiRequests(), store, stop_command="stop")
+        assert (await plain.open_screen("assistant", "stop", channel_id="dm1", conversation_id="dm1", kind="dm", user_id="u1")).answer == TURN_STOP_ANSWERS[TurnStop.UNAVAILABLE]
+        off = InteractionDispatcher(store, presence_of(chat, sink=StoppableSpy(True)), PendingUiRequests(), store)
+        assert (await off.open_screen("assistant", "stop", channel_id="dm1", conversation_id="dm1", kind="dm", user_id="u1")).owned is False
+        assert off.stop_command == ""
     finally:
         await store.close()

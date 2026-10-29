@@ -373,3 +373,36 @@ async def test_a_ws_file_is_saved_under_the_conversation_as_the_application_keys
             await ws.close()
     finally:
         await hub.stop()
+
+
+async def test_a_cancel_frame_stops_the_conversations_turn_and_says_whether_one_ran() -> None:
+    class StoppableSink(FakeSink):
+        def __init__(self) -> None:
+            super().__init__()
+            self.stopped: list[str] = []
+
+        async def stop(self, conversation_id: str) -> bool:
+            self.stopped.append(conversation_id)
+            return len(self.stopped) == 1  # the first time something ran
+
+    hub = _hub(8479, {"probe": ("tok", None)})
+    sink = StoppableSink()
+    hub.register_agent("helper", sink, WsChatClient(hub, "helper"))
+    hub.register_agent("scribe", FakeSink(), WsChatClient(hub, "scribe"))  # cannot stop
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            ws = await _connect(session, 8479, "tok")
+            await ws.send_json({"type": "cancel", "agent": "helper", "conversation_id": "user-1"})
+            assert await ws.receive_json() == {"type": "cancelled", "agent": "helper", "conversation_id": "user-1", "cancelled": True}
+            assert sink.stopped == ["probe:user-1"]  # the key the flow uses, namespaced like a message
+            await ws.send_json({"type": "cancel", "agent": "helper", "conversation_id": "user-1"})
+            assert (await ws.receive_json())["cancelled"] is False
+            await ws.send_json({"type": "cancel", "agent": "scribe", "conversation_id": "user-1"})
+            assert "cannot be stopped" in (await ws.receive_json())["detail"]
+            await ws.send_json({"type": "cancel", "agent": "helper"})
+            assert "conversation_id" in (await ws.receive_json())["detail"]
+            assert sink.submitted == []
+            await ws.close()
+    finally:
+        await hub.stop()

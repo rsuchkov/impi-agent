@@ -225,6 +225,11 @@ class Settings(BaseSettings):
     reaction_commands: str = ""
     # How much of the reacted message is quoted under the command word.
     reaction_quote_limit: int = 1500
+    # The command word that stops the agent's turn in flight in the conversation
+    # it is typed in — as a slash command on Mattermost and Slack, or a reaction
+    # mapped to it. Without the slash; empty = no such command (the ws `cancel`
+    # frame and the http `/cancel` route stop a turn regardless).
+    stop_command: str = "stop"
 
     # ws gateway (duplex WebSocket hub for custom client services). The hub is
     # started only when some agent runs on the "ws" gateway; access is per
@@ -455,6 +460,14 @@ class Settings(BaseSettings):
     def _a_provider_names_a_model(self) -> Settings:
         check_provider_has_model(self.default_provider, self.default_model, "DEFAULT_PROVIDER", "DEFAULT_MODEL")
         return self
+
+    @field_validator("stop_command")
+    @classmethod
+    def _stop_command_is_a_word(cls, value: str) -> str:
+        word = value.strip().lstrip("/")
+        if word and not re.fullmatch(r"[a-z][a-z0-9_-]*", word):
+            raise ValueError(f"STOP_COMMAND: {value!r} is not a command word (lowercase letters, digits, _ or -)")
+        return word
 
     @model_validator(mode="after")
     def _a_conversation_holds_at_least_one_file(self) -> Settings:

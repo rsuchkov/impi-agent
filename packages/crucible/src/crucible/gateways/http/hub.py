@@ -40,7 +40,7 @@ from crucible.gateways.ws.events import files_error, frame_files
 from crucible.interactions.screens import SCREEN_KEY, STATE_KEY
 from crucible.ports.agent.runtime import RuntimeControl
 from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.flow import TrackedSink, TurnOutcome
+from crucible.ports.chat.flow import StoppableSink, TrackedSink, TurnOutcome
 from crucible.ports.chat.gateway import GATEWAY_HTTP
 from crucible.ports.chat.interactions import actions_from_json, approval_card_from_json
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
@@ -632,12 +632,20 @@ class HttpHub:
     async def _cancel(self, request: web.Request) -> web.Response:
         caller = await self.caller(request, None)
         self._agent(request, caller)
-        turn = self.turns.active(self.conversation_key(caller, request.match_info["conversation"]))
+        key = self.conversation_key(caller, request.match_info["conversation"])
+        turn = self.turns.active(key)
         if turn is None or turn.owner != caller.owner:
             raise Refusal(404, "not_found", "no turn is running in this conversation")
-        if self._control is None or not turn.runtime_session_id:
+        entry = self._agents.get(request.match_info["agent"])
+        sink = entry[0] if entry is not None else None
+        if isinstance(sink, StoppableSink):
+            # The flow ends the turn as stopped: the reply it had, a `stopped`
+            # notice, a note for the next turn — the same as a /stop in chat.
+            cancelled = await sink.stop(key)
+        elif self._control is not None and turn.runtime_session_id:
+            cancelled = await self._control.cancel(turn.runtime_session_id)
+        else:
             raise Refusal(409, "not_cancellable", "this turn cannot be interrupted here")
-        cancelled = await self._control.cancel(turn.runtime_session_id)
         return web.json_response({"turnId": turn.id, "cancelled": cancelled})
 
     async def _action(self, request: web.Request) -> web.Response:

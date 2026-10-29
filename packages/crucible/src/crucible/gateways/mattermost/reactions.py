@@ -74,6 +74,10 @@ class MattermostReactions:
         # the channel is a direct one still says who reads the thread.
         is_dm = await self._channel_type(channel_id) == DIRECT_CHANNEL_TYPE
         conversation_id, kind, _ = conversation_of(reaction.message_id, root_id, channel_id, is_dm=is_dm)
+        if command == self._dispatcher.stop_command:
+            # The reaction says stop: no turn is started, the one running ends.
+            await self._dispatcher.stop_turn(self._agent, conversation_id)
+            return
         quoted = None
         text = str(post.get("message") or "")
         if text:

@@ -230,7 +230,7 @@ async def test_the_panel_cannot_be_opened_by_hand_but_admits_clicks(store) -> No
         "assistant", TRACE_SCREEN, channel_id="ch1", conversation_id="dm1", kind="dm",
         user_id="u1",
     )
-    assert opened.owned and "by hand" in opened.refused
+    assert opened.owned and "by hand" in opened.answer
     assert chat.posted_cards == []
     # And it is not among the panels a caller may ask for.
     assert TRACE_SCREEN not in screens.names()

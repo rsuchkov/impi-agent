@@ -6,7 +6,18 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A person can stop the agent's turn, on every gateway.** `/stop` typed where
+  the agent is working (`STOP_COMMAND`, the engine's command on Mattermost and
+  Slack alike; empty = none), a reaction mapped to the word, a `cancel` frame
+  on the ws gateway or the http gateway's `/cancel` all end the turn the same
+  way: the model's words so far are posted, then a notice with code `stopped`,
+  and the next turn is told the previous one did not finish. The flow is the
+  one place this happens (`AgentFlow.stop`, the `StoppableSink` port); a turn
+  so ended is `TurnOutcome.STOPPED` — `stopped` in telemetry, `cancelled` as a
+  scheduled run's status. The http `/cancel` used to tell the runtime directly
+  and leave the conversation none the wiser. `ScreenOpened.refused` is now
+  `answer`: what the person who typed an engine command hears privately, a
+  refusal or what the command did.
 
 ## v0.36.0 — 2026-10-27
 

@@ -47,6 +47,7 @@ STALLED_MESSAGE = (
     "Ask again."
 )
 INTERNAL_ERROR_MESSAGE = "Sorry, something broke on my side. Please try again later."
+STOPPED_MESSAGE = "Stopped at your request. What was done so far stays."
 QUOTA_MESSAGE = (
     "The model refused this turn: the usage limit for this deployment is spent. "
     "It will answer again once the quota resets or somebody tops it up."
@@ -120,6 +121,9 @@ NOTICE_TIMEOUT = "timeout"
 NOTICE_STALLED = "stalled"
 NOTICE_MODEL_UNAVAILABLE = "model_unavailable"
 NOTICE_AGENT_ERROR = "agent_error"
+# Not a failure: a person stopped the turn. Listed with the codes a client acts
+# on because that is what it is for the client — the turn ended early, by request.
+NOTICE_STOPPED = "stopped"
 
 
 def notice_for(error: Exception) -> tuple[str, str]:

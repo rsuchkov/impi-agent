@@ -100,15 +100,16 @@ class Redrawn:
 
 @dataclass(frozen=True)
 class ScreenOpened:
-    """What became of a command a screen might own.
+    """What became of a command the engine might own.
 
-    ``refused`` is a message for the person who asked and nobody else: a screen
+    ``answer`` is a message for the person who asked and nobody else: a screen
     that will not appear here has not been drawn, so there is nothing posted to
-    carry the reason.
+    carry the reason; a command that acted without a view (stopping the turn)
+    has only this to say what it did.
     """
 
     owned: bool
-    refused: str = ""
+    answer: str = ""
 
 
 class Screen(Protocol):

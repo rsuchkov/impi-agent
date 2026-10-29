@@ -1458,3 +1458,39 @@ async def test_an_http_file_is_saved_under_the_conversation_as_the_application_k
         assert Path(seen[0].attachments[0].path).parent == store.conversation_dir("helper", "task-7")
     finally:
         await hub.stop()
+
+
+async def test_cancel_goes_through_the_flow_when_the_sink_can_stop_a_turn() -> None:
+    """A sink that stops its own turn is asked, not the runtime's control: the
+    flow then ends the turn as stopped, with the notice and the note the chat
+    gateways' /stop leaves too."""
+
+    class StoppableSink(FakeSink):
+        def __init__(self, script) -> None:
+            super().__init__(script)
+            self.stopped: list[str] = []
+
+        async def stop(self, conversation_id: str) -> bool:
+            self.stopped.append(conversation_id)
+            return True
+
+    async def running(msg, chat):
+        record = SessionRecord("helper", msg.channel_id, msg.conversation_id, "dm", "helper--portal-c1", "t", "t")
+        hub.turns.begin(record, chat)
+        await asyncio.sleep(0.3)
+        return TurnOutcome.REPLIED
+
+    control = FakeControl()
+    sink = StoppableSink(running)
+    hub = HttpHub("127.0.0.1", 8493, TokenCallers(SERVICES), directory=FakeDirectory(), max_wait_s=0.2, control=control)  # type: ignore[arg-type]
+    hub.register_agent("helper", sink, HttpChatClient(hub.turns, "helper"))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8493, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            await asyncio.sleep(0.05)
+            status, answer = await _post(s, 8493, "/v1/agents/helper/conversations/c1/cancel", {})
+            assert (status, answer) == (200, {"turnId": started["turnId"], "cancelled": True})
+            assert sink.stopped == ["portal:c1"] and control.cancelled == []  # the flow, not the runtime directly
+    finally:
+        await hub.stop()

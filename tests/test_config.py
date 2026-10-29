@@ -300,3 +300,13 @@ def test_an_mcp_servers_secret_is_read_from_the_environment_then_the_env_file(tm
     monkeypatch.setenv("MCP_GITHUB_TOKEN", "from-env")
     values = _settings(dotenv_path=str(env_file)).mcp_values()
     assert values["MCP_GITHUB_TOKEN"] == "from-env" and values["MCP_OTHER"] == "file-only"
+
+
+def test_the_stop_command_is_a_word_or_nothing() -> None:
+    from crucible.config import Settings
+
+    assert Settings(_env_file=None).stop_command == "stop"  # pyright: ignore[reportCallIssue]
+    assert Settings(_env_file=None, stop_command="/halt").stop_command == "halt"  # pyright: ignore[reportCallIssue]
+    assert Settings(_env_file=None, stop_command="").stop_command == ""  # pyright: ignore[reportCallIssue]
+    with pytest.raises(ValueError, match="STOP_COMMAND"):
+        Settings(_env_file=None, stop_command="Stop now")  # pyright: ignore[reportCallIssue]

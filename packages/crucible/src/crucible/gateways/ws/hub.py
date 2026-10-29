@@ -31,7 +31,7 @@ from crucible.gateways.ws.events import (
 )
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.flow import MessageSink
+from crucible.ports.chat.flow import MessageSink, StoppableSink
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import OutgoingFile
 
@@ -226,8 +226,36 @@ class WsHub:
                 msg = replace(msg, attachments=stored)
             # Fire-and-forget: a long agent turn must never block the socket.
             sink.submit(msg, chat)
+        elif kind == "cancel":
+            await self._cancel(service, allow, ws, data)
         else:
             await self._error(ws, f"unsupported frame type {kind!r}")
+
+    async def _cancel(
+        self, service: str, allow: tuple[str, ...] | None, ws: web.WebSocketResponse, data: dict,
+    ) -> None:
+        """Stop the turn running in a conversation; the turn itself says so
+        there (its reply, then a ``stopped`` notice). The answer here is only
+        whether one was running."""
+        for field in ("agent", "conversation_id"):
+            value = data.get(field)
+            if not isinstance(value, str) or not value.strip():
+                await self._error(ws, f"'{field}' must be a non-empty string")
+                return
+        agent = data["agent"].strip()
+        if agent not in self._agents or not self._allowed(agent, allow):
+            await self._error(ws, f"unknown or not allowed agent {agent!r}")
+            return
+        sink, _chat = self._agents[agent]
+        if not isinstance(sink, StoppableSink):
+            await self._error(ws, f"agent {agent!r} cannot be stopped here")
+            return
+        # The conversation as the flow keys it: the same mapping a message takes.
+        key = self._keying.key(agent, frame_to_incoming(service, {**data, "text": ""}))
+        cancelled = await sink.stop(key)
+        await ws.send_json({
+            "type": "cancelled", "agent": agent, "conversation_id": data["conversation_id"], "cancelled": cancelled,
+        })
 
     def _agents_payload(self, allow: tuple[str, ...] | None) -> list[dict]:
         infos = {a.name: a for a in self._directory.list_agents()} if self._directory else {}

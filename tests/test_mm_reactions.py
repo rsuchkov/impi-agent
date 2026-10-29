@@ -228,3 +228,12 @@ def test_the_gateway_has_reactions_only_with_a_map_and_a_dispatcher() -> None:
     assert gateway(dispatcher=FakeDispatcher()).reactions is None
     assert gateway(dispatcher=FakeDispatcher(), reaction_commands=ReactionCommands()).reactions is None
     assert gateway(dispatcher=FakeDispatcher(), reaction_commands=ReactionCommands({"eyes": "summarize"})).reactions is not None
+
+
+async def test_a_reaction_mapped_to_the_stop_word_stops_the_turn_instead_of_starting_one() -> None:
+    dispatcher = FakeDispatcher()
+    dispatcher.stop_command = "stop"
+    driver = FakeDriver({"p1": _post(root_id="root1")})
+    await _reactions(dispatcher, driver, by_emoji={"octagonal_sign": "stop"}).handle_reaction(_reaction(emoji="octagonal_sign"))
+    assert dispatcher.stopped == [("assistant", "root1")]  # the thread the post is in
+    assert dispatcher.calls == []  # no command turn

@@ -29,6 +29,9 @@ class TurnOutcome(Enum):
     TIMEOUT = auto()  # the turn ran past its limit, stalled, or the engine was full; a notice said which
     ERROR = auto()  # the runtime failed; the internal-error message was posted
     DUPLICATE = auto()  # every message in the batch had already been processed
+    # A person stopped the turn (a command, a button, a cancel frame): what it
+    # had was posted, then a notice saying so. The conversation keeps its memory.
+    STOPPED = auto()
 
 
 class Flow(Protocol):
@@ -59,3 +62,15 @@ class TrackedSink(MessageSink, Protocol):
     def submit_tracked(
         self, msg: IncomingMessage, chat: ChatClient
     ) -> Awaitable[TurnOutcome]: ...
+
+
+@runtime_checkable
+class StoppableSink(MessageSink, Protocol):
+    """A sink whose turn in flight a person can stop.
+
+    ``conversation_id`` is the conversation as the sink keys it. True when a
+    turn was running there and was told to end; False when nothing was. The
+    turn then ends with what it had, says so in the conversation, and the next
+    one is told it was stopped — all the sink's doing, whoever asked."""
+
+    async def stop(self, conversation_id: str) -> bool: ...

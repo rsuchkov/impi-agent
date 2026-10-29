@@ -103,7 +103,20 @@ scope `reactions:read` and the `reaction_added` event subscription; the
 `*:history` scopes it already has for messages let the engine quote the
 message. Both need `INTEGRATIONS_ENABLED=true`, as a shortcut does.
 
-## 5. Networking (Mattermost only)
+## 5. Stopping a turn
+
+`/stop` (the word is `STOP_COMMAND`; empty = no such command) is the engine's
+own command on both platforms: it interrupts the agent's turn in the
+conversation it is typed in — the model's words so far are posted, then a
+notice with code `stopped`, and the next turn is told the previous one did not
+finish. The person hears privately whether anything was running. A reaction
+mapped to the word (`octagonal_sign=stop` in `REACTION_COMMANDS`) does the
+same. The slash command still has to exist on the platform (§2, §3) — the
+engine answers it, the platform delivers it; "nothing happens" on `/stop` is
+diagnosed like any other command (§7). The agent needs no teaching: the
+command never reaches the model.
+
+## 6. Networking (Mattermost only)
 
 The command reaches the same receiver as widget callbacks:
 
@@ -113,7 +126,7 @@ The command reaches the same receiver as widget callbacks:
 - Mattermost blocks outbound calls to internal addresses: the receiver's subnet
   must be in `AllowedUntrustedInternalConnections`.
 
-## 6. When a command does nothing
+## 7. When a command does nothing
 
 Read the engine log and match the line:
 

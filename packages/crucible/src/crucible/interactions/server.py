@@ -329,12 +329,12 @@ class InteractionsServer:
             # A screen that refused was not drawn, so the reason has nowhere to
             # be except here — an ephemeral answer to whoever typed the command,
             # which is also the only place it belongs.
-            if opened.refused:
+            if opened.answer:
                 # reply_ack, not reply_notice: this answers the command POST,
                 # where the ephemeral shape is the platform's own — a notice is
                 # what a CLICK is answered with, and the two are not the same
                 # payload.
-                return web.json_response(self._codec.reply_ack(opened.refused))
+                return web.json_response(self._codec.reply_ack(opened.answer))
             return web.json_response(self._codec.reply_none())
         result = self._dispatcher.invoke_command(
             agent,

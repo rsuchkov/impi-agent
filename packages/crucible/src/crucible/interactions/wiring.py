@@ -58,6 +58,7 @@ class InteractionWiring:
         tool_approvers: tuple[str, ...] = (),
         replica: Replica | None = None,
         clicks: ClickForwarder | None = None,
+        stop_command: str = "",
         people: PersonKey | None = None,
         telemetry: Telemetry | None = None,
     ) -> None:
@@ -102,6 +103,7 @@ class InteractionWiring:
             # Who a platform id is across gateways — the application's answer
             # (None: each platform id is a person of its own).
             people=people,
+            stop_command=stop_command,
         )
         # One service for widgets (ask) and forms (open_form). The one concrete store
         # backs all three store facets.

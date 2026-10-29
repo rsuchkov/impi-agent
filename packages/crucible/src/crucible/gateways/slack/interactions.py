@@ -230,8 +230,8 @@ class SlackInteractions:
             kind=kind, user_id=user_id,
         )
         if opened.owned:
-            if opened.refused:
-                await respond(opened.refused)
+            if opened.answer:
+                await respond(opened.answer)
             return
         text = f"/{command} {body.get('text', '')}".strip()
         result = self._dispatcher.invoke_command(

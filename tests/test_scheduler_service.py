@@ -899,3 +899,11 @@ async def test_every_task_run_is_told(store) -> None:
     await _settle()
     (ran,) = [e for e in telemetry.events if isinstance(e, TaskRan)]
     assert (ran.agent, ran.outcome) == ("assistant", RUN_OK) and ran.task and ran.duration_s >= 0
+
+
+def test_every_turn_outcome_is_recorded_as_a_run_status_and_a_stopped_turn_as_cancelled() -> None:
+    from crucible.ports.chat.flow import TurnOutcome
+    from crucible.scheduler.service import _STATUS_BY_OUTCOME
+
+    assert set(_STATUS_BY_OUTCOME) == set(TurnOutcome)
+    assert _STATUS_BY_OUTCOME[TurnOutcome.STOPPED] == RUN_CANCELLED

@@ -208,9 +208,11 @@ time that does not parse.
 
 ### `POST /v1/agents/{agent}/conversations/{conversation}/cancel`
 
-Interrupts the running turn; `200 {"turnId", "cancelled"}`. The turn ends with
-what it had (its `turn.finished` follows) and the conversation keeps its
-memory. `404` when nothing is running.
+Interrupts the running turn; `200 {"turnId", "cancelled"}`. The turn ends as
+stopped: what the model had said is posted, then a notice with code `stopped`
+(its `turn.finished` follows), the conversation keeps its memory and the next
+turn is told this one did not finish — the same ending a `/stop` in chat gives.
+`404` when nothing is running.
 
 ### `GET /v1/agents`
 

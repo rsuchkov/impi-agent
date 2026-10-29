@@ -202,7 +202,7 @@ async def test_in_a_channel_nothing_is_posted_at_all(tmp_path: Path) -> None:
             kind="channel", user_id=OPERATOR,
         )
         assert opened.owned is True
-        assert "direct message" in opened.refused
+        assert "direct message" in opened.answer
         assert chat.posted_cards == []  # the room saw nothing
     finally:
         await store.close()
@@ -223,7 +223,7 @@ async def test_in_a_direct_message_the_card_is_posted(tmp_path: Path) -> None:
             "ward", "ward", channel_id=DM, conversation_id=DM,
             kind="dm", user_id=OPERATOR,
         )
-        assert opened.owned is True and opened.refused == ""
+        assert opened.owned is True and opened.answer == ""
         assert len(chat.posted_cards) == 1
     finally:
         await store.close()

@@ -96,6 +96,8 @@ _STATUS_BY_OUTCOME = {
     TurnOutcome.TIMEOUT: RUN_TIMEOUT,
     TurnOutcome.ERROR: RUN_ERROR,
     TurnOutcome.DUPLICATE: RUN_ERROR,
+    # A person stopped the run's turn: not the engine's failure, and said already.
+    TurnOutcome.STOPPED: RUN_CANCELLED,
 }
 # In turn mode the flow posts its own message for these, so a notice would be a
 # second one about the same thing.

@@ -3,7 +3,9 @@
 from crucible.ports.agent.captions import CallCaptions, ChainedCaptions
 from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
+    NOTICE_STOPPED,
     STALLED_MESSAGE,
+    STOPPED_MESSAGE,
     TIMEOUT_MESSAGE,
     AgentBusy,
     AgentError,
@@ -58,6 +60,8 @@ __all__ = [
     "AgentUnavailable",
     "message_for",
     "notice_for",
+    "NOTICE_STOPPED",
+    "STOPPED_MESSAGE",
     "AgentEvent",
     "AgentProfile",
     "AgentResult",
