@@ -7,13 +7,20 @@ takes both events, so an app that shows nothing gets no "unhandled request" in
 its log, and hands them to a ``SlackHome`` when the application gives one.
 """
 
+from collections.abc import Awaitable, Callable
 from typing import Protocol
+
+# How the hook publishes a Home view: ``views.publish`` for the person who
+# opened it, the view as Slack takes it (``type: home``, blocks,
+# ``private_metadata`` …). The hook decides what to publish, when, and what to
+# publish instead when Slack refuses a view (``invalid_blocks``).
+PublishHome = Callable[[dict], Awaitable[None]]
 
 
 class SlackHome(Protocol):
-    async def opened(self, user_id: str, tab: str) -> list[dict] | None:
+    async def opened(self, user_id: str, tab: str, publish: PublishHome) -> None:
         """The Home ``tab`` (``home`` or ``messages``) was opened by ``user_id``:
-        the blocks to publish as the Home view, or None to publish nothing."""
+        publish a view with ``publish``, or nothing."""
         ...
 
     async def context_changed(self, user_id: str, context: dict) -> None:

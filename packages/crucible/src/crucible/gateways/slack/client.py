@@ -5,6 +5,7 @@ verbs (post_actions/retract/open_dialog)."""
 import logging
 import re
 
+import aiohttp
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
@@ -121,6 +122,9 @@ class SlackChatClient:
             )
         except SlackApiError as exc:
             logger.debug("agent session status not set for %s: %s", ref.thread_root_id, _err(exc))
+        except (aiohttp.ClientError, TimeoutError, OSError) as exc:
+            # A network that did not answer is no reason the turn should not run.
+            logger.debug("agent session status not set for %s: %s", ref.thread_root_id, exc)
 
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:
         try:

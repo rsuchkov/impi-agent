@@ -6,7 +6,35 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a Slack agent session's indicator could fail the turn.** The flow
+  marked the conversation busy before the runtime ran and waited on the
+  platform's answer; a network error or a timeout from `agents.sessions.setStatus`
+  ended the turn before it began, and the same call on the way out could
+  stand in for the turn's own failure. The view is told and never relied on:
+  a failure is a warning, and the Slack client swallows transport errors as it
+  did API ones.
+- **Fixed: a stop that named the thread or the channel did not find the turn.**
+  Slack's Stop names the session's `thread_ts`, a `/stop` typed in a direct
+  message names the channel; an application that keyed a thread's messages
+  into another conversation left the flow knowing the turn by one name only.
+  The flow now indexes a turn by every name its anchor carried — the
+  conversation's, the thread's, the channel's — on that gateway.
+- **The Slack Home hook publishes its own view.** `SlackHome.opened(user_id,
+  tab, publish)` is handed `views.publish` for the person who opened the Home
+  (`PublishHome`) and publishes what it wants: `private_metadata`, and another
+  view when Slack answers `invalid_blocks`. **Breaks:** `opened` took two
+  arguments and returned blocks; it now takes `publish` and returns nothing.
+- **`tools_by_gateway` can take a few tools away instead of listing the rest.**
+  `runtime.tools_by_gateway.<gateway>: {except: [names]}` is every entry of
+  `runtime.tools` but those, unrolled as the profile loads, so a tool added to
+  the agent's list later reaches that gateway without a second edit; a name
+  `tools` does not list as written is a profile error.
+- **An application's entitlement source is told the gateway's ceiling.**
+  `EntitlementSource.entitlement(agent, msg, *, tools=None)`: `GatewayEntitlements`
+  calls its inner source with the tools the gateway leaves, so instructions
+  that speak of tools speak of the ones the conversation will have, and an
+  application no longer repeats the gateway's rule. **Breaks:** a source of an
+  application's own takes the keyword `tools` (default `None`).
 
 ## v0.38.0 — 2026-10-29
 

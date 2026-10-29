@@ -47,7 +47,8 @@ runtime:
   # thinking: medium         # optional; off | minimal | low | medium | high | xhigh | max — lower it when answers get truncated
   tools: [read, bash]        # the ONE allowlist (see "Tool gating")
   # tools_by_gateway:        # optional; an agent on several gateways allowed less on one:
-  #   slack: [read]          #   a gateway named here gets only these of `tools`; one not named, all
+  #   slack: [read]          #   a gateway named here gets only these of `tools`, or
+  #   http: {except: [bash]} #   all but these; one not named gets them all
   skills: [<name>, registry:<name>]   # private, and/or from the shared library
   # confinement: agent        # optional; conversation (default) | agent | off
   # confinement_write: [/srv/reports]   # optional; paths beyond its own
@@ -72,9 +73,11 @@ trusted server's hint): not a gate of the engine's — it confirms by
 `requires_confirmation` — but the word an application's own auto-approval may
 rely on; a tool that says nothing is never let through without a person.
 `runtime.tools_by_gateway` narrows the list per gateway (`mattermost`, `slack`,
-`ws`, `http`): a subset of `tools` for the gateway named, the whole list for one
-not named; a name the agent's list lacks, or a gateway that is not one of the
-four, fails the profile. A tool refused with `not available in this
+`ws`, `http`): a subset of `tools` for the gateway named — or `{except: [names]}`,
+everything but those, the form to take a few tools away from one gateway without
+repeating the list — the whole list for one not named; a name the agent's list
+lacks (in a list or an `except`), or a gateway that is not one of the four,
+fails the profile. A tool refused with `not available in this
 conversation` on one gateway and fine on another is this map.
 **Skills need `read` + `bash`** to function (the model reads `SKILL.md` and runs
 its scripts).

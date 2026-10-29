@@ -1478,7 +1478,7 @@ class FakeEntitlements:
         self.entitlement_ = entitlement
         self.asked: list[tuple[str, str]] = []
 
-    async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement:
+    async def entitlement(self, agent: str, msg: IncomingMessage, *, tools=None) -> Entitlement:
         self.asked.append((agent, msg.user_id))
         return self.entitlement_
 
@@ -1581,7 +1581,7 @@ async def test_a_batch_from_several_people_gets_what_they_are_jointly_entitled_t
         def __init__(self) -> None:
             self.asked: list[str] = []
 
-        async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement:
+        async def entitlement(self, agent: str, msg: IncomingMessage, *, tools=None) -> Entitlement:
             self.asked.append(msg.user_id)
             return {
                 "u1": Entitlement(tools=("read", "jira_comment", "jira_transition"), instructions="Admin."),
@@ -2027,6 +2027,17 @@ async def test_a_platform_with_a_view_of_the_conversation_sees_the_agent_busy_fo
     again = dataclasses.replace(_dm("again"), ref=dataclasses.replace(_dm().ref, message_id="p2"))  # not a redelivery
     assert await failing.handle(again, chat) is TurnOutcome.ERROR
     assert chat.busy == [True, False]
+    # A view that cannot be reached costs the turn nothing: an indicator only.
+
+    class BrokenView(ViewingChat):
+        async def set_busy(self, ref, busy: bool) -> None:
+            raise OSError("network down")
+
+    fine, _ = _flow(tmp_path, FakeRuntime())
+    chat = BrokenView()
+    third = dataclasses.replace(_dm("third"), ref=dataclasses.replace(_dm().ref, message_id="p3"))
+    assert await fine.handle(third, chat) is TurnOutcome.REPLIED
+    assert chat.replies == [(third.ref, "agent answer")]
     await store.close()
 
 
@@ -2149,4 +2160,58 @@ async def test_a_call_on_a_persons_file_is_captioned_by_the_name_they_gave_it(tm
     seen.clear()
     await plain.handle(dataclasses.replace(_dm("again"), ref=dataclasses.replace(_dm().ref, message_id="p2")), FakeChat())
     assert [e.caption for e in seen if isinstance(e, ToolStarted)] == [f"Reading {Path(sent.path).name}"]
+    await store.close()
+
+
+async def test_a_stop_finds_the_turn_by_the_thread_or_the_channel_the_anchor_carried(tmp_path: Path) -> None:
+    """An application may key a thread's messages into its parent's
+    conversation; Slack's Stop names the thread. Every name the anchor carries
+    — the conversation, the thread, the channel — finds the turn, and all are
+    let go when it ends."""
+    import asyncio
+
+    class _Rekeying:
+        def key(self, agent: str, msg: IncomingMessage) -> str:
+            return f"dm:{msg.channel_id}"  # the thread's messages live in the DM's conversation
+
+    class _Interruptible(FakeRuntime):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.ended = asyncio.Event()
+
+        async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
+            self.started.set()
+            await self.ended.wait()
+            return PiResult(text="cut")
+
+        async def cancel(self, session_id: str) -> bool:
+            self.ended.set()
+            return True
+
+        def has_memory(self, agent: str, session_id: str) -> bool:
+            return True
+
+        def memory_updated_at(self, agent: str, session_id: str):
+            return None
+
+        async def reset(self, agent: str, session_id: str) -> None:
+            pass
+
+        def stats(self):
+            raise AssertionError("not asked here")
+
+    runtime = _Interruptible()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime, keying=_Rekeying())
+    msg = IncomingMessage(
+        ref=ConversationRef(channel_id="D1", conversation_id="1700.1", message_id="1700.2", thread_root_id="1700.1"),
+        text="go", user_id="u1", username="roman", kind=KIND_THREAD, gateway="slack",
+    )
+    turn = asyncio.ensure_future(flow.handle(msg, FakeChat()))
+    await asyncio.wait_for(runtime.started.wait(), 1.0)
+    assert await flow.stop("nowhere", gateway="slack") is False
+    assert await flow.stop("D1", gateway="slack") is True  # the channel, as a /stop typed in the DM names it
+    assert await turn is TurnOutcome.STOPPED
+    assert flow._active_at == {}  # every name let go — the conversation's, the thread's, the channel's
     await store.close()

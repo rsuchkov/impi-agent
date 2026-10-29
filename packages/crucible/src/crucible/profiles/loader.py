@@ -324,9 +324,12 @@ def _tools_by_gateway(
     manifest: Path, raw: object, tools: tuple[str, ...],
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     """``runtime.tools_by_gateway``: a mapping of gateway kind to the tools a
-    conversation there may use — each a name from ``runtime.tools`` (or one of
-    an MCP server's tools whose ``mcp__<server>__*`` is there), so the agent's
-    list stays the ceiling and a gateway's list can only narrow it."""
+    conversation there may use — a list of names from ``runtime.tools`` (or of
+    an MCP server's tools whose ``mcp__<server>__*`` is there), or
+    ``{except: [names]}`` for every entry of ``runtime.tools`` but those, each
+    an entry of the list as written. Either way the agent's list stays the
+    ceiling and a gateway's can only narrow it; the ``except`` form is unrolled
+    here, so a tool added to ``runtime.tools`` later reaches that gateway too."""
     if raw is None:
         return ()
     if not isinstance(raw, dict):
@@ -337,8 +340,20 @@ def _tools_by_gateway(
             raise ProfileError(
                 f"{manifest}: runtime.tools_by_gateway names {gateway!r}; a gateway is one of {', '.join(GATEWAY_KINDS)}"
             )
+        if isinstance(names, dict):
+            if set(names) != {"except"} or not isinstance(names["except"], list) or not all(isinstance(n, str) for n in names["except"]):
+                raise ProfileError(
+                    f"{manifest}: runtime.tools_by_gateway.{gateway} is a list of tool names, or {{except: [names]}}"
+                )
+            for name in names["except"]:
+                if name not in tools:
+                    raise ProfileError(
+                        f"{manifest}: runtime.tools_by_gateway.{gateway}.except names {name!r}, which runtime.tools does "
+                        "not list as written"
+                    )
+            names = [t for t in tools if t not in names["except"]]
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
-            raise ProfileError(f"{manifest}: runtime.tools_by_gateway.{gateway} must be a list of tool names")
+            raise ProfileError(f"{manifest}: runtime.tools_by_gateway.{gateway} must be a list of tool names, or {{except: [names]}}")
         for name in names:
             if name in tools:
                 continue

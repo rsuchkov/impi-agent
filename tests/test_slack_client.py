@@ -261,3 +261,7 @@ async def test_busy_marks_the_agent_session_and_a_top_level_message_is_left_alon
     assert len(web.calls) == 2
     web.raise_on["api_call"] = SlackApiError("x", {"error": "not_allowed_token_type"})
     await _sc(web).set_busy(_ref(root="100.1"), True)  # must not raise
+    import aiohttp
+
+    web.raise_on["api_call"] = aiohttp.ClientConnectionError("no route")  # type: ignore[assignment]
+    await _sc(web).set_busy(_ref(root="100.1"), True)  # a network that did not answer: nor this

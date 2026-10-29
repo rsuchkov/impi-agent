@@ -62,7 +62,7 @@ async def test_an_applications_own_slack_app_and_home_reach_the_gateway() -> Non
     from slack_bolt.async_app import AsyncApp
 
     class Home:
-        async def opened(self, user_id: str, tab: str):
+        async def opened(self, user_id: str, tab: str, publish) -> None:
             return None
 
         async def context_changed(self, user_id: str, context: dict) -> None:

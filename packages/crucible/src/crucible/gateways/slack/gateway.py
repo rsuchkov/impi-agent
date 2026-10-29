@@ -142,10 +142,11 @@ class SlackGateway:
         user_id, tab = str(event.get("user") or ""), str(event.get("tab") or "")
         if self._home is None or not user_id:
             return
+        async def publish(view: dict) -> None:
+            await client.views_publish(user_id=user_id, view=view)
+
         try:
-            blocks = await self._home.opened(user_id, tab)
-            if blocks:
-                await client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
+            await self._home.opened(user_id, tab, publish)
         except Exception:
             logger.exception("Slack Home for %s failed", user_id)
 

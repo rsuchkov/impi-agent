@@ -24,7 +24,7 @@ and joins it with an application's own source when there is one, so the
 engine's rule and the application's narrow the same profile.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 
 from crucible.ports.agent.runtime import AgentProfile
 from crucible.ports.agent.spec import AgentSpec
@@ -67,12 +67,18 @@ class GatewayEntitlements:
         self._spec_of = spec_of
         self._inner = inner
 
-    async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement:
+    async def entitlement(
+        self, agent: str, msg: IncomingMessage, *, tools: Collection[str] | None = None
+    ) -> Entitlement:
         spec = self._spec_of(agent)
         own = Entitlement(tools=_tools_on(spec, msg.gateway) if spec is not None else None)
+        if tools is not None:
+            own = shared_entitlement([own, Entitlement(tools=tools)])
         if self._inner is None:
             return own
-        theirs = await self._inner.entitlement(agent, msg)
+        # The inner source is told the ceiling the gateway sets, so instructions
+        # that speak of tools speak of the ones the conversation will have.
+        theirs = await self._inner.entitlement(agent, msg, tools=own.tools)
         joined = shared_entitlement([own, theirs])
         return Entitlement(tools=joined.tools, instructions=theirs.instructions)
 

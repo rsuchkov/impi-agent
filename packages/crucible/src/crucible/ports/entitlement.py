@@ -79,7 +79,14 @@ class EntitlementSource(Protocol):
     turn runs. The answer may differ from one turn to the next; the engine
     follows it."""
 
-    async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement: ...
+    async def entitlement(
+        self, agent: str, msg: IncomingMessage, *, tools: Collection[str] | None = None
+    ) -> Entitlement:
+        """``tools``: the ceiling another rule already set for this conversation
+        — the gateway's list, when the agent narrows one — so instructions
+        that speak of tools speak of the ones that will be there. None: no
+        ceiling but the agent's own."""
+        ...
 
 
 class ConversationProfiles(Protocol):

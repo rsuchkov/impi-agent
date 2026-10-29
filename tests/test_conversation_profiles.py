@@ -158,13 +158,23 @@ async def test_the_gateway_source_entitles_a_conversation_to_what_its_gateway_ma
     assert (await source.entitlement("other", msg("slack"))).tools is None  # not an agent of ours: imposes nothing
 
     class Inner:
-        async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement:
-            return Entitlement(tools=("read", "bash"), instructions="The person is an admin.")
+        def __init__(self) -> None:
+            self.ceilings: list = []
 
-    joined = await GatewayEntitlements(lambda _: spec, inner=Inner()).entitlement("assistant", msg("slack"))
-    assert joined == Entitlement(tools=("read",), instructions="The person is an admin.")  # both allow read; the inner's words
-    on_mm = await GatewayEntitlements(lambda _: spec, inner=Inner()).entitlement("assistant", msg("mattermost"))
-    assert on_mm.tools == ("read", "bash")  # the gateway imposes nothing there; the inner's answer stands
+        async def entitlement(self, agent: str, msg: IncomingMessage, *, tools=None) -> Entitlement:
+            self.ceilings.append(tools)
+            # An application writes its instructions for the tools that will be there.
+            allowed = [t for t in ("read", "bash") if tools is None or t in tools]
+            return Entitlement(tools=tuple(allowed), instructions=f"You may use: {', '.join(allowed)}.")
+
+    inner = Inner()
+    joined = await GatewayEntitlements(lambda _: spec, inner=inner).entitlement("assistant", msg("slack"))
+    assert inner.ceilings == [("read", "ask_user_buttons")]  # the inner was told what the gateway leaves
+    assert joined == Entitlement(tools=("read",), instructions="You may use: read.")  # and wrote for it
+    on_mm = await GatewayEntitlements(lambda _: spec, inner=inner).entitlement("assistant", msg("mattermost"))
+    assert inner.ceilings[-1] is None and on_mm.tools == ("read", "bash")  # no ceiling there; the inner's answer stands
+    with_ceiling = await GatewayEntitlements(lambda _: spec).entitlement("assistant", msg("mattermost"), tools=("read",))
+    assert with_ceiling.tools == ("read",)  # a ceiling handed in narrows the gateway's answer too
     # And the profile a Slack conversation runs with is the narrowed one.
     scoped = EntitledProfiles(wiring, narrow_pi_profile).build(
         "assistant", _agent_profile(wiring, spec), await source.entitlement("assistant", msg("slack")), "assistant--slack1",

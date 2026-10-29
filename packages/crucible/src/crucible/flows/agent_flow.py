@@ -158,6 +158,16 @@ STOPPED_NOTE = (
 )
 
 
+async def _set_busy(view: ConversationView, ref: ConversationRef, busy: bool) -> None:
+    """The platform's view of the conversation, told and never waited on to
+    succeed: an indicator that fails to light must not cost the turn, nor may
+    its failure stand in for the turn's own."""
+    try:
+        await view.set_busy(ref, busy)
+    except Exception:  # noqa: BLE001 - a view is told, never relied on
+        logger.warning("the conversation's view could not be marked %s", "busy" if busy else "free", exc_info=True)
+
+
 def _named(args: Mapping[str, Any], names: Mapping[str, str]) -> Mapping[str, Any]:
     """The arguments with every path that is a person's file replaced by the
     name they gave it — for the caption alone; the call runs on the paths."""
@@ -328,9 +338,10 @@ class AgentFlow:
         # still remembers it, and told to interrupt a turn a person stops. None
         # = trust the store, and nothing here can be stopped.
         self._control = control
-        # The turns in flight, by conversation key and by the address the
-        # anchor carried (gateway, the platform's conversation id): what
-        # ``stop`` finds, whichever name the caller knows.
+        # The turns in flight, by conversation key and by every address the
+        # anchor carried (gateway, a platform id — the conversation's, the
+        # thread's, the channel's): what ``stop`` finds, whichever name the
+        # caller knows.
         self._active: dict[str, _TurnFacts] = {}
         self._active_at: dict[tuple[str, str], _TurnFacts] = {}
         # Where the conversation is kept when the platform cannot hand it back
@@ -452,14 +463,23 @@ class AgentFlow:
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         started = time.monotonic()
         facts = _TurnFacts(record.runtime_session_id)
-        address = (anchor.gateway, anchor.conversation_id)
+        # Every name the gateway may know the conversation by — the id, the
+        # thread, the channel — so a stop that names any of them finds the
+        # turn, even where the application keyed the message elsewhere.
+        addresses = {
+            (anchor.gateway, name)
+            for name in (anchor.conversation_id, anchor.ref.thread_root_id, anchor.channel_id) if name
+        }
         self._active[key] = facts
-        self._active_at[address] = facts
+        for address in addresses:
+            self._active_at.setdefault(address, facts)
         try:
             outcome = await self._turn(fresh, anchor, record, created, chat, facts)
         finally:
             self._active.pop(key, None)
-            self._active_at.pop(address, None)
+            for address in addresses:
+                if self._active_at.get(address) is facts:
+                    del self._active_at[address]
         if self._telemetry is not None:
             self._tell_turn(fresh, anchor, key, outcome, facts, time.monotonic() - started)
         if anchor.turn is not None and anchor.turn.flags:
@@ -581,7 +601,7 @@ class AgentFlow:
         # told the agent is busy — its indicator, its Stop button — for the turn.
         view = chat if isinstance(chat, ConversationView) else None
         if view is not None:
-            await view.set_busy(anchor.ref, True)
+            await _set_busy(view, anchor.ref, True)
         # The trace posts nothing until the first tool runs, so a turn that
         # only talks leaves no extra message.
         trace = (
@@ -648,7 +668,7 @@ class AgentFlow:
             if acknowledge:
                 await chat.remove_reaction(anchor.ref, LOADING_REACTION)
             if view is not None:
-                await view.set_busy(anchor.ref, False)
+                await _set_busy(view, anchor.ref, False)
             if trace is not None:
                 # Settled before the reply is posted, so in a thread the
                 # widget sits above it — and on the timeout and error paths

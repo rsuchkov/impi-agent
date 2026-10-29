@@ -414,7 +414,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   (`crucible.conversation_profiles`) is that source over the agent's own
   `runtime.tools_by_gateway`, and takes an `inner` source to join with — the
   tools both allow, the inner's instructions — for an application with rules of
-  its own as well.
+  its own as well. The inner source is called with `tools=` the gateway's
+  ceiling (`entitlement(agent, msg, *, tools=None)`), so instructions that
+  speak of tools speak of the ones the conversation will have; a source the
+  flow calls directly gets `tools=None`.
   Pass `manifests_dir=` and `attachments=` to `purge_idle` (or call
   `prepare_runtime_storage`, which does) so a forgotten conversation's manifest
   and files go with its memory.
@@ -617,10 +620,13 @@ credential, is another user's credential.
   `crux_form` view), the prefixed shortcuts (`SLACK_COMMAND_PREFIX`), every
   slash command not taken before it, and `reaction_added`. What the Home
   shows is the application's: give the factory a `SlackHome`
-  (`crucible.gateways.slack`; `opened(user_id, tab)` returns the blocks to
-  publish, `context_changed(user_id, context)` hears what the person looks
-  at) with `slack_home=`; without one the events are acknowledged and nothing
-  is shown. A chat client that has a view of the conversation beside its
+  (`crucible.gateways.slack`) with `slack_home=` — `opened(user_id, tab,
+  publish)` is handed `views.publish` for the person who opened it
+  (`PublishHome`: a coroutine taking the view as Slack takes it, `type: home`,
+  blocks, `private_metadata` …) and publishes what it wants, when it wants,
+  and what it wants instead when Slack refuses a view (`invalid_blocks`);
+  `context_changed(user_id, context)` hears what the person looks at. Without
+  a `SlackHome` the events are acknowledged and nothing is shown. A chat client that has a view of the conversation beside its
   messages implements `ConversationView` (`ports.chat.client`,
   `set_busy(ref, busy)`): the flow marks the conversation busy for the turn
   and free after it — Slack's agent session shows its indicator and Stop

@@ -44,7 +44,8 @@ runtime:
                           # all, after long reasoning is the sign to lower it.
   tools: [read, bash]     # the single capability allowlist (see "Tool gating")
   tools_by_gateway:       # optional; a gateway named here gets only these of `tools`
-    slack: [read]         #   (a subset); one not named gets them all
+    slack: [read]         #   (a subset), or {except: [gitlab_mr]} for all but some;
+    http: {except: [bash]} #   one not named gets them all
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
   env: [MYSERVICE_*]      # optional; engine environment variables its process inherits
   confinement: agent      # optional; conversation | agent | off (default: RUNTIME_CONFINEMENT)
@@ -100,8 +101,12 @@ no tools at all**.
 An agent on several gateways may be allowed less on one of them:
 `runtime.tools_by_gateway` maps a gateway kind (`mattermost`, `slack`, `ws`,
 `http`) to the names of `tools` a conversation there may use — a subset,
-checked when the profile loads; a gateway not named gets the agent's whole
-list, `[]` gives a gateway no tool at all. A conversation on such a gateway
+checked when the profile loads — or to `{except: [names]}`, every entry of
+`tools` but those (each named as `tools` writes it, `mcp__<server>__*`
+included), which is the form to take a few tools away from one gateway: a
+tool added to `tools` later reaches that gateway without a second edit. A
+gateway not named gets the agent's whole list, `[]` gives a gateway no tool at
+all. A conversation on such a gateway
 runs with a profile narrowed to that list — the runtime's allowlist, the
 manifest the process advertises and the tool server's door all agree — and a
 tool outside it is refused there whatever the process claims. The engine does

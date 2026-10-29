@@ -404,3 +404,26 @@ def test_tools_by_gateway_narrows_the_agents_list_per_gateway_and_never_widens_i
             FsProfileStore(root, library=None).get("assistant")
     plain = FsProfileStore(tmp_path, library=None).get("assistant")
     assert plain.tools_on("ws") is None
+
+
+def test_a_gateway_may_be_allowed_everything_except_a_few_tools(tmp_path: Path) -> None:
+    """``{except: [...]}`` is unrolled against ``runtime.tools`` as the profile
+    loads: the gateway gets every entry but those, so a tool added to the
+    agent's list later is there too; an except that names nothing the list
+    has, as written, is a profile error."""
+    _write_agent(tmp_path, "assistant", (
+        "name: assistant\nrole: r\nruntime:\n  tools: [read, bash, gitlab_mr, mcp__notes__*]\n"
+        "  tools_by_gateway:\n    slack: {except: [gitlab_mr, mcp__notes__*]}\n    http: {except: []}\n"
+    ))
+    spec = FsProfileStore(tmp_path, library=None).get("assistant")
+    assert spec.tools_on("slack") == ("read", "bash")
+    assert spec.tools_on("http") == ("read", "bash", "gitlab_mr", "mcp__notes__*")  # nothing taken away, all of it listed
+    for n, (body, problem) in enumerate([
+        ("  tools_by_gateway:\n    slack: {except: [write]}\n", "does not list as written"),
+        ("  tools_by_gateway:\n    slack: {except: [mcp__notes__search]}\n", "does not list as written"),
+        ("  tools_by_gateway:\n    slack: {only: [read]}\n", "or {except: \\[names\\]}"),
+    ]):
+        root = tmp_path / f"except-{n}"
+        _write_agent(root, "assistant", f"name: assistant\nrole: r\nruntime:\n  tools: [read, bash, mcp__notes__*]\n{body}")
+        with pytest.raises(ProfileError, match=problem):
+            FsProfileStore(root, library=None).get("assistant")

@@ -275,9 +275,11 @@ async def test_the_home_and_context_events_are_taken_and_handed_to_the_applicati
             self.contexts: list[tuple[str, dict]] = []
             self.blocks: list[dict] | None = [{"type": "section", "text": {"type": "mrkdwn", "text": "hi"}}]
 
-        async def opened(self, user_id: str, tab: str):
+        async def opened(self, user_id: str, tab: str, publish) -> None:
             self.opened_by.append((user_id, tab))
-            return self.blocks
+            if self.blocks:
+                # The hook publishes itself: its own metadata, its own fallback.
+                await publish({"type": "home", "blocks": self.blocks, "private_metadata": tab})
 
         async def context_changed(self, user_id: str, context: dict) -> None:
             self.contexts.append((user_id, context))
@@ -293,7 +295,7 @@ async def test_the_home_and_context_events_are_taken_and_handed_to_the_applicati
     gw = _gateway(FakeSink(), home=home)
     await gw._on_home_opened({"user": "U2", "tab": "home"}, client)  # type: ignore[arg-type]
     assert home.opened_by == [("U2", "home")]
-    assert client.published == [{"user_id": "U2", "view": {"type": "home", "blocks": home.blocks}}]
+    assert client.published == [{"user_id": "U2", "view": {"type": "home", "blocks": home.blocks, "private_metadata": "home"}}]
     home.blocks = None
     await gw._on_home_opened({"user": "U2", "tab": "messages"}, client)  # type: ignore[arg-type]
     assert len(client.published) == 1  # nothing to show, nothing published
