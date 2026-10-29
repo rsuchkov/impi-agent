@@ -197,7 +197,11 @@ async def test_the_preview_shows_the_arguments_and_flags_a_destructive_call() ->
     assert isinstance(preview, CallPreview) and preview.title == "wipe (github)" and preview.danger is True
     assert [(r.label, r.value, r.passage) for r in preview.rows] == [("path", "/", False), ("force", "true", False)]
     read_only = ToolDefinition("get", "", {"type": "object"}, annotations={"readOnlyHint": True})
-    assert (await McpTool(server, read_only, _Calls(CallResult("x"))).describe(_ctx(), {})).danger is False  # type: ignore[union-attr]
+    # The warning follows the server's hint only where the server is trusted: an
+    # untrusted one's read-only word does not take the mark off the card.
+    assert (await McpTool(server, read_only, _Calls(CallResult("x"))).describe(_ctx(), {})).danger is True  # type: ignore[union-attr]
+    trusted = McpServer("github", url="https://x/mcp", trust="trusted")
+    assert (await McpTool(trusted, read_only, _Calls(CallResult("x"))).describe(_ctx(), {})).danger is False  # type: ignore[union-attr]
     assert (await McpTool(server, ECHO, _Calls(CallResult("x"))).describe(_ctx(), {})).danger is True  # type: ignore[union-attr]  # the server said nothing
 
 

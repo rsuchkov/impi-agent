@@ -314,7 +314,11 @@ sentence to the advertised description and the server wraps the result as
 `{"untrusted": true, "note": …, "data": …}`, so the boundary sits where the text
 is and every such tool marks it the same way. `read_channel` and
 `get_channel_members` are flagged; listings of what the operator installed
-(agents, tasks, skills) are not.
+(agents, tasks, skills) are not. A third flag travels in the manifest beside
+these two: `destructive`, the author's word on whether the tool's work can be
+undone (true unless said otherwise), which an application's own rule about
+letting a call through without a card may consult — the engine confirms by
+`requires_confirmation` alone.
 
 **Capability gating:** a tool declares `requires` (e.g. `CAP_CHAT_ADMIN`,
 `CAP_WIDGETS`, `CAP_FORMS`). At composition, each agent's capability set is

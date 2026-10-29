@@ -33,7 +33,7 @@ from crucible.connections import (
     NotConnected,
     ProviderUnavailable,
 )
-from crucible.ports.chat.types import CallPreview, PreviewRow
+from crucible.ports.chat.types import CallPreview, CannotRun, PreviewRow
 from crucible.ports.connections import TokenGrant
 from crucible.tools.base import CAP_CONNECTIONS, Tool, ToolContext, ToolError
 from crucible.tools.registry import tool
@@ -289,7 +289,7 @@ class ConnectedApiWrite(Tool):
         "additionalProperties": False,
     }
 
-    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None:
+    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | CannotRun | None:
         """The card: the address the call goes to and the account it acts as,
         as this deployment resolves them — not the model's account of it."""
         provider = str(args.get("provider") or "").strip()
@@ -306,9 +306,13 @@ class ConnectedApiWrite(Tool):
             await ctx.connections.account(provider)
             if ctx.connections is not None and provider in ctx.connections.providers else None
         )
+        if account is None:
+            # Nothing to ask about: the call cannot run as anyone. The model
+            # hears it and tells the person how to connect, as the tool would.
+            return CannotRun(f"not connected to {provider}; the user connects their account first")
         body = args.get("body")
         rows = (
-            ("Account", f"{account.username or account.name} at {provider}" if account else f"not connected to {provider}"),
+            ("Account", f"{account.username or account.name} at {provider}"),
             ("Request", f"{method} {url}"),
             ("Body", json.dumps(body, ensure_ascii=False, indent=2) if body is not None else ""),
         )

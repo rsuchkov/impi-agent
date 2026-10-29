@@ -280,7 +280,9 @@ class McpTool:
         return CallPreview(
             title=f"{self.display_name} ({self.server.name})",
             rows=tuple(rows),
-            danger=destructive(self._definition),
+            # The warning follows the tool's own word, which believes the
+            # server only when the server is trusted.
+            danger=self.destructive,
         )
 
     def caption(self, args: Mapping[str, Any]) -> str | None:

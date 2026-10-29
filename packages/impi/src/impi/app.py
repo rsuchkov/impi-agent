@@ -382,7 +382,7 @@ def _build_unit(
     posting_tools: Collection[str] = (),
     tools: ToolWiring,
     file_keeper: FileKeeper | None = None,
-    received_files: Callable[[str, str], ReceivedFiles] | None = None,
+    received_files_of: Callable[[str, str], ReceivedFiles] | None = None,
     telemetry: Telemetry | None = None,
     replica: Replica | None = None,
     replicas: Replicas | None = None,
@@ -396,7 +396,7 @@ def _build_unit(
     flow = AgentFlow(
         runtime, profile, sessions,
         agent_name=spec.name, posting_tools=posting_tools, file_keeper=file_keeper, telemetry=telemetry,
-        received_files=received_files,
+        received_files_of=received_files_of,
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
         turns=turns,
@@ -442,7 +442,7 @@ def _build_units(
     tools: ToolWiring,
     captions: CallCaptions,
     file_keeper: FileKeeper | None = None,
-    received_files: Callable[[str, str], ReceivedFiles] | None = None,
+    received_files_of: Callable[[str, str], ReceivedFiles] | None = None,
     telemetry: Telemetry | None = None,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
@@ -500,7 +500,7 @@ def _build_units(
             turns=turns,
             captions=captions,
             posting_tools=_posting_tools(tools), tools=tools,
-            file_keeper=file_keeper, received_files=received_files, telemetry=telemetry,
+            file_keeper=file_keeper, received_files_of=received_files_of, telemetry=telemetry,
             replica=replica, replicas=replicas, forwarder=forwarder,
         )
         for kind in handles:
@@ -811,7 +811,7 @@ def build_app(settings: ImpiSettings) -> App:
         specs, configs, engine_names,
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools, file_keeper=attachments,
-        received_files=attachments.received_files_of if attachments is not None else None,
+        received_files_of=attachments.received_files_of if attachments is not None else None,
         telemetry=telemetry,
         leases=sessions, instance=f"{socket.gethostname()}:{os.getpid()}",
         # Who captions a call for the person watching: the deployment's tools

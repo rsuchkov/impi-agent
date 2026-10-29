@@ -241,7 +241,7 @@ In order:
 A tool added to a profile applies on **reload**; a `403 forbidden` right after
 an edit means the change was not applied yet.
 
-Eight other 403s say what happened in the body. From the confirmation gate:
+Ten other 403s say what happened in the body. From the confirmation gate:
 
 - `declined by the user` — the tool declares `requires_confirmation`, the card
   went out, and a person answered Deny. A human can answer **Allow for…**

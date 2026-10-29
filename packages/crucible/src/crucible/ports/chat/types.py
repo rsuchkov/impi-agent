@@ -81,15 +81,23 @@ class Choice:
         return tuple(Choice(label=label, value=label) for label in labels)
 
 
+# How much an application may put on a control: a Slack button carries token,
+# form, value and this in one value of 2000 characters.
+ACTION_DATA_MAX = 256
+
+
 @dataclass(frozen=True)
 class Action:
     """An affordance on an interactive message (``kind`` ∈ ``ACTION_KINDS``).
     ``label`` is what the person sees on the control and what the message says
     they chose; ``value`` is what the agent hears as the click's text; ``data``
-    is the application's own, carried with the click and shown to nobody —
-    an id the click is about (``IncomingMessage.click.data``). ``context`` is
-    opaque per-action data the adapter round-trips (we stash the interaction
-    token there)."""
+    is the application's own, carried with the click and displayed nowhere —
+    an id the click is about (``IncomingMessage.click.data``). Not a secret:
+    on Slack it travels in the message's own blocks, which anyone in the
+    channel may read; at most ``ACTION_DATA_MAX`` characters, since a Slack
+    button carries everything in one bounded value. Buttons carry it on both
+    chat platforms, menus on Mattermost only. ``context`` is opaque per-action
+    data the adapter round-trips (we stash the interaction token there)."""
 
     id: str
     label: str
@@ -99,6 +107,10 @@ class Action:
     kind: str = ACTION_BUTTON
     options: tuple[Choice, ...] = ()  # dropdown choices when kind is ACTION_SELECT
     data: str = ""
+
+    def __post_init__(self) -> None:
+        if len(self.data) > ACTION_DATA_MAX:
+            raise ValueError(f"Action.data is {len(self.data)} characters; at most {ACTION_DATA_MAX} travel with a control")
 
 
 @dataclass(frozen=True)

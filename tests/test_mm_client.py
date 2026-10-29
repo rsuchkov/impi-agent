@@ -204,7 +204,8 @@ async def test_post_actions_renders_select_menu() -> None:
     assert act["options"] == [{"text": "A", "value": "A"}, {"text": "B", "value": "B"},
                               {"text": "C", "value": "C"}]
     # no static value: the pick returns via selected_option
-    assert act["integration"]["context"] == {"token": "t1"}
+    context = act["integration"]["context"]
+    assert context["token"] == "t1" and context["id"] and context["label"] and "data" not in context  # a menu carries its id and label, data only when set
 
 
 async def test_retract_rewrites_message_and_drops_attachments() -> None:

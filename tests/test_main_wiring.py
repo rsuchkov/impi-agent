@@ -1183,6 +1183,6 @@ def test_impis_sinks_can_stop_a_turn_and_a_gateway_map_is_honoured_with_tools_of
 def test_impi_hands_the_flow_the_conversations_received_files_for_its_captions(tmp_path: Path) -> None:
     app = build_app(_settings(tmp_path))
     try:
-        assert app.units[0].flow._received_files is not None
+        assert app.units[0].flow._received_files_of is not None
     finally:
         app.sessions.close_sync()  # type: ignore[attr-defined]

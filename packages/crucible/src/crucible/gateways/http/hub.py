@@ -691,7 +691,7 @@ class HttpHub:
         if not await self._dispatcher.resolve_pending(token, value):
             self._retire(turn, post_id, "These controls are no longer active.")
             raise Refusal(404, "not_found", "nothing is waiting for this answer any more")
-        self._retire(turn, post_id, f"You chose: {value}" if value else "Answered.")
+        self._retire(turn, post_id, f"You chose: {action.label or value}" if value else "Answered.")
         return web.json_response({"outcome": "resolved"})
 
     def _retire(self, turn: Turn, post_id: str, text: str) -> None:

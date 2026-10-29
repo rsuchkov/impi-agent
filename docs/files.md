@@ -174,4 +174,6 @@ which no confinement level (`conversation`, `agent`) hands an agent's process;
 with confinement `off` nothing is kept from a process, the known limit. A tool
 that hands a person's file on (an MCP tool whose argument the server declares
 as content, see [mcp.md](mcp.md)) asks that record, and gets the bytes only
-while the file is the one that arrived.
+while the file is the one that arrived; the flow asks it too, once per turn,
+so a call on the file is captioned by the name the person gave it
+([tool-trace.md](tool-trace.md)).

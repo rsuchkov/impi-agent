@@ -201,15 +201,15 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   which are as often a whole script as a key. Synchronous and from the
   arguments alone: it runs inside the runtime's event stream. The flow puts the
   line on `ToolStarted.caption` once (`AgentFlow(captions=…)`, a `CallCaptions`;
-  `ChainedCaptions(registry, PiBuiltinCaptions())` adds the runtime's built-ins);
-  given `received_files=` (`AttachmentStore.received_files_of`), a path among
-  the arguments that is a file the person sent reaches the caption as the name
-  they gave it, so "Reading invoice.pdf" says what they attached, not what the
-  disk calls it,
+  `ChainedCaptions(registry, PiBuiltinCaptions())` adds the runtime's built-ins),
   and every trace shows it: the chat widget's counter and rows, the http
   journal's `tool.started.caption`. The model's remark before a call travels as
   `TextProgress` and is shown the same way (`progress` in the journal); the
-  turn's answer is what the model says after its last call.
+  turn's answer is what the model says after its last call. Given
+  `received_files_of=` (`AttachmentStore.received_files_of`), a path among the
+  arguments that is a file the person sent reaches the caption as the name
+  they gave it: "Reading invoice.pdf" says what they attached, not what the
+  disk calls it.
 - **Say whether the tool's work can be undone.** `Tool.destructive`
   (`ClassVar[bool]`, true unless the author says otherwise, as MCP's
   `destructiveHint`) is the author's word on the tool: a record changed, a
@@ -222,7 +222,7 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   that only ask, read or show say `False`; an MCP tool takes its server's hint
   when the server is trusted and is destructive otherwise.
 - **Say what the call would do, not what the model said.** A confirmed tool
-  should implement `describe(ctx, args) -> CallPreview | None` (`Describing` in
+  should implement `describe(ctx, args) -> CallPreview | CannotRun | None` (`Describing` in
   `crucible.tools`; `CallPreview`/`PreviewRow` in `crucible.ports.chat.types`,
   the chat vocabulary, since a preview travels with the card): the
   server calls it before the gate, inside the paused time, with the same
@@ -600,7 +600,10 @@ credential, is another user's credential.
   synthetic message the click becomes has `click: Click(action_id, data,
   interaction_id)` (`crucible.ports.chat.types`) beside its text; a flow or a
   handler of the application's reads `msg.click.data`, the model never sees
-  it. Both chat gateways carry `data` with the control and bring it back.
+  it. Buttons carry `data` on both chat gateways, menus on Mattermost only
+  (a Slack menu has nowhere to put it); at most `ACTION_DATA_MAX` (256)
+  characters, since a Slack button carries everything in one bounded value —
+  and not a secret: on Slack it sits in the message's own blocks.
 - **A Slack app of your own.** The Slack gateway runs on a Bolt `AsyncApp`;
   by default the factory builds one from the agent's bot token. An application
   with a Home of its own, commands or views beside the engine's hands the app

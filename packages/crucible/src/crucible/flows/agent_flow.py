@@ -289,7 +289,7 @@ class AgentFlow:
         keying: ConversationKey | None = None,
         posting_tools: Collection[str] = (),
         file_keeper: FileKeeper | None = None,
-        received_files: Callable[[str, str], ReceivedFiles] | None = None,
+        received_files_of: Callable[[str, str], ReceivedFiles] | None = None,
         telemetry: Telemetry | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
@@ -314,7 +314,7 @@ class AgentFlow:
         # (agent, conversation key) -> what the conversation received, for the
         # captions: a call on a person's file is captioned with the name they
         # gave it, not the name on disk. None = captions see the paths.
-        self._received_files = received_files
+        self._received_files_of = received_files_of
         # Where a turn's telemetry goes (None = nobody listens).
         self._telemetry = telemetry
         # Where a message's TurnScope is bound for the length of its turn, so the
@@ -703,10 +703,10 @@ class AgentFlow:
     async def _file_names(self, conversation_id: str) -> dict[str, str]:
         """The name the person gave each file the conversation received, by
         the path the model sees — read once per turn, for the captions."""
-        if self._received_files is None:
-            return {}
+        if self._received_files_of is None or self._captions is None:
+            return {}  # nobody to caption for: nothing to read
         try:
-            return {r.path: r.name for r in await self._received_files(self._agent_name, conversation_id).list()}
+            return {r.path: r.name for r in await self._received_files_of(self._agent_name, conversation_id).list()}
         except Exception:  # noqa: BLE001 - a caption must never cost the turn anything
             logger.debug("received files of %s could not be read for the captions", conversation_id, exc_info=True)
             return {}

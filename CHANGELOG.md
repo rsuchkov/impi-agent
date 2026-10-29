@@ -19,7 +19,9 @@ when a release is cut, and `impi update` shows the target version's section.
   carries it (`destructive`); an MCP tool takes its trusted server's hint and is
   destructive on an untrusted one; the engine's own widgets, listings and reads
   say false. The engine still confirms by `requires_confirmation` alone, and a
-  preview's `danger` stays about one call.
+  preview's `danger` stays about one call — and on an MCP tool's card it now
+  follows the same word, so an untrusted server's `readOnlyHint` no longer
+  takes the warning mark off a card that is asked all the same.
 - **A tool can say the call is impossible before anyone is asked.** `describe`
   may answer `CannotRun(reason)` instead of a preview: the fragment to replace
   is not in the file, the account is not connected. Nobody is shown a card, no
@@ -28,17 +30,20 @@ when a release is cut, and `impi update` shows the target version's section.
   person's says so this way instead of drawing a card with the error in it.
 - **A call on a person's file is captioned by the name they gave it.** The
   flow reads the conversation's record of received files once per turn
-  (`AgentFlow(received_files=…)`, `AttachmentStore.received_files_of`) and
+  (`AgentFlow(received_files_of=…)`, `AttachmentStore.received_files_of`) and
   hands the captions the person's names in place of the paths: "Reading
   invoice.pdf", not the ASCII name on disk behind a platform id. The call
   itself runs on the paths.
 - **A click carries the application's data, and the message says the label.**
   `Action.data` is the application's own string on a control — the id of the
-  plan a button approves — carried by both chat gateways and brought back
-  with the click as `IncomingMessage.click` (`Click(action_id, data,
+  plan a button approves — carried by a button on both chat gateways (by a
+  menu on Mattermost too; a Slack menu has nowhere to put it), at most
+  `ACTION_DATA_MAX` characters, and brought back with the click as
+  `IncomingMessage.click` (`Click(action_id, data,
   interaction_id)`), beside the text the agent hears (`value`) and shown to
   nobody. After a click the message says what the person saw on the control
-  (`Selected: Approve`, the label) instead of the agent's value; Mattermost
+  (`Selected: Approve` in chat, `You chose: Approve` in the http journal —
+  the label) instead of the agent's value; Mattermost
   carries the control's id and label in its context for that. An application
   that read the interaction id out of `interact-<id>` has it on `click` now.
 - **Breaks:** `Describing.describe` may return `CannotRun` — an application

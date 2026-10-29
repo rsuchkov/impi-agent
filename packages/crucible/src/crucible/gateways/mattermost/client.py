@@ -427,7 +427,10 @@ def _attachment_actions(
                 "id": action_id,
                 "name": a.label,
                 "type": _MM_MENU,
-                "integration": {"url": callback_url, "context": {**a.context}},
+                "integration": {
+                    "url": callback_url,
+                    "context": {**a.context, "id": a.id, "label": a.label, **({"data": a.data} if a.data else {})},
+                },
             }
             # A picker's choices come from the server (people / channels); a
             # plain select carries its own.

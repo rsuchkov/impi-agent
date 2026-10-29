@@ -487,3 +487,16 @@ def test_a_button_carries_its_id_and_the_applications_data_and_says_its_label() 
     menu = {"type": "static_select", "block_id": "tok:T2", "selected_option": {"value": "b", "text": {"type": "plain_text", "text": "Option B"}}}
     assert decode_click(menu) == ("", "") and chosen_label(menu) == "Option B"
     assert chosen_label({"type": "button", "value": "{}"}) == ""
+
+
+def test_a_controls_data_is_bounded_and_refused_whole_rather_than_cut() -> None:
+    """A Slack button carries token, form, value and the application's data in
+    one value of 2000 characters: an id that does not fit is refused where the
+    Action is built, never truncated into a different id."""
+    import pytest
+
+    from crucible.ports.chat.types import ACTION_DATA_MAX
+
+    assert Action(id="a", label="A", data="x" * ACTION_DATA_MAX).data == "x" * ACTION_DATA_MAX
+    with pytest.raises(ValueError, match="at most"):
+        Action(id="a", label="A", data="x" * (ACTION_DATA_MAX + 1))

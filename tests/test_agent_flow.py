@@ -2140,7 +2140,7 @@ async def test_a_call_on_a_persons_file_is_captioned_by_the_name_they_gave_it(tm
             return "Reading " + ", ".join(Path(p).name for p in paths)
 
     flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", tracer=_Tracer(), captions=_ByName(),
-                     received_files=files.received_files_of)
+                     received_files_of=files.received_files_of)
     await flow.handle(_dm(), FakeChat())
     captions = [e.caption for e in seen if isinstance(e, ToolStarted)]
     assert captions == ["Reading Счёт на оплату.pdf", "Reading hosts", "Reading Счёт на оплату.pdf, x"]

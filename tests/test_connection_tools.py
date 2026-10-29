@@ -10,7 +10,7 @@ from aiohttp import web
 
 from crucible.connections import OAuthConnections
 from crucible.connections.sealing import FernetSealer, new_sealing_key
-from crucible.ports.chat.types import KIND_CHANNEL, KIND_DM
+from crucible.ports.chat.types import KIND_CHANNEL, KIND_DM, CallPreview, CannotRun
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 from crucible.tools.registry import build_registry
 from impi import connection_tools
@@ -278,7 +278,7 @@ async def test_the_card_shows_where_the_call_goes_and_as_whom(
     preview = await ConnectedApiWrite().describe(
         ctx, {"provider": "gitlab", "method": "delete", "path": "projects/1", "body": {"why": "old"}},
     )
-    assert preview is not None and preview.title == "DELETE at gitlab as you" and preview.danger
+    assert isinstance(preview, CallPreview) and preview.title == "DELETE at gitlab as you" and preview.danger
     rows = {row.label: row.value for row in preview.rows}
     assert rows == {
         "Account": "alice at gitlab",
@@ -286,7 +286,7 @@ async def test_the_card_shows_where_the_call_goes_and_as_whom(
         "Body": '{\n  "why": "old"\n}',
     }
     post = await ConnectedApiWrite().describe(ctx, {"provider": "gitlab", "method": "POST", "path": "x"})
-    assert post is not None and not post.danger and "Body" not in {r.label for r in post.rows}
+    assert isinstance(post, CallPreview) and not post.danger and "Body" not in {r.label for r in post.rows}
     # A call execute() would refuse has no account of its own to show.
     for args in (
         {"provider": "gitlab", "method": "POST", "path": "https://evil.example.com/"},
@@ -303,7 +303,7 @@ async def test_the_card_says_when_there_is_no_account_to_act_as(
     preview = await ConnectedApiWrite().describe(
         _ctx(service, _settings(tmp_path, monkeypatch)), {"provider": "gitlab", "method": "PUT", "path": "x"},
     )
-    assert preview is not None and preview.rows[0].value == "not connected to gitlab"
+    assert isinstance(preview, CannotRun) and preview.reason.startswith("not connected to gitlab")  # no card for a call that cannot run
 
 
 # --- offered in the conversation, and told where it was offered -----------------------

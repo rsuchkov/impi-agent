@@ -133,9 +133,10 @@ believes said it is harmless. Who may say so:
   flag ([creating-agents.md](creating-agents.md#tool-gating)), which an
   application's own rules may consult; an untrusted server's tools are all
   destructive by it;
-- nobody else. An **untrusted** server's annotations are shown (the warning
-  mark, `impi mcp show`) but decide nothing: the protocol tells a client never
-  to decide by hints from a server it does not trust. So every tool of an
+- nobody else. An **untrusted** server's annotations are shown by `impi mcp
+  show` but decide nothing — on a card every tool of such a server carries the
+  warning mark: the protocol tells a client never to decide by hints from a
+  server it does not trust. So every tool of an
   untrusted server asks until the operator names it in `safe:`.
 
 `impi mcp add`, `show` and `refresh` say which tools are confirmed and how
@@ -194,9 +195,10 @@ level hands an agent's process), checked against `contentMediaType` when the
 schema names one, and sent as base64. The type check reads the bytes where
 the engine can tell a type by them (PNG, JPEG, GIF, WebP, PDF); for any other
 type the one the platform claimed for the file stands in. A path that is not a
-file the person attached in this conversation, a file that is gone or was
-changed since it arrived, or one of another type is refused in the engine's
-words, and the model asks the person to attach it again. A file attached
+file the person attached in this conversation is refused before any card is
+drawn (`cannot run: …`); a file that is gone or was changed since it arrived,
+or one of another type, is refused in the engine's words when the call comes,
+and the model asks the person to attach it again. A file attached
 before this record existed has no line in it and is refused the same way —
 attach it again.
 
