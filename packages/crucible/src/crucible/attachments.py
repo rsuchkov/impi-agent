@@ -339,6 +339,11 @@ class AttachmentStore:
         port a tool is handed."""
         return _Received(self, files_dir)
 
+    def received_files_of(self, agent: str, conversation_id: str) -> ReceivedFiles:
+        """The same, for a conversation named by agent and key — what the flow
+        asks for its captions."""
+        return _Received(self, self.conversation_dir(agent, conversation_id))
+
     def _record_path(self, files_dir: Path) -> Path:
         # Outside every agent's tree: ``dir_for`` never covers ``.received``
         # (an agent's name cannot start with a dot after ``safe_name``), so no

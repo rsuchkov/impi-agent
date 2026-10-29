@@ -20,6 +20,18 @@ when a release is cut, and `impi update` shows the target version's section.
   destructive on an untrusted one; the engine's own widgets, listings and reads
   say false. The engine still confirms by `requires_confirmation` alone, and a
   preview's `danger` stays about one call.
+- **A tool can say the call is impossible before anyone is asked.** `describe`
+  may answer `CannotRun(reason)` instead of a preview: the fragment to replace
+  is not in the file, the account is not connected. Nobody is shown a card, no
+  question of the gate's is spent, and the model hears `cannot run: <reason>`
+  (telemetry: `cannot_run`). An MCP tool handed a path that is no file of the
+  person's says so this way instead of drawing a card with the error in it.
+- **A call on a person's file is captioned by the name they gave it.** The
+  flow reads the conversation's record of received files once per turn
+  (`AgentFlow(received_files=…)`, `AttachmentStore.received_files_of`) and
+  hands the captions the person's names in place of the paths: "Reading
+  invoice.pdf", not the ASCII name on disk behind a platform id. The call
+  itself runs on the paths.
 
 ## v0.37.0 — 2026-10-29
 

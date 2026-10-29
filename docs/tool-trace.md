@@ -14,7 +14,8 @@ it beside the reply:
 
 After the count comes the latest word on what the turn is doing: the
 **caption** of the call that just began ("Reading PROJ-123"), written by the
-tool itself, or the model's last **remark on the way** — the line it wrote
+tool itself — a file the person sent is named as they named it, whatever the
+disk calls it — or the model's last **remark on the way** — the line it wrote
 before going on to call tools ("Found the workflow, now listing transitions").
 A remark is shown while the turn runs and not kept — the record is the calls;
 the http journal carries it as a `progress` event. The reply is what the model

@@ -2100,3 +2100,53 @@ async def test_a_stop_finds_the_turn_by_the_address_its_gateway_knows_and_only_a
     assert await turn is TurnOutcome.REPLIED and chat2.replies == [(again.ref, "done anyway")]
     assert (await store.list())[0].cut_short == ""
     await store.close()
+
+
+async def test_a_call_on_a_persons_file_is_captioned_by_the_name_they_gave_it(tmp_path: Path) -> None:
+    """The caption is for the person: a path among the arguments that is a
+    file they sent is shown by its own name, not the name on disk; a path that
+    is nobody's file stays a path; the call itself runs on the paths."""
+    from crucible.attachments import AttachmentStore, IncomingFile
+
+    files = AttachmentStore(tmp_path / "files", max_bytes=1024)
+    (sent,) = await files.save_many("assistant", "dm1", [IncomingFile("Счёт на оплату.pdf", b"%PDF", "application/pdf", key="F1")])
+    assert Path(sent.path).name != "Счёт на оплату.pdf"  # the disk name is ASCII, prefixed
+    events = (
+        ToolStarted(call_id="c1", tool="read", args={"path": sent.path}),
+        ToolFinished(call_id="c1", tool="read"),
+        ToolStarted(call_id="c2", tool="read", args={"path": "/etc/hosts"}),
+        ToolFinished(call_id="c2", tool="read"),
+        ToolStarted(call_id="c3", tool="send", args={"paths": [sent.path, "/x"]}),
+        ToolFinished(call_id="c3", tool="send"),
+    )
+    runtime = _StreamingRuntime(events=events)
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    seen: list[object] = []
+
+    class _Trace:
+        def on_event(self, event):
+            seen.append(event)
+
+        async def end(self, *, interrupted=False):
+            return None
+
+    class _Tracer:
+        def begin(self, record, chat, *, anchor=None):
+            return _Trace()
+
+    class _ByName:
+        def caption(self, tool: str, args) -> str:
+            paths = args.get("paths") or [args.get("path")]
+            return "Reading " + ", ".join(Path(p).name for p in paths)
+
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", tracer=_Tracer(), captions=_ByName(),
+                     received_files=files.received_files_of)
+    await flow.handle(_dm(), FakeChat())
+    captions = [e.caption for e in seen if isinstance(e, ToolStarted)]
+    assert captions == ["Reading Счёт на оплату.pdf", "Reading hosts", "Reading Счёт на оплату.pdf, x"]
+    # Without the lookup the caption sees the disk name, as before.
+    plain = AgentFlow(_StreamingRuntime(events=events[:2]), PROFILE, store, agent_name="assistant", tracer=_Tracer(), captions=_ByName())
+    seen.clear()
+    await plain.handle(dataclasses.replace(_dm("again"), ref=dataclasses.replace(_dm().ref, message_id="p2")), FakeChat())
+    assert [e.caption for e in seen if isinstance(e, ToolStarted)] == [f"Reading {Path(sent.path).name}"]
+    await store.close()

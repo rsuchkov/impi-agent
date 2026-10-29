@@ -201,7 +201,11 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   which are as often a whole script as a key. Synchronous and from the
   arguments alone: it runs inside the runtime's event stream. The flow puts the
   line on `ToolStarted.caption` once (`AgentFlow(captions=…)`, a `CallCaptions`;
-  `ChainedCaptions(registry, PiBuiltinCaptions())` adds the runtime's built-ins),
+  `ChainedCaptions(registry, PiBuiltinCaptions())` adds the runtime's built-ins);
+  given `received_files=` (`AttachmentStore.received_files_of`), a path among
+  the arguments that is a file the person sent reaches the caption as the name
+  they gave it, so "Reading invoice.pdf" says what they attached, not what the
+  disk calls it,
   and every trace shows it: the chat widget's counter and rows, the http
   journal's `tool.started.caption`. The model's remark before a call travels as
   `TextProgress` and is shown the same way (`progress` in the journal); the
@@ -227,7 +231,11 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   verbatim piece — a script, a diff — goes in `block` under `block_label`, with
   `block_language` (`groovy`, `diff`, `json`) for a renderer that highlights:
   Mattermost puts it on the fence, the http journal carries it as
-  `block.language`. Read
+  `block.language`. When the preview finds the call impossible as asked — the
+  fragment to replace is not in the file, the account is not connected —
+  return `CannotRun(reason)` instead: nobody is shown a card, no question of
+  the gate's is spent, and the model hears `cannot run: <reason>` (telemetry
+  says `cannot_run`). Read
   the current state from the system there; the arguments are the model's
   account, and the model reads text other people wrote. `danger=True` puts a
   warning on the card; `block_label`/`block` carry a verbatim piece the person

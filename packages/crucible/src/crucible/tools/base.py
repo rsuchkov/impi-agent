@@ -18,7 +18,7 @@ from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
-from crucible.ports.chat.types import CallPreview
+from crucible.ports.chat.types import CallPreview, CannotRun
 from crucible.ports.connections import ConnectionAccess
 from crucible.ports.tasks import TaskService
 from crucible.ports.turn import TurnScope
@@ -258,9 +258,12 @@ class Describing(Protocol):
     files that would land — rather than the model's arguments. A failure here
     is logged and the card falls back to the arguments; a preview must never
     stand between a person and the decision. Returning None means the same.
+    ``CannotRun(reason)`` is the one answer that stops the question: the tool
+    found the call impossible as asked, nobody is shown a card, and the model
+    hears the reason.
     """
 
-    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None: ...
+    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | CannotRun | None: ...
 
 
 @runtime_checkable

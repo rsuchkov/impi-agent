@@ -12,6 +12,7 @@ from crucible.mcp import (
     split_tool_name,
 )
 from crucible.mcp.protocol import CallResult, McpError
+from crucible.ports.chat.types import CallPreview, CannotRun
 from crucible.ports.connections import (
     AccessToken,
     ProviderAccount,
@@ -193,7 +194,7 @@ async def test_a_call_that_left_and_got_no_answer_is_told_as_such() -> None:
 async def test_the_preview_shows_the_arguments_and_flags_a_destructive_call() -> None:
     server = McpServer("github", url="https://x/mcp")
     preview = await McpTool(server, WIPE, _Calls(CallResult("x"))).describe(_ctx(), {"path": "/", "force": True})
-    assert preview is not None and preview.title == "wipe (github)" and preview.danger is True
+    assert isinstance(preview, CallPreview) and preview.title == "wipe (github)" and preview.danger is True
     assert [(r.label, r.value, r.passage) for r in preview.rows] == [("path", "/", False), ("force", "true", False)]
     read_only = ToolDefinition("get", "", {"type": "object"}, annotations={"readOnlyHint": True})
     assert (await McpTool(server, read_only, _Calls(CallResult("x"))).describe(_ctx(), {})).danger is False  # type: ignore[union-attr]
@@ -209,7 +210,7 @@ async def test_a_long_or_multi_line_argument_is_shown_whole_as_a_passage() -> No
     preview = await McpTool(server, ECHO, _Calls(CallResult("x"))).describe(
         _ctx(), {"path": "/tmp/run.sh", "script": script, "note": long, "tags": ["a", "b"]}
     )
-    assert preview is not None
+    assert isinstance(preview, CallPreview)
     rows = {r.label: r for r in preview.rows}
     assert (rows["path"].value, rows["path"].passage) == ("/tmp/run.sh", False)
     assert (rows["script"].value, rows["script"].passage) == (script, True)  # whole, with its lines
@@ -350,13 +351,13 @@ async def test_the_card_says_which_file_leaves_to_whom_and_its_digest() -> None:
     tool = McpTool(server, RECOGNISE, _Calls(CallResult("x")))
     received = _Received({"/files/assistant/c1/F1-invoice.pdf": b"%PDF-1.4 " + b"x" * 2048})
     preview = await tool.describe(_ctx(received_files=received), {"document": "/files/assistant/c1/F1-invoice.pdf", "filename": "invoice.pdf"})
-    assert preview is not None
+    assert isinstance(preview, CallPreview)
     rows = {r.label: r.value for r in preview.rows}
     assert rows["document (file to invoices)"] == f"name-of-0 — application/pdf, 2 KB, sha256 {received.records[0].sha256[:12]}"
     assert rows["filename"] == "invoice.pdf"
-    # A path that is not a received file: the card says so instead of showing a file.
+    # A path that is not a received file: nothing to ask about — no card, the model hears why.
     stray = await tool.describe(_ctx(received_files=received), {"document": "/files/assistant/c1/other.pdf"})
-    assert stray is not None and stray.rows[0].label == "document (file)" and "not a file the person attached" in stray.rows[0].value
+    assert isinstance(stray, CannotRun) and "not a file the person attached" in stray.reason
 
 
 async def test_every_way_a_call_is_turned_down_is_told_by_its_own_word() -> None:

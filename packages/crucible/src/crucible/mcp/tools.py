@@ -33,7 +33,7 @@ from crucible.ports.attachments import (
     ReceivedFileChanged,
     ReceivedFileGone,
 )
-from crucible.ports.chat.types import CallPreview, PreviewRow
+from crucible.ports.chat.types import CallPreview, CannotRun, PreviewRow
 from crucible.ports.connections import (
     ConnectionsError,
     NotConnected,
@@ -260,18 +260,23 @@ class McpTool:
             headers[key] = f"Bearer {grant.token.reveal()}"
         return headers, tuple(grants)
 
-    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | None:
+    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | CannotRun | None:
         # A short argument is a fact on one line; a long or multi-line one — a
         # script, a comment's body — is a passage the person reads whole: a
         # card that cut it would ask them to approve what they cannot see. A
         # file argument says which of the person's files leaves, to whom, and
         # its digest — the bytes sent are the ones the record describes.
         rows: list[PreviewRow] = []
-        for key, value in args.items():
-            if key in self.file_arguments:
-                rows.append(await self._file_row(ctx, key, _text(value)))
-            else:
-                rows.append(_argument_row(key, _text(value)))
+        try:
+            for key, value in args.items():
+                if key in self.file_arguments:
+                    rows.append(await self._file_row(ctx, key, _text(value)))
+                else:
+                    rows.append(_argument_row(key, _text(value)))
+        except _Declined as exc:
+            # A file that is not one the person attached: there is nothing to
+            # ask about, and the person is not shown a card to approve it.
+            return CannotRun(str(exc))
         return CallPreview(
             title=f"{self.display_name} ({self.server.name})",
             rows=tuple(rows),
@@ -331,10 +336,7 @@ class McpTool:
         )
 
     async def _file_row(self, ctx: ToolContext, key: str, path: str) -> PreviewRow:
-        try:
-            received = await self._record_of(ctx, path)
-        except ToolError as exc:
-            return PreviewRow(label=f"{key} (file)", value=one_line(str(exc), limit=_ARG_LIMIT))
+        received = await self._record_of(ctx, path)  # raises _Declined for a path that is no file of the person's
         return PreviewRow(
             label=f"{key} (file to {self.server.name})",
             value=f"{received.name} — {received.mime or 'unknown type'}, {format_size(received.size)}, sha256 {received.sha256[:12]}",

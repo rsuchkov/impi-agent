@@ -14,7 +14,7 @@ from collections.abc import Callable, Collection, Mapping
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from crucible.containment import one_line, quoted, speaker
 from crucible.content_types import format_size, sniff_image
@@ -37,7 +37,7 @@ from crucible.ports.agent import (
     notice_for,
 )
 from crucible.ports.agent.events import ToolFinished, ToolStarted
-from crucible.ports.attachments import FileKeeper
+from crucible.ports.attachments import FileKeeper, ReceivedFiles
 from crucible.ports.chat.client import ChatClient, ConversationView
 from crucible.ports.chat.context import ContextSource, HistorySource
 from crucible.ports.chat.flow import TurnOutcome
@@ -158,6 +158,19 @@ STOPPED_NOTE = (
 )
 
 
+def _named(args: Mapping[str, Any], names: Mapping[str, str]) -> Mapping[str, Any]:
+    """The arguments with every path that is a person's file replaced by the
+    name they gave it — for the caption alone; the call runs on the paths."""
+    if not names:
+        return args
+    return {
+        key: names.get(value, value) if isinstance(value, str)
+        else [names.get(v, v) if isinstance(v, str) else v for v in value] if isinstance(value, list)
+        else value
+        for key, value in args.items()
+    }
+
+
 async def _adopt_all(keeper: FileKeeper, agent: str, key: str, msg: IncomingMessage) -> IncomingMessage:
     if not msg.attachments:
         return msg
@@ -276,6 +289,7 @@ class AgentFlow:
         keying: ConversationKey | None = None,
         posting_tools: Collection[str] = (),
         file_keeper: FileKeeper | None = None,
+        received_files: Callable[[str, str], ReceivedFiles] | None = None,
         telemetry: Telemetry | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
@@ -297,6 +311,10 @@ class AgentFlow:
         # Where the conversation's files are kept: a file a gateway saved under
         # the key it could compute is taken into the conversation as keyed here.
         self._file_keeper = file_keeper
+        # (agent, conversation key) -> what the conversation received, for the
+        # captions: a call on a person's file is captioned with the name they
+        # gave it, not the name on disk. None = captions see the paths.
+        self._received_files = received_files
         # Where a turn's telemetry goes (None = nobody listens).
         self._telemetry = telemetry
         # Where a message's TurnScope is bound for the length of its turn, so the
@@ -579,11 +597,12 @@ class AgentFlow:
         )
         interrupted = True  # until the runtime hands back a result
         log = _TurnLog()
+        names = await self._file_names(record.conversation_id)
         try:
             async with bound:
                 result = await self._runtime.run_stateful(
                     profile, record.runtime_session_id, prompt, images=images,
-                    on_event=self._observer(trace, log),
+                    on_event=self._observer(trace, log, names),
                 )
             interrupted = False
             facts.result = result
@@ -681,17 +700,30 @@ class AgentFlow:
 
     # -- internals ----------------------------------------------------------
 
-    def _observer(self, trace: ActiveTrace | None, log: _TurnLog) -> EventCallback:
+    async def _file_names(self, conversation_id: str) -> dict[str, str]:
+        """The name the person gave each file the conversation received, by
+        the path the model sees — read once per turn, for the captions."""
+        if self._received_files is None:
+            return {}
+        try:
+            return {r.path: r.name for r in await self._received_files(self._agent_name, conversation_id).list()}
+        except Exception:  # noqa: BLE001 - a caption must never cost the turn anything
+            logger.debug("received files of %s could not be read for the captions", conversation_id, exc_info=True)
+            return {}
+
+    def _observer(self, trace: ActiveTrace | None, log: _TurnLog, names: Mapping[str, str]) -> EventCallback:
         """The runtime's events, captioned on their way to the trace and noted
         in the turn's own log. A tool call that the runtime reported without a
         caption gets the one the deployment knows for it, so the chat widget
         and a journal say the same thing without each asking; the log is what
-        the flow tells the next turn when this one is cut short."""
+        the flow tells the next turn when this one is cut short. A path among
+        the arguments that is a file the person sent is captioned by the name
+        they gave it (``names``): the caption is for them."""
         captions = self._captions
 
         def on_event(event: AgentEvent) -> None:
             if captions is not None and isinstance(event, ToolStarted) and not event.caption:
-                event = replace(event, caption=captions.caption(event.tool, event.args))
+                event = replace(event, caption=captions.caption(event.tool, _named(event.args, names)))
             log.record(event)
             if trace is not None:
                 trace.on_event(event)

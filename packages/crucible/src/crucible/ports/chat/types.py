@@ -158,6 +158,17 @@ class CallPreview:
     block_language: str = ""
 
 
+@dataclass(frozen=True)
+class CannotRun:
+    """What a tool says instead of a preview when the call cannot be done as
+    asked — the fragment to replace is not in the file, the account is not
+    connected, the record does not exist: nobody is asked, and the model hears
+    the reason. Not a failure of the preview (that falls back to the arguments
+    and still asks) but the tool's word that there is nothing to ask about."""
+
+    reason: str
+
+
 # How a closed card was decided, for a program that draws its own line rather
 # than show the headline: allowed for this call, allowed for a window
 # (``grant_s`` long), refused, nobody answered in time, or the caller withdrew

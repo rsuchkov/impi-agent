@@ -50,8 +50,8 @@ class ToolCalled:
     user_id: str  # whose turn it was ("" when unknown)
     gateway: str  # the gateway the conversation is on ("" when unknown)
     outcome: str  # ok, error, crashed, unauthorized, unknown_tool, not_allowed, no_session,
-    # not_in_conversation, not_through_gateway, unconfirmable, not_asked, denied, unanswered,
-    # no_approver, abandoned
+    # not_in_conversation, not_through_gateway, unconfirmable, not_asked, cannot_run, denied,
+    # unanswered, no_approver, abandoned
     duration_s: float
     confirmed: bool  # the tool is one a person confirms
 

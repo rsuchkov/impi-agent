@@ -1765,3 +1765,67 @@ async def test_a_call_is_served_within_the_gateway_the_conversation_is_in() -> N
                 assert resp.status == 200 and (await resp.json())["result"] == {"admin": None}
     finally:
         await server.stop()
+
+
+async def test_a_tool_that_finds_the_call_impossible_stops_the_question_before_the_card() -> None:
+    """``describe`` answering ``CannotRun`` means nobody is shown a card: the
+    gate is not asked, the model hears the reason as a refusal, and the
+    telemetry says ``cannot_run``. A preview, or None, asks as before."""
+    from typing import ClassVar
+
+    from crucible.ports.chat.types import CallPreview, CannotRun
+    from crucible.ports.telemetry import ToolCalled
+    from crucible.tools.registry import ToolRegistry
+    from crucible.tools.server import CANNOT_RUN_ERROR
+
+    class _Edit(Tool):
+        name: ClassVar[str] = "edit_doc"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {"type": "object"}
+        requires_confirmation: ClassVar[bool] = True
+        ran = 0
+
+        async def describe(self, ctx, args):
+            if args.get("find") == "missing":
+                return CannotRun("the fragment to replace is not in the document")
+            return CallPreview(title="Edit the document")
+
+        async def execute(self, ctx, args):
+            _Edit.ran += 1
+            return "edited"
+
+    class _Gate:
+        def __init__(self) -> None:
+            self.asked: list[str] = []
+
+        async def confirm(self, agent, tool, args, *, runtime_session_id, preview=None, display_name=""):
+            from crucible.approvals.ports import ConfirmOutcome
+
+            self.asked.append(tool)
+            return ConfirmOutcome.ALLOWED
+
+    class _Telemetry:
+        def __init__(self) -> None:
+            self.events: list = []
+
+        def record(self, event) -> None:
+            self.events.append(event)
+
+    gate, telemetry = _Gate(), _Telemetry()
+    server = ToolServer(
+        ToolRegistry((_Edit(),)), directory=FakeDirectory(AGENTS), admins={}, tokens={"tok": "assistant"},  # type: ignore[arg-type]
+        allowlists={"assistant": frozenset({"edit_doc"})}, tool_gate=gate, telemetry=telemetry, port=8499,
+    )
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post("http://127.0.0.1:8499/tool/edit_doc", json={"find": "missing"}, headers={"X-Tool-Token": "tok"}) as resp:
+                assert resp.status == 403
+                assert (await resp.json()) == {"error": CANNOT_RUN_ERROR.format(reason="the fragment to replace is not in the document")}
+            assert gate.asked == [] and _Edit.ran == 0  # no card, nothing ran
+            async with s.post("http://127.0.0.1:8499/tool/edit_doc", json={"find": "present"}, headers={"X-Tool-Token": "tok"}) as resp:
+                assert resp.status == 200
+            assert gate.asked == ["edit_doc"] and _Edit.ran == 1
+        assert [e.outcome for e in telemetry.events if isinstance(e, ToolCalled)] == ["cannot_run", "ok"]
+    finally:
+        await server.stop()

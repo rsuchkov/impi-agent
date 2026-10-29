@@ -30,7 +30,7 @@ from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
-from crucible.ports.chat.types import CallPreview
+from crucible.ports.chat.types import CallPreview, CannotRun
 from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver, SessionConversation
 from crucible.ports.tasks import TaskService
@@ -85,6 +85,9 @@ _REFUSALS = {
 # The gate's own refusal, with its reason: nobody was asked, so there is no
 # person to come back to — the model tells the user and stops.
 NOT_ASKED_ERROR = "not asked: {reason}. Tell the user, and do not retry"
+# The tool itself found the call impossible as asked (``Describing`` answered
+# ``CannotRun``): nobody was shown a card; the model hears what is missing.
+CANNOT_RUN_ERROR = "cannot run: {reason}. Tell the user what is missing; do not retry the same call"
 # A tool the agent has and this conversation does not: said so, because the
 # model may have read the tool's name somewhere and there is nothing to retry.
 NOT_IN_CONVERSATION_ERROR = "not available in this conversation"
@@ -367,6 +370,14 @@ class ToolServer:
                 # The preview reads the system (a record, a repository) and is
                 # part of asking: it belongs to the paused time too.
                 preview = await self._preview_of(tool, ctx, args)
+                if isinstance(preview, CannotRun):
+                    # The tool's own word that there is nothing to ask about:
+                    # no card, no question spent, the reason to the model.
+                    logger.info("tool %s: cannot run as asked: %s", tool.name, preview.reason)
+                    call.outcome = "cannot_run"
+                    return web.json_response(
+                        {"error": CANNOT_RUN_ERROR.format(reason=preview.reason)}, status=403
+                    )
                 outcome = await self._tool_gate.confirm(
                     agent, tool.name, args, runtime_session_id=runtime_session_id,
                     preview=preview, display_name=tool.display_name,
@@ -420,10 +431,11 @@ class ToolServer:
     @staticmethod
     async def _preview_of(
         tool: Tool, ctx: ToolContext, args: dict[str, Any]
-    ) -> CallPreview | None:
+    ) -> CallPreview | CannotRun | None:
         """What the tool says the call would do, or None — a preview that
         fails must not stand between the person and the decision; the
-        arguments are still an honest description of the call."""
+        arguments are still an honest description of the call. ``CannotRun``
+        is the tool's word that the call is impossible as asked."""
         if not isinstance(tool, Describing):
             return None
         try:
