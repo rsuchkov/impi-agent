@@ -13,13 +13,16 @@ when a release is cut, and `impi update` shows the target version's section.
   way: the model's words so far are posted, then a notice with code `stopped`,
   and the next turn is told the previous one did not finish. The flow is the
   one place this happens (`AgentFlow.stop`, the `StoppableSink` port); a turn
-  so ended is `TurnOutcome.STOPPED` — `stopped` in telemetry, `cancelled` as a
-  scheduled run's status. The http `/cancel` used to tell the runtime directly
+  so ended is `TurnOutcome.STOPPED` — `stopped` in telemetry and as a
+  scheduled run's status (`RUN_STOPPED`: said by the turn itself, not a failure
+  of the task's). The http `/cancel` used to tell the runtime directly
   and leave the conversation none the wiser. **Breaks:** `ScreenOpened.refused`
   is now `answer` — what the person who typed an engine command hears
   privately, a refusal or what the command did; a `GatewayDispatcher` of an
   application's own needs `stop_command` and `stop_turn`; a mapping over
-  `TurnOutcome` needs a line for `STOPPED`.
+  `TurnOutcome` needs a line for `STOPPED`; a slash command or a reaction an
+  operator had mapped to the word `stop` is now the engine's — set
+  `STOP_COMMAND` to another word, or empty, to keep it for the agent.
 - **An application's own Slack app, and Slack's agent panel.**
   `GatewayFactory(slack_apps={"<agent>": app})` takes a Bolt `AsyncApp` the
   application built, with its own listeners on it — Bolt asks the first
@@ -41,7 +44,7 @@ when a release is cut, and `impi update` shows the target version's section.
   own entitlement narrows one: `GatewayEntitlements`
   (`crucible.conversation_profiles`) is the `EntitlementSource` over the
   agent's profile, joinable with an application's own, and `impi` wires it for
-  every agent whose profile has the map.
+  every agent whose profile has the map, when the tool server is on.
 
 ## v0.36.0 — 2026-10-27
 

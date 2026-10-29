@@ -16,6 +16,12 @@ differs from the one the process was started with, and resumes the
 conversation's memory from disk. The default entitlement gives the agent's own
 profile back, with the per-session allowlist cleared, so a conversation whose
 entitlement widens again gets everything its agent has.
+
+The other half of the same mechanism is where an entitlement comes from.
+``GatewayEntitlements`` reads one off the agent's own profile —
+``runtime.tools_by_gateway``, what a conversation on each gateway may use —
+and joins it with an application's own source when there is one, so the
+engine's rule and the application's narrow the same profile.
 """
 
 from collections.abc import Callable
@@ -63,9 +69,22 @@ class GatewayEntitlements:
 
     async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement:
         spec = self._spec_of(agent)
-        own = Entitlement(tools=spec.tools_on(msg.gateway) if spec is not None else None)
+        own = Entitlement(tools=_tools_on(spec, msg.gateway) if spec is not None else None)
         if self._inner is None:
             return own
         theirs = await self._inner.entitlement(agent, msg)
         joined = shared_entitlement([own, theirs])
         return Entitlement(tools=joined.tools, instructions=theirs.instructions)
+
+
+def _tools_on(spec: AgentSpec, gateway: str) -> tuple[str, ...] | None:
+    """The gateway's list; for a message that names no gateway on an agent
+    that narrows some, the tools every named gateway allows — a door nobody
+    named opens no wider than the narrowest one that is."""
+    if gateway or not spec.tools_by_gateway:
+        return spec.tools_on(gateway)
+    allowed: set[str] | None = None
+    for _, names in spec.tools_by_gateway:
+        allowed = set(names) if allowed is None else allowed & set(names)
+    first = spec.tools_by_gateway[0][1]
+    return tuple(n for n in first if allowed is not None and n in allowed)

@@ -8,6 +8,7 @@ settings) that the engine never reads.
 """
 
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,6 +21,9 @@ from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_m
 from crucible.ports.chat.gateway import GATEWAY_KINDS
 from crucible.profiles.errors import ProfileError
 from crucible.tool_manifests import MCP_SERVER_TOOLS
+
+# One MCP server's tool, ``mcp__<server>__<tool>``: the server is the group.
+_MCP_TOOL_OF = re.compile(r"^mcp__([a-z0-9](?:_?[a-z0-9-])*)__[^*]")
 
 logger = logging.getLogger(__name__)
 
@@ -336,10 +340,10 @@ def _tools_by_gateway(
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
             raise ProfileError(f"{manifest}: runtime.tools_by_gateway.{gateway} must be a list of tool names")
         for name in names:
-            if name in tools or (MCP_SERVER_TOOLS.match(name) and name in tools):
+            if name in tools:
                 continue
-            server = name.split("__")[1] if name.startswith("mcp__") and name.count("__") >= 2 else ""
-            if server and f"mcp__{server}__*" in tools:
+            of_server = _MCP_TOOL_OF.match(name)
+            if of_server and f"mcp__{of_server.group(1)}__*" in tools:
                 continue
             raise ProfileError(
                 f"{manifest}: runtime.tools_by_gateway.{gateway} names {name!r}, which runtime.tools does not: "

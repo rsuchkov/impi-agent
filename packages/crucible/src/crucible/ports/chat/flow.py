@@ -65,12 +65,25 @@ class TrackedSink(MessageSink, Protocol):
 
 
 @runtime_checkable
-class StoppableSink(MessageSink, Protocol):
+class TurnStopper(Protocol):
+    """What can end a turn in flight on a person's word — the flow itself, or
+    the sink in front of it (``StoppableSink``) handing the word on."""
+
+    async def stop(self, conversation_id: str, *, gateway: str = "") -> bool: ...
+
+
+@runtime_checkable
+class StoppableSink(MessageSink, TurnStopper, Protocol):
     """A sink whose turn in flight a person can stop.
 
-    ``conversation_id`` is the conversation as the sink keys it. True when a
+    ``conversation_id`` is the conversation as the sink keys it — or, with
+    ``gateway``, as that gateway names it (the platform's id), which is what a
+    slash command or a reaction knows; the sink does the keying. True when a
     turn was running there and was told to end; False when nothing was. The
     turn then ends with what it had, says so in the conversation, and the next
-    one is told it was stopped — all the sink's doing, whoever asked."""
+    one is told it was stopped — all the sink's doing, whoever asked.
 
-    async def stop(self, conversation_id: str) -> bool: ...
+    Two words, one rule: *stop* is the person's act and the turn's state
+    (``STOP_COMMAND``, ``TurnOutcome.STOPPED``, the ``stopped`` notice);
+    *cancel* is a program's word to a program (``RuntimeControl.cancel``, the
+    http ``/cancel`` route, the ws ``cancel`` frame)."""

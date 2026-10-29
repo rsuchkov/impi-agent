@@ -112,7 +112,8 @@ about those; everything else it reports itself:
 | `no_conversation` | there was nowhere to post the result |
 | `missed` | too late to be worth running, or the task said not to catch up |
 | `overlap` | the previous run was still going when this one came due |
-| `cancelled` | shut down, the task was removed mid-run, or a person stopped the run's turn (`/stop`) |
+| `cancelled` | shut down, or the task was removed mid-run |
+| `stopped` | a person stopped the run's turn (`/stop`, the panel's Stop button); said in the conversation by the turn itself, and not counted as a failure |
 | `gone` | a watch ended because there was nothing left to wait for — the application said so (or no hook was wired to ask) |
 
 Per task, `notify` chooses how loud this is: `failures` (default), `always` (also

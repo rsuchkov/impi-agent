@@ -295,10 +295,11 @@ RUN_OVERLAP = "overlap"  # the previous run outlasted the task's own period
 RUN_CANCELLED = "cancelled"  # shutdown, or the task was removed mid-run
 RUN_DUPLICATE = "duplicate"  # the turn was deduped — a run id was replayed
 RUN_GONE = "gone"  # a watch ended with nothing to report: the application said so
+RUN_STOPPED = "stopped"  # a person stopped the run's turn; said in the conversation already
 RUN_STATUSES = (
     RUN_RUNNING, RUN_OK, RUN_EMPTY, RUN_TIMEOUT, RUN_ERROR, RUN_DEADLINE,
     RUN_INTERRUPTED, RUN_NO_AGENT, RUN_NO_CONVERSATION, RUN_MISSED,
-    RUN_OVERLAP, RUN_CANCELLED, RUN_DUPLICATE, RUN_GONE,
+    RUN_OVERLAP, RUN_CANCELLED, RUN_DUPLICATE, RUN_GONE, RUN_STOPPED,
 )
 # Why an occurrence fired: on time, late but inside its grace window, or by hand.
 TRIGGERED_SCHEDULE = "schedule"

@@ -2028,3 +2028,75 @@ async def test_a_platform_with_a_view_of_the_conversation_sees_the_agent_busy_fo
     assert await failing.handle(again, chat) is TurnOutcome.ERROR
     assert chat.busy == [True, False]
     await store.close()
+
+
+async def test_a_stop_finds_the_turn_by_the_address_its_gateway_knows_and_only_a_turn_the_runtime_interrupted_ends_as_stopped(
+    tmp_path: Path,
+) -> None:
+    """A slash command or a reaction names the conversation as the platform
+    does; an application may key it otherwise. The flow is told both and finds
+    the turn either way. A stop the runtime had nothing to interrupt for
+    changes nothing: the turn ends on its own terms. A runtime that words the
+    interruption as a timeout: still the person's stop."""
+    import asyncio
+
+    class _Keying:
+        def key(self, agent: str, msg: IncomingMessage) -> str:
+            return f"realm:{msg.conversation_id}"
+
+    class _Interruptible(FakeRuntime):
+        def __init__(self, *, interrupts: bool, raises: Exception | None = None) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.ended = asyncio.Event()
+            self.interrupts = interrupts
+            self.raises = raises
+
+        async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
+            self.calls.append((session_id, message))
+            self.started.set()
+            await self.ended.wait()
+            if self.raises is not None:
+                raise self.raises
+            return PiResult(text="done anyway")
+
+        async def cancel(self, session_id: str) -> bool:
+            self.ended.set()
+            return self.interrupts
+
+        def has_memory(self, agent: str, session_id: str) -> bool:
+            return True
+
+        def memory_updated_at(self, agent: str, session_id: str):
+            return None
+
+        async def reset(self, agent: str, session_id: str) -> None:
+            pass
+
+        def stats(self):
+            raise AssertionError("not asked here")
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    msg = dataclasses.replace(_dm("long"), gateway="mattermost")
+    # By address: the key is the application's, the stop names the platform's id and gateway.
+    runtime = _Interruptible(interrupts=True, raises=PiTimeout("aborted"))
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime, keying=_Keying())
+    chat = FakeChat()
+    turn = asyncio.ensure_future(flow.handle(msg, chat))
+    await asyncio.wait_for(runtime.started.wait(), 1.0)
+    assert await flow.stop("dm1") is False  # not the key, and no gateway to read it as an address
+    assert await flow.stop("dm1", gateway="slack") is False  # another gateway's address
+    assert await flow.stop("dm1", gateway="mattermost") is True
+    assert await turn is TurnOutcome.STOPPED  # a timeout the runtime worded, read as the stop it was
+    assert chat.notice_codes == ["stopped"]
+    # Nothing to interrupt: the runtime says so, and the turn is not told it was stopped.
+    runtime2 = _Interruptible(interrupts=False)
+    flow2 = AgentFlow(runtime2, PROFILE, store, agent_name="assistant", control=runtime2)
+    chat2 = FakeChat()
+    again = dataclasses.replace(_dm("again"), ref=dataclasses.replace(_dm().ref, message_id="p2"))
+    turn = asyncio.ensure_future(flow2.handle(again, chat2))
+    await asyncio.wait_for(runtime2.started.wait(), 1.0)
+    assert await flow2.stop("dm1") is False
+    assert await turn is TurnOutcome.REPLIED and chat2.replies == [(again.ref, "done anyway")]
+    assert (await store.list())[0].cut_short == ""
+    await store.close()

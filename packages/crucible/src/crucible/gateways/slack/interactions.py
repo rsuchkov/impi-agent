@@ -227,7 +227,7 @@ class SlackInteractions:
         opened = await self._dispatcher.open_screen(
             self._agent, command,
             channel_id=channel_id, conversation_id=channel_id,
-            kind=kind, user_id=user_id,
+            kind=kind, user_id=user_id, gateway=GATEWAY_SLACK,
         )
         if opened.owned:
             if opened.answer:

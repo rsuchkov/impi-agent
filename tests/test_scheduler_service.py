@@ -906,4 +906,8 @@ def test_every_turn_outcome_is_recorded_as_a_run_status_and_a_stopped_turn_as_ca
     from crucible.scheduler.service import _STATUS_BY_OUTCOME
 
     assert set(_STATUS_BY_OUTCOME) == set(TurnOutcome)
-    assert _STATUS_BY_OUTCOME[TurnOutcome.STOPPED] == RUN_CANCELLED
+    from crucible.scheduler.service import _ENDED, _FLOW_REPORTED
+    from crucible.store.base import RUN_STOPPED
+
+    assert _STATUS_BY_OUTCOME[TurnOutcome.STOPPED] == RUN_STOPPED
+    assert RUN_STOPPED in _FLOW_REPORTED and RUN_STOPPED in _ENDED  # said by the flow already; not a failure

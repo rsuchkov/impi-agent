@@ -39,11 +39,13 @@ class FakeDispatcher:
         self._redrawn = redrawn
         self.stop_command = ""  # a test that maps a reaction to stopping sets it
         self.stopped: list[tuple[str, str]] = []  # (agent, conversation) each stop asked
+        self.stop_gateways: list[str] = []
 
-    async def stop_turn(self, agent, conversation_id):
+    async def stop_turn(self, agent, conversation_id, *, gateway=""):
         from crucible.interactions.results import TurnStop
 
         self.stopped.append((agent, conversation_id))
+        self.stop_gateways.append(gateway)
         return TurnStop.STOPPED
 
     async def resolve_approval(self, token, value, user_id, *, gateway=""):
@@ -66,7 +68,7 @@ class FakeDispatcher:
         self.calls.append(("load_form", form_token))
         return self._form
 
-    async def open_screen(self, agent, command, *, channel_id, conversation_id, kind, user_id):
+    async def open_screen(self, agent, command, *, channel_id, conversation_id, kind, user_id, gateway=""):
         self.calls.append(("open_screen", agent, command, channel_id, conversation_id, kind, user_id))
         return self._opened
 

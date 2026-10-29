@@ -63,6 +63,7 @@ from crucible.store.base import (
     RUN_OK,
     RUN_OVERLAP,
     RUN_RUNNING,
+    RUN_STOPPED,
     RUN_TIMEOUT,
     STATE_DONE,
     STATE_IDLE,
@@ -96,16 +97,18 @@ _STATUS_BY_OUTCOME = {
     TurnOutcome.TIMEOUT: RUN_TIMEOUT,
     TurnOutcome.ERROR: RUN_ERROR,
     TurnOutcome.DUPLICATE: RUN_ERROR,
-    # A person stopped the run's turn: not the engine's failure, and said already.
-    TurnOutcome.STOPPED: RUN_CANCELLED,
+    # A person stopped the run's turn: its own status, so it is neither the
+    # engine's failure nor a shutdown's "cancelled".
+    TurnOutcome.STOPPED: RUN_STOPPED,
 }
 # In turn mode the flow posts its own message for these, so a notice would be a
 # second one about the same thing.
-_FLOW_REPORTED = frozenset({RUN_TIMEOUT, RUN_ERROR, RUN_EMPTY})
+_FLOW_REPORTED = frozenset({RUN_TIMEOUT, RUN_ERROR, RUN_EMPTY, RUN_STOPPED})
 _SUCCEEDED = frozenset({RUN_OK})
 # Not a success, not a failure: a watch that ended because there was nothing
-# left to wait for does not count towards pausing anything.
-_ENDED = frozenset({RUN_GONE})
+# left to wait for, or a turn a person stopped, does not count towards pausing
+# anything.
+_ENDED = frozenset({RUN_GONE, RUN_STOPPED})
 # The report a watch's turn carries when the watch gave up: the scheduler's
 # own words, since the application was never able to say what happened.
 WATCH_EXPIRED_SOURCE = "scheduler"
@@ -653,6 +656,7 @@ def _notice_for(
         RUN_INTERRUPTED: f"⏰ Scheduled task {label} was cut short: {run.detail}.",
         RUN_NO_AGENT: f"⏰ Scheduled task {label} could not start: {run.detail}.",
         RUN_CANCELLED: f"⏰ Scheduled task {label} was cancelled: {run.detail}.",
+        RUN_STOPPED: f"⏰ Scheduled task {label} was stopped by a person before it finished.",
         RUN_GONE: f"⏰ Watch {label} ended: {run.detail}.",
     }
     text = reasons.get(run.status, f"⏰ Scheduled task {label} failed: {run.detail or run.status}.")

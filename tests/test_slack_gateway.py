@@ -291,16 +291,16 @@ async def test_the_home_and_context_events_are_taken_and_handed_to_the_applicati
 
     home, client = Home(), Client()
     gw = _gateway(FakeSink(), home=home)
-    await gw._on_home_opened({"user": "U2", "tab": "home"}, client)
+    await gw._on_home_opened({"user": "U2", "tab": "home"}, client)  # type: ignore[arg-type]
     assert home.opened_by == [("U2", "home")]
     assert client.published == [{"user_id": "U2", "view": {"type": "home", "blocks": home.blocks}}]
     home.blocks = None
-    await gw._on_home_opened({"user": "U2", "tab": "messages"}, client)
+    await gw._on_home_opened({"user": "U2", "tab": "messages"}, client)  # type: ignore[arg-type]
     assert len(client.published) == 1  # nothing to show, nothing published
     await gw._on_context_changed({"user": "U2", "app_context": {"channel_id": "C9"}})
     assert home.contexts == [("U2", {"channel_id": "C9"})]
     bare = _gateway(FakeSink())
-    await bare._on_home_opened({"user": "U2", "tab": "home"}, client)  # taken, nothing done
+    await bare._on_home_opened({"user": "U2", "tab": "home"}, client)  # type: ignore[arg-type]  # taken, nothing done
     await bare._on_context_changed({"user": "U2"})
     assert len(client.published) == 1
 

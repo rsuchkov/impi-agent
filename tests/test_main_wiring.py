@@ -1153,3 +1153,28 @@ def test_an_agent_with_tools_by_gateway_runs_its_conversations_entitled_and_the_
         assert flows["scribe"]._entitlements is None  # nothing to narrow: never asked
     finally:
         app.sessions.close_sync()  # type: ignore[attr-defined]
+
+
+def test_impis_sinks_can_stop_a_turn_and_a_gateway_map_is_honoured_with_tools_off(tmp_path: Path) -> None:
+    """The sink a gateway holds in impi is the coalescer, and it stops a turn
+    through its flow — the doors a person uses are live in the shipped wiring.
+    A map in the profile is honoured even with the tool server off: the
+    runtime's own tools are what it narrows then."""
+    from crucible.ports.chat.flow import StoppableSink
+
+    root = _agents_dir(tmp_path)
+    (root / "agents" / "assistant" / "agent.yaml").write_text(
+        AGENT_YAML + "  tools: [read, bash]\n  tools_by_gateway:\n    slack: [read]\n", encoding="utf-8"
+    )
+    settings = Settings(
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        dotenv_path=str(tmp_path / "no-such.env"), agents_path=str(root), data_dir=str(tmp_path / "data"),
+        mattermost_url="http://localhost:8065", mattermost_token="token", tool_enabled=False,
+    )
+    app = build_app(settings)
+    try:
+        sink = app.sinks_by_agent["assistant"].sink
+        assert isinstance(sink, StoppableSink)
+        assert app.units[0].flow._entitlements is not None
+    finally:
+        app.sessions.close_sync()  # type: ignore[attr-defined]

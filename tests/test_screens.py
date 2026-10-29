@@ -442,9 +442,11 @@ async def test_the_stop_command_ends_the_turn_and_answers_privately(tmp_path: Pa
             super().__init__()
             self.running = running
             self.stopped: list[str] = []
+            self.gateways: list[str] = []
 
-        async def stop(self, conversation_id: str) -> bool:
+        async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
             self.stopped.append(conversation_id)
+            self.gateways.append(gateway)
             return self.running
 
     store = SqliteSessionStore(tmp_path / "db.sqlite")
@@ -454,9 +456,11 @@ async def test_the_stop_command_ends_the_turn_and_answers_privately(tmp_path: Pa
         dispatcher = InteractionDispatcher(
             store, presence_of(chat, sink=spy), PendingUiRequests(), store, screens=ScreenRegistry(), stop_command="stop",
         )
-        opened = await dispatcher.open_screen("assistant", "/stop", channel_id="ch1", conversation_id="th1", kind="thread", user_id="u1")
+        opened = await dispatcher.open_screen(
+            "assistant", "/stop", channel_id="ch1", conversation_id="th1", kind="thread", user_id="u1", gateway="mattermost",
+        )
         assert (opened.owned, opened.answer) == (True, TURN_STOP_ANSWERS[TurnStop.STOPPED])
-        assert spy.stopped == ["th1"] and spy.submitted == []  # no turn started
+        assert spy.stopped == ["th1"] and spy.gateways == ["mattermost"] and spy.submitted == []  # the sink does the keying
         assert chat.posted_cards == [] and chat.replies == []  # nothing drawn: the turn says so itself
         idle = StoppableSpy(running=False)
         dispatcher = InteractionDispatcher(store, presence_of(chat, sink=idle), PendingUiRequests(), store, stop_command="stop")

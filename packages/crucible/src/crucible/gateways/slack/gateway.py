@@ -13,6 +13,7 @@ from dataclasses import replace
 from aiohttp import ClientSession
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
+from slack_sdk.web.async_client import AsyncWebClient
 
 from crucible.attachments import AttachmentStore, IncomingFile
 from crucible.gateways.dispatch import GatewayDispatcher
@@ -28,7 +29,7 @@ from crucible.loopguard import LoopGuard
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink
-from crucible.ports.chat.gateway import AgentIdentity
+from crucible.ports.chat.gateway import GATEWAY_SLACK, AgentIdentity
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
 
@@ -137,7 +138,7 @@ class SlackGateway:
 
     # -- the agent panel -------------------------------------------------------------
 
-    async def _on_home_opened(self, event: dict, client) -> None:  # noqa: ANN001 - bolt's own client
+    async def _on_home_opened(self, event: dict, client: AsyncWebClient) -> None:
         user_id, tab = str(event.get("user") or ""), str(event.get("tab") or "")
         if self._home is None or not user_id:
             return
@@ -163,9 +164,8 @@ class SlackGateway:
         thread_ts = str(event.get("thread_ts") or "")
         if self._dispatcher is None or not thread_ts:
             return
-        stop = await self._dispatcher.stop_turn(self._agent, thread_ts)
-        logger.info("Slack agent session %s stopped by %s: %s", thread_ts, event.get("user", "?"),
-                    getattr(stop, "name", str(stop)).lower())
+        stop = await self._dispatcher.stop_turn(self._agent, thread_ts, gateway=GATEWAY_SLACK)
+        logger.info("Slack agent session %s stopped by %s: %s", thread_ts, event.get("user", "?"), stop.name.lower())
 
     async def _on_session_title_changed(self, event: dict) -> None:
         logger.debug("Slack agent session %s renamed by %s", event.get("thread_ts", "?"), event.get("user", "?"))

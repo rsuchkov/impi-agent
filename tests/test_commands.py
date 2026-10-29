@@ -95,6 +95,7 @@ async def test_command_in_a_thread_starts_a_private_turn(tmp_path: Path) -> None
         assert msg.text == "/summarize коротко"  # trigger + args
         assert msg.user_id == THREAD_PAYLOAD["user_id"] and msg.username == "r42x"
         assert msg.synthetic is True and msg.mentioned is True
+        assert msg.gateway == "mattermost"  # the receiver's gateway: what the conversation is entitled to depends on it
     finally:
         await server.stop()
         await store.close()

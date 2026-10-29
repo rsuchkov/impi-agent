@@ -33,7 +33,9 @@ A few words are answered by the engine itself rather than by an agent — the sk
 browser, the task browser, and `/connections` where people connect their own
 accounts ([connections.md](connections.md); a direct message only). Those are **panels**: the engine renders the view
 and answers every click on it by rewriting the same message, with no turn behind
-it (see [skills.md](skills.md) and [tasks.md](tasks.md)).
+it (see [skills.md](skills.md) and [tasks.md](tasks.md)). One more word is the
+engine's without a panel: the stop word (`/stop`, `STOP_COMMAND`), which ends
+the agent's turn ([below](#stopping-a-turn)).
 
 A slash command is one way to open one. The other is the **`open_screen` tool**:
 give it to an agent and "show me which skills there are" opens the same panel that
@@ -134,8 +136,8 @@ Outside a thread — in a channel, or in a direct message with the bot — a
 **slash command** works as on Mattermost: declare it in the app (*Slash
 Commands* → *Create New Command*, any name, no request URL — Socket Mode
 delivers it), and the engine answers `/skills`, `/tasks` and — where
-connected accounts are configured — `/connections` with their panels, and
-anything else as a turn of the agent. It never carries thread context,
+connected accounts are configured — `/connections` with their panels, `/stop`
+by ending the turn, and anything else as a turn of the agent. It never carries thread context,
 which is why the shortcut exists.
 
 ## Reactions as commands
@@ -189,12 +191,6 @@ Platform setup:
 Like a shortcut, a reaction needs interactivity (`INTEGRATIONS_ENABLED=true`):
 a command is run by the same dispatcher that answers clicks.
 
-## Teaching the agent the command
-
-Nothing to enable in `agent.yaml` — a command arrives as a message. Just say
-what it means in `.pi/SYSTEM.md`:
-
-```markdown
 ## Stopping a turn
 
 One command is the engine's on every platform: the **stop word**, `/stop` by
@@ -212,8 +208,19 @@ http gateway calls `/cancel` ([ws-gateway.md](ws-gateway.md),
 a working indicator and a native **Stop** button while the agent works
 (`agent_view` in the app's manifest, see
 [creating-agents.md](creating-agents.md)); pressing it ends the turn the same
-way. All five doors lead to the one ending.
+way. All five doors lead to the one ending. One Slack caveat: a slash command
+never reaches a thread (the platform's rule, above), so `/stop` typed in a
+channel or a direct message stops that channel's or DM's own turn, and a turn
+running in a thread — every Agents-panel session is one — is stopped with the
+reaction or the Stop button.
 
+
+## Teaching the agent the command
+
+Nothing to enable in `agent.yaml` — a command arrives as a message. Just say
+what it means in `.pi/SYSTEM.md`:
+
+```markdown
 ## Commands
 
 When the message starts with `/summarize`, summarize THIS conversation:

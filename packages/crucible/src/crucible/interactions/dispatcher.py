@@ -132,15 +132,13 @@ class InteractionDispatcher:
     def stop_command(self) -> str:
         return self._stop_command
 
-    async def stop_turn(self, agent: str, conversation_id: str) -> TurnStop:
+    async def stop_turn(self, agent: str, conversation_id: str, *, gateway: str = "") -> TurnStop:
         """Stop ``agent``'s turn in flight in ``conversation_id`` — the
-        conversation as the gateway names it, which is how the flow keys it
-        unless the application keys conversations itself (then it stops them
-        through its own gateway's cancel)."""
+        conversation as ``gateway`` names it; the sink does the keying."""
         target = self._presence.sink(agent)
         if target is None or not isinstance(target.sink, StoppableSink):
             return TurnStop.UNAVAILABLE
-        stopped = await target.sink.stop(conversation_id)
+        stopped = await target.sink.stop(conversation_id, gateway=gateway)
         return TurnStop.STOPPED if stopped else TurnStop.NOTHING_RUNNING
 
     async def resolve_approval(
@@ -326,9 +324,11 @@ class InteractionDispatcher:
         conversation_id: str,
         kind: str,
         user_id: str,
+        gateway: str = "",
     ) -> ScreenOpened:
         """A command the ENGINE answers: render its first view and post it as
-        ``agent``.
+        ``agent``; ``gateway`` is the one the command came through, which the
+        stop word needs to find the conversation.
 
         Three outcomes, and the caller needs all three: no screen owns the
         command (route it to the agent as usual), a screen owns it and its view
@@ -338,7 +338,7 @@ class InteractionDispatcher:
         if self._stop_command and command.lstrip("/") == self._stop_command:
             # Acts, draws nothing: the conversation hears from the turn itself
             # as it ends; the person who asked hears whether there was one.
-            stop = await self.stop_turn(agent, conversation_id)
+            stop = await self.stop_turn(agent, conversation_id, gateway=gateway)
             logger.info("stop asked for %s in %s by %s: %s", agent, conversation_id, user_id, stop.name.lower())
             return ScreenOpened(owned=True, answer=TURN_STOP_ANSWERS[stop])
         screen = self._screens.get(command) if self._screens else None

@@ -631,13 +631,11 @@ class HttpHub:
 
     async def _cancel(self, request: web.Request) -> web.Response:
         caller = await self.caller(request, None)
-        self._agent(request, caller)
+        _, sink, _ = self._agent(request, caller)
         key = self.conversation_key(caller, request.match_info["conversation"])
         turn = self.turns.active(key)
         if turn is None or turn.owner != caller.owner:
             raise Refusal(404, "not_found", "no turn is running in this conversation")
-        entry = self._agents.get(request.match_info["agent"])
-        sink = entry[0] if entry is not None else None
         if isinstance(sink, StoppableSink):
             # The flow ends the turn as stopped: the reply it had, a `stopped`
             # notice, a note for the next turn — the same as a /stop in chat.

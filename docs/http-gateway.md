@@ -65,7 +65,7 @@ caller, so two programs never reach each other's conversations.
 | `forbidden` | 403 | the agent does not exist on this hub, or this caller may not address it |
 | `not_found` | 404 | unknown turn, another person's turn, a retired control, a question nobody waits on any more, nothing running to cancel, interactivity off, an engine not wired to list engine-started turns |
 | `turn_in_progress` | 409 | this conversation already has a turn running; `turnId` names it |
-| `not_cancellable` | 409 | the turn cannot be interrupted here (no runtime behind it yet) |
+| `not_cancellable` | 409 | the turn cannot be interrupted here: an application flow that cannot stop a turn, and no runtime control wired |
 | `not_available` | 409 | a form was asked to open; forms are chat-only |
 | `draining` | 503 | the engine is shutting down and takes no new messages; polls and answers still work |
 | `validation` | 422 | a bad body or query value; `text` over 32 000 characters; a menu answer that is not one of its options |
@@ -123,14 +123,14 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | `tool.finished` | `callId`, `tool`, `ok` | it ended |
 | `progress` | `text` | what the model said on its way to the next call ("Found the workflow, now listing transitions") — a step's heading, not the answer; the answer is the `message` after the last call |
 | `message` | `messageId`, `format: "markdown"`, `text` | the agent's answer |
-| `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `model_unavailable`, `runtime_unavailable`, `agent_error`, `empty_answer`, `stalled` (the model stopped responding mid-turn and the turn was stopped), `truncated` (the answer hit the model's length limit: the `message` before it stops where the limit fell, or there was none) — or a flag a tool left on the turn (`session_expired`, whatever the application defines), after the answer; `text` is a sentence for a person, `code` is for you |
+| `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `model_unavailable`, `runtime_unavailable`, `agent_error`, `empty_answer`, `stalled` (the model stopped responding mid-turn and the turn was stopped), `truncated` (the answer hit the model's length limit: the `message` before it stops where the limit fell, or there was none), `stopped` (a person ended the turn; not a failure) — or a flag a tool left on the turn (`session_expired`, whatever the application defines), after the answer; `text` is a sentence for a person, `code` is for you |
 | `actions` | `postId`, `text`, `actions[]` | a question with controls — what the runtime asks mid-turn (`ask_user_confirm`); the turn waits (`awaiting_input`) |
 | `confirmation` | `postId`, `agent`, `icon`, `headline`, `title`, `tool`, `fields[{label, value, before, passage}]`, `block {label, text} \| null`, `danger`, `expiresAt`, `verdict`, `grantS`, `actions[]` | a request for a yes, as data — a tool that needs confirming, a credential an agent asks for. Nothing is rendered: draw the headline, `title` (the one-line account of the call, "" when the card is not about a call) and `tool` (the id of the tool being confirmed, "" for a credential), the facts (a `before` means a change; `passage` means the value is text to show whole, with its lines), the verbatim block (a command line, raw arguments — show it as written), a warning when `danger`, a countdown to `expiresAt`; the turn waits (`awaiting_input`) |
 | `confirmation.updated` | `postId`, the same fields as `confirmation`, `actions[]` | that card rewritten — the verdict once it is answered, has expired or was withdrawn (a tool call or a credential alike): in `headline` as a sentence, and in `verdict` as a code to draw your own line from — `allowed_once`, `allowed_for` (for `grantS` seconds), `denied`, `expired`, `withdrawn`; `""` while the card still asks; a notice folding another occurrence into itself (a `Times` field). Redraw the post; empty `actions` means nothing is left to click and the turn no longer waits. A `confirmation` posted with empty `actions` in the first place is a notice: told, not asked, and the turn does not wait |
 | `actions.retired` | `postId`, `text` | the controls of an `actions` post are gone; show `text` in their place |
 | `cards` | `postId`, `cards[{text, accent, actions[]}]` | a message built from cards; the same `postId` again means redraw it |
 | `file` | `name`, `mime`, `data` (base64), `text` | a file the agent sent (the caption rides with the first) |
-| `turn.finished` | `outcome` | the last event: `replied`, `acted` (a speaking tool — a widget, a form — answered for it), `truncated` (the answer hit the model's length limit; what there was came as `message`, then a `notice`), `empty`, `duplicate`, `timeout`, `error` |
+| `turn.finished` | `outcome` | the last event: `replied`, `acted` (a speaking tool — a widget, a form — answered for it), `truncated` (the answer hit the model's length limit; what there was came as `message`, then a `notice`), `empty`, `duplicate`, `timeout`, `error`, `stopped` (a person ended the turn — `/cancel`, a `/stop` in chat; what there was came as `message`, then a `notice` with code `stopped`) |
 
 An action: `{id, label, value, style, kind, options[{label, value}]}`. `kind` is
 `button`, `select`, `user_select` or `channel_select`; a button echoes its
@@ -212,7 +212,9 @@ Interrupts the running turn; `200 {"turnId", "cancelled"}`. The turn ends as
 stopped: what the model had said is posted, then a notice with code `stopped`
 (its `turn.finished` follows), the conversation keeps its memory and the next
 turn is told this one did not finish — the same ending a `/stop` in chat gives.
-`404` when nothing is running.
+`404` when nothing is running; `409 not_cancellable` when the agent's flow
+cannot stop a turn and no runtime control is wired. The turn's `status` ends
+`done` (a stop is not a failure); `turn.finished` says `stopped`.
 
 ### `GET /v1/agents`
 

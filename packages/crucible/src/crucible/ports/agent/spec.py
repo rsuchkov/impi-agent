@@ -46,14 +46,6 @@ class AgentSpec:
     # (a subset of ``tools``, checked when the profile loads); one not named
     # gets them all. Empty: every gateway gets every tool.
     tools_by_gateway: tuple[tuple[str, tuple[str, ...]], ...] = ()
-
-    def tools_on(self, gateway: str) -> tuple[str, ...] | None:
-        """The tools a conversation on ``gateway`` may use: the gateway's own
-        list, or None for the agent's whole ``tools``."""
-        for kind, names in self.tools_by_gateway:
-            if kind == gateway:
-                return names
-        return None
     # Skill references this agent gets: absolute paths (resolved by the store) or
     # bare names the runtime resolves to its own skill layout. No ambient
     # discovery — an agent gets exactly these.
@@ -89,3 +81,11 @@ class AgentSpec:
     # and say what is done and what is left (``WRAP_UP_NOTE``); the hard
     # ``timeout`` stays as the ceiling. 0 = never.
     wrap_up_after: float = 0.0
+
+    def tools_on(self, gateway: str) -> tuple[str, ...] | None:
+        """The tools a conversation on ``gateway`` may use: the gateway's own
+        list, or None for the agent's whole ``tools``."""
+        for kind, names in self.tools_by_gateway:
+            if kind == gateway:
+                return names
+        return None

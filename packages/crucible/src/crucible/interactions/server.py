@@ -323,7 +323,7 @@ class InteractionsServer:
         opened = await self._dispatcher.open_screen(
             agent, cb.command,
             channel_id=cb.channel_id, conversation_id=conversation_id,
-            kind=kind, user_id=cb.user_id,
+            kind=kind, user_id=cb.user_id, gateway=self._codec.gateway,
         )
         if opened.owned:
             # A screen that refused was not drawn, so the reason has nowhere to
@@ -338,6 +338,9 @@ class InteractionsServer:
             return web.json_response(self._codec.reply_none())
         result = self._dispatcher.invoke_command(
             agent,
+            # The gateway the command came through: what a conversation on it
+            # is entitled to depends on it, as for any message.
+            gateway=self._codec.gateway,
             channel_id=cb.channel_id,
             conversation_id=conversation_id,
             kind=kind,

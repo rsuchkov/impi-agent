@@ -310,8 +310,11 @@ class AgentFlow:
         # still remembers it, and told to interrupt a turn a person stops. None
         # = trust the store, and nothing here can be stopped.
         self._control = control
-        # The turns in flight, by conversation key: what ``stop`` finds.
+        # The turns in flight, by conversation key and by the address the
+        # anchor carried (gateway, the platform's conversation id): what
+        # ``stop`` finds, whichever name the caller knows.
         self._active: dict[str, _TurnFacts] = {}
+        self._active_at: dict[tuple[str, str], _TurnFacts] = {}
         # Where the conversation is kept when the platform cannot hand it back
         # (a direct message over http has no thread to read). Consulted only on
         # a turn the runtime starts from nothing, and only when the platform
@@ -431,11 +434,14 @@ class AgentFlow:
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         started = time.monotonic()
         facts = _TurnFacts(record.runtime_session_id)
+        address = (anchor.gateway, anchor.conversation_id)
         self._active[key] = facts
+        self._active_at[address] = facts
         try:
             outcome = await self._turn(fresh, anchor, record, created, chat, facts)
         finally:
             self._active.pop(key, None)
+            self._active_at.pop(address, None)
         if self._telemetry is not None:
             self._tell_turn(fresh, anchor, key, outcome, facts, time.monotonic() - started)
         if anchor.turn is not None and anchor.turn.flags:
@@ -447,16 +453,22 @@ class AgentFlow:
                 )
         return outcome
 
-    async def stop(self, conversation_id: str) -> bool:
+    async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
         """Stop the turn running in this conversation (``StoppableSink``): the
         runtime is told to interrupt it, and the turn ends as stopped — what it
-        had posted, a notice, a note for the next turn. False when no turn is
-        running here or the runtime cannot be told."""
+        had posted, a notice, a note for the next turn. The conversation is
+        named by its key, or with ``gateway`` by the platform's id the turn's
+        message carried. False when no turn is running here or the runtime
+        cannot be told."""
         facts = self._active.get(conversation_id)
+        if facts is None and gateway:
+            facts = self._active_at.get((gateway, conversation_id))
         if facts is None or self._control is None or not facts.runtime_session_id:
             return False
-        facts.stopped = True
         cancelled = await self._control.cancel(facts.runtime_session_id)
+        # Only a turn the runtime did interrupt ends as stopped: one it had not
+        # yet begun runs on and ends on its own terms.
+        facts.stopped = cancelled
         logger.info("turn in %s/%s stopped by request (%s)", self._agent_name, conversation_id,
                     "interrupted" if cancelled else "nothing was running")
         return cancelled

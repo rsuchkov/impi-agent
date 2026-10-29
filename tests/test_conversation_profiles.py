@@ -171,3 +171,30 @@ async def test_the_gateway_source_entitles_a_conversation_to_what_its_gateway_ma
     )
     assert isinstance(scoped, PiProfile) and scoped.tools == ("read", "ask_user_buttons")
     assert wiring.session_allowlists["assistant--slack1"] == frozenset({"ask_user_buttons"})
+
+
+async def test_a_message_that_names_no_gateway_gets_the_narrowest_list_of_an_agent_that_narrows() -> None:
+    """A door nobody named opens no wider than the narrowest one that is: a
+    message with no gateway on an agent with a map is entitled to what every
+    named gateway allows — never to the agent's whole list."""
+    from pathlib import Path
+
+    from crucible.conversation_profiles import GatewayEntitlements
+    from crucible.ports.chat.types import ConversationRef, IncomingMessage
+
+    def msg(gateway: str) -> IncomingMessage:
+        return IncomingMessage(
+            ref=ConversationRef(channel_id="c", conversation_id="c", message_id="m", thread_root_id=""),
+            text="hi", user_id="u1", username="u", gateway=gateway,
+        )
+
+    spec = AgentSpec(
+        name="assistant", display_name="A", role="r", description="d", profile_dir=Path("."),
+        tools=("read", "bash", "send_file"),
+        tools_by_gateway=(("slack", ("read", "send_file")), ("http", ("read", "bash"))),
+    )
+    source = GatewayEntitlements(lambda _: spec)
+    assert (await source.entitlement("assistant", msg(""))).tools == ("read",)  # what slack and http both allow
+    assert (await source.entitlement("assistant", msg("mattermost"))).tools is None  # a named gateway unnamed in the map: all
+    plain = GatewayEntitlements(lambda _: dataclasses.replace(spec, tools_by_gateway=()))
+    assert (await plain.entitlement("assistant", msg(""))).tools is None  # no map: nothing to narrow

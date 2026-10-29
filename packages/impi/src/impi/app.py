@@ -391,7 +391,7 @@ def _build_unit(
     # An agent whose profile gives a gateway fewer tools runs each conversation
     # with what its gateway allows; every other agent runs with its own profile
     # and is never asked.
-    by_gateway = spec.tools_by_gateway and tools.registry is not None
+    by_gateway = bool(spec.tools_by_gateway)
     flow = AgentFlow(
         runtime, profile, sessions,
         agent_name=spec.name, posting_tools=posting_tools, file_keeper=file_keeper, telemetry=telemetry,

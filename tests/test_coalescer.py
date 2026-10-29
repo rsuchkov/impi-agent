@@ -186,3 +186,22 @@ async def test_two_gateways_messages_of_one_conversation_queue_behind_one_turn()
     flow.release()
     await asyncio.sleep(0.05)
     assert flow.batches == [["p1"], ["p3"], ["p2"]]
+
+
+async def test_the_coalescer_stops_the_turn_through_its_flow_when_the_flow_can() -> None:
+    """The coalescer is the sink a gateway holds; stopping is the flow's. One
+    that cannot stop a turn makes the coalescer answer False, never raise."""
+
+    class StoppingFlow(OutcomeFlow):
+        def __init__(self) -> None:
+            super().__init__()
+            self.stopped: list[tuple[str, str]] = []
+
+        async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
+            self.stopped.append((conversation_id, gateway))
+            return True
+
+    flow = StoppingFlow()
+    assert await MessageCoalescer(flow).stop("dm1", gateway="slack") is True
+    assert flow.stopped == [("dm1", "slack")]
+    assert await MessageCoalescer(OutcomeFlow()).stop("dm1") is False

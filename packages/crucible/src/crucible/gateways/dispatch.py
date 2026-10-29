@@ -9,6 +9,7 @@ while still routing interactive callbacks to the neutral dispatch brain.
 from typing import Protocol
 
 from crucible.approvals import ApprovalOutcome
+from crucible.interactions.results import TurnStop
 from crucible.interactions.screens import Redrawn, ScreenOpened
 from crucible.ports.chat.types import Form, QuotedMessage
 
@@ -45,10 +46,11 @@ class GatewayDispatcher(Protocol):
     async def load_form(self, form_token: str) -> FormOpen | None: ...
     async def open_screen(
         self, agent: str, command: str, *, channel_id: str, conversation_id: str,
-        kind: str, user_id: str,
+        kind: str, user_id: str, gateway: str = "",
     ) -> ScreenOpened:
         """A command the engine may own — a screen, or the word that stops the
-        turn — answered without an agent; ``owned`` False means route it on."""
+        turn — answered without an agent; ``owned`` False means route it on.
+        ``gateway`` is the one it came through."""
         ...
 
     @property
@@ -57,7 +59,9 @@ class GatewayDispatcher(Protocol):
         to it stops the turn instead of starting one."""
         ...
 
-    async def stop_turn(self, agent: str, conversation_id: str) -> object: ...
+    async def stop_turn(self, agent: str, conversation_id: str, *, gateway: str = "") -> TurnStop:
+        """Stop the agent's turn in the conversation as ``gateway`` names it."""
+        ...
     async def redraw_screen(
         self, state_raw: str, value: str, *, post_id: str, user_id: str
     ) -> Redrawn | None: ...

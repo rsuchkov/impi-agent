@@ -104,6 +104,7 @@ Run statuses and what each one means:
 | `missed` | later than its grace window, or the task has `on_missed: skip` |
 | `overlap` | the previous run outlasted the task's own period |
 | `cancelled` | shutdown, or the task was removed mid-run |
+| `stopped` | a person stopped the run's turn (`/stop`, Slack's Stop button); the turn said so itself; not a failure, does not pause the task |
 | `duplicate` | the turn was deduped |
 | `gone` | a watch ended: the application said there was nothing left to wait for (or no hook was wired to ask) |
 

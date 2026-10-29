@@ -179,7 +179,8 @@ Consult them instead of reciting steps from memory; they load on demand.
 - **skill-authoring** — write a `SKILL.md`.
 - **skill-library** — install, assign, update and remove shared skills.
 - **chat-commands** — register a slash command, a Slack shortcut or an emoji
-  reaction for an agent, and diagnose one that does nothing.
+  reaction for an agent, stop an agent's turn (`/stop`, Slack's Stop button),
+  and diagnose a command that does nothing.
 - **scheduled-tasks** — schedules, and why a run did not happen.
 - **engine-diagnostics** — work out why something is not working.
 - **mcp** — give an agent an MCP server's tools; trust, confirmations, why a

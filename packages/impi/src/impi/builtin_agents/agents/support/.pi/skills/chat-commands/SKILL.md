@@ -1,6 +1,6 @@
 ---
 name: chat-commands
-description: Register a slash command (Mattermost, or Slack outside threads), a Slack message shortcut, or an emoji reaction so it reaches an agent as a command, and diagnose one that does nothing. Use when the operator asks to add a /command, wire a command or a reaction to an agent, or reports that a slash command or a reaction fails or answers as the wrong bot.
+description: Register a slash command (Mattermost, or Slack outside threads), a Slack message shortcut, or an emoji reaction so it reaches an agent as a command, stop an agent's turn (/stop, a reaction, Slack's Stop button), and diagnose a command that does nothing. Use when the operator asks to add a /command, wire a command or a reaction to an agent, or reports that a slash command or a reaction fails or answers as the wrong bot.
 ---
 
 # Slash commands, shortcuts and reactions
@@ -17,9 +17,10 @@ Some words are answered by the **engine itself**, with no agent turn: the skill
 browser (`SKILLS_COMMAND`, default `skills`), the task browser
 (`TASKS_COMMAND`, default `tasks`) and, where a provider is configured, the
 connected-accounts panel (`CONNECTIONS_COMMAND`, default `connections`; a
-direct message with the agent only — see the **connections** skill).
-Registering one of those words gives the screen; registering any other word
-gives the agent. If the operator wants a
+direct message with the agent only — see the **connections** skill), and the
+stop word (`STOP_COMMAND`, default `stop`), which ends the agent's turn (§5)
+and draws nothing. Registering one of those words gives the engine's answer;
+registering any other word gives the agent. If the operator wants a
 screen under a different word, they change that setting — the trigger word must
 match it exactly.
 
@@ -122,7 +123,10 @@ finish. The person hears privately whether anything was running. A reaction
 mapped to the word (`octagonal_sign=stop` in `REACTION_COMMANDS`) does the
 same. The slash command still has to exist on the platform (§2, §3) — the
 engine answers it, the platform delivers it; "nothing happens" on `/stop` is
-diagnosed like any other command (§7). The agent needs no teaching: the
+diagnosed like any other command (§7). On Slack a slash command never reaches
+a thread (§3), so `/stop` in a channel or DM stops that channel's or DM's own
+turn; a turn in a thread — every Agents-panel session — is stopped with the
+reaction or the panel's Stop button. The agent needs no teaching: the
 command never reaches the model.
 
 ## 6. Networking (Mattermost only)
@@ -148,7 +152,10 @@ Read the engine log and match the line:
 | `agent <x> has no live presence` | the agent isn't running — no token, or not enumerated |
 | `callback to /<?>/… refused: not on the receiver's secret path` | registered without, or with an old, `INTEGRATIONS_SECRET` — re-register under the URL `impi health` prints |
 | nothing at all | the request never arrived: URL, port, or the Mattermost outbound block |
-| `reaction :<emoji>: by <user> in <conv> runs /<cmd> for <agent>` | a reaction worked; what follows is a normal turn |
+| `reaction :<emoji>: by <user> in <conv> runs /<cmd> for <agent>` | a reaction worked; what follows is a normal turn — unless the word is the stop word, then nothing starts |
+| `stop asked for <agent> in <conv> by <user>: stopped` / `nothing_running` / `unavailable` | the stop word was typed: a turn was ended / none was running there / the agent's flow cannot stop a turn (no runtime control wired, or an application flow without `StoppableSink`) |
+| `turn in <agent>/<conv> stopped by request (interrupted)` | the flow ended the turn; a `stopped` notice follows in the conversation |
+| `Slack agent session <ts> stopped by <user>: …` | the panel's Stop button, routed the same way |
 | a reaction, and no line at all | the emoji is not in that agent's map (check `AGENTS_REACTION_COMMANDS__<AGENT>`, not only the global key); interactivity is off; on Slack the app lacks `reactions:read` or the `reaction_added` subscription; or the reaction was an agent's or a bot's |
 | `could not read the message under a reaction … missing a *:history scope` | Slack only: the command ran without the quote; add the history scopes |
 

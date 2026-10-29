@@ -15,7 +15,7 @@ import logging
 from collections.abc import Callable
 
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.flow import Flow, TurnOutcome
+from crucible.ports.chat.flow import Flow, TurnOutcome, TurnStopper
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
 
@@ -41,6 +41,13 @@ class MessageCoalescer:
         self._workers: dict[str, asyncio.Task] = {}
         # message id -> whoever is waiting for that turn's outcome.
         self._tracked: dict[str, asyncio.Future[TurnOutcome]] = {}
+
+    async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
+        """``StoppableSink``, for the flow behind: the coalescer is the sink a
+        gateway holds, the flow is what runs the turn and can end it."""
+        if not isinstance(self._flow, TurnStopper):
+            return False
+        return await self._flow.stop(conversation_id, gateway=gateway)
 
     def submit(self, msg: IncomingMessage, chat: ChatClient) -> None:
         if self._on_arrival is not None and not msg.synthetic:
