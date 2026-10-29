@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.39.0 — 2026-10-29
+
 - **Fixed: a Slack agent session's indicator could fail the turn.** The flow
   marked the conversation busy before the runtime ran and waited on the
   platform's answer; a network error or a timeout from `agents.sessions.setStatus`
