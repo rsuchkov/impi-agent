@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.38.0 — 2026-10-29
+
 - **A preview's verbatim block says what it is written in.**
   `CallPreview(block_language=…)` — `groovy`, `diff`, `json` — rides the card
   (`ApprovalCard.block_language`), the Mattermost fence, and the http journal's
