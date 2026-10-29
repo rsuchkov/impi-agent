@@ -114,6 +114,30 @@ async def test_command_outside_a_thread_runs_as_the_channel(tmp_path: Path) -> N
         await store.close()
 
 
+async def test_a_direct_message_command_may_name_the_thread_its_answer_goes_to(tmp_path: Path) -> None:
+    # A reaction or shortcut on a top-level DM message with DM_REPLIES=thread:
+    # the conversation is the DM, the answer goes under that message.
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    spy = SinkSpy()
+    dispatcher = InteractionDispatcher(
+        store, presence_of(object(), sink=spy, agent="assistant"), PendingUiRequests(), store,  # type: ignore[arg-type]
+    )
+    try:
+        dispatcher.invoke_command(
+            "assistant", channel_id="dm1", conversation_id="dm1", kind=KIND_DM, text="/summarize",
+            user_id="u1", gateway="mattermost", thread_root_id="p1",
+        )
+        msg = spy.submitted[0]
+        assert msg.conversation_id == "dm1" and msg.kind == KIND_DM
+        assert msg.ref.thread_root_id == "p1"
+        dispatcher.invoke_command(
+            "assistant", channel_id="dm1", conversation_id="dm1", kind=KIND_DM, text="/summarize", user_id="u1",
+        )
+        assert spy.submitted[1].ref.thread_root_id == ""  # answered at the top when nobody names a thread
+    finally:
+        await store.close()
+
+
 async def test_wrong_token_is_refused(tmp_path: Path) -> None:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     server, spy = await _server(8493, store)

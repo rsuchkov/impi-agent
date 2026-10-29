@@ -147,7 +147,9 @@ def test_the_conversation_rule_is_one_function() -> None:
     # Answering a direct message in a thread under the person's message keeps the
     # DM as the conversation; a reply inside a thread belongs to the thread as before.
     assert conversation_of("2.0", "", "D1", is_dm=True, dm_thread=True) == ("D1", "dm", "2.0")
-    assert conversation_of("3.0", "2.0", "D1", is_dm=True, dm_thread=True) == ("2.0", "thread", "2.0")
+    assert conversation_of("3.0", "2.0", "D1", is_dm=True, dm_thread=True) == ("D1", "dm", "2.0")  # a reply in that thread: the DM's still
+    assert conversation_of("3.0", "2.0", "C1", is_dm=False, dm_thread=True) == ("2.0", "thread", "2.0")  # a channel thread is its own
+    assert conversation_of("3.0", "2.0", "D1", is_dm=True) == ("2.0", "thread", "2.0")  # answered at the top: a DM thread is its own
 
 
 # --- parsing ---------------------------------------------------------------------
@@ -204,6 +206,16 @@ async def test_a_reaction_in_a_dm_runs_as_the_dm_conversation() -> None:
     await _reactions(dispatcher, messages=[_message()]).handle_reaction(_reaction(channel="D0123"))
     call = dispatcher.calls[0]
     assert call[2] == "D0123" and call[3] == "D0123" and call[4] == "dm"
+
+
+async def test_a_reaction_on_a_top_level_direct_message_names_the_thread_under_it_when_dm_replies_go_there() -> None:
+    dispatcher = FakeDispatcher()
+    reactions = _reactions(dispatcher, messages=[_message()])
+    reactions._dm_thread = True
+    await reactions.handle_reaction(_reaction(channel="D0123"))
+    call = dispatcher.calls[0]
+    assert call[3] == "D0123" and call[4] == "dm"  # the conversation is still the DM
+    assert dispatcher.thread_roots[-1] == "1782309753.848289"  # the answer goes under the message
 
 
 async def test_an_unmapped_emoji_does_nothing() -> None:

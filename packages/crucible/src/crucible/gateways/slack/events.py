@@ -47,9 +47,14 @@ def conversation_of(
     """The one conversation rule, for a message, a shortcut and a reaction
     alike: a reply inside a thread belongs to that thread; a top-level DM
     message to the DM channel's session — answered at the top, or, with
-    ``dm_thread``, in a thread under the message (the conversation is the DM
-    either way); a top-level channel message starts a thread under itself."""
+    ``dm_thread``, in a thread under the message, a reply in such a thread
+    being the DM's too (the conversation is the DM either way); a top-level
+    channel message starts a thread under itself."""
     if thread_ts and thread_ts != ts:
+        if is_dm and dm_thread:
+            # The thread the engine opened under the person's message: still
+            # the DM's conversation, answered in that thread.
+            return ConversationKey(channel, KIND_DM, thread_ts)
         return ConversationKey(thread_ts, KIND_THREAD, thread_ts)
     if is_dm:
         return ConversationKey(channel, KIND_DM, ts if dm_thread else "")

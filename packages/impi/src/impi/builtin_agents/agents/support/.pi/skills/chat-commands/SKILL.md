@@ -130,10 +130,11 @@ mapped to the word (`octagonal_sign=stop` in `REACTION_COMMANDS`) does the
 same. The slash command still has to exist on the platform (§2, §3) — the
 engine answers it, the platform delivers it; "nothing happens" on `/stop` is
 diagnosed like any other command (§7). On Slack a slash command never reaches
-a thread (§3), so `/stop` in a channel or DM stops that channel's or DM's own
-turn; a turn in a thread — every Agents-panel session — is stopped with the
-reaction or the panel's Stop button. The agent needs no teaching: the
-command never reaches the model.
+a thread (§3), so `/stop` in a channel stops that channel's own turn and never
+a thread's; `/stop` in a DM stops the turn there, in a thread under one of its
+messages too; a turn in a channel's thread — an Agents-panel session is a
+thread — is stopped with the reaction or the panel's Stop button. The agent
+needs no teaching: the command never reaches the model.
 
 ## 6. Networking (Mattermost only)
 
@@ -162,6 +163,8 @@ Read the engine log and match the line:
 | `stop asked for <agent> in <conv> by <user>: stopped` / `nothing_running` / `unavailable` | the stop word was typed: a turn was ended / none was running there / the agent's flow cannot stop a turn (no runtime control wired, or an application flow without `StoppableSink`) |
 | `turn in <agent>/<conv> stopped by request (interrupted)` | the flow ended the turn; a `stopped` notice follows in the conversation |
 | `Slack agent session <ts> stopped by <user>: …` | the panel's Stop button, routed the same way |
+| `agent session status not set for <ts>: …` (debug) | `SLACK_AGENT_SESSIONS=true` but the app lacks `agent_view`/`assistant:write`, or the network did not answer; the turn runs on, the panel shows no indicator |
+| `the conversation's view could not be marked busy` / `free` (warning) | an application's own `ConversationView` raised; the turn runs on |
 | a reaction, and no line at all | the emoji is not in that agent's map (check `AGENTS_REACTION_COMMANDS__<AGENT>`, not only the global key); interactivity is off; on Slack the app lacks `reactions:read` or the `reaction_added` subscription; or the reaction was an agent's or a bot's |
 | `could not read the message under a reaction … missing a *:history scope` | Slack only: the command ran without the quote; add the history scopes |
 

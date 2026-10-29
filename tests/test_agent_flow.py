@@ -2206,12 +2206,12 @@ async def test_a_stop_finds_the_turn_by_the_thread_or_the_channel_the_anchor_car
     flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime, keying=_Rekeying())
     msg = IncomingMessage(
         ref=ConversationRef(channel_id="D1", conversation_id="1700.1", message_id="1700.2", thread_root_id="1700.1"),
-        text="go", user_id="u1", username="roman", kind=KIND_THREAD, gateway="slack",
+        text="go", user_id="u1", username="roman", kind=KIND_THREAD, is_dm=True, gateway="slack",
     )
     turn = asyncio.ensure_future(flow.handle(msg, FakeChat()))
     await asyncio.wait_for(runtime.started.wait(), 1.0)
     assert await flow.stop("nowhere", gateway="slack") is False
-    assert await flow.stop("D1", gateway="slack") is True  # the channel, as a /stop typed in the DM names it
+    assert await flow.stop("D1", gateway="slack") is True  # the channel, as a /stop typed in the DM names it: the DM is the conversation
     assert await turn is TurnOutcome.STOPPED
     assert flow._active_at == {}  # every name let go — the conversation's, the thread's, the channel's
     # A turn answered at the top of a direct message: Slack's session is the message itself.
@@ -2224,5 +2224,52 @@ async def test_a_stop_finds_the_turn_by_the_thread_or_the_channel_the_anchor_car
     turn = asyncio.ensure_future(flow.handle(top, FakeChat()))
     await asyncio.wait_for(runtime.started.wait(), 1.0)
     assert await flow.stop("1800.1", gateway="slack") is True  # agent_session_stopped names the message's thread_ts
+    assert await turn is TurnOutcome.STOPPED
+    await store.close()
+
+
+async def test_a_stop_in_a_channel_does_not_reach_a_thread_of_it(tmp_path: Path) -> None:
+    """A channel's name is not a thread's: a /stop typed at the channel's level
+    must not end a turn somebody else runs in a thread of that channel."""
+    import asyncio
+
+    class _Interruptible(FakeRuntime):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.ended = asyncio.Event()
+
+        async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
+            self.started.set()
+            await self.ended.wait()
+            return PiResult(text="done")
+
+        async def cancel(self, session_id: str) -> bool:
+            self.ended.set()
+            return True
+
+        def has_memory(self, agent: str, session_id: str) -> bool:
+            return True
+
+        def memory_updated_at(self, agent: str, session_id: str):
+            return None
+
+        async def reset(self, agent: str, session_id: str) -> None:
+            pass
+
+        def stats(self):
+            raise AssertionError("not asked here")
+
+    runtime = _Interruptible()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime)
+    thread = IncomingMessage(
+        ref=ConversationRef(channel_id="C1", conversation_id="root1", message_id="p2", thread_root_id="root1"),
+        text="go", user_id="u1", username="roman", kind=KIND_THREAD, mentioned=True, gateway="mattermost",
+    )
+    turn = asyncio.ensure_future(flow.handle(thread, FakeChat()))
+    await asyncio.wait_for(runtime.started.wait(), 1.0)
+    assert await flow.stop("C1", gateway="mattermost") is False  # the channel: not a name of this thread's
+    assert await flow.stop("root1", gateway="mattermost") is True  # the thread itself
     assert await turn is TurnOutcome.STOPPED
     await store.close()

@@ -199,7 +199,7 @@ class SlackInteractions:
         thread_ts = str(message.get("thread_ts") or "")
         # Same conversation rule as an inbound message (slack/events.py); the
         # shortcut payload carries no channel type, so the id says what it is.
-        conversation_id, kind, _ = conversation_of(
+        conversation_id, kind, thread_root = conversation_of(
             ts, thread_ts, channel_id, is_dm=is_direct_channel(channel_id), dm_thread=self._dm_thread,
         )
         if not conversation_id:
@@ -211,6 +211,7 @@ class SlackInteractions:
             channel_id=channel_id,
             conversation_id=conversation_id,
             kind=kind,
+            thread_root_id=thread_root,
             text=f"/{command}",
             user_id=user.get("id", ""),
             username=user.get("username", "") or user.get("name", ""),

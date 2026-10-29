@@ -51,9 +51,14 @@ def conversation_of(
     """The one conversation rule, for a post and a reaction alike: a reply
     belongs to its thread (in a DM too); a top-level DM post to the DM
     channel's session — answered at the top, or, with ``dm_thread``, in a
-    thread under the post (the conversation is the DM either way); a
-    top-level channel post starts a thread under itself."""
+    thread under the post, a reply in such a thread being the DM's too (the
+    conversation is the DM either way); a top-level channel post starts a
+    thread under itself."""
     if root_id:
+        if is_dm and dm_thread:
+            # The thread the engine opened under the person's post: still the
+            # DM's conversation, answered in that thread.
+            return ConversationKey(channel_id, KIND_DM, root_id)
         return ConversationKey(root_id, KIND_THREAD, root_id)
     if is_dm:
         return ConversationKey(channel_id, KIND_DM, post_id if dm_thread else "")

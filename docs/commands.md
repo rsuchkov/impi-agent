@@ -211,9 +211,10 @@ a working indicator and a native **Stop** button while the agent works
 [creating-agents.md](creating-agents.md)); pressing it ends the turn the same
 way. All five doors lead to the one ending. One Slack caveat: a slash command
 never reaches a thread (the platform's rule, above), so `/stop` typed in a
-channel or a direct message stops that channel's or DM's own turn, and a turn
-running in a thread — every Agents-panel session is one — is stopped with the
-reaction or the Stop button.
+channel stops that channel's own turn and never a thread's, `/stop` typed in a
+direct message stops the turn there (in a thread under one of its messages
+too), and a turn running in a channel's thread — every Agents-panel session is
+a thread — is stopped with the reaction or the Stop button.
 
 
 ## Teaching the agent the command

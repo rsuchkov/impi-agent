@@ -45,6 +45,7 @@ for the full resolution order.
 | `MATTERMOST_URL` | `http://localhost:8065` | server URL |
 | `MATTERMOST_TOKEN` | `""` | bot token for the default agent (`AGENT_NAME`) |
 | `MM_MAX_POST_CHARS` | `16000` | reply chunking threshold |
+| `DM_REPLIES` | `top` | where a top-level direct message is answered, `top` or `thread` — the same setting as in the Slack table below; both chat gateways honour it (`AGENTS_DM_REPLIES__<AGENT>` per agent) |
 
 ## Slack gateway (Socket Mode)
 
@@ -56,7 +57,7 @@ HTTP receiver is needed.
 | `SLACK_BOT_TOKEN` | `""` | `xoxb-…` bot token for the default agent |
 | `SLACK_APP_TOKEN` | `""` | `xapp-…` app-level token (scope `connections:write`) |
 | `SLACK_AGENT_SESSIONS` | `false` | the Slack bot is an agent in Slack's Agents panel (the app has `agent_view`): a turn marks its session `processing` — the working indicator and Slack's Stop button — and `active` after. A session is a thread: the one the turn answers in, or, with `DM_REPLIES=top`, the one Slack opens under the person's message for the status alone (an empty thread beside the answer). Per agent: `AGENTS_SLACK_AGENT_SESSIONS__<AGENT>`. See [creating-agents.md](creating-agents.md) |
-| `DM_REPLIES` | `top` | where a top-level direct message is answered, on Mattermost and Slack alike: `top` — at the top of the DM; `thread` — in a thread under the person's message (where a Slack agent session lives). The conversation is the DM either way, memory and all. Per agent: `AGENTS_DM_REPLIES__<AGENT>` |
+| `DM_REPLIES` | `top` | where a top-level direct message is answered, on Mattermost and Slack alike: `top` — at the top of the DM; `thread` — in a thread under the person's message (where a Slack agent session lives). The conversation is the DM either way, memory and all, a reply typed inside such a thread included. It places the answer to a person's message: a screen, a card redraw and a scheduled turn in that DM still post at its top. Per agent: `AGENTS_DM_REPLIES__<AGENT>` |
 | `SLACK_COMMAND_PREFIX` | `crux_` | message shortcuts whose callback id starts with this are commands; the rest of the id is the command name (empty = every shortcut is one). See [commands.md](commands.md) |
 
 ## Reactions as commands

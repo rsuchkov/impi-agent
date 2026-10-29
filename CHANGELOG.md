@@ -18,7 +18,9 @@ when a release is cut, and `impi update` shows the target version's section.
   message names the channel; an application that keyed a thread's messages
   into another conversation left the flow knowing the turn by one name only.
   The flow now indexes a turn by every name its anchor carried — the
-  conversation's, the thread's, the channel's — on that gateway.
+  conversation's, the thread's, the message's and, in a direct message, the
+  channel's — on that gateway; a `/stop` typed in a channel still does not
+  reach a thread of it.
 - **The Slack Home hook publishes its own view.** `SlackHome.opened(user_id,
   tab, publish)` is handed `views.publish` for the person who opened the Home
   (`PublishHome`) and publishes what it wants: `private_metadata`, and another
@@ -39,10 +41,16 @@ when a release is cut, and `impi update` shows the target version's section.
   are threads, and the panel sends a person's message at the top of the
   direct message: `thread` puts the answer and the status in a thread under
   it, the shape the panel expects; `top` keeps the answer at the top and lets
-  Slack open an empty thread under the message for the status alone. Before,
-  a top-level direct message got neither status nor Stop button, so the panel
-  looked like a plain chat whatever the manifest said. A stop now also finds a
-  turn by the message it answers.
+  Slack open an empty thread under the message for the status alone. A reply
+  typed inside a thread the engine opened in a direct message is the DM's
+  conversation too. Before, a top-level direct message got neither status nor
+  Stop button, so the panel looked like a plain chat whatever the manifest
+  said. A stop now also finds a turn by the message it answers. **Breaks:** a
+  Slack app in the Agents panel must set `SLACK_AGENT_SESSIONS=true` (or per
+  agent) to keep marking its sessions — v0.37.0 marked every thread turn with
+  no knob; the indicator is off by default now. `DM_REPLIES` places the answer
+  to a person's message; a screen, a card redraw and a scheduled turn in that
+  direct message still post at its top.
 - **An application's entitlement source is told the gateway's ceiling.**
   `EntitlementSource.entitlement(agent, msg, *, tools=None)`: `GatewayEntitlements`
   calls its inner source with the tools the gateway leaves, so instructions

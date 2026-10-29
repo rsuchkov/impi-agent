@@ -464,14 +464,15 @@ class AgentFlow:
         started = time.monotonic()
         facts = _TurnFacts(record.runtime_session_id)
         # Every name the gateway may know the conversation by — the id, the
-        # thread, the channel, the message itself (Slack opens a session under
-        # it) — so a stop that names any of them finds the turn, even where the
-        # application keyed the message elsewhere.
-        addresses = {
-            (anchor.gateway, name)
-            for name in (anchor.conversation_id, anchor.ref.thread_root_id, anchor.channel_id, anchor.ref.message_id)
-            if name
-        }
+        # thread, the message itself (Slack opens a session under it), and in a
+        # direct message its channel, which is the conversation there — so a
+        # stop that names any of them finds the turn, even where the
+        # application keyed the message elsewhere. A channel's name is not a
+        # thread's: a /stop in a channel does not reach a thread of it.
+        names = [anchor.conversation_id, anchor.ref.thread_root_id, anchor.ref.message_id]
+        if anchor.is_dm or anchor.kind == KIND_DM:
+            names.append(anchor.channel_id)
+        addresses = {(anchor.gateway, name) for name in names if name}
         self._active[key] = facts
         for address in addresses:
             self._active_at.setdefault(address, facts)

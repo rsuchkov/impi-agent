@@ -79,7 +79,7 @@ class SlackReactions:
         if reacted_by_an_agent(reaction.user_id, self._own_user_id(), self._directory, reactor):
             return
         message = await self._message(reaction)
-        conversation_id, kind, _ = conversation_of(
+        conversation_id, kind, thread_root = conversation_of(
             reaction.message_id, str(message.get("thread_ts") or ""), reaction.channel_id,
             is_dm=is_direct_channel(reaction.channel_id), dm_thread=self._dm_thread,
         )
@@ -103,6 +103,7 @@ class SlackReactions:
             user_id=reaction.user_id,
             username=reactor.username if reactor is not None else "",
             quoted=quoted,
+            thread_root_id=thread_root,
         )
         logger.info(
             "reaction :%s: by %s in %s runs /%s for %s",

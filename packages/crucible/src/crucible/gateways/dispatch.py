@@ -84,8 +84,10 @@ class GatewayDispatcher(Protocol):
         username: str = "",
         quoted: QuotedMessage | None = None,
         gateway: str = "",
+        thread_root_id: str = "",
     ) -> object:
         """Run a command (slash command, message shortcut, reaction) as a turn
         of ``agent`` in the conversation it was invoked from; ``quoted`` is the
-        message it points at, for the flow to quote under its author's name."""
+        message it points at, for the flow to quote under its author's name;
+        ``thread_root_id`` where the answer goes when not the conversation."""
         ...

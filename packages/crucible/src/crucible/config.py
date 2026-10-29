@@ -87,6 +87,17 @@ _EMOJI_NAME = re.compile(r"^[a-z0-9_+-]+$")
 _COMMAND_WORD = re.compile(r"^[a-z0-9_-]+$")
 
 
+def _checked_bool(key: str, raw: str) -> bool:
+    """A per-agent boolean as pydantic reads one — true/false, 1/0, yes/no,
+    on/off — or ValueError naming the key."""
+    word = raw.strip().lower()
+    if word in ("true", "1", "yes", "on", "t", "y"):
+        return True
+    if word in ("false", "0", "no", "off", "f", "n", ""):
+        return False
+    raise ValueError(f"{key}: {raw!r} is not a boolean (true/false)")
+
+
 def _checked_dm_replies(key: str, raw: str) -> str:
     """``top`` or ``thread`` — or ValueError naming the key."""
     word = raw.strip().lower()
@@ -607,14 +618,7 @@ class Settings(BaseSettings):
         AGENTS_SLACK_AGENT_SESSIONS__<AGENT>, else SLACK_AGENT_SESSIONS."""
         key = f"AGENTS_SLACK_AGENT_SESSIONS__{agent.upper().replace('-', '_')}"
         raw = self._override(key)
-        if raw is None:
-            return self.slack_agent_sessions
-        word = raw.strip().lower()
-        if word in ("true", "1", "yes", "on"):
-            return True
-        if word in ("false", "0", "no", "off", ""):
-            return False
-        raise ValueError(f"{key}: {raw!r} is not a boolean (true/false)")
+        return _checked_bool(key, raw) if raw is not None else self.slack_agent_sessions
 
     def reaction_commands_for(self, agent: str) -> dict[str, str]:
         """The emoji -> command map of one agent: AGENTS_REACTION_COMMANDS__<AGENT>

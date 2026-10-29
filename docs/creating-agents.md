@@ -44,7 +44,7 @@ runtime:
                           # all, after long reasoning is the sign to lower it.
   tools: [read, bash]     # the single capability allowlist (see "Tool gating")
   tools_by_gateway:       # optional; a gateway named here gets only these of `tools`
-    slack: [read]         #   (a subset), or {except: [gitlab_mr]} for all but some;
+    slack: [read]         #   (a subset), or {except: [bash]} for all but some;
     http: {except: [bash]} #   one not named gets them all
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
   env: [MYSERVICE_*]      # optional; engine environment variables its process inherits

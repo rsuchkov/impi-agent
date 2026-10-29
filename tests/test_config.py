@@ -315,6 +315,7 @@ def test_where_a_direct_message_is_answered_and_whether_the_slack_bot_is_an_agen
     assert settings.dm_replies_for("helper") == "thread" and settings.slack_agent_sessions_for("helper") is True
     assert settings.dm_replies_for("assistant") == "top"  # another agent keeps the engine's own
     assert Settings(_env_file=None, dm_replies="thread").dm_replies_for("assistant") == "thread"  # pyright: ignore[reportCallIssue]
+    assert Settings(_env_file=None, slack_agent_sessions=True).slack_agent_sessions_for("assistant") is True  # pyright: ignore[reportCallIssue]
     with pytest.raises(ValueError, match="DM_REPLIES"):
         Settings(_env_file=None, dm_replies="sideways")  # pyright: ignore[reportCallIssue]
     monkeypatch.setenv("AGENTS_DM_REPLIES__HELPER", "nowhere")

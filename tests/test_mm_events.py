@@ -55,7 +55,8 @@ def test_a_direct_message_may_be_answered_in_a_thread_under_it() -> None:
     assert msg is not None
     assert (msg.conversation_id, msg.kind, msg.ref.thread_root_id) == (msg.channel_id, KIND_DM, msg.ref.message_id)
     reply = parse_posted(_frame(root_id="dmroot000000000000000001"), ME, dm_thread=True)
-    assert reply is not None and reply.kind == KIND_THREAD and reply.conversation_id == "dmroot000000000000000001"
+    assert reply is not None and reply.kind == KIND_DM and reply.conversation_id == reply.channel_id  # the DM's still
+    assert reply.ref.thread_root_id == "dmroot000000000000000001"  # answered in that thread
 
 
 def test_dm_top_level_is_dm_channel_session() -> None:

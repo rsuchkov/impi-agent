@@ -389,8 +389,8 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   should be told about in words it must trust — hand the flow
   `AgentFlow(..., entitlements=…, conversation_profiles=EntitledProfiles(tools, narrow_pi_profile))`:
   an `EntitlementSource` (`crucible.ports.entitlement`) whose
-  `entitlement(agent, msg)` answers, from the message that opens the turn, an
-  `Entitlement(tools=…, instructions=…)` — `tools` the names this
+  `entitlement(agent, msg, *, tools=None)` answers, from the message that
+  opens the turn, an `Entitlement(tools=…, instructions=…)` — `tools` the names this
   conversation may use out of the agent's own (built-ins such as `read`
   included: the runtime's allowlist is one list; `None` leaves the agent's
   list as it is, `()` leaves no tool), `instructions` the application's own

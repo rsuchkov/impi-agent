@@ -263,6 +263,19 @@ async def test_shortcut_in_a_dm_runs_as_the_dm_conversation() -> None:
     assert call[3] == "D0123" and call[4] == "dm"
 
 
+async def test_shortcut_on_a_top_level_direct_message_names_the_thread_under_it_when_dm_replies_go_there() -> None:
+    dispatcher = FakeDispatcher()
+    _interactions(dispatcher, dm_thread=True).handle_shortcut({
+        **SHORTCUT_IN_THREAD, "channel": {"id": "D0123", "name": "dm"}, "message": {"ts": "111.2", "text": "hi"},
+    })
+    call = dispatcher.calls[0]
+    assert call[3] == "D0123" and call[4] == "dm" and dispatcher.thread_roots[-1] == "111.2"
+    _interactions(dispatcher).handle_shortcut({
+        **SHORTCUT_IN_THREAD, "channel": {"id": "D0123", "name": "dm"}, "message": {"ts": "111.2", "text": "hi"},
+    })
+    assert dispatcher.thread_roots[-1] == ""  # answered at the top by default
+
+
 async def test_shortcut_without_a_command_name_is_ignored() -> None:
     dispatcher = FakeDispatcher()
     _interactions(dispatcher).handle_shortcut({**SHORTCUT_IN_THREAD, "callback_id": "crux_"})

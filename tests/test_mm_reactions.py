@@ -118,6 +118,7 @@ def test_the_conversation_rule_is_one_function() -> None:
     assert conversation_of("p2", "root1", "dm1", is_dm=True) == ("root1", "thread", "root1")  # in a DM too
     assert conversation_of("p2", "", "dm1", is_dm=True) == ("dm1", "dm", "")
     assert conversation_of("p2", "", "dm1", is_dm=True, dm_thread=True) == ("dm1", "dm", "p2")  # answered under the post
+    assert conversation_of("p3", "p2", "dm1", is_dm=True, dm_thread=True) == ("dm1", "dm", "p2")  # a reply there: the DM's still
     assert conversation_of("p2", "", "ch1", is_dm=False) == ("p2", "thread", "p2")
 
 
@@ -156,6 +157,16 @@ async def test_a_reaction_on_a_top_level_direct_message_runs_as_the_dm_conversat
     # The channel's type is asked once, then remembered.
     await reactions.handle_reaction(_reaction(channel_id="dm1"))
     assert driver.calls.count(("get_channel", "dm1")) == 1
+
+
+async def test_a_reaction_on_a_top_level_direct_post_names_the_thread_under_it_when_dm_replies_go_there() -> None:
+    dispatcher = FakeDispatcher()
+    driver = FakeDriver({"p1": _post(channel_id="dm1")}, {"dm1": "D"})
+    reactions = _reactions(dispatcher, driver)
+    reactions._dm_thread = True
+    await reactions.handle_reaction(_reaction(channel_id="dm1"))
+    call = dispatcher.calls[0]
+    assert call[3] == "dm1" and call[4] == "dm" and dispatcher.thread_roots[-1] == "p1"
 
 
 async def test_an_unmapped_emoji_reads_nothing_and_does_nothing() -> None:

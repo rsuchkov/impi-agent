@@ -30,6 +30,7 @@ class FakeDispatcher:
         self.calls: list = []
         self.quoted: list = []  # what each invoked command pointed at
         self.gateways: list[str] = []  # which gateway each command came through
+        self.thread_roots: list[str] = []  # where each command's answer goes, when not the conversation
         self.picks: list[str] = []  # the pick kind of each consumed action
         self.clicks: list[tuple[str, str]] = []  # (action id, data) of each consumed action
         self._form = form
@@ -83,11 +84,12 @@ class FakeDispatcher:
 
     def invoke_command(
         self, agent, *, channel_id, conversation_id, kind, text, user_id, username="", quoted=None,
-        gateway: str = "",
+        gateway: str = "", thread_root_id: str = "",
     ):
         self.calls.append(
             ("invoke_command", agent, channel_id, conversation_id, kind, text, user_id, username)
         )
         self.quoted.append(quoted)
         self.gateways.append(gateway)
+        self.thread_roots.append(thread_root_id)
         return self._command_result

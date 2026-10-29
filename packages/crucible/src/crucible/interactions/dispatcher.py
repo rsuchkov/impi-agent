@@ -279,11 +279,15 @@ class InteractionDispatcher:
         username: str = "",
         quoted: QuotedMessage | None = None,
         gateway: str = "",
+        thread_root_id: str = "",
     ) -> ActionResult:
         """A slash command, a message shortcut, a reaction: run it as an
         ordinary turn of the agent, in the conversation it was invoked from —
         the reply is posted there like any other answer. ``quoted`` is the
-        message the command points at, carried as somebody else's words.
+        message the command points at, carried as somebody else's words;
+        ``thread_root_id`` is where the answer goes when that is not the
+        conversation itself (a direct message answered in a thread under the
+        message a reaction was put on).
 
         Unlike a click there is no stored record — the transport supplies the
         agent and the conversation it resolved from its own payload.
@@ -292,7 +296,7 @@ class InteractionDispatcher:
         target = self._presence.sink(agent)
         if target is None:
             return ActionResult.UNAVAILABLE
-        thread_root = conversation_id if kind == KIND_THREAD else ""
+        thread_root = thread_root_id or (conversation_id if kind == KIND_THREAD else "")
         msg = IncomingMessage(
             ref=ConversationRef(
                 channel_id=channel_id,
