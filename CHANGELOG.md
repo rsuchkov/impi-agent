@@ -41,6 +41,13 @@ when a release is cut, and `impi update` shows the target version's section.
   (`Selected: Approve`, the label) instead of the agent's value; Mattermost
   carries the control's id and label in its context for that. An application
   that read the interaction id out of `interact-<id>` has it on `click` now.
+- **Breaks:** `Describing.describe` may return `CannotRun` — an application
+  that calls `describe` itself sees a third type; `ApprovalCard` and
+  `CardLayout` gained `block_language`, and `ActionCallback` gained `label`,
+  `action_id` and `data` (positional constructions move); a
+  `GatewayDispatcher` of an application's own takes `action_id=` and `data=`
+  on `consume_action`; after a click the message says the control's label
+  where it said the value.
 
 ## v0.37.0 — 2026-10-29
 
