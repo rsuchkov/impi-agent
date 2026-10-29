@@ -32,6 +32,15 @@ when a release is cut, and `impi update` shows the target version's section.
   hands the captions the person's names in place of the paths: "Reading
   invoice.pdf", not the ASCII name on disk behind a platform id. The call
   itself runs on the paths.
+- **A click carries the application's data, and the message says the label.**
+  `Action.data` is the application's own string on a control — the id of the
+  plan a button approves — carried by both chat gateways and brought back
+  with the click as `IncomingMessage.click` (`Click(action_id, data,
+  interaction_id)`), beside the text the agent hears (`value`) and shown to
+  nobody. After a click the message says what the person saw on the control
+  (`Selected: Approve`, the label) instead of the agent's value; Mattermost
+  carries the control's id and label in its context for that. An application
+  that read the interaction id out of `interact-<id>` has it on `click` now.
 
 ## v0.37.0 — 2026-10-29
 

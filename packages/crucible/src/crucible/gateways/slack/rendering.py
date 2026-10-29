@@ -291,6 +291,8 @@ def _element(action: Action, index: int) -> dict[str, Any]:
                 "token": action.context.get("token", ""),
                 "form": action.context.get("form", ""),
                 "value": action.value,
+                "id": action.id,
+                "data": action.data,
                 "screen": action.context.get("screen", ""),
                 "state": action.context.get("state", ""),
                 "approval": action.context.get("approval", ""),
@@ -312,6 +314,25 @@ def decode_action(action: dict[str, Any]) -> tuple[str, str, str]:
         return token, "", str(_picked(action) or "")
     meta = _load_json(action.get("value"))
     return str(meta.get("token", "")), str(meta.get("form", "")), str(meta.get("value", ""))
+
+
+def decode_click(action: dict[str, Any]) -> tuple[str, str]:
+    """A block_actions element -> (the control's own id, the application's
+    data on it); a menu carries neither."""
+    if action.get("type") in _MENU_TYPES.values() or _picked(action) is not None:
+        return "", ""
+    meta = _load_json(action.get("value"))
+    return str(meta.get("id", "")), str(meta.get("data", ""))
+
+
+def chosen_label(action: dict[str, Any]) -> str:
+    """What the person saw on the control they used: a button's text, a
+    picked option's text; "" when the element says neither."""
+    picked = action.get("selected_option")
+    if isinstance(picked, dict):
+        return str((picked.get("text") or {}).get("text", ""))
+    text = action.get("text")
+    return str(text.get("text", "")) if isinstance(text, dict) else ""
 
 
 def _menu_block_id(action: Action) -> str:

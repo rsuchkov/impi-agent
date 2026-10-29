@@ -430,3 +430,26 @@ async def test_the_log_records_the_command_but_not_its_text(
     finally:
         await server.stop()
         await store.close()
+
+
+async def test_the_receivers_answer_to_a_click_says_the_controls_label(tmp_path: Path) -> None:
+    from crucible.store.base import InteractionRecord
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    server, spy = await _server(8496, store)
+    try:
+        await store.create_interaction(InteractionRecord(
+            interaction_id="i1", token="tok", agent="assistant", channel_id="ch1", conversation_id="root1",
+            kind="thread", created_at="2026-01-01T00:00:00+00:00", gateway="mattermost",
+        ))
+        async with aiohttp.ClientSession() as session:
+            async with session.post("http://127.0.0.1:8496/interact", json={
+                "context": {"token": "tok", "value": "plan-approve:fd01", "id": "approve", "label": "Approve", "data": "fd01"},
+                "user_id": "u1", "post_id": "p1",
+            }) as resp:
+                body = await resp.json()
+        assert body["update"]["message"] == "Selected: Approve"  # the label, not the value
+        assert spy.submitted[0].click is not None and spy.submitted[0].click.data == "fd01"
+    finally:
+        await server.stop()
+        await store.close()

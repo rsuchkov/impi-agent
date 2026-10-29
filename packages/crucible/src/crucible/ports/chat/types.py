@@ -84,8 +84,12 @@ class Choice:
 @dataclass(frozen=True)
 class Action:
     """An affordance on an interactive message (``kind`` ∈ ``ACTION_KINDS``).
-    ``context`` is opaque per-action data the adapter round-trips (we stash the
-    interaction token there)."""
+    ``label`` is what the person sees on the control and what the message says
+    they chose; ``value`` is what the agent hears as the click's text; ``data``
+    is the application's own, carried with the click and shown to nobody —
+    an id the click is about (``IncomingMessage.click.data``). ``context`` is
+    opaque per-action data the adapter round-trips (we stash the interaction
+    token there)."""
 
     id: str
     label: str
@@ -94,6 +98,19 @@ class Action:
     context: dict[str, Any] = field(default_factory=dict)
     kind: str = ACTION_BUTTON
     options: tuple[Choice, ...] = ()  # dropdown choices when kind is ACTION_SELECT
+    data: str = ""
+
+
+@dataclass(frozen=True)
+class Click:
+    """The click a synthetic message was made from: which control
+    (``Action.id``), what the application put on it (``Action.data``), and the
+    interaction it answered. For the application; the model reads the
+    message's text, which is the control's ``value``."""
+
+    action_id: str
+    data: str
+    interaction_id: str
 
 
 # The neutral field vocabulary of a modal form. Adapters translate each name into
@@ -360,6 +377,9 @@ class IncomingMessage:
     # reaction names the message the emoji was put on. Rendered as another
     # person's quoted words, under their name, not as this speaker's text.
     quoted: QuotedMessage | None = None
+    # The click this message was made from, when it was (``synthetic``): the
+    # control's id and the application's data on it. Not shown to the model.
+    click: Click | None = None
     # A turn the engine started by itself — on a schedule, on an event — not
     # one a person's message opened. Recorded on the conversation so a program
     # can ask which of a person's conversations moved while they were away.

@@ -16,6 +16,9 @@ class ActionCallback:
 
     token: str = ""  # the widget / pending-UI token carried in the action's context
     value: str = ""  # the chosen value (button value or picked option)
+    label: str = ""  # what the control said, for the message that says what was chosen
+    action_id: str = ""  # the control's own id (``Action.id``), for the click facts
+    data: str = ""  # the application's data on the control (``Action.data``)
     form_token: str = ""  # set when the click is a "fill in" button that opens a form
     trigger: str = ""  # short-lived token to open a modal (form-open clicks only)
     user_id: str = ""  # who clicked

@@ -70,7 +70,7 @@ class FakeDispatcher:
         self.pending.append((token, value))
         return self.resolves
 
-    async def consume_action(self, token, value, user_id, *, pick=""):
+    async def consume_action(self, token, value, user_id, *, pick="", action_id="", data=""):
         self.consumed.append((token, value, user_id, pick))
 
     async def redraw_screen(self, state_raw, value, *, post_id, user_id):

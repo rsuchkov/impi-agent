@@ -446,7 +446,13 @@ def _attachment_actions(
                     **({"style": a.style} if a.style else {}),
                     "integration": {
                         "url": callback_url,
-                        "context": {**a.context, "value": a.value},
+                        # The click comes back with this context alone: the id and
+                        # the label for the message that says what was chosen, the
+                        # application's data for the click facts.
+                        "context": {
+                            **a.context, "value": a.value, "id": a.id, "label": a.label,
+                            **({"data": a.data} if a.data else {}),
+                        },
                     },
                 }
             )

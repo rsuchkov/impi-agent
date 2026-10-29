@@ -592,6 +592,15 @@ credential, is another user's credential.
   click on its Slack copy. Without one, each platform id is a person of its
   own. `impi` wires all of this from
   `AGENTS_GATEWAY__<AGENT>=mattermost,slack`.
+- **A click that carries data.** An `Action` has three strings for three
+  readers: `label`, what the person sees on the control and what the message
+  says they chose afterwards ("Selected: Approve"); `value`, what the agent
+  hears as the click's text; `data`, the application's own — the id of the
+  plan being approved — shown to nobody and carried with the click. The
+  synthetic message the click becomes has `click: Click(action_id, data,
+  interaction_id)` (`crucible.ports.chat.types`) beside its text; a flow or a
+  handler of the application's reads `msg.click.data`, the model never sees
+  it. Both chat gateways carry `data` with the control and bring it back.
 - **A Slack app of your own.** The Slack gateway runs on a Bolt `AsyncApp`;
   by default the factory builds one from the agent's bot token. An application
   with a Home of its own, commands or views beside the engine's hands the app

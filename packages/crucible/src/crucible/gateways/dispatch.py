@@ -41,8 +41,12 @@ class GatewayDispatcher(Protocol):
 
     async def resolve_pending(self, token: str, value: str) -> bool: ...
     async def consume_action(
-        self, token: str, value: str, user_id: str, *, pick: str = ""
-    ) -> object: ...
+        self, token: str, value: str, user_id: str, *, pick: str = "", action_id: str = "", data: str = "",
+    ) -> object:
+        """A fire-and-forget click fed back as a turn; ``action_id`` and
+        ``data`` are the control's own and the application's, for the
+        message's ``click``."""
+        ...
     async def load_form(self, form_token: str) -> FormOpen | None: ...
     async def open_screen(
         self, agent: str, command: str, *, channel_id: str, conversation_id: str,

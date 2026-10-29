@@ -180,7 +180,12 @@ async def test_post_actions_renders_interactive_buttons() -> None:
     act = kwargs["props"]["attachments"][0]["actions"][0]
     assert act["type"] == "button"  # without a type MM drops the integration
     assert act["integration"]["url"].endswith("/interact")
-    assert act["integration"]["context"] == {"interaction": "i1", "token": "t1", "value": "yes"}
+    # The click comes back with this context alone: the control's id and label
+    # ride along for the message that says what was chosen; data only when set.
+    assert act["integration"]["context"] == {"interaction": "i1", "token": "t1", "value": "yes", "id": "a_yes", "label": "Yes"}
+    await chat.post_actions(ref, "Plan:", [Action(id="approve", label="Approve", value="approve", data="plan-fd01")], callback_url="http://x/interact")
+    with_data = driver.calls[-1][1]["props"]["attachments"][0]["actions"][0]
+    assert with_data["integration"]["context"]["data"] == "plan-fd01"  # the application's data rides the control
     assert kwargs["root_id"] == "root1"
 
 

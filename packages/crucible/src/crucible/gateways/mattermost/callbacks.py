@@ -26,6 +26,9 @@ class MattermostCallbackCodec:
             # Buttons carry the value in context.value (set at post time); a select's
             # picked value arrives as context.selected_option (MM adds it).
             value=str(context.get("value") or context.get("selected_option") or ""),
+            label=str(context.get("label") or ""),
+            action_id=str(context.get("id") or ""),
+            data=str(context.get("data") or ""),
             form_token=str(context.get("form") or ""),
             trigger=str(body.get("trigger_id") or ""),
             user_id=str(body.get("user_id") or ""),

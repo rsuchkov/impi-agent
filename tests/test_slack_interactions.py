@@ -96,6 +96,20 @@ async def test_button_click_strips_the_buttons() -> None:
     assert updates == [{"channel": "C1", "ts": "9.9", "text": "Selected: Yes", "blocks": []}]
 
 
+async def test_the_message_says_the_controls_label_and_the_click_carries_the_applications_data() -> None:
+    """The person sees "Selected: Approve" — the button's text — while the agent
+    gets the value; the control's id and the application's data go to the
+    dispatcher with the click, for the message's click facts."""
+    dispatcher = FakeDispatcher()
+    it = _interactions(dispatcher)
+    updates = _recorder(it, "chat_update")
+    button = _button(token="TK", value="plan-approve:fd01", id="approve", data="fd01")
+    button["text"] = {"type": "plain_text", "text": "Approve"}
+    await it.handle_action({"user": {"id": "U2"}, "channel": {"id": "C1"}, "message": {"ts": "9.9"}, "actions": [button]})
+    assert updates[0]["text"] == "Selected: Approve"
+    assert dispatcher.clicks == [("approve", "fd01")]
+
+
 async def test_form_open_click_opens_modal() -> None:
     form = SimpleNamespace(agent="assistant", form=Form(title="T", fields=(FormField(name="s", label="S"),)))
     dispatcher = FakeDispatcher(form=form)

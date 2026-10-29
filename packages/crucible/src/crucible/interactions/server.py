@@ -241,17 +241,20 @@ class InteractionsServer:
         # the confirmation a tool declares): resolve the Future the paused turn
         # is waiting on. Must come before the fire-and-forget path, which uses a
         # different token store.
+        # What the message says was chosen is the control's label — what the
+        # person saw — not its value, which is the agent's.
+        chosen = f"{_CHOSE_PREFIX}{cb.label or cb.value}"
         if await self._dispatcher.resolve_pending(cb.token, cb.value):
-            return web.json_response(self._codec.reply_replace(f"{_CHOSE_PREFIX}{cb.value}"))
+            return web.json_response(self._codec.reply_replace(chosen))
 
         result = await self._dispatcher.consume_action(
-            cb.token, cb.value, cb.user_id, pick=cb.pick
+            cb.token, cb.value, cb.user_id, pick=cb.pick, action_id=cb.action_id, data=cb.data,
         )
         if result is ActionResult.UNKNOWN:
             return web.json_response(self._codec.reply_replace(BUTTONS_RETIRED_TEXT))
         if result is ActionResult.UNAVAILABLE:
             return web.json_response(self._codec.reply_notice(AGENT_UNAVAILABLE_TEXT))
-        return web.json_response(self._codec.reply_replace(f"{_CHOSE_PREFIX}{cb.value}"))
+        return web.json_response(self._codec.reply_replace(chosen))
 
     async def _open_form_dialog(self, cb) -> web.Response:
         form = await self._dispatcher.load_form(cb.form_token)

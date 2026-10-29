@@ -474,3 +474,27 @@ async def test_the_stop_command_ends_the_turn_and_answers_privately(tmp_path: Pa
         assert off.stop_command == ""
     finally:
         await store.close()
+
+
+async def test_a_click_reaches_the_flow_with_its_facts_and_the_model_with_its_value(tmp_path: Path) -> None:
+    """The synthetic message a click becomes carries the value as its text —
+    what the agent hears — and the control's id, the application's data and
+    the interaction it answered as ``click``, for the application alone."""
+    from crucible.ports.chat.types import Click
+    from crucible.store.base import InteractionRecord
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat, spy = FakeChat(), SinkSpy()
+    try:
+        await store.create_interaction(InteractionRecord(
+            interaction_id="i1", token="tok", agent="assistant", channel_id="ch1", conversation_id="root1",
+            kind="thread", created_at="2026-01-01T00:00:00+00:00", gateway="mattermost",
+        ))
+        dispatcher = InteractionDispatcher(store, presence_of(chat, sink=spy), PendingUiRequests(), store)
+        await dispatcher.consume_action("tok", "plan-approve:fd01", "u1", action_id="approve", data="fd01")
+        (msg,) = spy.submitted
+        assert msg.text == "plan-approve:fd01" and msg.synthetic is True
+        assert msg.click == Click(action_id="approve", data="fd01", interaction_id="i1")
+        assert "fd01" not in msg.text or msg.text == "plan-approve:fd01"  # the data travels beside the text, not in it
+    finally:
+        await store.close()

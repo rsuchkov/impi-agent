@@ -33,6 +33,7 @@ from crucible.ports.chat.keying import PersonKey, PlatformPerson
 from crucible.ports.chat.types import (
     KIND_THREAD,
     STATIC_FIELD_TYPES,
+    Click,
     ConversationRef,
     Form,
     IncomingMessage,
@@ -226,11 +227,14 @@ class InteractionDispatcher:
         return FormOpen(agent=record.agent, form=form_from_json(record.spec))
 
     async def consume_action(
-        self, token: str, value: str, user_id: str, *, pick: str = ""
+        self, token: str, value: str, user_id: str, *, pick: str = "", action_id: str = "", data: str = "",
     ) -> ActionResult:
         """Fire-and-forget widget click: consume the one-shot interaction and feed
         the chosen ``value`` back as a synthetic message → a new turn. ``pick``
-        ("user"/"channel") marks a picker, whose value is an id to resolve."""
+        ("user"/"channel") marks a picker, whose value is an id to resolve.
+        ``action_id`` and ``data`` are the control's own and the application's
+        on it: they ride the message as its ``click``, for the application, and
+        the model never sees them."""
         record = await self._interactions.take_interaction(token) if token else None
         if record is None:
             return ActionResult.UNKNOWN
@@ -257,6 +261,7 @@ class InteractionDispatcher:
             kind=record.kind,
             synthetic=True,  # engine-generated from a click, not typed by a human
             gateway=record.gateway,
+            click=Click(action_id=action_id, data=data, interaction_id=record.interaction_id),
         )
         target.sink.submit(msg, chat)
         logger.info("interaction %s resolved: %r by %s", record.interaction_id, value, user_id)

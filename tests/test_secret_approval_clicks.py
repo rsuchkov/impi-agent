@@ -354,3 +354,15 @@ async def test_a_click_is_judged_by_the_person_not_the_platform_id(tmp_path: Pat
         assert await dispatcher.resolve_approval("tok-1", ANSWER_ONCE, "U0123", gateway="slack") is ApprovalOutcome.RESOLVED
     finally:
         await store.close()
+
+
+def test_a_mattermost_click_brings_the_controls_id_label_and_data() -> None:
+    from crucible.gateways.mattermost import MattermostCallbackCodec
+
+    click = MattermostCallbackCodec().parse_action({
+        "context": {"token": "t", "value": "plan-approve:fd01", "id": "approve", "label": "Approve", "data": "fd01"},
+        "user_id": "u1", "post_id": "p1",
+    })
+    assert (click.value, click.label, click.action_id, click.data) == ("plan-approve:fd01", "Approve", "approve", "fd01")
+    bare = MattermostCallbackCodec().parse_action({"context": {"token": "t", "value": "yes"}, "user_id": "u1"})
+    assert (bare.label, bare.action_id, bare.data) == ("", "", "")

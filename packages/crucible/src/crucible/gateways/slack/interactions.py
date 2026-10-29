@@ -21,8 +21,10 @@ from crucible.gateways.slack.events import conversation_of, is_direct_channel
 from crucible.gateways.slack.rendering import (
     FORM_CALLBACK,
     WIDGET_ACTION_PREFIX,
+    chosen_label,
     decode_action,
     decode_approval,
+    decode_click,
     decode_screen,
     extract_submission,
     picked_kind,
@@ -170,12 +172,14 @@ class SlackInteractions:
         # click that carries the token answers it.
         if not await self._dispatcher.resolve_pending(token, value):
             # Slack names the element that fired, so a picker's id is resolvable.
+            action_id, data = decode_click(actions[0])
             await self._dispatcher.consume_action(
-                token, value, user_id, pick=picked_kind(actions[0])
+                token, value, user_id, pick=picked_kind(actions[0]), action_id=action_id, data=data,
             )
         # Slack won't retire the buttons on its own — strip them off the message so a
-        # fire-and-forget widget can't be clicked twice.
-        await self._strip_buttons(body, f"{_CHOSE_PREFIX}{value}")
+        # fire-and-forget widget can't be clicked twice. What it says was chosen
+        # is the control's label — what the person saw — not the agent's value.
+        await self._strip_buttons(body, f"{_CHOSE_PREFIX}{chosen_label(actions[0]) or value}")
 
     # -- commands -------------------------------------------------------------------
 

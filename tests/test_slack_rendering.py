@@ -477,3 +477,13 @@ def test_slack_card_values_cannot_mention_link_or_break_their_code_span() -> Non
     assert blocks[3]["elements"][0]["text"] == "Answer by <!date^1791115200^{date_short_pretty} at {time}|2026-10-04T12:00:00+00:00>"
 
 
+def test_a_button_carries_its_id_and_the_applications_data_and_says_its_label() -> None:
+    from crucible.gateways.slack.rendering import chosen_label, decode_click
+
+    action = Action(id="approve", label="Approve", value="approve", data="plan-fd01", context={"token": "T1"})
+    el = _button_element(build_action_blocks("Plan", [action]))
+    assert decode_click(el) == ("approve", "plan-fd01")
+    assert chosen_label(el) == "Approve"  # what the person saw, not the agent's value
+    menu = {"type": "static_select", "block_id": "tok:T2", "selected_option": {"value": "b", "text": {"type": "plain_text", "text": "Option B"}}}
+    assert decode_click(menu) == ("", "") and chosen_label(menu) == "Option B"
+    assert chosen_label({"type": "button", "value": "{}"}) == ""

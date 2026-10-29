@@ -31,6 +31,7 @@ class FakeDispatcher:
         self.quoted: list = []  # what each invoked command pointed at
         self.gateways: list[str] = []  # which gateway each command came through
         self.picks: list[str] = []  # the pick kind of each consumed action
+        self.clicks: list[tuple[str, str]] = []  # (action id, data) of each consumed action
         self._form = form
         self._pending_ok = pending_ok
         self._approval = approval
@@ -60,9 +61,10 @@ class FakeDispatcher:
         self.calls.append(("resolve_pending", token, value))
         return self._pending_ok
 
-    async def consume_action(self, token, value, user_id, *, pick=""):
+    async def consume_action(self, token, value, user_id, *, pick="", action_id="", data=""):
         self.calls.append(("consume_action", token, value, user_id))
         self.picks.append(pick)
+        self.clicks.append((action_id, data))
 
     async def load_form(self, form_token):
         self.calls.append(("load_form", form_token))
