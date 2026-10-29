@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.37.0 — 2026-10-29
+
 - **A person can stop the agent's turn, on every gateway.** `/stop` typed where
   the agent is working (`STOP_COMMAND`, the engine's command on Mattermost and
   Slack alike; empty = none), a reaction mapped to the word, a `cancel` frame
