@@ -46,6 +46,8 @@ runtime:
   # wrap_up_after: 0         # optional; active seconds after which the model is told once to round off (below timeout)
   # thinking: medium         # optional; off | minimal | low | medium | high | xhigh | max — lower it when answers get truncated
   tools: [read, bash]        # the ONE allowlist (see "Tool gating")
+  # tools_by_gateway:        # optional; an agent on several gateways allowed less on one:
+  #   slack: [read]          #   a gateway named here gets only these of `tools`; one not named, all
   skills: [<name>, registry:<name>]   # private, and/or from the shared library
   # confinement: agent        # optional; conversation (default) | agent | off
   # confinement_write: [/srv/reports]   # optional; paths beyond its own
@@ -64,6 +66,11 @@ Names only: an entry with `*`, or one starting with `+`/`-` (which `pi` would
 read as a pattern or as an edit of its own defaults), makes the profile fail to
 load. `pi`'s built-in MCP is turned off for every agent (`--no-mcp`): an
 `mcp.json` in a profile does nothing, and an agent gets no MCP server's tools.
+`runtime.tools_by_gateway` narrows the list per gateway (`mattermost`, `slack`,
+`ws`, `http`): a subset of `tools` for the gateway named, the whole list for one
+not named; a name the agent's list lacks, or a gateway that is not one of the
+four, fails the profile. A tool refused with `not available in this
+conversation` on one gateway and fine on another is this map.
 **Skills need `read` + `bash`** to function (the model reads `SKILL.md` and runs
 its scripts).
 

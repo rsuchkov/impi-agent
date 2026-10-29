@@ -31,6 +31,15 @@ when a release is cut, and `impi update` shows the target version's section.
   the session is `processing` (`agents.sessions.setStatus`), `active` after:
   the `ConversationView` port (`set_busy`), which the flow asks of a chat
   client that has one.
+- **An agent may be allowed less on one gateway.** `runtime.tools_by_gateway`
+  in `agent.yaml` maps a gateway kind to the names of `runtime.tools` a
+  conversation there may use — a subset, checked as the profile loads; a
+  gateway not named gets the agent's whole list. A conversation on such a
+  gateway runs with a profile narrowed to that list, the way an application's
+  own entitlement narrows one: `GatewayEntitlements`
+  (`crucible.conversation_profiles`) is the `EntitlementSource` over the
+  agent's profile, joinable with an application's own, and `impi` wires it for
+  every agent whose profile has the map.
 
 ## v0.36.0 — 2026-10-27
 

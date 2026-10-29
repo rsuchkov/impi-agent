@@ -1128,3 +1128,28 @@ async def test_the_engines_state_is_told_on_a_timer_from_what_the_runtime_says()
     await tell_engine_state(_Telemetry(), control=None, agents=lambda: 1, interval_s=0, sleep=sleep)  # 0: told nothing, returns
     assert len(told) == 2
     assert Settings(_env_file=None, dotenv_path="x").telemetry_state_s == 60.0  # pyright: ignore[reportCallIssue]
+
+
+def test_an_agent_with_tools_by_gateway_runs_its_conversations_entitled_and_the_others_do_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_MM_TOKEN__SCRIBE", "token-2")
+    root = _agents_dir(tmp_path)
+    (root / "agents" / "assistant" / "agent.yaml").write_text(
+        AGENT_YAML + "  tools: [read, bash]\n  tools_by_gateway:\n    slack: [read]\n", encoding="utf-8"
+    )
+    other = root / "agents" / "scribe"
+    other.mkdir()
+    (other / "agent.yaml").write_text(AGENT_YAML.replace("assistant", "scribe") + "  tools: [read]\n", encoding="utf-8")
+    settings = Settings(
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        dotenv_path=str(tmp_path / "no-such.env"), agents_path=str(root), data_dir=str(tmp_path / "data"),
+        mattermost_url="http://localhost:8065", mattermost_token="token",
+    )
+    app = build_app(settings)
+    try:
+        flows = {unit.flow._agent_name: unit.flow for unit in app.units}
+        assert flows["assistant"]._entitlements is not None and flows["assistant"]._conversation_profiles is not None
+        assert flows["scribe"]._entitlements is None  # nothing to narrow: never asked
+    finally:
+        app.sessions.close_sync()  # type: ignore[attr-defined]

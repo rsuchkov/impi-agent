@@ -132,3 +132,42 @@ def test_a_scoped_profile_is_the_same_object_turn_after_turn(tmp_path: Path) -> 
     second = profiles.build("assistant", base, entitlement, "assistant--dm1")
 
     assert first == second
+
+
+async def test_the_gateway_source_entitles_a_conversation_to_what_its_gateway_may_use(tmp_path: Path) -> None:
+    """``GatewayEntitlements`` reads the agent's own ``tools_by_gateway``: the
+    gateway's list for a message through it, the agent's own elsewhere; with an
+    inner source (the application's), the tools both allow and the inner's
+    instructions. Through ``EntitledProfiles`` the Slack conversation's profile
+    is the narrowed one."""
+    from crucible.conversation_profiles import GatewayEntitlements
+    from crucible.ports.chat.types import ConversationRef, IncomingMessage
+
+    wiring, spec = _wiring(tmp_path)
+    spec = dataclasses.replace(spec, tools_by_gateway=(("slack", ("read", "ask_user_buttons")),))
+    source = GatewayEntitlements(lambda name: spec if name == "assistant" else None)
+
+    def msg(gateway: str) -> IncomingMessage:
+        return IncomingMessage(
+            ref=ConversationRef(channel_id="c", conversation_id="c", message_id="m", thread_root_id=""),
+            text="hi", user_id="u1", username="u", gateway=gateway,
+        )
+
+    assert (await source.entitlement("assistant", msg("slack"))).tools == ("read", "ask_user_buttons")
+    assert (await source.entitlement("assistant", msg("mattermost"))).tools is None  # the agent's own
+    assert (await source.entitlement("other", msg("slack"))).tools is None  # not an agent of ours: imposes nothing
+
+    class Inner:
+        async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement:
+            return Entitlement(tools=("read", "bash"), instructions="The person is an admin.")
+
+    joined = await GatewayEntitlements(lambda _: spec, inner=Inner()).entitlement("assistant", msg("slack"))
+    assert joined == Entitlement(tools=("read",), instructions="The person is an admin.")  # both allow read; the inner's words
+    on_mm = await GatewayEntitlements(lambda _: spec, inner=Inner()).entitlement("assistant", msg("mattermost"))
+    assert on_mm.tools == ("read", "bash")  # the gateway imposes nothing there; the inner's answer stands
+    # And the profile a Slack conversation runs with is the narrowed one.
+    scoped = EntitledProfiles(wiring, narrow_pi_profile).build(
+        "assistant", _agent_profile(wiring, spec), await source.entitlement("assistant", msg("slack")), "assistant--slack1",
+    )
+    assert isinstance(scoped, PiProfile) and scoped.tools == ("read", "ask_user_buttons")
+    assert wiring.session_allowlists["assistant--slack1"] == frozenset({"ask_user_buttons"})

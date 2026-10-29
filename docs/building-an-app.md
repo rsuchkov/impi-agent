@@ -385,7 +385,13 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   batch merged from several people's messages (a channel, a thread) asks the
   source about each of them once and runs with what they are jointly entitled
   to — the tools all of them may use, instructions only where every answer is
-  the same (`shared_entitlement`).
+  the same (`shared_entitlement`). The message names the gateway it came
+  through (`msg.gateway`), so a source can entitle a conversation on Slack to
+  fewer tools than one on Mattermost; `GatewayEntitlements`
+  (`crucible.conversation_profiles`) is that source over the agent's own
+  `runtime.tools_by_gateway`, and takes an `inner` source to join with — the
+  tools both allow, the inner's instructions — for an application with rules of
+  its own as well.
   Pass `manifests_dir=` and `attachments=` to `purge_idle` (or call
   `prepare_runtime_storage`, which does) so a forgotten conversation's manifest
   and files go with its memory.

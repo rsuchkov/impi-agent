@@ -376,3 +376,31 @@ def test_runtime_idle_timeout_and_wrap_up_after_are_read_and_checked(tmp_path: P
     _write_agent(bad, "assistant", _yaml_with_runtime("  idle_timeout: -1\n"))
     with pytest.raises(ProfileError, match="runtime.idle_timeout must be a number of seconds, 0 for never"):
         FsProfileStore(bad, library=None)
+
+
+def test_tools_by_gateway_narrows_the_agents_list_per_gateway_and_never_widens_it(tmp_path: Path) -> None:
+    """A gateway named in the map gets its list, one not named gets the agent's
+    whole; a name the agent's list lacks is a profile error, as is a gateway
+    nobody has — the agent's list is the ceiling."""
+    _write_agent(tmp_path, "assistant", (
+        "name: assistant\nrole: r\nruntime:\n  tools: [read, bash, send_file, mcp__notes__*]\n"
+        "  tools_by_gateway:\n    slack: [read, mcp__notes__search]\n    http: []\n"
+    ))
+    spec = FsProfileStore(tmp_path, library=None).get("assistant")
+    assert spec.tools_by_gateway == (("slack", ("read", "mcp__notes__search")), ("http", ()))
+    assert spec.tools_on("slack") == ("read", "mcp__notes__search")  # a server's tool, under its pinned wildcard
+    assert spec.tools_on("http") == ()  # named, with nothing: no tool there
+    assert spec.tools_on("mattermost") is None  # not named: the agent's own
+    for n, (body, problem) in enumerate([
+        ("  tools_by_gateway:\n    telegram: [read]\n", "a gateway is one of"),
+        ("  tools_by_gateway:\n    slack: [read, write]\n", "runtime.tools does not"),
+        ("  tools_by_gateway:\n    slack: [mcp__other__x]\n", "runtime.tools does not"),
+        ("  tools_by_gateway: [slack]\n", "must be a mapping"),
+        ("  tools_by_gateway:\n    slack: read\n", "must be a list of tool names"),
+    ]):
+        root = tmp_path / f"case-{n}"
+        _write_agent(root, "assistant", f"name: assistant\nrole: r\nruntime:\n  tools: [read, bash, mcp__notes__*]\n{body}")
+        with pytest.raises(ProfileError, match=problem):
+            FsProfileStore(root, library=None).get("assistant")
+    plain = FsProfileStore(tmp_path, library=None).get("assistant")
+    assert plain.tools_on("ws") is None

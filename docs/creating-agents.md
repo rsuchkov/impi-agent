@@ -43,6 +43,8 @@ runtime:
                           # omit for its default). An answer that comes back cut short, or not at
                           # all, after long reasoning is the sign to lower it.
   tools: [read, bash]     # the single capability allowlist (see "Tool gating")
+  tools_by_gateway:       # optional; a gateway named here gets only these of `tools`
+    slack: [read]         #   (a subset); one not named gets them all
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
   env: [MYSERVICE_*]      # optional; engine environment variables its process inherits
   confinement: agent      # optional; conversation | agent | off (default: RUNTIME_CONFINEMENT)
@@ -93,7 +95,20 @@ to put a package in. The same goes for a `Dockerfile.include` beside
   as `mcp__<server>__*` — the one pattern the list accepts.
 
 Naming a tool is the only way to enable it; an **empty list means the agent gets
-no tools at all**. Two rules to remember:
+no tools at all**.
+
+An agent on several gateways may be allowed less on one of them:
+`runtime.tools_by_gateway` maps a gateway kind (`mattermost`, `slack`, `ws`,
+`http`) to the names of `tools` a conversation there may use — a subset,
+checked when the profile loads; a gateway not named gets the agent's whole
+list, `[]` gives a gateway no tool at all. A conversation on such a gateway
+runs with a profile narrowed to that list — the runtime's allowlist, the
+manifest the process advertises and the tool server's door all agree — and a
+tool outside it is refused there whatever the process claims. The engine does
+this through the same entitlement mechanism an application uses for its own
+rules ([building-an-app.md](building-an-app.md)).
+
+Two rules to remember:
 
 - **Skills need `read` + `bash`** to function (the agent reads `SKILL.md` and runs
   its scripts via `bash`).

@@ -17,6 +17,7 @@ from crucible.ports.agent import DEFAULT_IDLE_TIMEOUT_S, AgentSpec, check_thinki
 from crucible.ports.agent.confinement import ConfinementLevel, check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
+from crucible.ports.chat.gateway import GATEWAY_KINDS
 from crucible.profiles.errors import ProfileError
 from crucible.tool_manifests import MCP_SERVER_TOOLS
 
@@ -186,6 +187,7 @@ class FsProfileStore:
                     f"{manifest}: runtime.tools entry {tool!r}: name each tool — no patterns "
                     "(but `mcp__<server>__*`), no +/- edits of the runtime's defaults"
                 )
+        tools_by_gateway = _tools_by_gateway(manifest, runtime.get("tools_by_gateway"), tuple(tools))
         skills = runtime.get("skills") or []
         if not isinstance(skills, list) or not all(isinstance(s, str) for s in skills):
             raise ProfileError(f"{manifest}: runtime.skills must be a list of strings")
@@ -266,6 +268,7 @@ class FsProfileStore:
             wrap_up_after=float(wrap_up_after),
             thinking=thinking,
             tools=tuple(tools),
+            tools_by_gateway=tools_by_gateway,
             skills=skill_paths,
             inherit=inherit,
             confinement=confinement,
@@ -311,3 +314,36 @@ def _confinement_paths(runtime: dict, key: str, manifest: Path) -> tuple[Path, .
     if not isinstance(raw, list) or not all(isinstance(p, str) and p.strip() for p in raw):
         raise ProfileError(f"{manifest}: runtime.{key} must be a list of paths")
     return tuple((manifest.parent / p).resolve() if not Path(p).is_absolute() else Path(p) for p in raw)
+
+
+def _tools_by_gateway(
+    manifest: Path, raw: object, tools: tuple[str, ...],
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """``runtime.tools_by_gateway``: a mapping of gateway kind to the tools a
+    conversation there may use — each a name from ``runtime.tools`` (or one of
+    an MCP server's tools whose ``mcp__<server>__*`` is there), so the agent's
+    list stays the ceiling and a gateway's list can only narrow it."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, dict):
+        raise ProfileError(f"{manifest}: runtime.tools_by_gateway must be a mapping of gateway to a list of tools")
+    out: list[tuple[str, tuple[str, ...]]] = []
+    for gateway, names in raw.items():
+        if gateway not in GATEWAY_KINDS:
+            raise ProfileError(
+                f"{manifest}: runtime.tools_by_gateway names {gateway!r}; a gateway is one of {', '.join(GATEWAY_KINDS)}"
+            )
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            raise ProfileError(f"{manifest}: runtime.tools_by_gateway.{gateway} must be a list of tool names")
+        for name in names:
+            if name in tools or (MCP_SERVER_TOOLS.match(name) and name in tools):
+                continue
+            server = name.split("__")[1] if name.startswith("mcp__") and name.count("__") >= 2 else ""
+            if server and f"mcp__{server}__*" in tools:
+                continue
+            raise ProfileError(
+                f"{manifest}: runtime.tools_by_gateway.{gateway} names {name!r}, which runtime.tools does not: "
+                "a gateway's list narrows the agent's, it cannot add to it"
+            )
+        out.append((gateway, tuple(names)))
+    return tuple(out)

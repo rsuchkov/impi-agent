@@ -34,6 +34,7 @@ from crucible.conversation_files import (
     conversation_lookup,
     engine_turns_lookup,
 )
+from crucible.conversation_profiles import EntitledProfiles, GatewayEntitlements
 from crucible.engine_state import tell_engine_state
 from crucible.flows.agent_flow import AgentFlow
 from crucible.flows.coalescer import MessageCoalescer
@@ -98,6 +99,7 @@ from crucible.runtimes.pi import (
     LocalHost,
     RemoteHost,
     build_pi_profile,
+    narrow_pi_profile,
     with_tool_env,
 )
 from crucible.runtimes.pi.auth_file import configured_providers
@@ -378,6 +380,7 @@ def _build_unit(
     turns: TurnRegistry,
     captions: CallCaptions,
     posting_tools: Collection[str] = (),
+    tools: ToolWiring,
     file_keeper: FileKeeper | None = None,
     telemetry: Telemetry | None = None,
     replica: Replica | None = None,
@@ -385,6 +388,10 @@ def _build_unit(
     forwarder: HubForwarder | None = None,
 ) -> AgentUnit:
     profile = profiles.build(spec)
+    # An agent whose profile gives a gateway fewer tools runs each conversation
+    # with what its gateway allows; every other agent runs with its own profile
+    # and is never asked.
+    by_gateway = spec.tools_by_gateway and tools.registry is not None
     flow = AgentFlow(
         runtime, profile, sessions,
         agent_name=spec.name, posting_tools=posting_tools, file_keeper=file_keeper, telemetry=telemetry,
@@ -395,6 +402,8 @@ def _build_unit(
         # A conversation the runtime has forgotten (sessions wiped, an operator's
         # reset) gets its thread replayed again instead of starting mid-air.
         control=control,
+        entitlements=GatewayEntitlements(lambda name: spec if name == spec.name else None) if by_gateway else None,
+        conversation_profiles=EntitledProfiles(tools, narrow_pi_profile) if by_gateway else None,
     )
     served: Flow = flow
     if replica is not None and replicas is not None and forwarder is not None:
@@ -487,7 +496,7 @@ def _build_units(
             ),
             turns=turns,
             captions=captions,
-            posting_tools=_posting_tools(tools),
+            posting_tools=_posting_tools(tools), tools=tools,
             file_keeper=file_keeper, telemetry=telemetry,
             replica=replica, replicas=replicas, forwarder=forwarder,
         )

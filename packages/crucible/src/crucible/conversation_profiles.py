@@ -18,8 +18,17 @@ profile back, with the per-session allowlist cleared, so a conversation whose
 entitlement widens again gets everything its agent has.
 """
 
+from collections.abc import Callable
+
 from crucible.ports.agent.runtime import AgentProfile
-from crucible.ports.entitlement import Entitlement, ProfileNarrowing
+from crucible.ports.agent.spec import AgentSpec
+from crucible.ports.chat.types import IncomingMessage
+from crucible.ports.entitlement import (
+    Entitlement,
+    EntitlementSource,
+    ProfileNarrowing,
+    shared_entitlement,
+)
 from crucible.tools.wiring import ToolWiring
 
 
@@ -38,3 +47,25 @@ class EntitledProfiles:
         return self._narrow(
             profile, tools=entitlement.tools, instructions=entitlement.instructions, env=env
         )
+
+
+class GatewayEntitlements:
+    """An ``EntitlementSource`` from the agent's own profile: what
+    ``runtime.tools_by_gateway`` says a conversation on the message's gateway
+    may use (``AgentSpec.tools_on``), and nothing else — no instructions, no
+    view of who the person is. Given an ``inner`` source (an application's own
+    answer about the person or the place), the two are joined as several
+    people's answers are: the tools both allow, the inner's instructions."""
+
+    def __init__(self, spec_of: Callable[[str], AgentSpec | None], *, inner: EntitlementSource | None = None) -> None:
+        self._spec_of = spec_of
+        self._inner = inner
+
+    async def entitlement(self, agent: str, msg: IncomingMessage) -> Entitlement:
+        spec = self._spec_of(agent)
+        own = Entitlement(tools=spec.tools_on(msg.gateway) if spec is not None else None)
+        if self._inner is None:
+            return own
+        theirs = await self._inner.entitlement(agent, msg)
+        joined = shared_entitlement([own, theirs])
+        return Entitlement(tools=joined.tools, instructions=theirs.instructions)
