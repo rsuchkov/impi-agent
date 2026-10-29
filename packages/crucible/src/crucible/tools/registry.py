@@ -114,6 +114,7 @@ class ToolRegistry:
                         "parameters": t.parameters,
                         "speaks_to_user": t.speaks_to_user,
                         "returns_untrusted": t.returns_untrusted,
+                        "destructive": t.destructive,
                     }
                 )
         return entries

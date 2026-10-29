@@ -391,6 +391,7 @@ def _card(
             tool=tool,
             block_label="Arguments" if args else "",
             block=_arguments(args) if args else "",
+            block_language="json" if args else "",
             expires_at=expires_at,
         )
     return ApprovalCard(
@@ -404,6 +405,7 @@ def _card(
         # asked to read, and a cut script is a different script.
         block_label=preview.block_label,
         block=preview.block,
+        block_language=preview.block_language,
         danger=preview.danger,
         expires_at=expires_at,
     )

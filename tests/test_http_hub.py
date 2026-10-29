@@ -885,7 +885,7 @@ async def test_a_confirmation_arrives_as_data_not_as_a_rendered_card() -> None:
             assert card["headline"] == "wants to run jira_transition_issue — move IPA-7 to Done"
             assert card["fields"] == [{"label": "Status", "value": "Done", "before": "Open", "passage": False}]
             assert card["title"] == "move IPA-7" and card["tool"] == "dangerous"  # their own fields, no label to parse
-            assert card["block"] == {"label": "Arguments", "text": '{"key": "IPA-7"}'}
+            assert card["block"] == {"label": "Arguments", "text": '{"key": "IPA-7"}', "language": ""}  # the preview's own block, no language given
             assert card["expiresAt"] == "2026-10-04T12:00:00+00:00"
             assert (card["verdict"], card["grantS"]) == ("", 0)  # still asking
             assert card["actions"][0]["id"] == "yes" and page["status"] == STATUS_AWAITING_INPUT
@@ -917,7 +917,7 @@ async def test_an_updated_confirmation_is_the_same_post_rewritten_as_data() -> N
             ApprovalCard(
                 agent="helper", headline="— Allowed for 15 min.", icon="🔐",
                 fields=(PreviewRow("Secret", "github-token"),),
-                block_label="Command", block="gh release create v1",
+                block_label="Command", block="gh release create v1", block_language="shell",
                 verdict="allowed_for", grant_s=900,
             ),
         )
@@ -941,7 +941,7 @@ async def test_an_updated_confirmation_is_the_same_post_rewritten_as_data() -> N
             # The verdict as data too: a client draws its own line from it.
             assert (updated["verdict"], updated["grantS"]) == ("allowed_for", 900)
             assert updated["fields"] == [{"label": "Secret", "value": "github-token", "before": "", "passage": False}]
-            assert updated["block"] == {"label": "Command", "text": "gh release create v1"}
+            assert updated["block"] == {"label": "Command", "text": "gh release create v1", "language": "shell"}  # for a highlighter
             assert "actions.retired" not in [e["type"] for e in page["events"]]
             # Answering the retired post is refused: nothing is pending on it.
             status, _ = await _post(s, 8505, f"/v1/turns/{started['turnId']}/actions",

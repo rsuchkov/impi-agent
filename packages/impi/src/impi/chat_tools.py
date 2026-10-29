@@ -26,6 +26,7 @@ def _require_str(args: dict[str, Any], key: str) -> str:
 @tool
 class ListAgents(Tool):
     name: ClassVar[str] = "list_agents"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     description: ClassVar[str] = (
         "List the other agents in this system with their roles, so you can decide "
         "whom to involve. Returns name, role, description and @username for each."
@@ -145,6 +146,7 @@ class InviteToChannel(Tool):
 @tool
 class GetChannelMembers(Tool):
     name: ClassVar[str] = "get_channel_members"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     requires: ClassVar[frozenset[str]] = frozenset({CAP_CHAT_ADMIN})
     returns_untrusted: ClassVar[bool] = True  # usernames are chosen by their owners
     description: ClassVar[str] = "List the members (user_id + username) of a channel."
@@ -208,6 +210,7 @@ class SendMessage(Tool):
 @tool
 class ReadChannel(Tool):
     name: ClassVar[str] = "read_channel"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     requires: ClassVar[frozenset[str]] = frozenset({CAP_CHAT_ADMIN})
     returns_untrusted: ClassVar[bool] = True  # other people's messages, verbatim
     description: ClassVar[str] = (

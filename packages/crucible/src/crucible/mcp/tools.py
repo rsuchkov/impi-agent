@@ -154,6 +154,9 @@ class McpTool:
         self.parameters = _parameters_for_model(definition.input_schema, self.file_arguments)
         self.display_name = definition.title or definition.name
         self.requires_confirmation = requires_confirmation(self.server, definition)
+        # The server's word on what the tool does, taken only from a trusted
+        # server; an untrusted one's tools are all read as destructive.
+        self.destructive = destructive(definition) if self.server.trusted else True
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         started = time.monotonic()

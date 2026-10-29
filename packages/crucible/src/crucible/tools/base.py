@@ -202,6 +202,16 @@ class Tool(Protocol):
     # capability it requires. A confirmed tool should also implement
     # ``Describing`` below, so the card shows what the call would do.
     requires_confirmation: ClassVar[bool] = False
+    # Whether what the tool does cannot be undone — a record changed, a message
+    # sent to others, a thing created or removed. The author's word, as MCP's
+    # ``destructiveHint``, and true unless the author says otherwise: a tool
+    # nobody thought about is never let through without a person. The engine
+    # asks for a confirmation by ``requires_confirmation`` alone; this flag is
+    # for an application that lets some calls through without the card (a
+    # person's standing permission, an "auto" mode) — only a tool that says
+    # False may be. A preview's ``danger`` is about one call; this is about
+    # the tool.
+    destructive: ClassVar[bool] = True
     # When True, this tool puts a message in front of the user itself, so what it
     # posts IS the agent's reply and the turn may end on the call. Declared rather
     # than described: the registry appends SPEAKS_TO_USER_NOTE to the advertised

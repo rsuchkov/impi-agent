@@ -96,6 +96,7 @@ class ScheduleTask(Tool):
 @tool
 class ListTasks(Tool):
     name: ClassVar[str] = "list_tasks"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     requires: ClassVar[frozenset[str]] = frozenset({CAP_SCHEDULER})
     description: ClassVar[str] = (
         "Your scheduled tasks: when each next runs, and how the last run went."

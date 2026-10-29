@@ -216,6 +216,7 @@ _PATH = {
 @tool
 class ConnectedAccounts(Tool):
     name: ClassVar[str] = "connected_accounts"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     requires: ClassVar[frozenset[str]] = frozenset({CAP_CONNECTIONS})
     settings_cls: ClassVar[type | None] = ConnectedApiSettings
     description: ClassVar[str] = (
@@ -243,6 +244,7 @@ class ConnectedAccounts(Tool):
 @tool
 class ConnectedApiRead(Tool):
     name: ClassVar[str] = "connected_api_read"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     requires: ClassVar[frozenset[str]] = frozenset({CAP_CONNECTIONS})
     settings_cls: ClassVar[type | None] = ConnectedApiSettings
     returns_untrusted: ClassVar[bool] = True

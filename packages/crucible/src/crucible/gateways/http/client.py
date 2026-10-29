@@ -51,7 +51,9 @@ def wire_card(card: ApprovalCard) -> dict:
             {"label": r.label, "value": r.value, "before": r.before, "passage": r.passage}
             for r in card.fields
         ],
-        "block": {"label": card.block_label, "text": card.block} if card.block else None,
+        "block": (
+            {"label": card.block_label, "text": card.block, "language": card.block_language} if card.block else None
+        ),
         "danger": card.danger,
         "expiresAt": card.expires_at,
         "verdict": card.verdict,

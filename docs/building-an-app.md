@@ -206,13 +206,28 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   journal's `tool.started.caption`. The model's remark before a call travels as
   `TextProgress` and is shown the same way (`progress` in the journal); the
   turn's answer is what the model says after its last call.
+- **Say whether the tool's work can be undone.** `Tool.destructive`
+  (`ClassVar[bool]`, true unless the author says otherwise, as MCP's
+  `destructiveHint`) is the author's word on the tool: a record changed, a
+  message sent to others, a thing created or removed. The engine confirms by
+  `requires_confirmation` alone; the flag is for an application that lets some
+  calls through without the card — a person's standing permission, an "auto"
+  mode — and only a tool that says `False` may be. The manifest carries it
+  (`destructive`), so an application reads it from the registry rather than
+  guessing; a preview's `danger` stays about one call. The engine's own tools
+  that only ask, read or show say `False`; an MCP tool takes its server's hint
+  when the server is trusted and is destructive otherwise.
 - **Say what the call would do, not what the model said.** A confirmed tool
   should implement `describe(ctx, args) -> CallPreview | None` (`Describing` in
   `crucible.tools`; `CallPreview`/`PreviewRow` in `crucible.ports.chat.types`,
   the chat vocabulary, since a preview travels with the card): the
   server calls it before the gate, inside the paused time, with the same
   context `execute` gets, and the card shows its rows — `Status: In Progress →
-  Done`, the issue's title beside its key — instead of the raw arguments. Read
+  Done`, the issue's title beside its key — instead of the raw arguments. A
+  verbatim piece — a script, a diff — goes in `block` under `block_label`, with
+  `block_language` (`groovy`, `diff`, `json`) for a renderer that highlights:
+  Mattermost puts it on the fence, the http journal carries it as
+  `block.language`. Read
   the current state from the system there; the arguments are the model's
   account, and the model reads text other people wrote. `danger=True` puts a
   warning on the card; `block_label`/`block` carry a verbatim piece the person

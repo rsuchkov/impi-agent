@@ -153,6 +153,9 @@ class CallPreview:
     danger: bool = False
     block_label: str = ""
     block: str = ""
+    # What the block is written in — ``json``, ``groovy``, ``diff``, a shell —
+    # for a renderer that highlights ("" when it is plain text or unknown).
+    block_language: str = ""
 
 
 # How a closed card was decided, for a program that draws its own line rather
@@ -195,6 +198,7 @@ class ApprovalCard:
     fields: tuple[PreviewRow, ...] = ()
     block_label: str = ""
     block: str = ""
+    block_language: str = ""  # the preview's word for what the block is written in
     danger: bool = False
     expires_at: str = ""
     verdict: str = ""

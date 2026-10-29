@@ -6,7 +6,20 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A preview's verbatim block says what it is written in.**
+  `CallPreview(block_language=…)` — `groovy`, `diff`, `json` — rides the card
+  (`ApprovalCard.block_language`), the Mattermost fence, and the http journal's
+  `confirmation.block.language`, so a client highlights instead of guessing by
+  the tool's name. The gate's raw-arguments block says `json`. Only a word
+  reaches a fence line.
+- **A tool says whether its work can be undone.** `Tool.destructive`
+  (`ClassVar[bool]`, true unless the author says otherwise, as MCP's
+  `destructiveHint`): the author's word for an application that lets some calls
+  through without the card — only a tool that says false may be. The manifest
+  carries it (`destructive`); an MCP tool takes its trusted server's hint and is
+  destructive on an untrusted one; the engine's own widgets, listings and reads
+  say false. The engine still confirms by `requires_confirmation` alone, and a
+  preview's `danger` stays about one call.
 
 ## v0.37.0 — 2026-10-29
 

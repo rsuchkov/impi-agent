@@ -56,6 +56,17 @@ def card_rows(card: ApprovalCard) -> tuple[PreviewRow, ...]:
 BLOCK_LIMIT = 15000
 
 
+# What a fence takes as a language: a word. Anything else — a space, a
+# backtick, a newline — would be a way to write on the fence line itself.
+_FENCE_LANGUAGE = re.compile(r"^[A-Za-z0-9_+.#-]{1,32}$")
+
+
+def fence_language(language: str) -> str:
+    """The preview's language word as a fence may carry it, or "" for one that
+    is not a word."""
+    return language if _FENCE_LANGUAGE.match(language) else ""
+
+
 @dataclass(frozen=True)
 class CardLayout:
     """How a chat draws an ``ApprovalCard``, decided once for every platform.
@@ -75,6 +86,7 @@ class CardLayout:
     passages: tuple[tuple[str, str], ...]  # (label, text with its lines)
     block_label: str
     block: str  # with its lines, defused; "" for none
+    block_language: str  # a word a fence takes, or ""
     tool: str
     expires_at: str
 
@@ -119,6 +131,7 @@ def card_layout(card: ApprovalCard) -> CardLayout:
         passages=tuple(passages),
         block_label=one_line(card.block_label),
         block=passage(card.block, limit=BLOCK_LIMIT) if card.block else "",
+        block_language=fence_language(card.block_language),
         tool=one_line(card.tool),
         expires_at=one_line(card.expires_at),
         closed=bool(card.verdict),
@@ -176,7 +189,7 @@ def card_markdown(card: ApprovalCard) -> str:
     if layout.block:
         if layout.block_label:
             lines.append(f"**{layout.block_label}:**")
-        lines.append(preformatted(layout.block))
+        lines.append(preformatted(layout.block, lang=layout.block_language))
     signature = list(layout.signature)
     if layout.expires_at:
         signature.append(f"Answer by {layout.expires_at}")

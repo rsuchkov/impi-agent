@@ -125,6 +125,7 @@ def _reload_engine() -> bool:
 @tool
 class ListSkills(Tool):
     name: ClassVar[str] = "list_skills"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     settings_cls: ClassVar[type | None] = SkillSettings
     description: ClassVar[str] = (
         "List the shared skill library: what is installed, what each skill does, "

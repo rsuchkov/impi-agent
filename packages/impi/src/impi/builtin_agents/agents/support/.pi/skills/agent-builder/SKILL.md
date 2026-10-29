@@ -66,6 +66,11 @@ Names only: an entry with `*`, or one starting with `+`/`-` (which `pi` would
 read as a pattern or as an edit of its own defaults), makes the profile fail to
 load. `pi`'s built-in MCP is turned off for every agent (`--no-mcp`): an
 `mcp.json` in a profile does nothing, and an agent gets no MCP server's tools.
+Every tool also carries `destructive` (true unless its author said otherwise;
+the engine's widgets, listings and reads say false, an MCP tool follows its
+trusted server's hint): not a gate of the engine's — it confirms by
+`requires_confirmation` — but the word an application's own auto-approval may
+rely on; a tool that says nothing is never let through without a person.
 `runtime.tools_by_gateway` narrows the list per gateway (`mattermost`, `slack`,
 `ws`, `http`): a subset of `tools` for the gateway named, the whole list for one
 not named; a name the agent's list lacks, or a gateway that is not one of the

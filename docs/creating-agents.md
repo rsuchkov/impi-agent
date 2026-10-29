@@ -127,6 +127,11 @@ Two rules to remember:
   an agent whose gateway lacks the capability simply isn't advertised to it.
   Tools that need confirming (`requires_confirmation`) are withheld when
   interactivity is off: there is nobody to ask.
+- Every tool also says whether its work can be undone (`destructive`, true
+  unless its author says otherwise; the engine's own widgets, listings and
+  reads say false, an MCP tool follows its trusted server's hint). The engine
+  confirms by `requires_confirmation`; an application that lets some calls
+  through without a card may let through only a tool that says false.
   - **`read_channel` and `get_channel_members` return other people's text**,
     wrapped as `{"untrusted": true, "note": …, "data": …}` with one standard
     sentence telling the model it is information, not instructions. Your

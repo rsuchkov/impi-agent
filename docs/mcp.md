@@ -129,7 +129,10 @@ believes said it is harmless. Who may say so:
 - a **trusted** server, through its annotations, read with the protocol's own
   defaults: a tool is destructive unless it is marked `readOnlyHint: true` or
   `destructiveHint: false` — a server that says nothing about a tool has said
-  "may destroy", not "harmless";
+  "may destroy", not "harmless". The same reading is the tool's `destructive`
+  flag ([creating-agents.md](creating-agents.md#tool-gating)), which an
+  application's own rules may consult; an untrusted server's tools are all
+  destructive by it;
 - nobody else. An **untrusted** server's annotations are shown (the warning
   mark, `impi mcp show`) but decide nothing: the protocol tells a client never
   to decide by hints from a server it does not trust. So every tool of an

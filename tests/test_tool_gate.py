@@ -553,7 +553,7 @@ def test_arguments_cannot_forge_the_question(hostile: str) -> None:
     # which is containment rather than censorship.
     lines = card.splitlines()
     assert [ln for ln in lines if ln.startswith("**")] == ["**Arguments:**"]
-    assert len([ln for ln in lines if set(ln) == {"`"}]) == 2  # exactly one block
+    assert len([ln for ln in lines if ln.startswith("```")]) == 2  # exactly one block
 
 
 # --- advertising: a confirmed tool exists only where someone can confirm it -----
@@ -686,6 +686,7 @@ def test_a_card_without_a_preview_keeps_the_id_beside_the_arguments() -> None:
     card = toolgate._card("assistant", "add_comment", {"body": "hi"}, display_name="Add a comment")
     assert card.headline == "wants to run “Add a comment”."
     assert card.tool == "add_comment" and card.fields == () and card.block_label == "Arguments"
+    assert card.block_language == "json"  # the raw arguments are JSON, and the card says so
     assert card_rows(card) == (PreviewRow("Tool", "add_comment"),)
     # Named by its id in the headline, the id is not repeated as a row.
     plain = toolgate._card("assistant", "add_comment", {"body": "hi"})

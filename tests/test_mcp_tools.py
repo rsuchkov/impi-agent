@@ -77,6 +77,10 @@ def test_a_tool_is_confirmed_unless_the_operator_or_a_trusted_server_says_it_is_
     assert destructive(ToolDefinition("x", "", {"type": "object"}, annotations={"readOnlyHint": True, "destructiveHint": True})) is False
 
     untrusted = McpServer("github", url="https://x/mcp", confirm=("do_*",), safe=("add_*",))
+    # The tool's own word on being destructive follows the server's only when the server is trusted.
+    assert McpTool(untrusted, additive, _Calls(CallResult("ok"))).destructive is True
+    assert McpTool(McpServer("github", url="https://x/mcp", trust="trusted"), additive, _Calls(CallResult("ok"))).destructive is False
+    assert McpTool(McpServer("github", url="https://x/mcp", trust="trusted"), unannotated, _Calls(CallResult("ok"))).destructive is True
     # read-only by the server's word, but the server is not trusted: asked about.
     assert [requires_confirmation(untrusted, d) for d in (read_only, additive, unannotated, WIPE)] == [True, False, True, True]
     trusted = McpServer("github", url="https://x/mcp", trust="trusted", confirm=("get_*",), safe=("do_*",))

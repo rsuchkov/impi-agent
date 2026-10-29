@@ -289,3 +289,21 @@ def test_a_passage_is_cut_with_a_mark_only_past_its_own_limit() -> None:
     body, mark = cut.rsplit("\n", 1)
     assert mark == f"… cut at {PASSAGE_LIMIT} of {PASSAGE_LIMIT + 10} chars" and len(body) == PASSAGE_LIMIT
     assert passage("```\nfence") == "` ` `\nfence"  # defused, lines kept
+
+
+def test_the_blocks_language_rides_the_fence_and_only_a_word_may() -> None:
+    """A preview says what its block is written in; Mattermost's fence carries
+    it for the highlighter, and nothing that is not a word reaches the fence
+    line — a space or a backtick there would be writing on the fence itself."""
+    from crucible.approvals.card import card_layout, card_markdown, fence_language
+    from crucible.ports.chat.types import ApprovalCard
+
+    card = ApprovalCard(agent="assistant", headline="wants to run it.", title="Run a script", tool="stands_groovy",
+                        block_label="Script", block="println 1", block_language="groovy")
+    layout = card_layout(card)
+    assert layout.block_language == "groovy"
+    assert "```groovy\nprintln 1\n```" in card_markdown(card)
+    assert "```\nls\n```" in card_markdown(ApprovalCard(agent="a", headline="h", block_label="Command", block="ls"))  # no language: a bare fence
+    for hostile in ("groovy `", "a b", "x\ny", "", "ä"):
+        assert fence_language(hostile) == ""
+    assert fence_language("c++") == "c++" and fence_language("objective-c") == "objective-c"

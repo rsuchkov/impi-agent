@@ -50,6 +50,7 @@ def _require_str(args: dict[str, Any], key: str) -> str:
 @tool
 class AskUserButtons(Tool):
     name: ClassVar[str] = "ask_user_buttons"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     requires: ClassVar[frozenset[str]] = frozenset({CAP_WIDGETS})
     speaks_to_user: ClassVar[bool] = True
     description: ClassVar[str] = (
@@ -85,6 +86,7 @@ class AskUserButtons(Tool):
 @tool
 class AskUserSelect(Tool):
     name: ClassVar[str] = "ask_user_select"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     requires: ClassVar[frozenset[str]] = frozenset({CAP_WIDGETS})
     speaks_to_user: ClassVar[bool] = True
     description: ClassVar[str] = (
@@ -138,6 +140,7 @@ class AskUserSelect(Tool):
 @tool
 class OpenForm(Tool):
     name: ClassVar[str] = "open_form"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     requires: ClassVar[frozenset[str]] = frozenset({CAP_FORMS})
     speaks_to_user: ClassVar[bool] = True
     description: ClassVar[str] = (
@@ -247,6 +250,7 @@ class OpenForm(Tool):
 @tool
 class SendEphemeral(Tool):
     name: ClassVar[str] = "send_ephemeral"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     posts_to_user: ClassVar[bool] = True  # the file/message reaches a person; the turn may end on it
     requires: ClassVar[frozenset[str]] = frozenset({CAP_EPHEMERAL})
     description: ClassVar[str] = (
@@ -339,6 +343,7 @@ class SendFile(Tool):
 @tool
 class OpenScreen(Tool):
     name: ClassVar[str] = "open_screen"
+    destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     requires: ClassVar[frozenset[str]] = frozenset({CAP_WIDGETS})
     speaks_to_user: ClassVar[bool] = True
     description: ClassVar[str] = (

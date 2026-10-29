@@ -1047,6 +1047,34 @@ def test_manifest_carries_speaks_to_user() -> None:
     entries = {e["name"]: e for e in reg.manifest(("speaks", "plain"))}
     assert entries["speaks"]["speaks_to_user"] is True
     assert entries["plain"]["speaks_to_user"] is False
+    assert entries["plain"]["destructive"] is True  # the author said nothing: never let through without a person
+
+
+def test_the_built_in_tools_that_only_ask_read_or_show_say_they_are_not_destructive() -> None:
+    """The flag an application's auto mode may pass a call on: False only on
+    the tools that change nothing — the widgets, the listings, the reads."""
+    from crucible.builtin_tools import (
+        AskUserButtons,
+        AskUserSelect,
+        OpenForm,
+        OpenScreen,
+        SendEphemeral,
+        SendFile,
+    )
+    from impi.chat_tools import (
+        CreateChannel,
+        GetChannelMembers,
+        ListAgents,
+        ReadChannel,
+        SendMessage,
+    )
+    from impi.skill_tools import InstallSkill, ListSkills
+    from impi.task_tools import CancelTask, ListTasks, ScheduleTask
+
+    harmless = (AskUserButtons, AskUserSelect, OpenForm, OpenScreen, SendEphemeral, ListAgents, GetChannelMembers, ReadChannel, ListSkills, ListTasks)
+    assert all(t.destructive is False for t in harmless)
+    changing = (SendFile, CreateChannel, SendMessage, InstallSkill, ScheduleTask, CancelTask)
+    assert all(t.destructive is True for t in changing)
 
 
 def test_the_speech_note_is_generated_not_written_by_hand() -> None:
