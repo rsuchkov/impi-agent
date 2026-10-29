@@ -336,8 +336,16 @@ steps:
      `assistant:write` and `chat:write`, and the events `message.im`,
      `app_home_opened`, `app_context_changed`, `agent_session_stopped` and
      `agent_session_title_changed` (`reaction_added` too, for reactions as
-     commands). The engine takes all of them; the Stop button ends the turn
-     as `/stop` does ([commands.md](commands.md#stopping-a-turn)).
+     commands) — and the engine `SLACK_AGENT_SESSIONS=true` (per agent
+     `AGENTS_SLACK_AGENT_SESSIONS__<AGENT>`), so a turn marks its session
+     `processing`. A session is a thread to Slack, and a message typed in the
+     panel arrives at the top of the direct message: with `DM_REPLIES=thread`
+     the answer goes into a thread under it and the status with it, the shape
+     the panel expects; with `top` the answer stays at the top of the DM and
+     Slack opens an empty thread under the message for the status and the Stop
+     button alone. Without `SLACK_AGENT_SESSIONS` the panel shows a plain chat.
+     The engine takes all of the events; the Stop button ends the turn as
+     `/stop` does ([commands.md](commands.md#stopping-a-turn)).
 2. **Add the token** to the engine `.env`, keyed by the upper-cased agent name
    (`-`→`_`):
    - Mattermost: `AGENTS_MM_TOKEN__<NAME>`.

@@ -58,6 +58,19 @@ async def test_dm_message_is_submitted() -> None:
     )
     assert len(sink.submitted) == 1
     assert sink.submitted[0].is_dm is True
+    assert sink.submitted[0].conversation_id == "D1" and sink.submitted[0].ref.thread_root_id == ""
+
+
+async def test_a_direct_message_may_be_answered_in_a_thread_under_it() -> None:
+    """``dm_thread``: a top-level direct message is answered in a thread under
+    the person's message — where a Slack agent session lives — while the
+    conversation stays the DM, memory and all. The DM is direct as before."""
+    sink = FakeSink()
+    gw = _gateway(sink, dm_thread=True, dispatcher=FakeDispatcher())
+    await gw._handle_message({"channel": "D1", "channel_type": "im", "ts": "1.0", "user": "U2", "text": "hi"})
+    msg = sink.submitted[0]
+    assert (msg.conversation_id, msg.kind, msg.ref.thread_root_id, msg.is_dm) == ("D1", "dm", "1.0", True)
+    assert gw.interactions is not None and gw.interactions._dm_thread is True  # shortcuts and reactions follow the rule
 
 
 async def test_channel_without_mention_is_ignored() -> None:

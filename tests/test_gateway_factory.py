@@ -54,6 +54,7 @@ async def test_the_reaction_map_reaches_the_slack_gateway(with_dispatcher: bool)
     try:
         assert isinstance(gateway, SlackGateway)
         assert (gateway.reactions is not None) is with_dispatcher
+        assert gateway._dm_thread is False  # answered at the top unless the config says thread
     finally:
         await gateway.stop()  # close the socket handler's aiohttp session
 
@@ -86,5 +87,25 @@ async def test_an_applications_own_slack_app_and_home_reach_the_gateway() -> Non
             assert isinstance(built, SlackGateway) and built._app is not own  # no app of its own: built here
         finally:
             await built.stop()
+    finally:
+        await gateway.stop()
+
+
+async def test_where_a_direct_message_is_answered_reaches_both_gateways_and_the_slack_client_knows_its_sessions() -> None:
+    factory = _factory(FakeDispatcher())
+    mm = factory.create("assistant", GatewayConfig(
+        kind="mattermost", mattermost_url="http://mm.example.com", mm_token="tok", dm_replies="thread",
+    ))
+    assert mm is not None
+    mm_gateway = mm.create_gateway(FakeSink())
+    assert isinstance(mm_gateway, MattermostGateway) and mm_gateway._dm_thread is True
+    slack = factory.create("assistant", GatewayConfig(
+        kind="slack", slack_bot_token="xoxb-fake", slack_app_token="xapp-fake", dm_replies="thread", slack_agent_sessions=True,
+    ))
+    assert slack is not None
+    gateway = slack.create_gateway(FakeSink())
+    try:
+        assert isinstance(gateway, SlackGateway) and gateway._dm_thread is True
+        assert slack.chat._agent_sessions is True  # type: ignore[attr-defined]  # the client marks the session
     finally:
         await gateway.stop()

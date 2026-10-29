@@ -48,6 +48,16 @@ def _frame(
     return {"event": event, "data": data, "broadcast": {}, "seq": 2}
 
 
+def test_a_direct_message_may_be_answered_in_a_thread_under_it() -> None:
+    """``dm_thread`` puts the answer in a thread under the person's post while
+    the conversation stays the DM; a reply inside a thread is its thread's."""
+    msg = parse_posted(_frame(), ME, dm_thread=True)
+    assert msg is not None
+    assert (msg.conversation_id, msg.kind, msg.ref.thread_root_id) == (msg.channel_id, KIND_DM, msg.ref.message_id)
+    reply = parse_posted(_frame(root_id="dmroot000000000000000001"), ME, dm_thread=True)
+    assert reply is not None and reply.kind == KIND_THREAD and reply.conversation_id == "dmroot000000000000000001"
+
+
 def test_dm_top_level_is_dm_channel_session() -> None:
     msg = parse_posted(_frame(), ME)
 

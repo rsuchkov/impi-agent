@@ -57,9 +57,15 @@ class SlackGateway:
         keying: ConversationKey | None = None,
         reaction_commands: ReactionCommands | None = None,
         home: SlackHome | None = None,
+        dm_thread: bool = False,
     ) -> None:
         self._app = app
         self._app_token = app_token
+        # Where a top-level direct message is answered: at the top of the DM,
+        # or in a thread under the person's message (the conversation is the
+        # DM either way). Slack's agent sessions live in threads, so this is
+        # where a panel session's answers go.
+        self._dm_thread = dm_thread
         # The application's Home and context handling (None: the events are
         # taken and nothing is shown).
         self._home = home
@@ -84,7 +90,8 @@ class SlackGateway:
         self.interactions: SlackInteractions | None = None
         if dispatcher is not None:
             self.interactions = SlackInteractions(
-                app, dispatcher, poster or chat, agent=agent, command_prefix=command_prefix
+                app, dispatcher, poster or chat, agent=agent, command_prefix=command_prefix,
+                dm_thread=dm_thread,
             )
         # Reactions that are commands: the third door beside the slash command
         # and the shortcut, and like them nothing without a dispatcher.
@@ -92,7 +99,7 @@ class SlackGateway:
         if dispatcher is not None and reaction_commands is not None and reaction_commands.by_emoji:
             self.reactions = SlackReactions(
                 app, dispatcher, chat, agent=agent, reaction_commands=reaction_commands,
-                own_user_id=lambda: self._own_user_id, directory=directory,
+                own_user_id=lambda: self._own_user_id, directory=directory, dm_thread=dm_thread,
             )
         self._register()
 
@@ -180,7 +187,7 @@ class SlackGateway:
     # -- inbound messages ---------------------------------------------------
 
     async def _handle_message(self, event: dict) -> None:
-        msg = event_to_incoming(event, self._own_user_id, self._own_bot_id)
+        msg = event_to_incoming(event, self._own_user_id, self._own_bot_id, dm_thread=self._dm_thread)
         if msg is None:
             return
         decided = self._decide(msg)

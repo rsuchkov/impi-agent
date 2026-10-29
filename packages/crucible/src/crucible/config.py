@@ -20,6 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from crucible.ports.agent.confinement import check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
+from crucible.ports.chat.gateway import DM_REPLIES
 from crucible.receiver_paths import RECEIVER_SECRET_RE, callback_path
 
 # The backend names, spelled out rather than imported. `crucible.store` owns the
@@ -84,6 +85,14 @@ def _checked_env_names(key: str, raw: str, reserved: tuple[str, ...]) -> list[st
 # "-1"), and a command word as a slash command takes it.
 _EMOJI_NAME = re.compile(r"^[a-z0-9_+-]+$")
 _COMMAND_WORD = re.compile(r"^[a-z0-9_-]+$")
+
+
+def _checked_dm_replies(key: str, raw: str) -> str:
+    """``top`` or ``thread`` — or ValueError naming the key."""
+    word = raw.strip().lower()
+    if word not in DM_REPLIES:
+        raise ValueError(f"{key}: {raw!r} is not a place to answer; one of {', '.join(DM_REPLIES)}")
+    return word
 
 
 def _checked_reaction_commands(key: str, raw: str) -> dict[str, str]:
@@ -214,6 +223,18 @@ class Settings(BaseSettings):
     # rest of the id is the command name (crux_summarize -> "summarize"). Change
     # it to match a workspace's own naming; empty = every shortcut is a command.
     slack_command_prefix: str = "crux_"
+    # Whether the Slack bot is an agent in Slack's Agents panel (the app has
+    # `agent_view`): a turn then marks its session `processing` — the working
+    # indicator and Slack's Stop button — and `active` after. A session is a
+    # thread to Slack: the one the turn answers in, or, with DM_REPLIES=top, the
+    # one Slack opens under the person's message for the status alone. Per
+    # agent: AGENTS_SLACK_AGENT_SESSIONS__<AGENT>.
+    slack_agent_sessions: bool = False
+    # Where a top-level direct message is answered, on Mattermost and Slack
+    # alike: `top` — at the top of the DM, as before; `thread` — in a thread
+    # under the person's message (where a Slack agent session lives). The
+    # conversation is the DM either way. Per agent: AGENTS_DM_REPLIES__<AGENT>.
+    dm_replies: str = "top"
 
     # Reactions that are commands, on Mattermost and Slack alike: CSV of
     # `emoji=command` (or a bare `emoji`, meaning /emoji). A person putting that
@@ -461,6 +482,11 @@ class Settings(BaseSettings):
         check_provider_has_model(self.default_provider, self.default_model, "DEFAULT_PROVIDER", "DEFAULT_MODEL")
         return self
 
+    @field_validator("dm_replies")
+    @classmethod
+    def _dm_replies_is_a_place(cls, value: str) -> str:
+        return _checked_dm_replies("DM_REPLIES", value)
+
     @field_validator("stop_command")
     @classmethod
     def _stop_command_is_a_word(cls, value: str) -> str:
@@ -568,6 +594,27 @@ class Settings(BaseSettings):
         if agent == self.agent_name and self.slack_bot_token and self.slack_app_token:
             return self.slack_bot_token, self.slack_app_token
         return "", ""
+
+    def dm_replies_for(self, agent: str) -> str:
+        """Where one agent answers a top-level direct message:
+        AGENTS_DM_REPLIES__<AGENT>, else DM_REPLIES."""
+        key = f"AGENTS_DM_REPLIES__{agent.upper().replace('-', '_')}"
+        raw = self._override(key)
+        return _checked_dm_replies(key, raw) if raw is not None else self.dm_replies
+
+    def slack_agent_sessions_for(self, agent: str) -> bool:
+        """Whether one agent's Slack bot is an agent in Slack's panel:
+        AGENTS_SLACK_AGENT_SESSIONS__<AGENT>, else SLACK_AGENT_SESSIONS."""
+        key = f"AGENTS_SLACK_AGENT_SESSIONS__{agent.upper().replace('-', '_')}"
+        raw = self._override(key)
+        if raw is None:
+            return self.slack_agent_sessions
+        word = raw.strip().lower()
+        if word in ("true", "1", "yes", "on"):
+            return True
+        if word in ("false", "0", "no", "off", ""):
+            return False
+        raise ValueError(f"{key}: {raw!r} is not a boolean (true/false)")
 
     def reaction_commands_for(self, agent: str) -> dict[str, str]:
         """The emoji -> command map of one agent: AGENTS_REACTION_COMMANDS__<AGENT>

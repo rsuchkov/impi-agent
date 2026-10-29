@@ -52,6 +52,7 @@ def resolve_gateway_kind(settings: ImpiSettings, agent: str, kind: str) -> Gatew
             max_post_chars=settings.mm_max_post_chars,
             reply_to_agents=settings.agents_reply_to_agents,
             reaction_commands=_reaction_commands(settings, agent),
+            dm_replies=settings.dm_replies_for(agent),
         )
     if kind == "slack":
         bot, app_token = settings.slack_tokens_for(agent)
@@ -67,6 +68,8 @@ def resolve_gateway_kind(settings: ImpiSettings, agent: str, kind: str) -> Gatew
             slack_bot_token=bot,
             slack_app_token=app_token,
             slack_command_prefix=settings.slack_command_prefix,
+            slack_agent_sessions=settings.slack_agent_sessions_for(agent),
+            dm_replies=settings.dm_replies_for(agent),
             max_post_chars=settings.mm_max_post_chars,
             reply_to_agents=settings.agents_reply_to_agents,
             reaction_commands=_reaction_commands(settings, agent),

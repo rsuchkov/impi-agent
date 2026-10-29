@@ -29,6 +29,20 @@ when a release is cut, and `impi update` shows the target version's section.
   `runtime.tools` but those, unrolled as the profile loads, so a tool added to
   the agent's list later reaches that gateway without a second edit; a name
   `tools` does not list as written is a profile error.
+- **Where a direct message is answered, and whether the Slack bot is an agent.**
+  Two settings, each for every agent or one (`AGENTS_…__<AGENT>`):
+  `DM_REPLIES` — `top` (as before) or `thread`, an answer in a thread under
+  the person's message, on Mattermost and Slack alike, the conversation
+  staying the DM, memory and all; and `SLACK_AGENT_SESSIONS` — the bot is an
+  agent in Slack's Agents panel, so a turn marks its session `processing` (the
+  working indicator, the Stop button) and `active` after. Slack's sessions
+  are threads, and the panel sends a person's message at the top of the
+  direct message: `thread` puts the answer and the status in a thread under
+  it, the shape the panel expects; `top` keeps the answer at the top and lets
+  Slack open an empty thread under the message for the status alone. Before,
+  a top-level direct message got neither status nor Stop button, so the panel
+  looked like a plain chat whatever the manifest said. A stop now also finds a
+  turn by the message it answers.
 - **An application's entitlement source is told the gateway's ceiling.**
   `EntitlementSource.entitlement(agent, msg, *, tools=None)`: `GatewayEntitlements`
   calls its inner source with the tools the gateway leaves, so instructions

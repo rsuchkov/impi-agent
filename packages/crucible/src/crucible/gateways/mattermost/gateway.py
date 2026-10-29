@@ -57,8 +57,12 @@ class MattermostGateway:
         attachments: AttachmentStore | None = None,
         keying: ConversationKey | None = None,
         reaction_commands: ReactionCommands | None = None,
+        dm_thread: bool = False,
     ) -> None:
         self._driver = driver
+        # Where a top-level direct message is answered: at the top of the DM or in
+        # a thread under the person's post; the conversation is the DM either way.
+        self._dm_thread = dm_thread
         self._sink = sink  # coalescer, wired in the composition root
         self._chat = chat
         self._agent = agent  # whose attachment directory incoming files land in
@@ -75,7 +79,7 @@ class MattermostGateway:
         if dispatcher is not None and reaction_commands is not None and reaction_commands.by_emoji:
             self.reactions = MattermostReactions(
                 driver, dispatcher, chat, agent=agent, reaction_commands=reaction_commands,
-                own_user_id=lambda: self._own_user_id, directory=directory,
+                own_user_id=lambda: self._own_user_id, directory=directory, dm_thread=dm_thread,
             )
         # channel_id -> (expires_monotonic, member user ids)
         self._members_cache: dict[str, tuple[float, frozenset[str]]] = {}
@@ -114,7 +118,7 @@ class MattermostGateway:
                 if reaction is not None:
                     await self.reactions.handle_reaction(reaction)
                     return
-            msg = parse_posted(frame, self._own_user_id)
+            msg = parse_posted(frame, self._own_user_id, dm_thread=self._dm_thread)
             if msg is None:
                 return
             decided = await self._decide(msg)

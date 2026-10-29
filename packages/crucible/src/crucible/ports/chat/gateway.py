@@ -24,6 +24,12 @@ GATEWAY_WS = "ws"
 GATEWAY_HTTP = "http"
 GATEWAY_KINDS = (GATEWAY_MATTERMOST, GATEWAY_SLACK, GATEWAY_WS, GATEWAY_HTTP)
 
+# Where a chat gateway answers a top-level direct message: at the top of the DM,
+# or in a thread under the person's message. The conversation is the DM either way.
+DM_REPLIES_TOP = "top"
+DM_REPLIES_THREAD = "thread"
+DM_REPLIES = (DM_REPLIES_TOP, DM_REPLIES_THREAD)
+
 
 class Gateway(Protocol):
     """Lifecycle: login() once, then run() until stop()."""

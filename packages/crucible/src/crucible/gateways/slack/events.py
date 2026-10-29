@@ -41,15 +41,18 @@ class ConversationKey(NamedTuple):
     thread_root: str
 
 
-def conversation_of(ts: str, thread_ts: str, channel: str, *, is_dm: bool) -> ConversationKey:
+def conversation_of(
+    ts: str, thread_ts: str, channel: str, *, is_dm: bool, dm_thread: bool = False
+) -> ConversationKey:
     """The one conversation rule, for a message, a shortcut and a reaction
     alike: a reply inside a thread belongs to that thread; a top-level DM
-    message to the DM channel's session; a top-level channel message starts a
-    thread under itself."""
+    message to the DM channel's session — answered at the top, or, with
+    ``dm_thread``, in a thread under the message (the conversation is the DM
+    either way); a top-level channel message starts a thread under itself."""
     if thread_ts and thread_ts != ts:
         return ConversationKey(thread_ts, KIND_THREAD, thread_ts)
     if is_dm:
-        return ConversationKey(channel, KIND_DM, "")
+        return ConversationKey(channel, KIND_DM, ts if dm_thread else "")
     return ConversationKey(ts, KIND_THREAD, ts)
 
 
@@ -65,7 +68,7 @@ _ACCEPTED_SUBTYPES = frozenset({None, "file_share", "bot_message"})
 
 
 def event_to_incoming(
-    event: dict[str, Any], own_user_id: str, own_bot_id: str = ""
+    event: dict[str, Any], own_user_id: str, own_bot_id: str = "", *, dm_thread: bool = False,
 ) -> IncomingMessage | None:
     """Normalize one Slack ``message`` event; None = nothing we could react to."""
     channel = event.get("channel") or ""
@@ -87,7 +90,7 @@ def event_to_incoming(
     thread_ts = event.get("thread_ts") or ""
     is_dm = event.get("channel_type") == "im"
 
-    conversation_id, kind, thread_root = conversation_of(ts, thread_ts, channel, is_dm=is_dm)
+    conversation_id, kind, thread_root = conversation_of(ts, thread_ts, channel, is_dm=is_dm, dm_thread=dm_thread)
 
     text = event.get("text") or ""
     mentioned = bool(own_user_id) and f"<@{own_user_id}>" in text

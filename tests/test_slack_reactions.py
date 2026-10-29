@@ -144,6 +144,10 @@ def test_the_conversation_rule_is_one_function() -> None:
     assert conversation_of("2.0", "", "D1", is_dm=True) == ("D1", "dm", "")
     assert conversation_of("2.0", "2.0", "C1", is_dm=False) == ("2.0", "thread", "2.0")
     assert conversation_of("2.0", "", "C1", is_dm=False) == ("2.0", "thread", "2.0")
+    # Answering a direct message in a thread under the person's message keeps the
+    # DM as the conversation; a reply inside a thread belongs to the thread as before.
+    assert conversation_of("2.0", "", "D1", is_dm=True, dm_thread=True) == ("D1", "dm", "2.0")
+    assert conversation_of("3.0", "2.0", "D1", is_dm=True, dm_thread=True) == ("2.0", "thread", "2.0")
 
 
 # --- parsing ---------------------------------------------------------------------

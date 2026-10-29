@@ -45,14 +45,18 @@ class ConversationKey(NamedTuple):
     thread_root: str
 
 
-def conversation_of(post_id: str, root_id: str, channel_id: str, *, is_dm: bool) -> ConversationKey:
+def conversation_of(
+    post_id: str, root_id: str, channel_id: str, *, is_dm: bool, dm_thread: bool = False
+) -> ConversationKey:
     """The one conversation rule, for a post and a reaction alike: a reply
     belongs to its thread (in a DM too); a top-level DM post to the DM
-    channel's session; a top-level channel post starts a thread under itself."""
+    channel's session — answered at the top, or, with ``dm_thread``, in a
+    thread under the post (the conversation is the DM either way); a
+    top-level channel post starts a thread under itself."""
     if root_id:
         return ConversationKey(root_id, KIND_THREAD, root_id)
     if is_dm:
-        return ConversationKey(channel_id, KIND_DM, "")
+        return ConversationKey(channel_id, KIND_DM, post_id if dm_thread else "")
     return ConversationKey(post_id, KIND_THREAD, post_id)
 
 
@@ -102,7 +106,7 @@ def _handle(info: dict[str, Any]) -> FileHandle:
     )
 
 
-def parse_posted(frame: dict[str, Any], own_user_id: str) -> IncomingMessage | None:
+def parse_posted(frame: dict[str, Any], own_user_id: str, *, dm_thread: bool = False) -> IncomingMessage | None:
     """Normalize one WS frame; None = not a message we could ever react to."""
     if frame.get("event") != EVENT_POSTED:
         return None
@@ -127,7 +131,7 @@ def parse_posted(frame: dict[str, Any], own_user_id: str) -> IncomingMessage | N
     post_id = post["id"]
     root_id = post.get("root_id") or ""
     is_dm = data.get("channel_type") == DIRECT_CHANNEL_TYPE
-    conversation_id, kind, thread_root = conversation_of(post_id, root_id, channel_id, is_dm=is_dm)
+    conversation_id, kind, thread_root = conversation_of(post_id, root_id, channel_id, is_dm=is_dm, dm_thread=dm_thread)
 
     mentions = _embedded_json(data.get("mentions")) or []
     mentioned = isinstance(mentions, list) and own_user_id in mentions

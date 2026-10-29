@@ -55,6 +55,8 @@ HTTP receiver is needed.
 |---|---|---|
 | `SLACK_BOT_TOKEN` | `""` | `xoxb-…` bot token for the default agent |
 | `SLACK_APP_TOKEN` | `""` | `xapp-…` app-level token (scope `connections:write`) |
+| `SLACK_AGENT_SESSIONS` | `false` | the Slack bot is an agent in Slack's Agents panel (the app has `agent_view`): a turn marks its session `processing` — the working indicator and Slack's Stop button — and `active` after. A session is a thread: the one the turn answers in, or, with `DM_REPLIES=top`, the one Slack opens under the person's message for the status alone (an empty thread beside the answer). Per agent: `AGENTS_SLACK_AGENT_SESSIONS__<AGENT>`. See [creating-agents.md](creating-agents.md) |
+| `DM_REPLIES` | `top` | where a top-level direct message is answered, on Mattermost and Slack alike: `top` — at the top of the DM; `thread` — in a thread under the person's message (where a Slack agent session lives). The conversation is the DM either way, memory and all. Per agent: `AGENTS_DM_REPLIES__<AGENT>` |
 | `SLACK_COMMAND_PREFIX` | `crux_` | message shortcuts whose callback id starts with this are commands; the rest of the id is the command name (empty = every shortcut is one). See [commands.md](commands.md) |
 
 ## Reactions as commands
@@ -196,6 +198,8 @@ as defaults — set only the ones you need.
 | `AGENTS_MM_TOKEN__<AGENT>` | that agent's Mattermost bot token |
 | `AGENTS_SLACK_BOT_TOKEN__<AGENT>` | that agent's Slack bot token |
 | `AGENTS_SLACK_APP_TOKEN__<AGENT>` | that agent's Slack app-level token |
+| `AGENTS_SLACK_AGENT_SESSIONS__<AGENT>` | whether that agent's Slack bot is an agent in Slack's panel (`SLACK_AGENT_SESSIONS` for the rest) |
+| `AGENTS_DM_REPLIES__<AGENT>` | where that agent answers a top-level direct message, `top` or `thread` (`DM_REPLIES` for the rest) |
 | `AGENTS_GATEWAY__<AGENT>` | that agent's gateway (`mattermost` \| `slack` \| `ws` \| `http`), or several as a CSV (`mattermost,slack`); the first is its default |
 | `AGENTS_SKILLS__<AGENT>` | override that agent's skills (CSV of names; empty = none; unset = its `agent.yaml`) |
 | `AGENTS_ENV__<AGENT>` | override the engine environment variables that agent's process inherits (CSV of names, `*` allowed; empty = none beyond the base set; unset = its `agent.yaml` `runtime.env`) |

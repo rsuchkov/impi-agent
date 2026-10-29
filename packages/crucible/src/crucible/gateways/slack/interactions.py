@@ -71,9 +71,11 @@ class SlackInteractions:
         *,
         agent: str,
         command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX,
+        dm_thread: bool = False,
     ) -> None:
         self._app = app
         self._dispatcher = dispatcher
+        self._dm_thread = dm_thread  # a top-level DM message is answered in a thread under it
         self._poster = poster  # opens modals on a form-open click (same account)
         self._agent = agent  # our own name; a command names the agent to run
         # Which message shortcuts are commands, and where the command name starts.
@@ -198,7 +200,7 @@ class SlackInteractions:
         # Same conversation rule as an inbound message (slack/events.py); the
         # shortcut payload carries no channel type, so the id says what it is.
         conversation_id, kind, _ = conversation_of(
-            ts, thread_ts, channel_id, is_dm=is_direct_channel(channel_id)
+            ts, thread_ts, channel_id, is_dm=is_direct_channel(channel_id), dm_thread=self._dm_thread,
         )
         if not conversation_id:
             logger.warning("shortcut %s: no conversation in the payload", command)

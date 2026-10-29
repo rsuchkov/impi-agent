@@ -2214,4 +2214,15 @@ async def test_a_stop_finds_the_turn_by_the_thread_or_the_channel_the_anchor_car
     assert await flow.stop("D1", gateway="slack") is True  # the channel, as a /stop typed in the DM names it
     assert await turn is TurnOutcome.STOPPED
     assert flow._active_at == {}  # every name let go — the conversation's, the thread's, the channel's
+    # A turn answered at the top of a direct message: Slack's session is the message itself.
+    runtime.started.clear()
+    runtime.ended.clear()
+    top = IncomingMessage(
+        ref=ConversationRef(channel_id="D1", conversation_id="D1", message_id="1800.1", thread_root_id=""),
+        text="go", user_id="u1", username="roman", kind=KIND_DM, gateway="slack",
+    )
+    turn = asyncio.ensure_future(flow.handle(top, FakeChat()))
+    await asyncio.wait_for(runtime.started.wait(), 1.0)
+    assert await flow.stop("1800.1", gateway="slack") is True  # agent_session_stopped names the message's thread_ts
+    assert await turn is TurnOutcome.STOPPED
     await store.close()

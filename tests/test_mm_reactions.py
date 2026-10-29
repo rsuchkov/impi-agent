@@ -117,6 +117,7 @@ def test_the_conversation_rule_is_one_function() -> None:
     assert conversation_of("p2", "root1", "ch1", is_dm=False) == ("root1", "thread", "root1")
     assert conversation_of("p2", "root1", "dm1", is_dm=True) == ("root1", "thread", "root1")  # in a DM too
     assert conversation_of("p2", "", "dm1", is_dm=True) == ("dm1", "dm", "")
+    assert conversation_of("p2", "", "dm1", is_dm=True, dm_thread=True) == ("dm1", "dm", "p2")  # answered under the post
     assert conversation_of("p2", "", "ch1", is_dm=False) == ("p2", "thread", "p2")
 
 

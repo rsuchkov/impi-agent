@@ -251,17 +251,22 @@ async def test_busy_marks_the_agent_session_and_a_top_level_message_is_left_alon
     thread; a top-level message has none. An app without the feature gets an
     error, which costs the turn nothing."""
     web = FakeWeb()
-    await _sc(web).set_busy(_ref(channel="D1", root="100.1"), True)
-    await _sc(web).set_busy(_ref(channel="D1", root="100.1"), False)
+    agent = SlackChatClient(web, agent_sessions=True)  # type: ignore[arg-type]
+    await agent.set_busy(_ref(channel="D1", root="100.1"), True)
+    await agent.set_busy(_ref(channel="D1", root="100.1"), False)
     assert [kw for _, kw in web.calls] == [
         {"api_method": "agents.sessions.setStatus", "json": {"channel_id": "D1", "thread_ts": "100.1", "status": "processing"}},
         {"api_method": "agents.sessions.setStatus", "json": {"channel_id": "D1", "thread_ts": "100.1", "status": "active"}},
     ]
-    await _sc(web).set_busy(_ref(root=""), True)
-    assert len(web.calls) == 2
+    # A turn answered at the top of a direct message: the session Slack opens under the person's message.
+    await agent.set_busy(_ref(channel="D1", msg="105.2", root=""), True)
+    assert web.last("api_call")["json"]["thread_ts"] == "105.2"
+    # A plain bot (no agent_view) has no session to mark, whatever the thread.
+    await _sc(web).set_busy(_ref(root="100.1"), True)
+    assert len(web.calls) == 3
     web.raise_on["api_call"] = SlackApiError("x", {"error": "not_allowed_token_type"})
-    await _sc(web).set_busy(_ref(root="100.1"), True)  # must not raise
+    await agent.set_busy(_ref(root="100.1"), True)  # must not raise
     import aiohttp
 
     web.raise_on["api_call"] = aiohttp.ClientConnectionError("no route")  # type: ignore[assignment]
-    await _sc(web).set_busy(_ref(root="100.1"), True)  # a network that did not answer: nor this
+    await agent.set_busy(_ref(root="100.1"), True)  # a network that did not answer: nor this

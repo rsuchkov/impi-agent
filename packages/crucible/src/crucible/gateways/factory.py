@@ -35,7 +35,12 @@ from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import MessageSink, TrackedSink
-from crucible.ports.chat.gateway import GATEWAY_KINDS, Gateway
+from crucible.ports.chat.gateway import (
+    DM_REPLIES_THREAD,
+    DM_REPLIES_TOP,
+    GATEWAY_KINDS,
+    Gateway,
+)
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.tools.base import CAP_EPHEMERAL, CAP_FORMS, CAP_WIDGETS
 
@@ -68,6 +73,8 @@ class GatewayConfig:
     slack_bot_token: str = ""
     slack_app_token: str = ""
     slack_command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX  # command shortcuts
+    slack_agent_sessions: bool = False  # the bot is an agent in Slack's panel: a turn marks its session processing
+    dm_replies: str = DM_REPLIES_TOP  # where a top-level direct message is answered: top | thread
     # Reactions that run a command, on either chat platform; an empty map =
     # none. Needs a dispatcher, like a shortcut does.
     reaction_commands: ReactionCommands = field(default_factory=ReactionCommands)
@@ -153,6 +160,7 @@ class GatewayFactory:
     def _mattermost(self, agent: str, config: GatewayConfig) -> GatewayHandle:
         driver = AsyncTypedDriver(driver_options(config.mattermost_url, config.mm_token))
         chat = MattermostChatClient(driver, max_post_chars=config.max_post_chars)
+        dm_thread = config.dm_replies == DM_REPLIES_THREAD
 
         def create_gateway(sink: MessageSink) -> Gateway:
             return MattermostGateway(
@@ -163,6 +171,7 @@ class GatewayFactory:
                 reply_to_agents=config.reply_to_agents,
                 attachments=self._attachments, keying=self._keying,
                 reaction_commands=config.reaction_commands,
+                dm_thread=dm_thread,
             )
 
         return GatewayHandle(
@@ -173,7 +182,7 @@ class GatewayFactory:
 
     def _slack(self, agent: str, config: GatewayConfig) -> GatewayHandle:
         app = self._slack_apps.get(agent) or AsyncApp(token=config.slack_bot_token)
-        chat = SlackChatClient(app.client, max_post_chars=config.max_post_chars)
+        chat = SlackChatClient(app.client, max_post_chars=config.max_post_chars, agent_sessions=config.slack_agent_sessions)
 
         def create_gateway(sink: MessageSink) -> Gateway:
             return SlackGateway(
@@ -184,6 +193,7 @@ class GatewayFactory:
                 command_prefix=config.slack_command_prefix,
                 attachments=self._attachments, keying=self._keying,
                 reaction_commands=config.reaction_commands, home=self._slack_home,
+                dm_thread=config.dm_replies == DM_REPLIES_THREAD,
             )
 
         return GatewayHandle(

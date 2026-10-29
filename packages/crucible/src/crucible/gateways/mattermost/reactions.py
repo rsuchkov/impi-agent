@@ -41,12 +41,14 @@ class MattermostReactions:
         reaction_commands: ReactionCommands,
         own_user_id: Callable[[], str],
         directory: AgentDirectory | None = None,
+        dm_thread: bool = False,
     ) -> None:
         self._driver = driver
         self._dispatcher = dispatcher
         self._chat = chat
         self._agent = agent
         self._reaction_commands = reaction_commands
+        self._dm_thread = dm_thread
         # Learned at login, after this is built — so asked for, not copied.
         self._own_user_id = own_user_id
         self._directory = directory
@@ -73,7 +75,7 @@ class MattermostReactions:
         # A reply's conversation is its thread whatever the channel; whether
         # the channel is a direct one still says who reads the thread.
         is_dm = await self._channel_type(channel_id) == DIRECT_CHANNEL_TYPE
-        conversation_id, kind, _ = conversation_of(reaction.message_id, root_id, channel_id, is_dm=is_dm)
+        conversation_id, kind, _ = conversation_of(reaction.message_id, root_id, channel_id, is_dm=is_dm, dm_thread=self._dm_thread)
         if command == self._dispatcher.stop_command:
             # The reaction says stop: no turn is started, the one running ends.
             await self._dispatcher.stop_turn(self._agent, conversation_id, gateway=GATEWAY_MATTERMOST)

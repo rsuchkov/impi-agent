@@ -302,6 +302,29 @@ def test_an_mcp_servers_secret_is_read_from_the_environment_then_the_env_file(tm
     assert values["MCP_GITHUB_TOKEN"] == "from-env" and values["MCP_OTHER"] == "file-only"
 
 
+def test_where_a_direct_message_is_answered_and_whether_the_slack_bot_is_an_agent_are_per_agent(monkeypatch) -> None:
+    """Both default to the plain bot — answered at the top, no session marked —
+    and either may be set for every agent or for one."""
+    from crucible.config import Settings
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    assert (settings.dm_replies, settings.slack_agent_sessions) == ("top", False)
+    assert settings.dm_replies_for("assistant") == "top" and settings.slack_agent_sessions_for("assistant") is False
+    monkeypatch.setenv("AGENTS_DM_REPLIES__HELPER", "thread")
+    monkeypatch.setenv("AGENTS_SLACK_AGENT_SESSIONS__HELPER", "true")
+    assert settings.dm_replies_for("helper") == "thread" and settings.slack_agent_sessions_for("helper") is True
+    assert settings.dm_replies_for("assistant") == "top"  # another agent keeps the engine's own
+    assert Settings(_env_file=None, dm_replies="thread").dm_replies_for("assistant") == "thread"  # pyright: ignore[reportCallIssue]
+    with pytest.raises(ValueError, match="DM_REPLIES"):
+        Settings(_env_file=None, dm_replies="sideways")  # pyright: ignore[reportCallIssue]
+    monkeypatch.setenv("AGENTS_DM_REPLIES__HELPER", "nowhere")
+    with pytest.raises(ValueError, match="AGENTS_DM_REPLIES__HELPER"):
+        settings.dm_replies_for("helper")
+    monkeypatch.setenv("AGENTS_SLACK_AGENT_SESSIONS__HELPER", "maybe")
+    with pytest.raises(ValueError, match="AGENTS_SLACK_AGENT_SESSIONS__HELPER"):
+        settings.slack_agent_sessions_for("helper")
+
+
 def test_the_stop_command_is_a_word_or_nothing() -> None:
     from crucible.config import Settings
 

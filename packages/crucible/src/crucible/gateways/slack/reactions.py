@@ -48,12 +48,14 @@ class SlackReactions:
         reaction_commands: ReactionCommands,
         own_user_id: Callable[[], str],
         directory: AgentDirectory | None = None,
+        dm_thread: bool = False,
     ) -> None:
         self._app = app
         self._dispatcher = dispatcher
         self._chat = chat
         self._agent = agent
         self._reaction_commands = reaction_commands
+        self._dm_thread = dm_thread
         # Learned at login, after this is built — so asked for, not copied.
         self._own_user_id = own_user_id
         self._directory = directory
@@ -79,7 +81,7 @@ class SlackReactions:
         message = await self._message(reaction)
         conversation_id, kind, _ = conversation_of(
             reaction.message_id, str(message.get("thread_ts") or ""), reaction.channel_id,
-            is_dm=is_direct_channel(reaction.channel_id),
+            is_dm=is_direct_channel(reaction.channel_id), dm_thread=self._dm_thread,
         )
         if command == self._dispatcher.stop_command:
             # The reaction says stop: no turn is started, the one running ends.
