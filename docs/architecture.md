@@ -91,7 +91,9 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   server reads it and the flow binds it). `crucible.turns.TurnRegistry` is the
   in-memory binding both sides hold.
 - **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill + files + the widget
-  verbs), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
+  verbs), `ConversationView` (a platform's view of the conversation beside its
+  messages — busy or free, for the turn), `StoppableSink` (a person stops the
+  turn in flight), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `FileService`
   (the tool-facing "send this file"), `MessageSink` / `Flow` (inbound entry
   point, returning a `TurnOutcome`), `AgentDirectory` (who our agents are), and

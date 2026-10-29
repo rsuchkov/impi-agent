@@ -56,3 +56,35 @@ async def test_the_reaction_map_reaches_the_slack_gateway(with_dispatcher: bool)
         assert (gateway.reactions is not None) is with_dispatcher
     finally:
         await gateway.stop()  # close the socket handler's aiohttp session
+
+
+async def test_an_applications_own_slack_app_and_home_reach_the_gateway() -> None:
+    from slack_bolt.async_app import AsyncApp
+
+    class Home:
+        async def opened(self, user_id: str, tab: str):
+            return None
+
+        async def context_changed(self, user_id: str, context: dict) -> None:
+            pass
+
+    own, home = AsyncApp(token="xoxb-fake", signing_secret="x" * 16), Home()
+    factory = GatewayFactory(
+        directory=Directory(), loop_guard=LoopGuard(), dispatcher=FakeDispatcher(),  # type: ignore[arg-type]
+        slack_apps={"assistant": own}, slack_home=home,
+    )
+    handle = factory.create("assistant", GatewayConfig(kind="slack", slack_bot_token="xoxb-other", slack_app_token="xapp-fake"))
+    assert handle is not None
+    gateway = handle.create_gateway(FakeSink())
+    try:
+        assert isinstance(gateway, SlackGateway)
+        assert gateway._app is own and gateway._home is home  # the application's app, not one built from the token
+        other = factory.create("scribe", GatewayConfig(kind="slack", slack_bot_token="xoxb-scribe", slack_app_token="xapp-fake"))
+        assert other is not None
+        built = other.create_gateway(FakeSink())
+        try:
+            assert isinstance(built, SlackGateway) and built._app is not own  # no app of its own: built here
+        finally:
+            await built.stop()
+    finally:
+        await gateway.stop()

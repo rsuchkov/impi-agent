@@ -305,7 +305,14 @@ steps:
 
 1. **Create the bot account** on the platform and copy its token:
    - Mattermost: System Console → Integrations → Bot Accounts.
-   - Slack: create an app with Socket Mode + a bot user.
+   - Slack: create an app with Socket Mode + a bot user. For the bot to be an
+     agent in Slack's Agents panel — a working indicator and a Stop button
+     while it works — the manifest needs `features.agent_view`, the scopes
+     `assistant:write` and `chat:write`, and the events `message.im`,
+     `app_home_opened`, `app_context_changed`, `agent_session_stopped` and
+     `agent_session_title_changed` (`reaction_added` too, for reactions as
+     commands). The engine takes all of them; the Stop button ends the turn
+     as `/stop` does ([commands.md](commands.md#stopping-a-turn)).
 2. **Add the token** to the engine `.env`, keyed by the upper-cased agent name
    (`-`→`_`):
    - Mattermost: `AGENTS_MM_TOKEN__<NAME>`.

@@ -104,6 +104,24 @@ class SlackChatClient:
                 channel=ref.channel_id, thread_ts=ref.thread_root_id or None, text=chunk
             )
 
+    async def set_busy(self, ref: ConversationRef, busy: bool) -> None:
+        """The agent session's status (``ConversationView``): ``processing``
+        while the turn runs — Slack shows a working indicator and its Stop
+        button, which comes back as ``agent_session_stopped`` — and ``active``
+        after. A session is a thread (``channel_id`` + ``thread_ts``), so a
+        top-level message is not one and is left alone; an app without the
+        agent feature gets an error here, which is logged and nothing else."""
+        if not ref.thread_root_id:
+            return
+        try:
+            await self._client.api_call(
+                api_method="agents.sessions.setStatus",
+                json={"channel_id": ref.channel_id, "thread_ts": ref.thread_root_id,
+                      "status": "processing" if busy else "active"},
+            )
+        except SlackApiError as exc:
+            logger.debug("agent session status not set for %s: %s", ref.thread_root_id, _err(exc))
+
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:
         try:
             await self._client.reactions_add(

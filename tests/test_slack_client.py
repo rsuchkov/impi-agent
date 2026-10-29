@@ -244,3 +244,20 @@ async def test_a_users_email_is_read_when_the_app_may_see_it() -> None:
     profile = await _sc(hidden).get_user_profile("U1")
     assert profile is not None and profile.email == ""
 
+
+async def test_busy_marks_the_agent_session_and_a_top_level_message_is_left_alone() -> None:
+    """``set_busy`` is Slack's agent session status: processing while the turn
+    runs (the panel shows its indicator and Stop), active after. A session is a
+    thread; a top-level message has none. An app without the feature gets an
+    error, which costs the turn nothing."""
+    web = FakeWeb()
+    await _sc(web).set_busy(_ref(channel="D1", root="100.1"), True)
+    await _sc(web).set_busy(_ref(channel="D1", root="100.1"), False)
+    assert [kw for _, kw in web.calls] == [
+        {"api_method": "agents.sessions.setStatus", "json": {"channel_id": "D1", "thread_ts": "100.1", "status": "processing"}},
+        {"api_method": "agents.sessions.setStatus", "json": {"channel_id": "D1", "thread_ts": "100.1", "status": "active"}},
+    ]
+    await _sc(web).set_busy(_ref(root=""), True)
+    assert len(web.calls) == 2
+    web.raise_on["api_call"] = SlackApiError("x", {"error": "not_allowed_token_type"})
+    await _sc(web).set_busy(_ref(root="100.1"), True)  # must not raise

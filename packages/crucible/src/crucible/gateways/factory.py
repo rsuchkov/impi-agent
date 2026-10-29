@@ -6,7 +6,7 @@ hands it in.
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from mattermostautodriver import AsyncTypedDriver
@@ -26,6 +26,7 @@ from crucible.gateways.slack import (
     DEFAULT_COMMAND_SHORTCUT_PREFIX,
     SlackChatClient,
     SlackGateway,
+    SlackHome,
 )
 from crucible.gateways.slack import PROMPT_HINT as SLACK_PROMPT_HINT
 from crucible.gateways.ws import WsChatClient, WsGateway, WsHub
@@ -108,6 +109,8 @@ class GatewayFactory:
         http_hub: HttpHub | None = None,
         attachments: AttachmentStore | None = None,
         keying: ConversationKey | None = None,
+        slack_apps: Mapping[str, AsyncApp] | None = None,
+        slack_home: SlackHome | None = None,
     ) -> None:
         self._directory = directory
         self._loop_guard = loop_guard
@@ -120,6 +123,13 @@ class GatewayFactory:
         # conversation's directory.
         self._attachments = attachments
         self._keying: ConversationKey = keying or PlatformKey()
+        # A Slack app the application built itself, by agent — with listeners
+        # of its own already on it, which Bolt then tries before the gateway's.
+        # An agent without one gets an app built here from its bot token.
+        self._slack_apps: Mapping[str, AsyncApp] = slack_apps or {}
+        # What the application shows in its Slack Home and does with context
+        # changes (None: the events are taken and nothing is shown).
+        self._slack_home = slack_home
         self._builders: dict[str, Callable[[str, GatewayConfig], GatewayHandle | None]] = {
             "mattermost": self._mattermost,
             "slack": self._slack,
@@ -162,7 +172,7 @@ class GatewayFactory:
         )
 
     def _slack(self, agent: str, config: GatewayConfig) -> GatewayHandle:
-        app = AsyncApp(token=config.slack_bot_token)
+        app = self._slack_apps.get(agent) or AsyncApp(token=config.slack_bot_token)
         chat = SlackChatClient(app.client, max_post_chars=config.max_post_chars)
 
         def create_gateway(sink: MessageSink) -> Gateway:
@@ -173,7 +183,7 @@ class GatewayFactory:
                 reply_to_agents=config.reply_to_agents,
                 command_prefix=config.slack_command_prefix,
                 attachments=self._attachments, keying=self._keying,
-                reaction_commands=config.reaction_commands,
+                reaction_commands=config.reaction_commands, home=self._slack_home,
             )
 
         return GatewayHandle(

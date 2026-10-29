@@ -80,6 +80,15 @@ thread** Slack does not allow custom slash commands — that is a platform rule
 `SLACK_COMMAND_PREFIX` (default `crux_`); the rest of the id is the command
 word. Neither needs a URL or a token: the socket is already authenticated.
 
+In Slack's **Agents panel** (the app's manifest has `features.agent_view`, the
+scopes `assistant:write` and `chat:write`, and the events `app_home_opened`,
+`app_context_changed`, `agent_session_stopped`, `agent_session_title_changed`
+beside `message.im`) a session shows a working indicator while the agent's
+turn runs and a native **Stop** button, which ends the turn as `/stop` does
+(§5). A bot missing from the panel, or a Stop button that does nothing, is the
+manifest: the feature, the scope or the event subscription is not there — the
+engine takes all of these events as they come.
+
 Note the asymmetry: a shortcut never opens a screen. A `crux_tasks` shortcut
 on a Slack agent becomes an ordinary turn, and the model will answer about a
 task list it cannot read — in a thread, point them at `open_screen` instead.

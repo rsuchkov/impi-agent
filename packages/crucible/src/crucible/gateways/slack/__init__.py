@@ -14,6 +14,7 @@ gateway.py   — Socket Mode loop + respond decision for messages; composes the
 
 from crucible.gateways.slack.client import SlackChatClient
 from crucible.gateways.slack.gateway import SlackGateway
+from crucible.gateways.slack.home import SlackHome
 from crucible.gateways.slack.interactions import (
     DEFAULT_COMMAND_SHORTCUT_PREFIX,
     SlackInteractions,
@@ -33,5 +34,6 @@ __all__ = [
     "PROMPT_HINT",
     "SlackChatClient",
     "SlackGateway",
+    "SlackHome",
     "SlackInteractions",
 ]

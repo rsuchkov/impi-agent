@@ -18,6 +18,19 @@ when a release is cut, and `impi update` shows the target version's section.
   and leave the conversation none the wiser. `ScreenOpened.refused` is now
   `answer`: what the person who typed an engine command hears privately, a
   refusal or what the command did.
+- **An application's own Slack app, and Slack's agent panel.**
+  `GatewayFactory(slack_apps={"<agent>": app})` takes a Bolt `AsyncApp` the
+  application built, with its own listeners on it — Bolt asks the first
+  listener that matches, in order of registration, so those come before the
+  gateway's; what the gateway registers is written down in
+  [docs/building-an-app.md](docs/building-an-app.md). The gateway now takes
+  the agent panel's events: `app_home_opened` and `app_context_changed` are
+  acknowledged (no "unhandled request" in the log) and handed to a `SlackHome`
+  the application may give (`slack_home=`), `agent_session_stopped` — the
+  panel's Stop button — ends the turn as `/stop` does, and while a turn runs
+  the session is `processing` (`agents.sessions.setStatus`), `active` after:
+  the `ConversationView` port (`set_busy`), which the flow asks of a chat
+  client that has one.
 
 ## v0.36.0 — 2026-10-27
 

@@ -563,6 +563,27 @@ credential, is another user's credential.
   click on its Slack copy. Without one, each platform id is a person of its
   own. `impi` wires all of this from
   `AGENTS_GATEWAY__<AGENT>=mattermost,slack`.
+- **A Slack app of your own.** The Slack gateway runs on a Bolt `AsyncApp`;
+  by default the factory builds one from the agent's bot token. An application
+  with a Home of its own, commands or views beside the engine's hands the app
+  in instead — `GatewayFactory(slack_apps={"<agent>": app})` — with its own
+  listeners already registered on it. Bolt gives a request to the first
+  listener that matches, in order of registration, so what the application
+  registered before handing the app over is its own; the gateway then takes
+  the `message` event, the agent panel's events (`app_home_opened`,
+  `app_context_changed`, `agent_session_stopped`,
+  `agent_session_title_changed`), engine widgets (`cruxw…` actions, the
+  `crux_form` view), the prefixed shortcuts (`SLACK_COMMAND_PREFIX`), every
+  slash command not taken before it, and `reaction_added`. What the Home
+  shows is the application's: give the factory a `SlackHome`
+  (`crucible.gateways.slack`; `opened(user_id, tab)` returns the blocks to
+  publish, `context_changed(user_id, context)` hears what the person looks
+  at) with `slack_home=`; without one the events are acknowledged and nothing
+  is shown. A chat client that has a view of the conversation beside its
+  messages implements `ConversationView` (`ports.chat.client`,
+  `set_busy(ref, busy)`): the flow marks the conversation busy for the turn
+  and free after it — Slack's agent session shows its indicator and Stop
+  button, whose press ends the turn as `/stop` does.
 - **Tools from MCP servers.** `crucible.mcp` ([mcp.md](mcp.md)) is a source
   of tools for the registry: `mcp = McpServers(McpLibrary(Path(agents) /
   "_mcp"), values)` reads the servers an operator declared and their pinned

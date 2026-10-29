@@ -1,7 +1,7 @@
 """Outbound port: how an agent talks to the platform (replies, reactions, and
 interactive widgets), regardless of platform."""
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from crucible.ports.chat.types import (
     Action,
@@ -130,3 +130,14 @@ class ChatClient(Protocol):
         (short-lived — call synchronously in the click handler). On submit the
         platform POSTs to ``submit_url`` with ``state`` echoed back."""
         ...
+
+
+@runtime_checkable
+class ConversationView(Protocol):
+    """What a platform shows of a conversation beside its messages — a chat
+    client implements this when its platform has such a view (Slack's agent
+    sessions: a working indicator and a Stop button while the agent is busy).
+    The flow marks a conversation busy for the length of a turn and free after
+    it; a client without the view ignores the matter and is never asked."""
+
+    async def set_busy(self, ref: ConversationRef, busy: bool) -> None: ...

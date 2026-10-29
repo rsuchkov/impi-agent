@@ -38,7 +38,7 @@ from crucible.ports.agent import (
 )
 from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.ports.attachments import FileKeeper
-from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.client import ChatClient, ConversationView
 from crucible.ports.chat.context import ContextSource, HistorySource
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
@@ -547,6 +547,11 @@ class AgentFlow:
         acknowledge = not anchor.synthetic
         if acknowledge:
             await chat.add_reaction(anchor.ref, LOADING_REACTION)
+        # A platform with a view of the conversation (Slack's agent session) is
+        # told the agent is busy — its indicator, its Stop button — for the turn.
+        view = chat if isinstance(chat, ConversationView) else None
+        if view is not None:
+            await view.set_busy(anchor.ref, True)
         # The trace posts nothing until the first tool runs, so a turn that
         # only talks leaves no extra message.
         trace = (
@@ -611,6 +616,8 @@ class AgentFlow:
         finally:
             if acknowledge:
                 await chat.remove_reaction(anchor.ref, LOADING_REACTION)
+            if view is not None:
+                await view.set_busy(anchor.ref, False)
             if trace is not None:
                 # Settled before the reply is posted, so in a thread the
                 # widget sits above it — and on the timeout and error paths

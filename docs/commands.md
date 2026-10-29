@@ -208,7 +208,11 @@ to be declared on the platform like any other (`/stop` on Mattermost, a
 `/stop` command in the Slack app) — the engine answers it, the platform
 delivers it. A service on the ws gateway sends a `cancel` frame, one on the
 http gateway calls `/cancel` ([ws-gateway.md](ws-gateway.md),
-[http-gateway.md](http-gateway.md)); all four end the turn the same way.
+[http-gateway.md](http-gateway.md)). In Slack's Agents panel the session shows
+a working indicator and a native **Stop** button while the agent works
+(`agent_view` in the app's manifest, see
+[creating-agents.md](creating-agents.md)); pressing it ends the turn the same
+way. All five doors lead to the one ending.
 
 ## Commands
 

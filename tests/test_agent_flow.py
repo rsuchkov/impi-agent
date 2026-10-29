@@ -2003,3 +2003,28 @@ async def test_a_person_stops_the_turn_and_the_next_one_is_told(tmp_path: Path) 
     plain = AgentFlow(FakeRuntime(), PROFILE, store, agent_name="assistant")
     assert await plain.stop("dm1") is False
     await store.close()
+
+
+async def test_a_platform_with_a_view_of_the_conversation_sees_the_agent_busy_for_the_turn(tmp_path: Path) -> None:
+    """A chat client that implements ConversationView is told busy at the start
+    of the turn and free at its end — on the error path too; a plain client is
+    never asked."""
+
+    class ViewingChat(FakeChat):
+        def __init__(self) -> None:
+            super().__init__()
+            self.busy: list[bool] = []
+
+        async def set_busy(self, ref, busy: bool) -> None:
+            self.busy.append(busy)
+
+    flow, store = _flow(tmp_path, FakeRuntime())
+    chat = ViewingChat()
+    assert await flow.handle(_dm("hi"), chat) is TurnOutcome.REPLIED
+    assert chat.busy == [True, False]
+    failing, _ = _flow(tmp_path, FakeRuntime(error=PiProcessError("boom")))
+    chat = ViewingChat()
+    again = dataclasses.replace(_dm("again"), ref=dataclasses.replace(_dm().ref, message_id="p2"))  # not a redelivery
+    assert await failing.handle(again, chat) is TurnOutcome.ERROR
+    assert chat.busy == [True, False]
+    await store.close()

@@ -75,11 +75,11 @@ async def test_the_interactive_half_is_the_shared_one_and_only_with_a_dispatcher
     nobody to route them to, and only the message handler is registered."""
     routed = _gateway(FakeSink(), dispatcher=FakeDispatcher())
     assert isinstance(routed.interactions, SlackInteractions)
-    # message + action + view + shortcut + command
-    assert len(routed._app._async_listeners) == 5
+    # message + the agent panel's four events + action + view + shortcut + command
+    assert len(routed._app._async_listeners) == 9
     silent = _gateway(FakeSink(), dispatcher=None)
     assert silent.interactions is None
-    assert len(silent._app._async_listeners) == 1
+    assert len(silent._app._async_listeners) == 5
 
 
 async def test_channel_mention_is_submitted() -> None:
@@ -248,3 +248,84 @@ async def test_a_gateway_stopped_and_run_again_opens_a_new_connection() -> None:
     second.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await second
+
+
+# -- the agent panel ----------------------------------------------------------------
+
+
+async def test_the_stop_button_of_the_agent_session_stops_the_threads_turn() -> None:
+    dispatcher = FakeDispatcher()
+    gw = _gateway(FakeSink(), dispatcher=dispatcher, agent="assistant")
+    await gw._on_session_stopped({"channel": "D1", "thread_ts": "1782234671.392669", "user": "U2"})
+    assert dispatcher.stopped == [("assistant", "1782234671.392669")]  # the thread is the conversation
+    await gw._on_session_stopped({"channel": "D1", "user": "U2"})  # no thread: nothing to stop
+    assert len(dispatcher.stopped) == 1
+    quiet = _gateway(FakeSink(), dispatcher=None)
+    await quiet._on_session_stopped({"channel": "D1", "thread_ts": "1.0", "user": "U2"})  # nobody to route to
+
+
+async def test_the_home_and_context_events_are_taken_and_handed_to_the_applications_home() -> None:
+    """Without a SlackHome the events are acknowledged and nothing is shown
+    (no "unhandled request" in the log); with one, its blocks are published as
+    the Home view and context changes reach it."""
+
+    class Home:
+        def __init__(self) -> None:
+            self.opened_by: list[tuple[str, str]] = []
+            self.contexts: list[tuple[str, dict]] = []
+            self.blocks: list[dict] | None = [{"type": "section", "text": {"type": "mrkdwn", "text": "hi"}}]
+
+        async def opened(self, user_id: str, tab: str):
+            self.opened_by.append((user_id, tab))
+            return self.blocks
+
+        async def context_changed(self, user_id: str, context: dict) -> None:
+            self.contexts.append((user_id, context))
+
+    class Client:
+        def __init__(self) -> None:
+            self.published: list[dict] = []
+
+        async def views_publish(self, **kwargs) -> None:
+            self.published.append(kwargs)
+
+    home, client = Home(), Client()
+    gw = _gateway(FakeSink(), home=home)
+    await gw._on_home_opened({"user": "U2", "tab": "home"}, client)
+    assert home.opened_by == [("U2", "home")]
+    assert client.published == [{"user_id": "U2", "view": {"type": "home", "blocks": home.blocks}}]
+    home.blocks = None
+    await gw._on_home_opened({"user": "U2", "tab": "messages"}, client)
+    assert len(client.published) == 1  # nothing to show, nothing published
+    await gw._on_context_changed({"user": "U2", "app_context": {"channel_id": "C9"}})
+    assert home.contexts == [("U2", {"channel_id": "C9"})]
+    bare = _gateway(FakeSink())
+    await bare._on_home_opened({"user": "U2", "tab": "home"}, client)  # taken, nothing done
+    await bare._on_context_changed({"user": "U2"})
+    assert len(client.published) == 1
+
+
+async def test_an_applications_own_listener_registered_first_is_the_one_bolt_asks() -> None:
+    """The contract an application with a Slack app of its own stands on: Bolt
+    gives a request to the first matching listener in order of registration, so
+    what the application registered before handing the app over is its own —
+    the gateway's catch-all for slash commands comes after it."""
+    from slack_bolt.request.async_request import AsyncBoltRequest
+    from slack_bolt.response import BoltResponse
+
+    app = AsyncApp(token="xoxb-fake", signing_secret="x" * 16)
+
+    async def mine(ack):
+        await ack()
+
+    app.command("/mine")(mine)
+    gw = SlackGateway(app, "xapp-fake", FakeSink(), object(), dispatcher=FakeDispatcher())  # type: ignore[arg-type]
+    _HANDLERS.append(gw._new_handler())
+    body = {"command": "/mine", "text": "", "user_id": "U2", "channel_id": "D1", "channel_name": "directmessage"}
+    request = AsyncBoltRequest(body=body, mode="socket_mode")
+    matching = [
+        listener for listener in app._async_listeners
+        if await listener.async_matches(req=request, resp=BoltResponse(status=200))
+    ]
+    assert len(matching) == 2  # the application's and the gateway's catch-all both match...
+    assert matching[0].ack_function is mine  # ...and the application's comes first

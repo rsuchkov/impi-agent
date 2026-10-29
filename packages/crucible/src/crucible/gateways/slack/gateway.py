@@ -18,6 +18,7 @@ from crucible.attachments import AttachmentStore, IncomingFile
 from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.reactions import ReactionCommands
 from crucible.gateways.slack.events import FileHandle, event_to_incoming, parse_files
+from crucible.gateways.slack.home import SlackHome
 from crucible.gateways.slack.interactions import (
     DEFAULT_COMMAND_SHORTCUT_PREFIX,
     SlackInteractions,
@@ -54,9 +55,14 @@ class SlackGateway:
         attachments: AttachmentStore | None = None,
         keying: ConversationKey | None = None,
         reaction_commands: ReactionCommands | None = None,
+        home: SlackHome | None = None,
     ) -> None:
         self._app = app
         self._app_token = app_token
+        # The application's Home and context handling (None: the events are
+        # taken and nothing is shown).
+        self._home = home
+        self._dispatcher = dispatcher
         # The socket handler lives one connection: slack_sdk's client stays
         # closed once closed, so ``run`` opens a fresh one each time it is
         # asked to — after ``stop`` (a lost lease) the gateway runs again.
@@ -112,11 +118,57 @@ class SlackGateway:
     # -- registration -------------------------------------------------------
 
     def _register(self) -> None:
+        """What this gateway takes from the app: the ``message`` event, the
+        agent panel's events, and — through ``interactions`` and ``reactions``
+        — engine widgets (``cruxw…`` actions, the ``crux_form`` view), the
+        prefixed shortcuts, every slash command and ``reaction_added``. Bolt
+        gives a request to the first listener that matches, in order of
+        registration: an application that registers its own listeners on the
+        app before handing it over keeps them."""
         self._app.event("message")(self._on_message)
+        self._app.event("app_home_opened")(self._on_home_opened)
+        self._app.event("app_context_changed")(self._on_context_changed)
+        self._app.event("agent_session_stopped")(self._on_session_stopped)
+        self._app.event("agent_session_title_changed")(self._on_session_title_changed)
         if self.interactions is not None:
             self.interactions.register()
         if self.reactions is not None:
             self.reactions.register()
+
+    # -- the agent panel -------------------------------------------------------------
+
+    async def _on_home_opened(self, event: dict, client) -> None:  # noqa: ANN001 - bolt's own client
+        user_id, tab = str(event.get("user") or ""), str(event.get("tab") or "")
+        if self._home is None or not user_id:
+            return
+        try:
+            blocks = await self._home.opened(user_id, tab)
+            if blocks:
+                await client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
+        except Exception:
+            logger.exception("Slack Home for %s failed", user_id)
+
+    async def _on_context_changed(self, event: dict) -> None:
+        if self._home is None:
+            return
+        try:
+            await self._home.context_changed(str(event.get("user") or ""), dict(event.get("app_context") or {}))
+        except Exception:
+            logger.exception("Slack context change failed")
+
+    async def _on_session_stopped(self, event: dict) -> None:
+        """The person pressed Stop on the agent session: the turn in that
+        thread ends as a /stop would end it. Nothing to route it to without a
+        dispatcher."""
+        thread_ts = str(event.get("thread_ts") or "")
+        if self._dispatcher is None or not thread_ts:
+            return
+        stop = await self._dispatcher.stop_turn(self._agent, thread_ts)
+        logger.info("Slack agent session %s stopped by %s: %s", thread_ts, event.get("user", "?"),
+                    getattr(stop, "name", str(stop)).lower())
+
+    async def _on_session_title_changed(self, event: dict) -> None:
+        logger.debug("Slack agent session %s renamed by %s", event.get("thread_ts", "?"), event.get("user", "?"))
 
     async def _on_message(self, event: dict) -> None:
         try:
