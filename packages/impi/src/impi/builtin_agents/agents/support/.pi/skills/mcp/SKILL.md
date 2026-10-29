@@ -158,9 +158,10 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
 - a tool with a `${connection:…}` header answers "works only in a direct
   message" in a channel or a thread in one — by design, as the connection
   tools; a thread inside the person's DM is a direct message for this.
-- `… is not a file the person attached in this conversation` — the model gave
-  a path that is not from an `[attached]` line of this conversation (a file a
-  tool wrote, another conversation's); `… is no longer here` — the conversation's
+- `cannot run: … is not a file the person attached in this conversation` — the
+  model gave a path that is not from an `[attached]` line of this conversation
+  (a file a tool wrote, another conversation's); said before any card is drawn,
+  so the person is not asked to approve a file that is not there; `… is no longer here` — the conversation's
   files went (idle for `ATTACHMENT_RETENTION_DAYS`, or the conversation held
   more than `ATTACHMENT_CONVERSATION_MAX_MB` and the oldest made room), the
   person attaches it again; `… is not the file the person

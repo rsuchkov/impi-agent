@@ -270,6 +270,12 @@ Eight other 403s say what happened in the body. From the confirmation gate:
   own gate decided not to put the question at all and said why (a budget of
   questions for the turn, a policy). Not seen with the engine's gate, which
   always asks; the reason is the application's and the fix is on its side.
+- `cannot run: <reason>. Tell the user what is missing; do not retry the same
+  call` — the tool itself, asked to describe the call before the card, found
+  it impossible as asked (the fragment to replace is not in the file, the
+  account is not connected, the path is no file of the person's). No card was
+  drawn and nothing ran; telemetry says `cannot_run`. The fix is in what the
+  model was given, not in the engine.
 
 And from the session check:
 
