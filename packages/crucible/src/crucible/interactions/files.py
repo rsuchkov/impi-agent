@@ -18,9 +18,10 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from crucible.interactions.presence import AgentPresence
-from crucible.interactions.service import conversation_ref
+from crucible.interactions.service import turn_ref
 from crucible.ports.chat.files import FileError
 from crucible.ports.chat.types import OutgoingFile
+from crucible.ports.turn import TurnPlaces
 from crucible.store.base import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -38,11 +39,14 @@ class ChatFileService:
         roots: Mapping[str, tuple[Path, ...]],
         *,
         max_bytes: int,
+        places: TurnPlaces | None = None,
     ) -> None:
         self._presence = presence
         self._sessions = sessions
         self._roots = roots
         self._max_bytes = max_bytes
+        # Where the turn answers, so the file goes there (None: the address).
+        self._places = places
 
     async def send(
         self, agent: str, runtime_session_id: str, paths: list[str], *, text: str = ""
@@ -59,7 +63,8 @@ class ChatFileService:
             raise FileError("this conversation could not be resolved — no file was sent")
 
         files = [await asyncio.to_thread(self._read, agent, path) for path in paths]
-        await poster.post_files(conversation_ref(record, record.last_gateway), files, text=text)
+        place = self._places.place(runtime_session_id) if self._places is not None else None
+        await poster.post_files(turn_ref(record, record.last_gateway, place), files, text=text)
         logger.info("agent %s sent %d file(s)", agent, len(files))
         return [file.name for file in files]
 

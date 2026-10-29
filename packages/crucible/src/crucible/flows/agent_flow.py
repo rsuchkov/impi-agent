@@ -57,7 +57,7 @@ from crucible.ports.entitlement import (
     shared_entitlement,
 )
 from crucible.ports.telemetry import Telemetry, TurnEnded
-from crucible.ports.turn import TurnBinding
+from crucible.ports.turn import TurnBinding, TurnPlace
 from crucible.store.base import (
     GatewayAddress,
     SessionRecord,
@@ -612,10 +612,14 @@ class AgentFlow:
             if self._tracer is not None else None
         )
         # The anchor's scope is the turn's: a batch is one turn, and the newest
-        # message is the one whose credentials are freshest.
+        # message is the one whose credentials are freshest. Where the anchor
+        # is answered is the turn's too — a card or a widget posted for the
+        # turn goes there, not merely to the conversation's standing address.
         bound = (
-            self._turns.bind(record.runtime_session_id, anchor.turn)
-            if self._turns is not None and anchor.turn is not None
+            self._turns.bind(
+                record.runtime_session_id, anchor.turn, place=TurnPlace(anchor.gateway, anchor.ref.thread_root_id),
+            )
+            if self._turns is not None
             else contextlib.nullcontext()
         )
         interrupted = True  # until the runtime hands back a result

@@ -10,6 +10,13 @@ them, the flow binds it to the session for the length of the turn, and a tool
 reads it from its context. Secrets live in ``TurnSecrets``, which shows its
 names and never its values: a scope ends up in logs and tracebacks, and the one
 thing a per-turn credential must not do is outlive the turn in writing.
+
+Where the turn answers is the turn's too: ``TurnPlace`` is the gateway the
+message came through and the thread the answer goes in, bound beside the
+scope, so that whatever the turn posts while it runs — a confirmation card, a
+question with buttons, a file — goes where the answer goes (a direct message
+answered in a thread under the person's message, say) and not merely to the
+conversation's standing address.
 """
 
 from collections.abc import Iterator, Mapping
@@ -75,6 +82,16 @@ class TurnScope:
         self.flags.add(code)
 
 
+@dataclass(frozen=True)
+class TurnPlace:
+    """Where a turn answers: the gateway its message came through and the
+    thread the answer goes in — "" when it goes at the top of the channel or
+    the direct message. Where the turn's own posts go while it runs."""
+
+    gateway: str
+    thread_root_id: str = ""
+
+
 class TurnScopes(Protocol):
     """Where a tool's context is filled from: the scope bound to a session
     right now, or None between turns."""
@@ -82,9 +99,16 @@ class TurnScopes(Protocol):
     def current(self, runtime_session_id: str) -> TurnScope | None: ...
 
 
+class TurnPlaces(Protocol):
+    """Where the turn on a session answers right now, or None between turns."""
+
+    def place(self, runtime_session_id: str) -> TurnPlace | None: ...
+
+
 class TurnBinding(Protocol):
-    """What a flow holds: bind a scope to a session for exactly one turn."""
+    """What a flow holds: bind a turn — its scope, if the message carried one,
+    and where it answers — to a session for exactly that turn."""
 
     def bind(
-        self, runtime_session_id: str, scope: TurnScope
+        self, runtime_session_id: str, scope: TurnScope | None, *, place: TurnPlace | None = None
     ) -> AbstractAsyncContextManager[None]: ...

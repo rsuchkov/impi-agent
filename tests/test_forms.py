@@ -412,3 +412,37 @@ async def test_a_form_naming_an_unregistered_handler_is_dropped(tmp_path: Path) 
     finally:
         await server.stop()
         await store.close()
+
+
+async def test_a_form_opened_in_a_direct_message_answered_in_a_thread_puts_its_button_there(tmp_path: Path) -> None:
+    from crucible.ports.turn import TurnPlace
+    from crucible.turns import TurnRegistry
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    turns = TurnRegistry()
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="mattermost")
+        svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/interact", places=turns)
+        async with turns.bind(rec.runtime_session_id, None, place=TurnPlace("mattermost", "p1")):
+            assert await svc.open_form("assistant", rec.runtime_session_id, _form()) is True
+        ref = poster.posted[0][0]
+        assert (ref.conversation_id, ref.thread_root_id) == ("dm1", "p1")
+        token = poster.posted[0][2][0].context["form"]
+        record = await store.get_form(token)
+        assert record is not None and record.thread_root_id == "p1"  # so the submission resumes there
+        server, spy = await _server(8484, store, poster)
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    "http://127.0.0.1:8484/dialog",
+                    json={"type": "dialog_submission", "state": token, "cancelled": False, "user_id": "u",
+                          "submission": {"summary": "crash", "details": "", "prio": "high", "urgent": True}},
+                ) as resp:
+                    assert resp.status == 200
+            msg = spy.submitted[0]
+            assert msg.conversation_id == "dm1" and msg.kind == KIND_DM and msg.ref.thread_root_id == "p1"
+        finally:
+            await server.stop()
+    finally:
+        await store.close()

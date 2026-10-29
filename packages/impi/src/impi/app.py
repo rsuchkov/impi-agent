@@ -624,8 +624,12 @@ def build_app(settings: ImpiSettings) -> App:
         logger.warning(
             "REPLICA_URL and REPLICA_TOKEN must both be set; conversations are not owned or forwarded"
         )
+    # What belongs to one turn (a credential a caller sent along, where the
+    # turn answers), bound by the flow for the turn and read by the tool
+    # server and by whatever posts for the turn. One registry for the app.
+    turns = TurnRegistry()
     interactions = InteractionWiring(
-        settings.integrations, sessions, presence, telemetry=telemetry,
+        settings.integrations, sessions, presence, telemetry=telemetry, turns=turns,
         codec=MattermostCallbackCodec(), needs_receiver=receiver_needed,
         command_tokens=settings.command_tokens_for,
         agents=lambda: runnable,
@@ -788,9 +792,6 @@ def build_app(settings: ImpiSettings) -> App:
             engine_turns=engine_turns_lookup(sessions),
             routes=internal.routes if internal is not None else (),
         )
-    # What belongs to one turn (a credential a caller sent along), bound by the
-    # flow for the turn and read by the tool server. One registry for the app.
-    turns = TurnRegistry()
     gateway_factory = GatewayFactory(
         directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher,
         ws_hub=ws_hub, http_hub=http_hub, attachments=attachments,
@@ -840,6 +841,7 @@ def build_app(settings: ImpiSettings) -> App:
                 for spec in specs
             },
             max_bytes=settings.attachment_max_bytes,
+            places=turns,
         )
     # Creating tasks needs only the store, so it is ready before the tool
     # server; the ticker that fires them needs the units and comes after.

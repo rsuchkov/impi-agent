@@ -32,6 +32,7 @@ from crucible.ports.chat.keying import PersonKey
 from crucible.ports.chat.types import IncomingMessage
 from crucible.ports.replica import ClickForwarder, Replica
 from crucible.ports.telemetry import Telemetry
+from crucible.ports.turn import TurnPlaces
 from crucible.store.base import Store
 
 
@@ -61,6 +62,7 @@ class InteractionWiring:
         stop_command: str = "",
         people: PersonKey | None = None,
         telemetry: Telemetry | None = None,
+        turns: TurnPlaces | None = None,
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
         # service need its InteractionStore + FormStore facets too.
@@ -86,7 +88,7 @@ class InteractionWiring:
         self.ui_bridge = WidgetUiBridge(
             presence, sessions, self.pending_ui,
             callback_url=integrations.interact_url, timeout=integrations.ui_timeout,
-            replica_id=replica_id,
+            replica_id=replica_id, places=turns,
         )
         # Transport-neutral dispatch: resolves a blocking mid-turn request or feeds a
         # click back as a synthetic message. Shared by the HTTP receiver and every
@@ -112,6 +114,9 @@ class InteractionWiring:
             callback_url=integrations.interact_url,
             # So a turn can open a screen too, not only a slash command.
             screens=screens,
+            # Where the turn answers, so a widget is posted there — in the
+            # thread under the person's message, in a direct message answered so.
+            places=turns,
         )
         # The gate the tool server consults before a tool that declares a
         # confirmation. Built here because it needs exactly what this wiring
@@ -126,6 +131,7 @@ class InteractionWiring:
                 replica_id=replica_id,
                 people=people,
                 telemetry=telemetry,
+                places=turns,
             )
         # The HTTP receiver is only for gateways that deliver callbacks over HTTP
         # (Mattermost); socket gateways (Slack) drive the same dispatcher over their

@@ -37,10 +37,10 @@ class FakePoster:
         pass
 
 
-def _bridge(store, poster, pending, *, timeout: float = 5.0, replica_id: str = "") -> WidgetUiBridge:
+def _bridge(store, poster, pending, *, timeout: float = 5.0, replica_id: str = "", places=None) -> WidgetUiBridge:
     return WidgetUiBridge(
         presence_of(poster), store, pending, callback_url="http://x/interact", timeout=timeout,
-        replica_id=replica_id,
+        replica_id=replica_id, places=places,
     )
 
 
@@ -187,5 +187,25 @@ async def test_post_failure_declines_and_names_the_cause(tmp_path: Path, caplog)
             )
         assert outcome.cancelled is True
         assert any("missing_scope" in r.message for r in caplog.records)
+    finally:
+        await store.close()
+
+
+async def test_a_question_is_asked_in_the_thread_the_turn_answers_in(tmp_path: Path) -> None:
+    from crucible.ports.turn import TurnPlace
+    from crucible.turns import TurnRegistry
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster, pending, turns = FakePoster(), PendingUiRequests(), TurnRegistry()
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="slack")
+        bridge = _bridge(store, poster, pending, places=turns)
+        req = UiRequest(request_id="r1", method="confirm", title="Send email?", message="to Bob")
+        async with turns.bind(rec.runtime_session_id, None, place=TurnPlace("slack", "1700.1")):
+            task = asyncio.ensure_future(bridge.request(rec.runtime_session_id, req))
+            await _wait_until(lambda: len(poster.posted) >= 1)
+            assert poster.posted[0][0].thread_root_id == "1700.1"
+            pending.resolve(poster.posted[0][2][0].context["token"], CONFIRM_YES)
+            await task
     finally:
         await store.close()

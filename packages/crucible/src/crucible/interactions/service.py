@@ -10,6 +10,7 @@ INBOUND half (matching the click/submit) is the InteractionDispatcher.
 
 import logging
 import secrets
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -32,6 +33,7 @@ from crucible.ports.chat.types import (
     ConversationRef,
     Form,
 )
+from crucible.ports.turn import TurnPlace, TurnPlaces
 from crucible.store.base import (
     FormRecord,
     FormStore,
@@ -77,6 +79,17 @@ def conversation_ref(record, gateway: str = "") -> ConversationRef:
     )
 
 
+def turn_ref(record, gateway: str, place: TurnPlace | None) -> ConversationRef:
+    """Where a turn posts on ``gateway``: the conversation's address there, in
+    the thread the turn answers in when the address has none of its own — a
+    direct message answered under the person's message. On a gateway the turn
+    did not come through, and between turns, the address as it stands."""
+    ref = conversation_ref(record, gateway)
+    if place is None or place.gateway != gateway or ref.thread_root_id or not place.thread_root_id:
+        return ref
+    return replace(ref, message_id=place.thread_root_id, thread_root_id=place.thread_root_id)
+
+
 class InteractionService:
     def __init__(
         self,
@@ -87,6 +100,7 @@ class InteractionService:
         *,
         callback_url: str,
         screens: ScreenRegistry | None = None,
+        places: TurnPlaces | None = None,
     ) -> None:
         self._presence = presence
         self._sessions = sessions
@@ -95,6 +109,12 @@ class InteractionService:
         self._callback_url = callback_url
         # The engine's own screens, so a turn can open one (None = none exposed).
         self._screens = screens
+        # Where the turn answers, so a widget goes there (None: the address).
+        self._places = places
+
+    def _turn_ref(self, record, runtime_session_id: str) -> ConversationRef:
+        place = self._places.place(runtime_session_id) if self._places is not None else None
+        return turn_ref(record, record.last_gateway, place)
 
     async def ask(
         self,
@@ -113,6 +133,7 @@ class InteractionService:
 
         interaction_id = secrets.token_hex(8)
         token = secrets.token_hex(16)
+        ref = self._turn_ref(record, runtime_session_id)
         # Register BEFORE posting so an instant click always finds the interaction.
         await self._interactions.create_interaction(
             InteractionRecord(
@@ -124,6 +145,7 @@ class InteractionService:
                 kind=record.kind,
                 created_at=_now(),
                 gateway=record.last_gateway,
+                thread_root_id=ref.thread_root_id,
             )
         )
         ctx: dict[str, str] = {"interaction_id": interaction_id, "token": token}
@@ -144,7 +166,7 @@ class InteractionService:
                 Action(id=f"opt{i}", label=option, value=option, context=ctx)
                 for i, option in enumerate(options)
             ]
-        await poster.post_actions(self._ref(record, record.last_gateway), prompt, actions, callback_url=self._callback_url)
+        await poster.post_actions(ref, prompt, actions, callback_url=self._callback_url)
         return True
 
     async def open_form(self, agent: str, runtime_session_id: str, form: Form) -> bool:
@@ -160,8 +182,9 @@ class InteractionService:
         actions = [
             Action(id="openform", label=form.open_label or _OPEN_LABEL, context={"form": token})
         ]
+        ref = self._turn_ref(record, runtime_session_id)
         post_id = await poster.post_actions(
-            self._ref(record, record.last_gateway), form.intro or form.title, actions, callback_url=self._callback_url
+            ref, form.intro or form.title, actions, callback_url=self._callback_url
         )
         # Registered AFTER posting, unlike a widget: the record carries the button's
         # own post id so submitting can retire it, and that id exists only now. A
@@ -177,6 +200,7 @@ class InteractionService:
                 created_at=_now(),
                 post_id=post_id,
                 gateway=record.last_gateway,
+                thread_root_id=ref.thread_root_id,
             )
         )
         return True

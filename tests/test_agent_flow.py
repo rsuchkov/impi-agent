@@ -2273,3 +2273,25 @@ async def test_a_stop_in_a_channel_does_not_reach_a_thread_of_it(tmp_path: Path)
     assert await flow.stop("root1", gateway="mattermost") is True  # the thread itself
     assert await turn is TurnOutcome.STOPPED
     await store.close()
+
+
+async def test_the_flow_binds_where_the_turn_answers_even_when_the_message_carries_no_scope(tmp_path: Path) -> None:
+    from crucible.ports.turn import TurnPlace
+    from crucible.turns import TurnRegistry
+
+    registry = TurnRegistry()
+    seen: list[object] = []
+
+    class _LooksUp(FakeRuntime):
+        async def run_stateful(self, profile, session_id, message, **kw):
+            seen.append(registry.place(session_id))  # what the tool gate would find mid-turn
+            return await super().run_stateful(profile, session_id, message, **kw)
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(_LooksUp(), PROFILE, store, agent_name="assistant", turns=registry)
+    threaded = _dm("in a thread under my message")
+    threaded = dataclasses.replace(threaded, ref=dataclasses.replace(threaded.ref, thread_root_id="p1"))
+    await flow.handle(threaded, FakeChat())
+    assert seen == [TurnPlace(threaded.gateway, "p1")]
+    record, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
+    assert registry.place(record.runtime_session_id) is None  # gone with the turn

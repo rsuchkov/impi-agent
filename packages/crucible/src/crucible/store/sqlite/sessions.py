@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS pending_interactions (
   conversation_id TEXT NOT NULL,
   kind TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  gateway TEXT NOT NULL DEFAULT ''
+  gateway TEXT NOT NULL DEFAULT '',
+  thread_root_id TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS pending_forms (
   token TEXT PRIMARY KEY,
@@ -80,15 +81,16 @@ CREATE TABLE IF NOT EXISTS pending_forms (
   created_at TEXT NOT NULL,
   post_id TEXT NOT NULL DEFAULT '',
   handler TEXT NOT NULL DEFAULT '',
-  gateway TEXT NOT NULL DEFAULT ''
+  gateway TEXT NOT NULL DEFAULT '',
+  thread_root_id TEXT NOT NULL DEFAULT ''
 );
 """
 
 _INTERACTION_COLUMNS = (
-    "interaction_id, token, agent, channel_id, conversation_id, kind, created_at, gateway"
+    "interaction_id, token, agent, channel_id, conversation_id, kind, created_at, gateway, thread_root_id"
 )
 _FORM_COLUMNS = (
-    "token, agent, channel_id, conversation_id, kind, spec, created_at, post_id, handler, gateway"
+    "token, agent, channel_id, conversation_id, kind, spec, created_at, post_id, handler, gateway, thread_root_id"
 )
 
 # Order matches SessionRecord's fields (SessionRecord(*row)).
@@ -183,8 +185,9 @@ class SqliteSessionStore(
             if column not in cols:
                 self._conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         interactions = {row[1] for row in self._conn.execute("PRAGMA table_info(pending_interactions)")}
-        if "gateway" not in interactions:
-            self._conn.execute("ALTER TABLE pending_interactions ADD COLUMN gateway TEXT NOT NULL DEFAULT ''")
+        for column in ("gateway", "thread_root_id"):
+            if column not in interactions:
+                self._conn.execute(f"ALTER TABLE pending_interactions ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         seen = {row[1] for row in self._conn.execute("PRAGMA table_info(processed_posts)")}
         if "seen_at" not in seen:
             # Rows from before the column have no date; the first prune takes
@@ -203,10 +206,9 @@ class SqliteSessionStore(
             self._conn.execute(
                 "ALTER TABLE pending_forms ADD COLUMN handler TEXT NOT NULL DEFAULT ''"
             )
-        if "gateway" not in form_cols:
-            self._conn.execute(
-                "ALTER TABLE pending_forms ADD COLUMN gateway TEXT NOT NULL DEFAULT ''"
-            )
+        for column in ("gateway", "thread_root_id"):
+            if column not in form_cols:
+                self._conn.execute(f"ALTER TABLE pending_forms ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
 
     # -- async facade (SessionStore port) ------------------------------------
 
@@ -400,8 +402,9 @@ class SqliteSessionStore(
         with self._lock:
             self._conn.execute(
                 f"INSERT INTO pending_interactions ({_INTERACTION_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (r.interaction_id, r.token, r.agent, r.channel_id, r.conversation_id, r.kind, r.created_at, r.gateway),
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (r.interaction_id, r.token, r.agent, r.channel_id, r.conversation_id, r.kind, r.created_at, r.gateway,
+                 r.thread_root_id),
             )
             self._conn.commit()
 
@@ -423,9 +426,9 @@ class SqliteSessionStore(
         with self._lock:
             self._conn.execute(
                 f"INSERT INTO pending_forms ({_FORM_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (r.token, r.agent, r.channel_id, r.conversation_id, r.kind, r.spec,
-                 r.created_at, r.post_id, r.handler, r.gateway),
+                 r.created_at, r.post_id, r.handler, r.gateway, r.thread_root_id),
             )
             self._conn.commit()
 

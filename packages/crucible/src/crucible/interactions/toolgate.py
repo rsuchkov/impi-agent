@@ -48,7 +48,7 @@ from crucible.approvals import (
     windows,
 )
 from crucible.interactions.presence import AgentPresence
-from crucible.interactions.service import conversation_ref
+from crucible.interactions.service import turn_ref
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.keying import PersonKey, PlatformPerson
 from crucible.ports.chat.types import (
@@ -59,6 +59,7 @@ from crucible.ports.chat.types import (
 )
 from crucible.ports.replica import tag_token
 from crucible.ports.telemetry import CardAnswered, Telemetry
+from crucible.ports.turn import TurnPlaces
 from crucible.store.base import (
     DECISION_ABANDONED,
     DECISION_APPROVED_GRANT,
@@ -107,10 +108,13 @@ class ToolGate:
         replica_id: str = "",
         people: PersonKey | None = None,
         telemetry: Telemetry | None = None,
+        places: TurnPlaces | None = None,
     ) -> None:
         self._presence = presence
         self._telemetry = telemetry
         self._sessions = sessions
+        # Where the turn answers, so the card goes there (None: the address).
+        self._places = places
         self._ledger = ledger
         self._approvals = approvals
         self._callback_url = callback_url
@@ -205,9 +209,11 @@ class ToolGate:
     ) -> Approval | None:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
         # Asked in every gateway the conversation is live in, each at the
-        # conversation's address there — the person answers wherever they are
+        # conversation's address there — in the thread the turn answers in, on
+        # the gateway it came through — the person answers wherever they are
         # looking, and the first answer closes every copy. A conversation known
         # in no gateway yet is asked where it last spoke.
+        place = self._places.place(runtime_session_id) if self._places is not None else None
         posters: list[tuple[str, ChatClient]] = []
         if record is not None:
             for gateway in sorted(gateway_addresses(record)) or [record.last_gateway]:
@@ -242,7 +248,7 @@ class ToolGate:
         for gateway, poster in posters:
             try:
                 post_id = await poster.post_confirmation(
-                    conversation_ref(record, gateway), card, actions, callback_url=self._callback_url
+                    turn_ref(record, gateway, place), card, actions, callback_url=self._callback_url
                 )
             except Exception:
                 logger.warning(

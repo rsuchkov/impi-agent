@@ -248,7 +248,10 @@ class InteractionDispatcher:
             # Surfaces a malformed/unknown callback shape (a codec that failed to
             # find the picked value).
             logger.warning("interaction %s: empty value", record.interaction_id)
-        thread_root = record.conversation_id if record.kind == KIND_THREAD else ""
+        # The click resumes where the widget was: the thread it was posted in
+        # when the conversation's address has none (a direct message answered
+        # under the person's message), else the conversation itself.
+        thread_root = record.thread_root_id or (record.conversation_id if record.kind == KIND_THREAD else "")
         msg = IncomingMessage(
             ref=ConversationRef(
                 channel_id=record.channel_id,
@@ -433,7 +436,7 @@ class InteractionDispatcher:
         if target is None:
             return False
         chat = target.chat_for(record.gateway)  # the form came back through the gateway it was posted on
-        thread_root = record.conversation_id if record.kind == KIND_THREAD else ""
+        thread_root = record.thread_root_id or (record.conversation_id if record.kind == KIND_THREAD else "")
         msg = IncomingMessage(
             ref=ConversationRef(
                 channel_id=record.channel_id,

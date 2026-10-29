@@ -165,6 +165,10 @@ class InteractionRecord:
     # The gateway the widget was posted through: a click on it comes back as a
     # message through that gateway.
     gateway: str = ""
+    # The thread the widget was posted in when the conversation's own address
+    # has none — a direct message answered under the person's message — so the
+    # click resumes there. "" for a widget at the conversation's address.
+    thread_root_id: str = ""
 
 
 class HeldCardStore(HeldCards, Protocol):
@@ -211,6 +215,9 @@ class FormRecord:
     # Which gateway the button was posted through; the submission and the
     # retired button go back the same way. "" for records written before.
     gateway: str = ""
+    # The thread the button was posted in when the address has none of its own
+    # (see InteractionRecord); "" for a button at the conversation's address.
+    thread_root_id: str = ""
 
 
 class FormStore(Protocol):

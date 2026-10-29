@@ -4,7 +4,7 @@ import pickle
 
 import pytest
 
-from crucible.ports.turn import TurnScope, TurnSecrets
+from crucible.ports.turn import TurnPlace, TurnScope, TurnSecrets
 from crucible.turns import TurnRegistry
 
 
@@ -54,3 +54,17 @@ async def test_a_failing_turn_still_unbinds() -> None:
         async with registry.bind("s", TurnScope("t1")):
             raise RuntimeError("the runtime died")
     assert registry.current("s") is None
+
+
+async def test_the_registry_knows_where_the_turn_answers_only_while_it_is_bound() -> None:
+    # A message with nothing per turn (no scope) is still a turn with a place:
+    # the thread under the person's message, in a direct message answered so.
+    registry = TurnRegistry()
+    place = TurnPlace("slack", "1700.1")
+    assert registry.place("s") is None
+    async with registry.bind("s", None, place=place):
+        assert registry.place("s") == place and registry.current("s") is None
+        assert registry.place("other") is None
+    assert registry.place("s") is None
+    async with registry.bind("s", TurnScope("t1")):
+        assert registry.place("s") is None  # a turn bound without a place has none

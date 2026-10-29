@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from crucible.store.base import FormRecord, SchedulerHeartbeat
+from crucible.store.base import FormRecord, InteractionRecord, SchedulerHeartbeat
 from crucible.store.sqlite import SqliteSessionStore
 from tests.test_approval_store import _audit, _grant
 from tests.test_scheduler_store import T0, T1, T2, _run, _task
@@ -356,5 +356,45 @@ async def test_migration_adds_the_gateway_columns_to_old_db(tmp_path: Path) -> N
         assert moved is not None and moved.last_gateway == "mattermost" and "mattermost" in moved.gateways
         taken = await store.take_interaction("t1")
         assert taken is not None and taken.gateway == ""
+    finally:
+        await store.close()
+
+
+async def test_migration_adds_the_thread_to_old_widgets_and_forms(tmp_path: Path) -> None:
+    # A DB from before a widget could say "the direct message, answered in this
+    # thread": both pending tables without thread_root_id, each holding a row.
+    db = tmp_path / "old-widgets.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        "CREATE TABLE pending_interactions (interaction_id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE, "
+        "agent TEXT NOT NULL, channel_id TEXT NOT NULL, conversation_id TEXT NOT NULL, kind TEXT NOT NULL, "
+        "created_at TEXT NOT NULL, gateway TEXT NOT NULL DEFAULT '');"
+        "INSERT INTO pending_interactions VALUES ('i-old','t-old','assistant','dm1','dm1','dm','2020-01-01','slack');"
+        "CREATE TABLE pending_forms (token TEXT PRIMARY KEY, agent TEXT NOT NULL, channel_id TEXT NOT NULL, "
+        "conversation_id TEXT NOT NULL, kind TEXT NOT NULL, spec TEXT NOT NULL, created_at TEXT NOT NULL, "
+        "post_id TEXT NOT NULL DEFAULT '', handler TEXT NOT NULL DEFAULT '', gateway TEXT NOT NULL DEFAULT '');"
+        "INSERT INTO pending_forms VALUES ('f-old','assistant','dm1','dm1','dm','{}','2020-01-01','p1','','slack');"
+    )
+    conn.commit()
+    conn.close()
+
+    store = SqliteSessionStore(db)  # opening runs the migration
+    try:
+        old = await store.take_interaction("t-old")
+        assert old is not None and old.thread_root_id == "" and old.gateway == "slack"  # at the address, as before
+        form = await store.get_form("f-old")
+        assert form is not None and form.thread_root_id == ""
+        await store.create_interaction(InteractionRecord(
+            interaction_id="i-new", token="t-new", agent="assistant", channel_id="dm1", conversation_id="dm1",
+            kind="dm", created_at="2026-01-01", gateway="slack", thread_root_id="1700.1",
+        ))
+        fresh = await store.take_interaction("t-new")
+        assert fresh is not None and fresh.thread_root_id == "1700.1"  # and the column is writable
+        await store.create_form(FormRecord(
+            token="f-new", agent="assistant", channel_id="dm1", conversation_id="dm1", kind="dm", spec="{}",
+            created_at="2026-01-01", post_id="p2", gateway="slack", thread_root_id="1700.1",
+        ))
+        kept = await store.get_form("f-new")
+        assert kept is not None and kept.thread_root_id == "1700.1"
     finally:
         await store.close()

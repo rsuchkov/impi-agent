@@ -360,3 +360,70 @@ async def test_a_widget_and_a_form_go_through_the_gateway_the_conversation_last_
         assert slack.retracted  # the button retired on Slack, where it was
     finally:
         await store.close()
+
+
+def test_a_turn_posts_in_the_thread_it_answers_in_when_the_address_has_none() -> None:
+    from crucible.interactions.service import turn_ref
+    from crucible.ports.turn import TurnPlace
+    from crucible.store.base import GatewayAddress, SessionRecord
+
+    dm = SessionRecord("assistant", "D1", "D1", KIND_DM, "rs", "2026-01-01", "2026-01-01", last_gateway="slack")
+    # A direct message answered under the person's message: the widget goes there.
+    ref = turn_ref(dm, "slack", TurnPlace("slack", "1700.1"))
+    assert (ref.channel_id, ref.conversation_id, ref.message_id, ref.thread_root_id) == ("D1", "D1", "1700.1", "1700.1")
+    # Answered at the top, between turns, or on another gateway: the address as it stands.
+    assert turn_ref(dm, "slack", TurnPlace("slack", "")) == turn_ref(dm, "slack", None)
+    assert turn_ref(dm, "slack", None).thread_root_id == ""
+    assert turn_ref(dm, "mattermost", TurnPlace("slack", "1700.1")).thread_root_id == ""
+    # A conversation that is a thread keeps its own thread whatever the place says.
+    thread = SessionRecord("assistant", "C1", "9.9", KIND_THREAD, "rs", "2026-01-01", "2026-01-01", last_gateway="slack")
+    assert turn_ref(thread, "slack", TurnPlace("slack", "1700.1")).thread_root_id == "9.9"
+    # The address on the gateway, not the record's own fields, when one is known there.
+    moved = SessionRecord(
+        "assistant", "D1", "D1", KIND_DM, "rs", "2026-01-01", "2026-01-01", last_gateway="slack",
+        gateways='{"slack": {"channel_id": "D1", "conversation_id": "D1", "kind": "dm"}}',
+    )
+    assert turn_ref(moved, "slack", TurnPlace("slack", "1700.1")).thread_root_id == "1700.1"
+    assert GatewayAddress("D1", "D1", KIND_DM).kind == KIND_DM
+
+
+async def test_a_widget_asked_in_a_direct_message_answered_in_a_thread_goes_there_and_the_click_comes_back_there(
+    tmp_path: Path,
+) -> None:
+    from crucible.ports.turn import TurnPlace
+    from crucible.turns import TurnRegistry
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    poster = FakePoster()
+    turns = TurnRegistry()
+    svc = InteractionService(presence_of(poster), store, store, store, callback_url="http://x/interact", places=turns)
+    server, spy, _pending = await _integrations(8473, store)
+    try:
+        rec, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="mattermost")
+        async with turns.bind(rec.runtime_session_id, None, place=TurnPlace("mattermost", "p1")):
+            await svc.ask("assistant", rec.runtime_session_id, "Choose", ["Yes", "No"])
+        ref = poster.posted[0][0]
+        assert (ref.conversation_id, ref.thread_root_id) == ("dm1", "p1")  # under the person's message
+        token = poster.posted[0][2][0].context["token"]
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8473/interact",
+                json={"user_id": "uid-1", "context": {"token": token, "value": "Yes"}},
+            ) as resp:
+                assert resp.status == 200
+        msg = spy.submitted[0]
+        assert msg.conversation_id == "dm1" and msg.kind == KIND_DM  # the DM's conversation still
+        assert msg.ref.thread_root_id == "p1"  # answered in the same thread
+        # Between turns the widget goes to the DM's top, and so does the click.
+        await svc.ask("assistant", rec.runtime_session_id, "Again?", ["Yes"])
+        assert poster.posted[1][0].thread_root_id == ""
+        token = poster.posted[1][2][0].context["token"]
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8473/interact", json={"user_id": "uid-1", "context": {"token": token, "value": "Yes"}},
+            ) as resp:
+                assert resp.status == 200
+        assert spy.submitted[1].ref.thread_root_id == ""
+    finally:
+        await server.stop()
+        await store.close()

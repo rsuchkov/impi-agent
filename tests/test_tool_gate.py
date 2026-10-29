@@ -193,6 +193,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         replica_id=over.pop("replica_id", ""),
         people=over.pop("people", None),
         telemetry=over.pop("telemetry", None),
+        places=over.pop("places", None),
     )
     dangerous, plain = Dangerous(), Harmless()
     clock = FakeClock()
@@ -941,5 +942,37 @@ async def test_every_card_is_told_with_how_it_ended_and_how_long_it_waited(tmp_p
         await _answer(rig, ANSWER_DENY)
         assert await pending == 403
         assert [e.outcome for e in telemetry.events if isinstance(e, CardAnswered)] == ["allowed_once", "denied"]
+    finally:
+        await _close(rig)
+
+
+async def test_the_card_is_posted_in_the_thread_the_turn_answers_in_on_the_gateway_it_came_through(
+    tmp_path: Path,
+) -> None:
+    # A direct message answered in a thread under the person's message
+    # (DM_REPLIES=thread): the card goes to that thread, where the person is
+    # looking — on that gateway; a copy on another gateway keeps its address.
+    from crucible.ports.turn import TurnPlace
+    from crucible.store.base import GatewayAddress
+    from crucible.turns import TurnRegistry
+
+    slack, turns = FakePoster(), TurnRegistry()
+    rig = await _rig(tmp_path, 8563, by_gateway={"slack": slack}, places=turns)
+    try:
+        await rig.store.set_gateway_address("assistant", "dm1", "mattermost", GatewayAddress("dm1", "dm1", KIND_DM))
+        await rig.store.set_gateway_address("assistant", "dm1", "slack", GatewayAddress("D9", "D9", KIND_DM))
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="slack")
+        async with turns.bind(rig.session, None, place=TurnPlace("slack", "1700.1")):
+            pending = asyncio.create_task(_call(rig, "dangerous"))
+            card = await _answer(rig, ANSWER_ONCE)
+            assert await pending == 200
+        assert card.ref is not None
+        posted = {slack.posts[0].ref, rig.poster.posts[0].ref}
+        assert {(ref.channel_id, ref.thread_root_id) for ref in posted if ref} == {("D9", "1700.1"), ("dm1", "")}
+        # Between turns the card goes to the direct message's top on both.
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer(rig, ANSWER_ONCE)
+        assert await pending == 200
+        assert slack.posts[1].ref is not None and slack.posts[1].ref.thread_root_id == ""
     finally:
         await _close(rig)

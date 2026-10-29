@@ -15,7 +15,7 @@ import secrets
 
 from crucible.interactions.pending_ui import CONFIRM_NO, CONFIRM_YES, PendingUiRequests
 from crucible.interactions.presence import AgentPresence
-from crucible.interactions.service import conversation_ref
+from crucible.interactions.service import turn_ref
 from crucible.ports.agent.ui import UiOutcome, UiRequest
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import (
@@ -24,6 +24,7 @@ from crucible.ports.chat.types import (
     Choice,
 )
 from crucible.ports.replica import tag_token
+from crucible.ports.turn import TurnPlaces
 from crucible.store.base import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ class WidgetUiBridge:
         callback_url: str,
         timeout: float = 90.0,
         replica_id: str = "",
+        places: TurnPlaces | None = None,
     ) -> None:
         self._presence = presence
         self._sessions = sessions
@@ -53,6 +55,8 @@ class WidgetUiBridge:
         self._callback_url = callback_url
         self._timeout = timeout
         self._replica_id = replica_id  # in front of every token minted here
+        # Where the turn answers, so the question goes there (None: the address).
+        self._places = places
 
     async def request(self, runtime_session_id: str, req: UiRequest) -> UiOutcome:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
@@ -72,7 +76,8 @@ class WidgetUiBridge:
         future = self._pending.register(
             token, method=req.method, agent=record.agent, conversation_id=record.conversation_id
         )
-        ref = conversation_ref(record, record.last_gateway)
+        place = self._places.place(runtime_session_id) if self._places is not None else None
+        ref = turn_ref(record, record.last_gateway, place)
         try:
             post_id = await poster.post_actions(
                 ref, self._prompt_text(req), actions, callback_url=self._callback_url

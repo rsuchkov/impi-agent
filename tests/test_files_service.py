@@ -15,10 +15,10 @@ MB = 1024 * 1024
 
 
 def _service(
-    store: SqliteSessionStore, chat: FakeChat, roots: tuple[Path, ...], *, max_bytes: int = MB
+    store: SqliteSessionStore, chat: FakeChat, roots: tuple[Path, ...], *, max_bytes: int = MB, places=None
 ) -> ChatFileService:
     return ChatFileService(
-        presence_of(chat), store, {"assistant": roots}, max_bytes=max_bytes
+        presence_of(chat), store, {"assistant": roots}, max_bytes=max_bytes, places=places
     )
 
 
@@ -165,3 +165,23 @@ def test_default_roots_are_the_profile_its_attachments_and_tmp(tmp_path: Path) -
     assert profile.resolve() in roots
     assert attachments.resolve() in roots
     assert len(roots) == 3  # ...plus the system temp directory
+
+
+async def test_a_file_lands_in_the_thread_a_direct_message_is_answered_in(tmp_path: Path) -> None:
+    from crucible.ports.turn import TurnPlace
+    from crucible.turns import TurnRegistry
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat, turns = FakeChat(), TurnRegistry()
+    try:
+        record, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="mattermost")
+        chart = tmp_path / "chart.png"
+        chart.write_bytes(b"PNGDATA")
+        svc = _service(store, chat, (tmp_path,), places=turns)
+        async with turns.bind(record.runtime_session_id, None, place=TurnPlace("mattermost", "p1")):
+            await svc.send("assistant", record.runtime_session_id, [str(chart)])
+        assert chat.posted_files[0][0].thread_root_id == "p1"
+        await svc.send("assistant", record.runtime_session_id, [str(chart)])  # between turns: the DM's top
+        assert chat.posted_files[1][0].thread_root_id == ""
+    finally:
+        await store.close()

@@ -102,8 +102,9 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
     # interactions read it lazily via MappingPresence.
     sinks_by_agent: dict[str, AgentSink] = {}
     presence = MappingPresence(sinks_by_agent)
+    turns = TurnRegistry()  # what belongs to one turn, for the flow, the tools and the widgets
     interactions = InteractionWiring(
-        settings.integrations, sessions, presence,
+        settings.integrations, sessions, presence, turns=turns,
         codec=MattermostCallbackCodec(), needs_receiver=needs_receiver,
     )
     runtime = PiRuntime(pi_bin="pi", session_dir=settings.session_dir,
@@ -534,15 +535,23 @@ credential, is another user's credential.
   say — rides in `IncomingMessage.turn` as a `TurnScope`.** Build one in your
   gateway or API handler (`TurnSecrets({"cookie": …})` for anything that must
   never be stored or printed — it shows its names, never its values, and
-  refuses pickling), hand `AgentFlow(..., turns=TurnRegistry())` and
-  `build_server(..., turns=<the same registry>)`; the flow binds the scope to
-  the conversation's session for exactly the turn, and a tool reads
+  refuses pickling), hand `AgentFlow(..., turns=TurnRegistry())`,
+  `build_server(..., turns=<the same registry>)` and
+  `InteractionWiring(..., turns=<the same registry>)` (and
+  `ChatFileService(places=)`); the flow binds the scope to the conversation's
+  session for exactly the turn, and a tool reads
   `ctx.turn` or `ctx.require_secret("cookie")` — a `ToolError` that tells the
   model to stop when there is none. `scope.flag("session_expired")` is how a
   tool leaves a note for the turn: when the turn is over — answered or failed —
   the flow posts one notice per flag, with the flag as its `code` and the
   sentence from `AgentFlow(flag_notices={"session_expired": "…"})` as its text
-  (the flag itself when none is given). A program reading the journal acts on
+  (the flag itself when none is given). The registry also holds **where the
+  turn answers** (`TurnPlace`: the gateway and the thread, bound whether or
+  not the message carried a scope): the tool gate, the widgets, the UI bridge
+  and the file service post there — in the thread under the person's message
+  when a direct message is answered so (`DM_REPLIES=thread`) — and a widget's
+  record keeps that thread, so a click resumes the turn in it. Without the
+  registry they post at the conversation's standing address. A program reading the journal acts on
   the code; a person reads the sentence. Chat gateways set no scope: nothing on
   Slack or Mattermost belongs to one turn.
 - **An HTTP API for your own frontend** is what the `http` gateway is

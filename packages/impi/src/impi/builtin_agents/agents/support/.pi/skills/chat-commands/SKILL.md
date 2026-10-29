@@ -90,9 +90,12 @@ indicator while the agent's turn runs and a native **Stop** button, which ends
 the turn as `/stop` does (§5). A session is a thread to Slack, and the panel
 sends the person's message at the top of the direct message: `DM_REPLIES=thread`
 (per agent `AGENTS_DM_REPLIES__<AGENT>`; Mattermost honours it too) puts the
-answer and the status in a thread under the message, the shape the panel
-expects; `top` leaves the answer at the top and an empty thread with the status
-under the message. A bot missing from the panel is the manifest (the feature,
+answer and the status in a thread under the message — and a tool's
+confirmation card, a question with buttons, a form's button and a file the
+agent sends, with them — the shape the panel expects; `top` leaves the answer
+at the top and an empty thread with the status under the message. A card at
+the top of the direct message while the answer is in a thread is an engine
+older than v0.39.1. A bot missing from the panel is the manifest (the feature,
 the scope, the subscriptions); a panel that looks like a plain chat — no
 indicator, no Stop — is `SLACK_AGENT_SESSIONS` left off.
 

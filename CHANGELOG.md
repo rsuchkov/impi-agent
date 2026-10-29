@@ -6,7 +6,24 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: what a turn posts goes where the turn answers.** With
+  `DM_REPLIES=thread` the answer went into a thread under the person's message
+  while a tool's confirmation card, a question with buttons (`ask`), a form's
+  button and a file the agent sent went to the top of the direct message — they
+  took the conversation's standing address, and a direct message's has no
+  thread. In Slack's Agents panel the person, looking at the thread, saw no
+  card while the turn waited for it. The flow now binds where the turn answers
+  (`TurnPlace`: the gateway and the thread) to the turn's session beside its
+  scope, and the tool gate, the widgets, the UI bridge and the file service post
+  there, on that gateway; a copy of a card on another gateway, a screen, a card
+  redrawn between turns and a scheduled turn keep the conversation's address.
+  A widget's or a form's record remembers that thread, so the click or the
+  submission resumes the turn there, not at the top. For an application
+  composing the engine itself: `InteractionWiring(turns=)`,
+  `ChatFileService(places=)`, the same `TurnRegistry` the flow and the tool
+  server get; `TurnBinding.bind(session, scope, *, place=)` takes a scope of
+  `None` now, so a turn with nothing per turn is bound too. Store: a
+  `thread_root_id` column on the pending widgets and forms (added at start).
 
 ## v0.39.0 — 2026-10-29
 
