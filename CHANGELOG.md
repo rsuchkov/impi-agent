@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.39.1 — 2026-10-29
+
 - **Fixed: what a turn posts goes where the turn answers.** With
   `DM_REPLIES=thread` the answer went into a thread under the person's message
   while a tool's confirmation card, a question with buttons (`ask`), a form's
