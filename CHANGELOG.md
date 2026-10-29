@@ -15,9 +15,11 @@ when a release is cut, and `impi update` shows the target version's section.
   one place this happens (`AgentFlow.stop`, the `StoppableSink` port); a turn
   so ended is `TurnOutcome.STOPPED` — `stopped` in telemetry, `cancelled` as a
   scheduled run's status. The http `/cancel` used to tell the runtime directly
-  and leave the conversation none the wiser. `ScreenOpened.refused` is now
-  `answer`: what the person who typed an engine command hears privately, a
-  refusal or what the command did.
+  and leave the conversation none the wiser. **Breaks:** `ScreenOpened.refused`
+  is now `answer` — what the person who typed an engine command hears
+  privately, a refusal or what the command did; a `GatewayDispatcher` of an
+  application's own needs `stop_command` and `stop_turn`; a mapping over
+  `TurnOutcome` needs a line for `STOPPED`.
 - **An application's own Slack app, and Slack's agent panel.**
   `GatewayFactory(slack_apps={"<agent>": app})` takes a Bolt `AsyncApp` the
   application built, with its own listeners on it — Bolt asks the first
