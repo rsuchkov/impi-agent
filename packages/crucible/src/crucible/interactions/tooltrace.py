@@ -79,8 +79,10 @@ ARGS_SHOWN_MAX = 1200
 # How often the counter is redrawn while the turn runs. The reader loop only
 # notes events; the chat platform is spoken to at most this often.
 REDRAW_INTERVAL_S = 1.0
-# The most a caption or a progress remark gets on the counter and in a row.
+# The most a caption gets on the counter and in a row.
 LATEST_MAX = 80
+# The most a remark gets — the model's own sentence, longer than a caption.
+REMARK_MAX = 200
 # The counter's word while a call waits on the person (a confirmation card is up).
 WAITING_FOR_YOU = "waiting for you"
 _STEP_STATE = {CALL_UNFINISHED: STEP_RUNNING, CALL_OK: STEP_DONE, CALL_FAILED: STEP_FAILED}
@@ -127,16 +129,25 @@ def _summary(calls: list[Call], *, interrupted: bool) -> str:
 
 
 def steps_of(calls: list[Call], awaiting: Call | None = None) -> tuple[Step, ...]:
-    """The calls as the steps a person watches: each with its caption and in
-    its state, the one awaiting the person's answer saying so."""
+    """The calls as the steps a person watches: each with its caption (or the
+    tool's id, as it is, when nobody captioned the call) and in its state; under it, the remark
+    the model made before calling — why this step — and "waiting for you"
+    on the call awaiting the person's answer."""
     return tuple(
         Step(
             id=call.call_id, title=one_line(call.caption or call.tool, limit=LATEST_MAX),
             state=_STEP_STATE.get(call.state, STEP_RUNNING),
-            note=WAITING_FOR_YOU if awaiting is not None and call.call_id == awaiting.call_id else "",
+            note=_note(call, waiting=awaiting is not None and call.call_id == awaiting.call_id),
         )
         for call in calls
     )
+
+
+def _note(call: Call, *, waiting: bool) -> str:
+    remark = one_line(call.remark, limit=REMARK_MAX) if call.remark else ""
+    if waiting:
+        return f"{WAITING_FOR_YOU} · {remark}" if remark else WAITING_FOR_YOU
+    return remark
 
 
 def render_counter(
@@ -153,7 +164,7 @@ def render_counter(
     if awaiting is not None:
         line += f" · {WAITING_FOR_YOU}: {one_line(awaiting.caption or awaiting.tool, limit=LATEST_MAX)}"
     elif latest:
-        line += f" · {one_line(latest, limit=LATEST_MAX)}"
+        line += f" · {one_line(latest, limit=REMARK_MAX)}"
     return View(cards=(Card(text=line, steps=steps),))
 
 
@@ -189,6 +200,8 @@ def _row(call: Call, *, open_: bool) -> str:
     row = f"{marker} {call.index + 1} · {call.tool} · {call.state} · {took}"
     if call.caption:
         row += f" · {one_line(call.caption, limit=LATEST_MAX)}"
+    if call.remark:
+        row += f"\n  _{one_line(call.remark, limit=REMARK_MAX)}_"  # what the model said before calling
     return row
 
 

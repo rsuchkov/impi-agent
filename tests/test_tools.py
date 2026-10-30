@@ -1679,10 +1679,20 @@ def test_a_captioning_tool_captions_its_calls_and_a_failing_or_plain_one_gives_n
         def caption(self, args: Mapping[str, Any]) -> str | None:
             return f"Reading {args['key']}"  # KeyError without a key: a failure, not a crash
 
-    reg = build_registry([Issue, ListAgents, ReadChannel])
+    class Named(Tool):
+        name: ClassVar[str] = "add_comment"
+        description: ClassVar[str] = ""
+        display_name: ClassVar[str] = "Add a comment"
+        parameters: ClassVar[dict[str, Any]] = {}
+
+        async def run(self, args: dict[str, Any], ctx: ToolContext) -> Any:
+            return None
+
+    reg = build_registry([Issue, ListAgents, ReadChannel, Named])
     assert reg.caption("read_issue", {"key": "X-1"}) == "Reading X-1"
     assert reg.caption("read_issue", {}) == ""  # the caption failed: nothing, and the turn goes on
-    assert reg.caption("list_agents", {}) == ""  # not Captioning
+    assert reg.caption("list_agents", {}) == ""  # not Captioning, no display name: the id stays
+    assert reg.caption("add_comment", {}) == "Add a comment"  # the name it shows a person on a card
     assert reg.caption("no_such_tool", {}) == ""
     assert reg.caption("read_channel", {"channel_id": "town-square"}) == "Reading channel town-square"
 

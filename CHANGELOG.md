@@ -6,7 +6,18 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The model's remarks stay with the steps they led to.** What the model
+  says on its way to a call (`TextProgress`) used to live in the progress
+  message's first line alone, eighty characters of it, until the next call's
+  caption took the line a second later — so in Slack a person saw none of the
+  agent's reasoning. A remark is now the line's word until the model's next
+  remark, whatever calls come in between, and when a call starts the remark
+  before it becomes that call's: under the step (a plan task's details on
+  Slack, the line under it on Mattermost), in the record and the row of the
+  list of calls (`Call.remark`), and in `GET /v1/traces/{token}` as the
+  call's `remark`. A remark gets two hundred characters on the line, a
+  caption eighty. A call nobody captioned is titled by the name its tool
+  shows on a card (`display_name`), else by its id as it is.
 
 ## v0.40.1 — 2026-10-30
 

@@ -23,6 +23,7 @@ from crucible.interactions.tooltrace import (
     ARGS_SHOWN_MAX,
     CARD_MAX,
     PAGE_SIZE,
+    REMARK_MAX,
     TRACE_SCREEN,
     ToolTrace,
     TraceScreen,
@@ -105,9 +106,10 @@ def test_the_counter_counts_and_the_button_summarises() -> None:
 
 def test_the_counter_carries_the_latest_word_on_one_bounded_line() -> None:
     assert _text(render_counter(2, "Reading IPA-12436")) == "⚙️ Running 2 tools… · Reading IPA-12436"
-    # A remark is the model's text: no line breaks, no more than STATUS_MAX.
-    line = _text(render_counter(1, "first line\nsecond line " + "x" * 200))
-    assert "\n" not in line and len(line) < 80 + 40
+    # A remark is the model's text: no line breaks, no more than REMARK_MAX.
+    line = _text(render_counter(1, "first line\nsecond line " + "x" * 300))
+    assert "\n" not in line and len(line) < REMARK_MAX + 40
+    assert "y" * 150 in _text(render_counter(1, "y" * 150))  # a sentence of the model's fits whole
 
     plain = render_collapsed(_state(), _calls(CALL_OK, CALL_OK), interrupted=False)
     assert _text(plain) == ""  # the message IS the button; nothing else shows
@@ -445,7 +447,8 @@ def test_the_calls_of_a_turn_are_collected_from_the_events_as_they_come() -> Non
     assert (first.state, first.duration_s, first.cut > 0, len(first.args)) == (CALL_FAILED, 1.5, True, ARGS_STORED_MAX)
     assert second.state == CALL_UNFINISHED and second.caption == ""
     assert len(calls) == 2 and calls.failed == 1
-    assert calls.on_event(TextProgress("   ")) is True and calls.latest == "Searching for x"  # blank: kept
+    assert calls.on_event(TextProgress("   ")) is True and calls.remark == ""  # blank: no remark
+    assert calls.latest == ""  # the newest call has no caption and no remark: only the count
 
 
 async def test_the_widget_tracer_takes_the_gateway_the_flow_knows(tmp_path) -> None:
@@ -568,3 +571,38 @@ async def test_the_widget_is_posted_at_the_conversations_address_on_the_turns_ga
         await trace.end()
     finally:
         await store.close()
+
+
+def test_a_remark_is_the_latest_word_until_a_call_takes_it_as_its_own() -> None:
+    from crucible.ports.agent.events import TextProgress
+
+    calls = TurnCalls()
+    calls.on_event(TextProgress("Looking at the ticket first"))
+    assert calls.latest == "Looking at the ticket first" and calls.remark == "Looking at the ticket first"
+    calls.on_event(ToolStarted("c1", "jira_get", {"key": "P-1"}, caption="Reading P-1"))
+    first = calls.calls[0]
+    assert first.remark == "Looking at the ticket first" and calls.remark == ""  # the call's now
+    assert calls.latest == "Reading P-1"  # no remark since: the newest call's caption
+    calls.on_event(TextProgress("Found it, now the comments"))
+    assert calls.latest == "Found it, now the comments"  # a remark since the last call wins over its caption
+    calls.on_event(ToolStarted("c2", "jira_comments", {}))  # no caption
+    assert calls.calls[1].remark == "Found it, now the comments"
+    assert calls.latest == "Found it, now the comments"  # the newest call has no caption: the remark that led to it
+    # The remark is in the record, and a record from before remarks decodes too.
+    assert decode_calls(encode_calls(calls.calls))[1].remark == "Found it, now the comments"
+    assert decode_calls('[{"index": 0, "call_id": "c", "tool": "t"}]')[0].remark == ""
+
+
+def test_a_step_carries_the_remark_that_led_to_it_and_a_row_shows_it() -> None:
+    from crucible.interactions.tooltrace import steps_of
+
+    led = Call(0, "c1", "jira_get", caption="Reading P-1", remark="Looking at the ticket first")
+    plain = Call(1, "c2", "jira_comments", state=CALL_UNFINISHED)
+    steps = steps_of([led, plain], awaiting=plain)
+    assert steps[0].note == "Looking at the ticket first"
+    assert steps[1].title == "jira_comments" and steps[1].note == "waiting for you"  # no caption: the id, as it is
+    both = steps_of([Call(0, "c3", "t", remark="Why")], awaiting=Call(0, "c3", "t"))
+    assert both[0].note == "waiting for you · Why"
+    state = ScreenState(screen=TRACE_SCREEN, agent="assistant", data={"t": "x"})
+    rows = _text(render_accordion(state, [led, plain], page=0, expanded=None, interrupted=False))
+    assert "_Looking at the ticket first_" in rows and rows.index("Reading P-1") < rows.index("_Looking")

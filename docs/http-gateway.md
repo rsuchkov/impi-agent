@@ -205,9 +205,10 @@ retention (the engine's trace store, pruned after `TOOL_TRACE_RETENTION_DAYS`),
 so a page opened later can still show "Worked 12 s · 4 steps" and the steps.
 
 `200 {"token", "agent", "conversationId", "createdAt", "finishedAt", "calls":
-[{"index", "callId", "tool", "caption", "args", "cut", "state", "durationS"}]}`
-— `state` is `ok`, `failed` or `unfinished` (the turn ended with the call
-still running); `args` is the call's arguments as compact JSON, cut at 8000
+[{"index", "callId", "tool", "caption", "remark", "args", "cut", "state", "durationS"}]}`
+— `remark` is what the model said on its way to this call (the `progress`
+event that led to it, `""` when none); `state` is `ok`, `failed` or
+`unfinished` (the turn ended with the call still running); `args` is the call's arguments as compact JSON, cut at 8000
 characters with the original length in `cut`; never a result. `404` for a
 token the caller's realm did not see, or that names nothing.
 

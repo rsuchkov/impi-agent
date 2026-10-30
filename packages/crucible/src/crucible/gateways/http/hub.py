@@ -564,6 +564,7 @@ class HttpHub:
             "calls": [
                 {
                     "index": call.index, "callId": call.call_id, "tool": call.tool, "caption": call.caption,
+                    "remark": call.remark,
                     "args": call.args, "cut": call.cut, "state": call.state, "durationS": call.duration_s,
                 }
                 for call in decode_calls(record.calls)

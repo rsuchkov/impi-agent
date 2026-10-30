@@ -9,28 +9,34 @@ nothing else; a turn with no real message to hang it on (a click, a slash
 command, a scheduled run) keeps it beside the reply:
 
 ```
-⚙️ Running 2 tools… · Reading PROJ-123     ← while the turn runs; the count grows
+⚙️ Running 2 tools… · Found the notes, now the ticket itself     ← while the turn runs; the count grows
 ✅ Searching for release notes
-⏳ Reading PROJ-123
+⏳ Reading PROJ-123 — Found the notes, now the ticket itself
 ⚙️ Running 2 tools… · waiting for you: Commenting on PROJ-123   ← a confirmation card is up
 ✅ Searching for release notes
-⏳ Commenting on PROJ-123 — waiting for you
+⏳ Commenting on PROJ-123 — waiting for you · Found the notes, now the ticket itself
 ```
 
-Under the line, the steps so far, each in its state. On Slack they are the
-platform's own **plan block** — the line as its title, a task card per call,
-ticked, running or failed, "waiting for you" as a task's details — the view
-a bot in the Agents panel has of its work; on Mattermost, the lines above.
+Under the line, the steps so far, each in its state, and under each the
+**remark** the model made before calling it — why this step. On Slack they
+are the platform's own **plan block** — the line as its title, a task card
+per call, ticked, running or failed, the remark and "waiting for you" as a
+task's details — the view a bot in the Agents panel has of its work; on
+Mattermost, the lines above.
 
-After the count comes the latest word on what the turn is doing: the
-**caption** of the call that just began ("Reading PROJ-123"), written by the
-tool itself — a file the person sent is named as they named it, whatever the
-disk calls it — or the model's last **remark on the way** — the line it wrote
-before going on to call tools ("Found the workflow, now listing transitions").
-A remark is shown while the turn runs and not kept — the record is the calls;
-the http journal carries it as a `progress` event. The reply is what the model
-says after its last call; a turn that says nothing after its last call answers
-with its last remark.
+After the count comes the latest word on what the turn is doing: the model's
+**remark on the way** since the last call — the line it wrote before going on
+to call tools ("Found the workflow, now listing transitions"), kept there
+until its next remark, however many calls come in between — or, when it has
+said nothing since, the **caption** of the newest call ("Reading PROJ-123"),
+written by the tool itself (a file the person sent is named as they named
+it, whatever the disk calls it; a tool that captions nothing is named by the
+name it shows on a card, or by its id as it is), or the remark that led to
+that call. When a call starts, the remark before it becomes that call's: it
+stays under the step, goes into the record and the row of the list, and the
+http journal carries it as a `progress` event and `GET /v1/traces` as the
+call's `remark`. The reply is what the model says after its last call; a
+turn that says nothing after its last call answers with its last remark.
 
 When the turn ends, the progress message is **deleted** and the reply stands
 alone — that is the default, `TOOL_TRACE_AFTER=nothing`. With

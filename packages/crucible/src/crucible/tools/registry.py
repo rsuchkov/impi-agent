@@ -69,13 +69,19 @@ class ToolRegistry:
         that is unknown here, or whose caption failed — a caption must never
         cost the turn anything."""
         instance = self._tools.get(tool)
-        if not isinstance(instance, Captioning):
+        if instance is None:
             return ""
-        try:
-            return (instance.caption(args) or "").strip()
-        except Exception:
-            logger.warning("tool %s: caption failed", tool, exc_info=True)
-            return ""
+        # The tool's own line for this call; failing that, the name it shows a
+        # person on a card ("Add a comment") — better than the id.
+        if isinstance(instance, Captioning):
+            try:
+                line = (instance.caption(args) or "").strip()
+            except Exception:
+                logger.warning("tool %s: caption failed", tool, exc_info=True)
+                line = ""
+            if line:
+                return line
+        return instance.display_name
 
     def load_configs(self, env_file: str = ".env") -> dict[str, Any]:
         """Instantiate the settings of every tool that declares one (env-bound).

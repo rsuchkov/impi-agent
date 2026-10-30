@@ -1510,6 +1510,7 @@ async def test_a_finished_turn_accounts_for_itself_and_its_calls_outlive_the_jou
         trace = hub.turns.begin(record, chat, gateway="http")
         trace.on_event(ToolStarted("call-1", "search", {"q": "x"}, caption="Searching for x"))
         trace.on_event(ToolFinished("call-1", "search", is_error=True, duration_s=0.4))
+        trace.on_event(TextProgress("Nothing there, reading the file instead"))
         trace.on_event(ToolStarted("call-2", "read", {"path": "a.txt"}, caption="Reading a.txt"))
         trace.on_event(ToolFinished("call-2", "read"))
         await trace.end()
@@ -1535,6 +1536,7 @@ async def test_a_finished_turn_accounts_for_itself_and_its_calls_outlive_the_jou
                 ("search", "Searching for x", "failed"), ("read", "Reading a.txt", "ok"),
             ]
             assert body["calls"][0]["durationS"] == 0.4 and body["calls"][0]["args"] == '{"q":"x"}'
+            assert [c["remark"] for c in body["calls"]] == ["", "Nothing there, reading the file instead"]
             # Another realm, even with the token in hand, is told nothing.
             other = {**AUTH, "Authorization": "Bearer tok-other"}
             status, _ = await _get(s, 8499, f"/v1/traces/{token}", headers=other)

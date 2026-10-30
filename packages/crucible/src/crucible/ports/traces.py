@@ -57,6 +57,7 @@ class Call:
     state: str = CALL_UNFINISHED
     duration_s: float = 0.0
     caption: str = ""  # the call's one line for a person, when whoever knows the tool gave one
+    remark: str = ""  # the model's remark that led to the call — what it said before calling
 
 
 def encode_calls(calls: list[Call]) -> str:
@@ -73,17 +74,29 @@ def decode_calls(raw: str) -> list[Call]:
 class TurnCalls:
     """The calls of one turn, collected from the runtime's events as they come.
 
-    ``latest`` is the latest word for a person watching — a call's caption, or
-    the model's remark on its way to the next call — kept nowhere but here: the
-    record is the calls. ``awaiting`` is the call put to the person (a card is
-    up), until it finishes. ``on_event`` says whether the event changed any of
-    this, so a view redraws on a call and not on a remark before any."""
+    A remark the model makes on its way (``TextProgress``) is the word a
+    person watching reads *between* calls: it is ``remark`` until the next
+    call starts, and then that call's — what the model said before calling.
+    ``latest`` is the latest word on what the turn is on: the remark since
+    the last call, else the newest call's caption, else the remark that led
+    to it. ``awaiting`` is the call put to the person (a card is up), until
+    it finishes. ``on_event`` says whether the event changed any of this, so
+    a view redraws on a call and not on a remark before any."""
 
     def __init__(self) -> None:
         self._calls: list[Call] = []
         self._open: dict[str, int] = {}  # call id -> index of the call still running
         self._awaiting: int | None = None  # index of the call waiting on the person
-        self.latest = ""
+        self.remark = ""  # the model's remark since the last call, not yet anybody's
+
+    @property
+    def latest(self) -> str:
+        if self.remark:
+            return self.remark
+        if not self._calls:
+            return ""
+        newest = self._calls[-1]
+        return newest.caption or newest.remark
 
     @property
     def awaiting(self) -> Call | None:
@@ -106,15 +119,14 @@ class TurnCalls:
             cut = len(args) if len(args) > ARGS_STORED_MAX else 0
             call = Call(
                 index=len(self._calls), call_id=event.call_id, tool=event.tool,
-                args=args[:ARGS_STORED_MAX], cut=cut, caption=event.caption,
+                args=args[:ARGS_STORED_MAX], cut=cut, caption=event.caption, remark=self.remark,
             )
+            self.remark = ""  # it led to this call, and is its from now on
             self._calls.append(call)
             self._open[event.call_id] = call.index
-            if event.caption:
-                self.latest = event.caption
         elif isinstance(event, TextProgress):
             if event.text.strip():
-                self.latest = event.text
+                self.remark = event.text.strip()
         elif isinstance(event, ToolFinished):
             index = self._open.pop(event.call_id, None)
             if index is None:
