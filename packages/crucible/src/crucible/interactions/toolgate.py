@@ -264,6 +264,11 @@ class ToolGate:
         actions = approval_actions(token, offers=windows(ceiling_s=self._max_grant_s))
         copies: list[tuple[ChatClient, str]] = []  # (poster, post id) of every copy posted
         views: list[tuple[ConversationView, ConversationRef]] = []  # where a platform shows the wait
+        # The wait is the turn's, and the turn runs on one gateway: only that
+        # gateway's view is told — a copy of the card on another gateway sits
+        # in a conversation with no turn there, whose status is nobody's to
+        # change (it would be left "working" with nothing working).
+        running_on = place.gateway if place is not None else record.last_gateway
         for gateway, poster in posters:
             ref = turn_ref(record, gateway, place)
             try:
@@ -274,7 +279,7 @@ class ToolGate:
                 )
                 continue
             copies.append((poster, post_id))
-            if isinstance(poster, ConversationView):
+            if gateway == running_on and isinstance(poster, ConversationView):
                 views.append((poster, ref))
         if not copies:
             self._approvals.discard(token)

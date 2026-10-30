@@ -1078,3 +1078,45 @@ async def test_a_view_that_cannot_be_told_costs_the_question_nothing(tmp_path: P
         assert await pending == 200
     finally:
         await _close(rig)
+
+
+async def test_a_copy_of_the_card_on_another_gateway_leaves_that_sessions_status_alone(tmp_path: Path) -> None:
+    # The turn runs on Mattermost; the conversation is live on Slack too, so
+    # the card is copied there — but no turn runs there, and a session set
+    # "working" with nothing working would be left so for good.
+    from crucible.store.base import GatewayAddress
+
+    slack = ViewingPoster()
+    rig = await _rig(tmp_path, 8568, by_gateway={"slack": slack})
+    try:
+        await rig.store.set_gateway_address("assistant", "dm1", "mattermost", GatewayAddress("dm1", "dm1", KIND_DM))
+        await rig.store.set_gateway_address("assistant", "dm1", "slack", GatewayAddress("C9", "1700.1", "thread"))
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="mattermost")
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer(rig, ANSWER_ONCE)  # answered on the Mattermost copy
+        assert await pending == 200
+        assert len(slack.posts) == 1 and slack.waiting == []  # the copy was posted; the status untouched
+    finally:
+        await _close(rig)
+
+
+async def test_the_turns_gateway_is_the_place_the_registry_names_not_where_the_record_last_spoke(tmp_path: Path) -> None:
+    # The record last spoke on Mattermost; this turn came through Slack (the
+    # registry says so): Slack's view is told, Mattermost's conversation is not the turn's.
+    from crucible.ports.turn import TurnPlace
+    from crucible.store.base import GatewayAddress
+    from crucible.turns import TurnRegistry
+
+    slack, turns = ViewingPoster(), TurnRegistry()
+    rig = await _rig(tmp_path, 8569, by_gateway={"slack": slack}, places=turns)
+    try:
+        await rig.store.set_gateway_address("assistant", "dm1", "mattermost", GatewayAddress("dm1", "dm1", KIND_DM))
+        await rig.store.set_gateway_address("assistant", "dm1", "slack", GatewayAddress("C9", "1700.1", "thread"))
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="mattermost")
+        async with turns.bind(rig.session, None, place=TurnPlace("slack", "1700.1")):
+            pending = asyncio.create_task(_call(rig, "dangerous"))
+            await _answer_on(slack, rig, ANSWER_ONCE)
+            assert await pending == 200
+        assert slack.waiting == [("1700.1", True), ("1700.1", False)]
+    finally:
+        await _close(rig)

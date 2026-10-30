@@ -391,6 +391,14 @@ def test_trace_ref_hangs_the_trace_off_a_top_level_message_only() -> None:
     assert trace_ref(dm, replace(prompt, message_id="")) == trace_ref(dm, None)
     thread = replace(_record(), kind=KIND_THREAD, conversation_id="root1")
     assert trace_ref(thread, prompt).thread_root_id == "root1"  # a thread keeps it
+    # A conversation keyed across gateways: its address on the turn's gateway,
+    # not the record's own fields (another gateway's ids).
+    keyed = SessionRecord(
+        "assistant", "portal:task-7", "portal:task-7", "dm", "rs", "t", "t", last_gateway="slack",
+        gateways='{"slack": {"channel_id": "C9", "conversation_id": "1700.1", "kind": "thread"}}',
+    )
+    assert trace_ref(keyed, prompt, "slack") == ConversationRef("C9", "1700.1", message_id="1700.1", thread_root_id="1700.1")
+    assert trace_ref(keyed, prompt).channel_id == "portal:task-7"  # no gateway named: the record's own
 
 
 async def test_captions_and_remarks_show_on_the_counter_and_captions_stay_in_the_rows(store) -> None:
@@ -534,5 +542,29 @@ async def test_a_turn_that_drew_nothing_deletes_nothing(tmp_path) -> None:
         trace = ToolTrace(store, callback_url=CB).begin(record, chat)
         await trace.end()
         assert chat.deleted == [] and chat.posted_cards == []
+    finally:
+        await store.close()
+
+
+async def test_the_widget_is_posted_at_the_conversations_address_on_the_turns_gateway(tmp_path) -> None:
+    from crucible.ports.chat.types import ConversationRef
+    from crucible.store.base import GatewayAddress
+    from crucible.store.sqlite import SqliteSessionStore
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat = FakeChat()
+    try:
+        record, _ = await store.get_or_create("assistant", "portal:task-7", "portal:task-7", "dm", gateway="http")
+        await store.set_gateway_address("assistant", "portal:task-7", "slack", GatewayAddress("C9", "1700.1", "thread"))
+        record = await store.get_by_runtime_session(record.runtime_session_id)
+        assert record is not None
+        trace = ToolTrace(store, callback_url=CB).begin(
+            record, chat, anchor=ConversationRef("C9", "1700.1", message_id="1700.5", thread_root_id="1700.1"), gateway="slack",
+        )
+        trace.on_event(ToolStarted("c1", "read", {}, caption="Reading a.txt"))
+        await asyncio.sleep(0.05)
+        ref = chat.posted_cards[0][0]
+        assert (ref.channel_id, ref.thread_root_id) == ("C9", "1700.1")  # Slack's ids, in the task's thread
+        await trace.end()
     finally:
         await store.close()

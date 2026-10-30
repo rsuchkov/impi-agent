@@ -89,13 +89,16 @@ _EXPIRED = "This trace has expired."
 _BY_HAND = "This panel opens itself under an answer and cannot be opened by hand."
 
 
-def trace_ref(record: SessionRecord, anchor: ConversationRef | None) -> ConversationRef:
+def trace_ref(record: SessionRecord, anchor: ConversationRef | None, gateway: str = "") -> ConversationRef:
     """Where a turn's trace goes. A conversation that is a thread keeps it in
     the thread, beside the reply. Elsewhere — a direct message, a channel the
     agent answers in — it goes into a thread under the message the turn
     answers, so the conversation itself holds the replies and nothing else.
-    Without a real message to hang it on, it goes where the reply does."""
-    ref = conversation_ref(record)
+    Without a real message to hang it on, it goes where the reply does. The
+    address is the conversation's on ``gateway`` — a conversation keyed across
+    gateways has one platform's ids per gateway, and the record's own fields
+    are another's."""
+    ref = conversation_ref(record, gateway)
     if ref.thread_root_id or anchor is None or not anchor.message_id:
         return ref
     return replace(ref, message_id=anchor.message_id, thread_root_id=anchor.message_id)
@@ -324,12 +327,13 @@ class TurnTrace:
     def __init__(
         self, store: TraceStore, chat: ChatClient, record: SessionRecord, *,
         callback_url: str, anchor: ConversationRef | None = None, after: str = TRACE_AFTER_NOTHING,
+        gateway: str = "",
     ) -> None:
         self._store = store
         self._chat = chat
         self._record = record
         self._after = after
-        self._ref = trace_ref(record, anchor)
+        self._ref = trace_ref(record, anchor, gateway)
         self._callback_url = callback_url
         self._token = secrets.token_hex(16)
         self._created_at = clock.now_iso()
@@ -452,7 +456,9 @@ class ToolTrace:
         self, record: SessionRecord, chat: ChatClient, *,
         anchor: ConversationRef | None = None, gateway: str = "",
     ) -> TurnTrace:
-        return TurnTrace(self._store, chat, record, callback_url=self._callback_url, anchor=anchor, after=self._after)
+        return TurnTrace(
+            self._store, chat, record, callback_url=self._callback_url, anchor=anchor, after=self._after, gateway=gateway,
+        )
 
     async def sweep(self) -> int:
         """Drop traces past the retention; 0 keeps every one."""

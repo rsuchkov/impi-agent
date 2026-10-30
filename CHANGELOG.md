@@ -6,7 +6,17 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a conversation keyed across gateways gets its progress message
+  where the turn runs, and keeps the other gateway's session as it was.**
+  The tool trace addressed its message by the record's own fields, which for
+  a conversation one application keys across gateways are another gateway's
+  ids — Slack refused the post and the turn ran with no steps shown. It is
+  now addressed like a card, at the conversation's address on the gateway the
+  turn came through (`trace_ref(record, anchor, gateway)`). And the tool gate
+  told every gateway a copy of its card went to that the agent waits and then
+  goes on, which on a gateway with no turn running left Slack's session
+  `processing` — "working" with nothing working — until it timed out; only
+  the turn's own gateway is told now.
 
 ## v0.40.0 — 2026-10-30
 
