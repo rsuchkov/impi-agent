@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.40.1 — 2026-10-30
+
 - **Fixed: a conversation keyed across gateways gets its progress message
   where the turn runs, and keeps the other gateway's session as it was.**
   The tool trace addressed its message by the record's own fields, which for
