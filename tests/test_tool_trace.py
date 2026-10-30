@@ -39,11 +39,12 @@ from crucible.ports.traces import (
     CALL_UNFINISHED,
     TRACE_AFTER_BUTTON,
     Call,
+    TraceRecord,
     TurnCalls,
     decode_calls,
     encode_calls,
 )
-from crucible.store.base import SessionRecord, TraceRecord
+from crucible.store.base import SessionRecord
 from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.presence import presence_of
@@ -466,7 +467,7 @@ def test_a_call_put_to_the_person_is_the_one_awaiting_until_it_finishes() -> Non
 
 
 def test_the_counter_says_waiting_for_you_while_a_call_awaits_the_person() -> None:
-    assert _text(render_counter(2, "Found it", awaiting="Commenting on P-1")) == (
+    assert _text(render_counter(2, "Found it", awaiting=Call(0, "c1", "jira_comment", caption="Commenting on P-1"))) == (
         "⚙️ Running 2 tools… · waiting for you: Commenting on P-1"
     )
     assert _text(render_counter(2, "Found it")) == "⚙️ Running 2 tools… · Found it"

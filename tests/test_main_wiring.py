@@ -368,6 +368,24 @@ async def test_the_tool_trace_can_be_switched_off(tmp_path: Path) -> None:
         assert app.screens.get(TRACE_SCREEN) is not None
     finally:
         await _closed(app)
+    # Nor does the http journal keep records with the trace off: the setting is one.
+    monkeypatch_env = {"HTTP_CALLER_TOKEN__PORTAL": "tok-portal"}
+    import os
+
+    saved = {k: os.environ.get(k) for k in monkeypatch_env}
+    os.environ.update(monkeypatch_env)
+    try:
+        app = build_app(_settings(tmp_path / "http").model_copy(update={"tool_trace_enabled": False, "gateway": "http"}))
+        try:
+            assert app.http_hub is not None and app.http_hub.turns._traces is None
+        finally:
+            await _closed(app)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 async def test_no_interactivity_means_no_tool_trace(tmp_path: Path) -> None:

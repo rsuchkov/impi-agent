@@ -13,15 +13,18 @@ when a release is cut, and `impi update` shows the target version's section.
   name: `TurnTracer.begin(record, chat, *, anchor, gateway)` is told it.
   Before, the fork lived in the application and chose by the type of the chat
   client, so an application that wrapped its client got the wrong one.
+  **Breaks:** a `TurnTracer` of your own must accept `gateway=`, and a
+  `TurnBinding` of your own `events=` (ignoring either is fine).
 - **A finished turn accounts for itself, and its calls outlive the journal.**
-  The http journal's `turn.finished` carries `durationS`, `steps`,
-  `failedSteps` and `trace`; the turn's calls are written to the trace store
+  The http journal's `turn.finished` carries `durationS`, `calls`,
+  `failedCalls` and `traceToken`; the turn's calls are written to the trace store
   (`HttpTurns(traces=store)`) as the chat widget's are, and
   `GET /v1/traces/{token}` reads them back after the journal's retention — a
   page opened later shows "Worked 12 s · 4 steps" and the steps without
   keeping them itself. The record and the bookkeeping moved to
-  `crucible.ports.traces` (`TraceRecord`, `Call`, `TurnCalls`, `Traces`);
-  `crucible.store.base.TraceRecord` still names it.
+  `crucible.ports.traces` (`TraceRecord`, `Call`, `TurnCalls`, `Traces`).
+  **Breaks:** `crucible.store.base.TraceRecord` is gone; import it from
+  `crucible.ports.traces`.
 - **A call waiting on the person says so.** When the tool gate puts a call to
   the person, it tells the running turn (`CallAwaiting(tool)`, through the
   turn registry: `TurnRegistry.feed`, `TurnBinding.bind(…, events=)`,
@@ -37,7 +40,10 @@ when a release is cut, and `impi update` shows the target version's section.
   (`Card.steps`, `ports.chat.types.Step`). When the turn ends the message is
   deleted (`ChatClient.delete_post`) and the reply stands alone.
   **Breaks:** that is the default now, `TOOL_TRACE_AFTER=nothing`; the
-  button that opened the list of calls is `TOOL_TRACE_AFTER=button`. With
+  button that opened the list of calls is `TOOL_TRACE_AFTER=button`. A chat
+  client of your own must implement `delete_post`, and a `ConversationView`
+  of your own `set_waiting` (a no-op is fine) — without it the view is no
+  longer one, and the flow marks nothing busy. With
   `SLACK_AGENT_SESSIONS` the session is `suspended` while a call waits on
   the person's answer — Slack's own status for "cannot go on until the user
   intervenes" — and `processing` again once it is answered

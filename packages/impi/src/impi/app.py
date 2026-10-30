@@ -65,6 +65,7 @@ from crucible.interactions import (
 )
 from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
+from crucible.interactions.tooltrace import sweep_traces
 from crucible.loopguard import LoopGuard
 from crucible.mcp import CheckReport, McpLibrary, McpServers
 from crucible.ports.agent import (
@@ -110,7 +111,7 @@ from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
 from crucible.skills import SkillLibrary
 from crucible.store import open_store
-from crucible.store.base import SessionStore
+from crucible.store.base import SessionStore, Store
 from crucible.tools import SessionProofBook, ToolServer, ToolWiring
 from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
@@ -229,7 +230,7 @@ def _spec_or_none(profiles: ProfileStore, name: str) -> AgentSpec | None:
 class App:
     settings: ImpiSettings
     runtime: AgentRuntime
-    sessions: SessionStore
+    sessions: Store  # the one store, every facet: sessions, traces, cards, forms...
     registry: RegistryService
     units: list[AgentUnit]
     tool_server: ToolServer | None
@@ -759,7 +760,7 @@ def build_app(settings: ImpiSettings) -> App:
             # raised them.
             # The calls of a turn go in the store too, read back by token
             # after the journal is gone.
-            turns=HttpTurns(cards=sessions, traces=sessions),
+            turns=HttpTurns(cards=sessions, traces=sessions if settings.tool_trace_enabled else None),
             directory=registry, attachments=attachments,
             dispatcher=interactions.dispatcher, control=runtime,
             max_wait_s=settings.http_max_wait_s,
@@ -991,9 +992,10 @@ def stop_on_sigterm(task: asyncio.Task | None = None) -> None:
 
 async def run(settings: ImpiSettings) -> None:
     app = build_app(settings)
-    if app.tracer is not None:
-        # Old traces go at boot, not on a timer (the attachment sweep is the loop below).
-        await app.tracer.sweep()
+    if settings.tool_trace_enabled:
+        # Old traces go at boot, not on a timer (the attachment sweep is the
+        # loop below) — the http journal's records as much as the widget's.
+        await sweep_traces(app.sessions, retention_days=settings.tool_trace_retention_days)
     if settings.processed_posts_retention_days > 0:
         cutoff = datetime.now(timezone.utc) - timedelta(days=settings.processed_posts_retention_days)
         forgotten = await app.sessions.prune_processed(before=cutoff.isoformat(timespec="seconds"))

@@ -87,12 +87,17 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   forget one, interrupt a turn, how full is it).
 - **Turn** (`ports/turn`): `TurnScope` (what belongs to one turn — credentials
   sent with the message in `TurnSecrets`, which never prints them; attributes;
-  flags a tool leaves for the flow), `TurnScopes` / `TurnBinding` (how the tool
-  server reads it and the flow binds it). `crucible.turns.TurnRegistry` is the
-  in-memory binding both sides hold.
+  flags a tool leaves for the flow), `TurnPlace` (where the turn answers),
+  `TurnScopes` / `TurnPlaces` / `TurnFeed` (how the tool server, the widgets
+  and the tool gate read it and tell it what happened) and `TurnBinding` (how
+  the flow binds it). `crucible.turns.TurnRegistry` is the in-memory binding
+  all sides hold.
+- **Traces** (`ports/traces`): `TraceRecord` (one turn's tool calls, arguments
+  and outcomes, never results), `Call` and `TurnCalls` (the calls collected
+  from the turn's events), `Traces` (written once, read by token).
 - **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill + files + the widget
   verbs), `ConversationView` (a platform's view of the conversation beside its
-  messages — busy or free, for the turn), `StoppableSink` (a person stops the
+  messages — busy or free for the turn, waiting while a card is up), `StoppableSink` (a person stops the
   turn in flight), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `FileService`
   (the tool-facing "send this file"), `MessageSink` / `Flow` (inbound entry
@@ -196,7 +201,8 @@ text for a channel — that is the adapter's call.
 | `post_confirmation` | an `ApprovalCard` — who asks, what for, fields, a verbatim block, danger, deadline | adapter: Markdown on Mattermost, Block Kit fields on Slack, a `confirmation` event on http | the tool gate; the secret broker's request and its auto-grant notice (no actions: told, not asked) |
 | `update_confirmation` | the same card rewritten — a verdict, a folded notice | same adapter, same message | a confirmation answered, expired or withdrawn (the tool gate's and the broker's alike); a run of auto-grants folded into one message |
 | `retract` | one sentence in place of the controls | adapter | a model question (`post_actions`) that is no longer open |
-| `post_cards` / `update_cards` | `Card`s with Markdown text and actions | adapter | screens (`ScreenRegistry`); a richer structured form is a later version |
+| `post_cards` / `update_cards` | `Card`s with Markdown text, actions and, for a turn in flight, `steps` (Slack: a plan block; Mattermost: lines) | adapter | screens (`ScreenRegistry`); the tool trace's progress message |
+| `delete_post` | a post the engine made, now over | adapter | the progress message when the turn ends (`TOOL_TRACE_AFTER=nothing`) |
 
 The `GatewayFactory` that builds these lives in `crucible.gateways`; it takes a
 neutral `GatewayConfig` (which transport, which tokens). `impi` only resolves that
@@ -430,7 +436,8 @@ outside a turn (`ports/held_cards.py`, kept in the store) is shown.
 its own: `crucible.interactions.tooltrace`. The flow hands each turn a trace and
 feeds it the runtime's neutral turn events (`ToolStarted`/`ToolFinished` and
 `TextProgress`, the model's remark before its next call, from
-`ports/agent/events.py`), captioning each call once on the way
+`ports/agent/events.py`; and the engine's own `CallAwaiting`, the tool gate's
+word that a call waits on the person), captioning each call once on the way
 (`ports/agent/captions.CallCaptions`: the registry asks a `Captioning` tool,
 the runtime driver answers for its built-ins) so the chat widget and an http
 journal say the same line; the trace draws a live counter with the steps so

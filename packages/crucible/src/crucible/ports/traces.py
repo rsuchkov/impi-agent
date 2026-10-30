@@ -36,8 +36,9 @@ CALL_FAILED = "failed"
 CALL_UNFINISHED = "unfinished"
 
 # What becomes of the message that shows a turn's calls while it runs, once
-# the turn is over: the button that opens the list of calls, or nothing — the
-# message is deleted and the reply stands alone (the record is kept either way).
+# the turn is over: the button that opens the list of calls, backed by a record
+# of them, or nothing — the message is deleted, the reply stands alone, and no
+# record is written for it (an http turn's record is written either way).
 TRACE_AFTER_BUTTON = "button"
 TRACE_AFTER_NOTHING = "nothing"
 TRACE_AFTER = (TRACE_AFTER_BUTTON, TRACE_AFTER_NOTHING)
@@ -135,25 +136,26 @@ class TurnCalls:
         return bool(self._calls)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class TraceRecord:
     """What one turn's tool calls were, kept so a view of the turn can be
     opened long after it — minutes or a restart later.
 
     ``calls`` is opaque JSON (``encode_calls``), like a form's ``spec``: the
     record owns its shape and the store only keeps it. It holds names,
-    arguments, outcomes and timings; never results. ``post_id`` names the
-    widget message the trace is drawn in, "" when it is drawn in none.
+    arguments, outcomes and timings; never results. ``channel_id``, ``kind``
+    and ``post_id`` are the chat widget's — the place and the message it is
+    drawn in — and "" for a turn that has none (an http caller's).
     """
 
     token: str
     agent: str
-    channel_id: str
     conversation_id: str
-    kind: str
     created_at: str
     finished_at: str
     calls: str
+    channel_id: str = ""
+    kind: str = ""
     post_id: str = ""
 
 

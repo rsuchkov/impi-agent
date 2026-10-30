@@ -185,7 +185,8 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   (`empty_answer`) — the model ended the turn with no text: the second sentence
   means it called tools, none of them a widget, form, file or message to a
   person, and wrote nothing after. The turn ends `empty`. A model or prompt
-  matter, not an engine fault; `/tools` (the tool trace) shows what it called.
+  matter, not an engine fault; with `TOOL_TRACE_AFTER=button` the trace button
+  under the reply shows what it called, otherwise the log does.
 - "That answer hit the model's length limit" / "The model hit its length limit
   before it had answered" (`truncated`) — the output limit went on reasoning
   or on a long answer. Lower `runtime.thinking` in the agent's `agent.yaml`,

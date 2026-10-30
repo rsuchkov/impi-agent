@@ -22,7 +22,6 @@ from crucible.ports.chat.types import KIND_DM
 from crucible.ports.held_cards import HeldCards
 from crucible.ports.lease import Leases
 from crucible.ports.replica import Replicas
-from crucible.ports.traces import TraceRecord as TraceRecord
 from crucible.ports.traces import Traces
 
 # Which implementation holds the inventory. A closed set, like the run statuses

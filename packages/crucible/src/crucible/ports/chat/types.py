@@ -248,14 +248,13 @@ class ApprovalCard:
 STEP_RUNNING = "running"
 STEP_DONE = "done"
 STEP_FAILED = "failed"
-STEP_STATES = (STEP_RUNNING, STEP_DONE, STEP_FAILED)
 
 
 @dataclass(frozen=True)
 class Step:
     """One step of a turn as a person watching sees it — a tool call with its
-    caption — in the state it is in. ``note`` is a line under the title: the
-    model's remark that led to the call, or "waiting for your approval"."""
+    caption — in the state it is in. ``note`` is a line under the title:
+    "waiting for you" while the call waits on the person's answer."""
 
     id: str
     title: str

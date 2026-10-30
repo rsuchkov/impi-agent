@@ -31,7 +31,6 @@ from crucible.store.base import (
     TaskRecord,
     TaskRunRecord,
     TaskStore,
-    TraceRecord,
     TraceStore,
     derive_runtime_session_id,
 )
@@ -110,7 +109,6 @@ __all__ = [
     "TaskRecord",
     "TaskRunRecord",
     "TaskStore",
-    "TraceRecord",
     "TraceStore",
     "SqliteSessionStore",
     "open_store",

@@ -303,6 +303,7 @@ class ToolGate:
             await self._rewrite_all(
                 copies, _closed(card, _ABANDONED.format(tool=named), VERDICT_WITHDRAWN)
             )
+            await _set_waiting(views, False)
             raise
         await _set_waiting(views, False)
         verdict, words = verdict_of(answer)

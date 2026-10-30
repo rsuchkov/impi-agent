@@ -1523,9 +1523,9 @@ async def test_a_finished_turn_accounts_for_itself_and_its_calls_outlive_the_jou
             events, _ = await _drain(s, 8499, started["turnId"])
             finished = events[-1]
             assert finished["type"] == "turn.finished" and finished["outcome"] == "replied"
-            assert (finished["steps"], finished["failedSteps"]) == (2, 1)
+            assert (finished["calls"], finished["failedCalls"]) == (2, 1)
             assert isinstance(finished["durationS"], float) and finished["durationS"] >= 0
-            token = finished["trace"]
+            token = finished["traceToken"]
             assert len(token) == 32
             # The journal is gone (no retention); the calls are not.
             status, body = await _get(s, 8499, f"/v1/traces/{token}")
@@ -1572,7 +1572,7 @@ async def test_a_turn_without_tools_records_no_trace_and_neither_does_a_hub_with
             _, started = await _post(s, 8498, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
             events, _ = await _drain(s, 8498, started["turnId"])
             finished = events[-1]
-            assert (finished["steps"], finished["failedSteps"], finished["trace"]) == (0, 0, "")
+            assert (finished["calls"], finished["failedCalls"], finished["traceToken"]) == (0, 0, "")
             assert written == []  # nothing to keep
     finally:
         await hub.stop()
@@ -1583,7 +1583,7 @@ async def test_a_turn_without_tools_records_no_trace_and_neither_does_a_hub_with
         async with aiohttp.ClientSession() as s:
             _, started = await _post(s, 8497, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
             events, _ = await _drain(s, 8497, started["turnId"])
-            assert events[-1]["trace"] == ""
+            assert events[-1]["traceToken"] == ""
             status, _ = await _get(s, 8497, "/v1/traces/0123456789abcdef0123456789abcdef")
             assert status == 404
     finally:

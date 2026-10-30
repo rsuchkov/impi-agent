@@ -149,7 +149,7 @@ One per subject, named the way the SQLite tables are:
 | `scheduler_heartbeat` | one document; the scheduler's own liveness |
 | `approval_grants` | windows a human left open |
 | `approval_audit` | the ledger of what was asked and how it came out |
-| `tool_traces` | one turn's tool calls, for the widget under its reply — arguments and outcomes, never results |
+| `tool_traces` | one turn's tool calls — arguments and outcomes, never results — for the trace button (`TOOL_TRACE_AFTER=button`) and the http gateway's `GET /v1/traces/{token}` |
 | `connections` | people's accounts connected at an OAuth provider: the tokens sealed (unreadable without the sealing key), whose and which account readable; one per person and provider |
 | `connection_links` | connects started and not yet finished — single use, gone after ten minutes (a TTL index) |
 | `leases` | what runs in one process at a time: a gateway's connection (`gateway:<kind>:<agent>`), a replica's liveness (`replica:<id>`, the holder its address) |

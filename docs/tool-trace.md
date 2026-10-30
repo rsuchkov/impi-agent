@@ -132,8 +132,8 @@ or refused.
 | `TOOL_TRACE_AFTER` | `nothing` | what becomes of it when the turn ends: `nothing` — deleted, the reply stands alone; `button` — the button that opens the list of calls |
 | `TOOL_TRACE_RETENTION_DAYS` | `14` | drop traces older than this at startup; `0` keeps them all |
 
-It needs interactivity (`INTEGRATIONS_ENABLED`, on by default): the button has
-to route its click somewhere. With interactivity off no widget is drawn rather
+It needs interactivity (`INTEGRATIONS_ENABLED`, on by default): the message
+is a screen, and a screen is drawn only where a click could come back. With interactivity off no widget is drawn rather
 than a dead one. A Slack install needs no callback receiver for this — clicks
 arrive on its socket.
 

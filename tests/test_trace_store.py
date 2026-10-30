@@ -4,7 +4,8 @@ The widget that shows them is clicked minutes or a restart after the turn, so
 the trace has to be there whatever holds it, and gone once nobody would open it.
 """
 
-from crucible.store.base import Store, TraceRecord
+from crucible.ports.traces import TraceRecord
+from crucible.store.base import Store
 from tests.conftest import StoreBackend
 
 T0 = "2026-09-17T09:00:00+00:00"

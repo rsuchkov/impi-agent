@@ -339,7 +339,7 @@ steps:
      `agent_session_title_changed` (`reaction_added` too, for reactions as
      commands) — and the engine `SLACK_AGENT_SESSIONS=true` (per agent
      `AGENTS_SLACK_AGENT_SESSIONS__<AGENT>`), so a turn marks its session
-     `processing`. A session is a thread to Slack, and a message typed in the
+     `processing` (`suspended` while a confirmation card waits on the person). A session is a thread to Slack, and a message typed in the
      panel arrives at the top of the direct message: with `DM_REPLIES=thread`
      the answer goes into a thread under it and the status with it, the shape
      the panel expects; with `top` the answer stays at the top of the DM and

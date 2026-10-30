@@ -1,13 +1,15 @@
 """The message that says what tools a turn ran — in the conversation's thread,
 or in a thread under the message the turn answers (``trace_ref``).
 
-Three states of one message. While the turn runs it is a counter — ``Running
-3 tools… · Reading PROJ-123`` — with the latest word after it (a call's caption,
-or the model's remark before its next call), so a pause reads as work rather
-than silence. When the turn ends it becomes a button, ``Running 3 tools →``. A
-click redraws it into a list of the calls, one row each with its caption,
-where one row at a time can be opened to show its arguments; ``Close`` puts
-the button back. No tool calls, no message at all.
+While the turn runs it is a counter — ``Running 3 tools… · Reading
+PROJ-123`` — with the latest word after it (a call's caption, or the model's
+remark before its next call) and the steps so far under it, so a pause reads
+as work rather than silence. When the turn ends it is deleted and the reply
+stands alone (``TRACE_AFTER_NOTHING``, the default) — or, with
+``TRACE_AFTER_BUTTON``, it becomes a button, ``Running 3 tools →``, which a
+click redraws into a list of the calls, one row each with its caption, where
+one row at a time can be opened to show its arguments; ``Close`` puts the
+button back. No tool calls, no message at all.
 
 It is a screen: the engine posts it, the engine answers every click, no model is
 involved. What a click carries is a token and a view position — the calls
@@ -134,17 +136,19 @@ def steps_of(calls: list[Call], awaiting: Call | None = None) -> tuple[Step, ...
     )
 
 
-def render_counter(count: int, latest: str = "", *, awaiting: str = "", steps: tuple[Step, ...] = ()) -> View:
+def render_counter(
+    count: int, latest: str = "", *, awaiting: Call | None = None, steps: tuple[Step, ...] = (),
+) -> View:
     """The counter, with the latest word on what the turn is doing after it:
     a call's caption or the model's last remark on the way — or, while a call
-    waits on the person's answer, that (``awaiting`` names the call), since a
-    turn waiting for them should not read as a tool that is slow. ``latest``
-    is made one line of bounded length here — the remark is the model's text.
-    ``steps`` go under the line (``steps_of``): a platform with a plan of its
-    own draws them as one."""
+    waits on the person's answer, that call, since a turn waiting for them
+    should not read as a tool that is slow. ``latest`` is made one line of
+    bounded length here — the remark is the model's text. ``steps`` go under
+    the line (``steps_of``): a platform with a plan of its own draws them as
+    one."""
     line = f"⚙️ Running {_plural(count, 'tool')}…"
-    if awaiting:
-        line += f" · {WAITING_FOR_YOU}: {one_line(awaiting, limit=LATEST_MAX)}"
+    if awaiting is not None:
+        line += f" · {WAITING_FOR_YOU}: {one_line(awaiting.caption or awaiting.tool, limit=LATEST_MAX)}"
     elif latest:
         line += f" · {one_line(latest, limit=LATEST_MAX)}"
     return View(cards=(Card(text=line, steps=steps),))
@@ -357,9 +361,7 @@ class TurnTrace:
             self._wake.clear()
             waiting = self._calls.awaiting
             await self._draw(render_counter(
-                len(self._calls), self._calls.latest,
-                awaiting=(waiting.caption or waiting.tool) if waiting is not None else "",
-                steps=steps_of(self._calls.calls, waiting),
+                len(self._calls), self._calls.latest, awaiting=waiting, steps=steps_of(self._calls.calls, waiting),
             ))
             if self._closed:
                 break  # end() arrived while drawing; it is waiting on us
@@ -386,7 +388,7 @@ class TurnTrace:
             self._dead = True
 
     async def end(self, *, interrupted: bool = False) -> None:
-        """The turn is over: settle the counter into the button.
+        """The turn is over: take the counter away, or settle it into the button.
 
         The record is written before the button appears, so a click can never
         find nothing behind it. A turn that called no tool leaves no trace and
@@ -454,7 +456,15 @@ class ToolTrace:
 
     async def sweep(self) -> int:
         """Drop traces past the retention; 0 keeps every one."""
-        if self._retention_days <= 0:
-            return 0
-        cutoff = self._now() - timedelta(days=self._retention_days)
-        return await self._store.prune_traces(before=cutoff.isoformat(timespec="seconds"))
+        return await sweep_traces(self._store, retention_days=self._retention_days, now=self._now)
+
+
+async def sweep_traces(
+    store: TraceStore, *, retention_days: int, now: Callable[[], datetime] | None = None,
+) -> int:
+    """Drop the records past the retention, whoever wrote them — the widget's
+    and the http journal's alike; 0 keeps every one."""
+    if retention_days <= 0:
+        return 0
+    cutoff = (now or (lambda: datetime.now(timezone.utc)))() - timedelta(days=retention_days)
+    return await store.prune_traces(before=cutoff.isoformat(timespec="seconds"))

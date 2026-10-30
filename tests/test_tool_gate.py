@@ -1041,6 +1041,25 @@ async def test_the_gate_tells_the_conversations_view_the_agent_waits_and_goes_on
         await _answer_on(slack, rig, ANSWER_DENY)
         await pending
         assert slack.waiting == [("dm1", True), ("dm1", False)]
+        # A call abandoned while waiting (the runtime hung up) too.
+        slack.waiting.clear()
+        await _call_and_hang_up(rig, "dangerous", after=0.2)
+        for _ in range(400):
+            if len(slack.waiting) == 2:
+                break
+            await asyncio.sleep(0.005)
+        assert slack.waiting == [("dm1", True), ("dm1", False)]
+    finally:
+        await _close(rig)
+
+
+async def test_a_wait_that_runs_out_resumes_the_session_too(tmp_path: Path) -> None:
+    slack = ViewingPoster()
+    rig = await _rig(tmp_path, 8567, by_gateway={"slack": slack}, timeout_s=0.2)
+    try:
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="slack")
+        assert await _call(rig, "dangerous") == 403  # nobody answered in time
+        assert slack.waiting == [("dm1", True), ("dm1", False)]
     finally:
         await _close(rig)
 

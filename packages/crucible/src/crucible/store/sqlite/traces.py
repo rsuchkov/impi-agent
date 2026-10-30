@@ -9,7 +9,7 @@ see ``TraceRecord`` — so nothing here is a place a granted value could land.
 import asyncio
 from dataclasses import fields
 
-from crucible.store.base import TraceRecord
+from crucible.ports.traces import TraceRecord
 from crucible.store.sqlite.base import SqliteBase
 
 _TRACES_SCHEMA = """
@@ -57,7 +57,7 @@ class TraceStoreMixin(SqliteBase):
             row = self._conn.execute(
                 f"SELECT {_TRACE_COLUMNS} FROM tool_traces WHERE token = ?", (token,)
             ).fetchone()
-        return TraceRecord(*row) if row else None
+        return TraceRecord(**dict(zip(_TRACE_FIELDS, row, strict=True))) if row else None
 
     def prune_traces_sync(self, *, before: str) -> int:
         with self._lock:

@@ -3,7 +3,7 @@ the widget that shows them."""
 
 from __future__ import annotations
 
-from crucible.store.base import TraceRecord
+from crucible.ports.traces import TraceRecord
 from crucible.store.mongo.base import TRACES, MongoBase, from_doc, to_doc
 
 

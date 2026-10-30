@@ -562,8 +562,9 @@ class Settings(BaseSettings):
     tool_trace_enabled: bool = True
     tool_trace_retention_days: int = 14
     # What becomes of the progress message when the turn ends: `nothing` — it
-    # is deleted and the reply stands alone (the record of the calls is kept
-    # either way); `button` — it settles into the button that opens the list.
+    # is deleted and the reply stands alone, and no record of the calls is
+    # kept for it (an http turn's record is written either way); `button` —
+    # it settles into the button that opens the list, backed by the record.
     tool_trace_after: str = "nothing"
 
     # Scheduled and recurring work (env: SCHEDULER_*) — read grouped via

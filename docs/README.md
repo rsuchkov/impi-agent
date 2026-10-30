@@ -49,8 +49,9 @@ people. Keep them accurate to the code.
   provider (GitLab, or any standard one), connected once in a direct message
   and used by tools acting as them: setting a provider up, the panel, the
   tools, keys and their rotation, and what it does not do yet.
-- **[tool-trace.md](tool-trace.md)** — the message that lists the tools a
-  turn ran: what it shows (arguments and outcomes), what it never
+- **[tool-trace.md](tool-trace.md)** — the progress message a turn running
+  tools shows (its steps, what it is on), the button that lists the calls
+  afterwards (`TOOL_TRACE_AFTER=button`): what it shows (arguments and outcomes), what it never
   shows (results), and why.
 - **[files.md](files.md)** — files and photos: what happens to an attachment on
   its way to the agent, where files are kept, the per-platform requirements, and

@@ -43,7 +43,7 @@ from crucible.ports.agent.events import (
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.gateway import GATEWAY_HTTP
 from crucible.ports.chat.interactions import actions_to_json, approval_card_to_json
-from crucible.ports.chat.types import KIND_DM, Action, ApprovalCard
+from crucible.ports.chat.types import Action, ApprovalCard
 from crucible.ports.held_cards import HeldCard, HeldCards
 from crucible.ports.traces import TraceRecord, Traces, TurnCalls, encode_calls
 
@@ -133,8 +133,7 @@ class _Trace:
         token = uuid.uuid4().hex
         try:
             await self._traces.create_trace(TraceRecord(
-                token=token, agent=turn.agent, channel_id=turn.conversation,
-                conversation_id=turn.conversation, kind=KIND_DM,
+                token=token, agent=turn.agent, conversation_id=turn.conversation,
                 created_at=self._created_at, finished_at=now_iso(),
                 calls=encode_calls(turn.calls.calls),
             ))
@@ -227,7 +226,7 @@ class HttpTurns:
         took = asyncio.get_running_loop().time() - turn.started_at if turn.started_at else 0.0
         turn.journal.emit(
             EV_TURN_FINISHED, outcome=outcome.name.lower(), durationS=round(took, 1),
-            steps=len(turn.calls), failedSteps=turn.calls.failed, trace=turn.trace_token,
+            calls=len(turn.calls), failedCalls=turn.calls.failed, traceToken=turn.trace_token,
         )
         turn.journal.finish(STATUS_FAILED if outcome in _FAILED else STATUS_DONE)
         if self._active.get(turn.conversation) is turn:

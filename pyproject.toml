@@ -164,6 +164,8 @@ source_modules = [
     "crucible.ports.lease",
     "crucible.ports.telemetry",
     "crucible.ports.replica",
+    "crucible.ports.traces",
+    "crucible.ports.turn",
 ]
 forbidden_modules = [
     "crucible.runtimes",

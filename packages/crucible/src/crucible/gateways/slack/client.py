@@ -119,38 +119,33 @@ class SlackChatClient:
         its status is set. Nothing without ``agent_sessions``: a plain bot has
         no session, and an app without the feature gets an error here, which
         is logged and nothing else."""
-        thread = ref.thread_root_id or ref.message_id
-        if not self._agent_sessions or not thread:
-            return
-        try:
-            await self._client.api_call(
-                api_method="agents.sessions.setStatus",
-                json={"channel_id": ref.channel_id, "thread_ts": thread,
-                      "status": "processing" if busy else "active"},
-            )
-        except SlackApiError as exc:
-            logger.debug("agent session status not set for %s: %s", thread, _err(exc))
-        except (aiohttp.ClientError, TimeoutError, OSError) as exc:
-            # A network that did not answer is no reason the turn should not run.
-            logger.debug("agent session status not set for %s: %s", thread, exc)
+        await self._set_session_status(ref, "processing" if busy else "active")
 
     async def set_waiting(self, ref: ConversationRef, waiting: bool) -> None:
         """``suspended`` while a call waits on the person's answer — Slack's
         own status for "cannot go on until the user intervenes" — and
         ``processing`` again after. The same session as ``set_busy``, the same
         silence without ``agent_sessions``."""
+        await self._set_session_status(ref, "suspended" if waiting else "processing")
+
+    async def _set_session_status(self, ref: ConversationRef, status: str) -> None:
+        """The agent session's status: the session is a thread — the thread
+        the turn answers in, or, for a turn answered at the top of a direct
+        message, the one Slack opens under the person's message. Nothing
+        without ``agent_sessions``; an app without the feature gets an error
+        here, which is logged and nothing else."""
         thread = ref.thread_root_id or ref.message_id
         if not self._agent_sessions or not thread:
             return
         try:
             await self._client.api_call(
                 api_method="agents.sessions.setStatus",
-                json={"channel_id": ref.channel_id, "thread_ts": thread,
-                      "status": "suspended" if waiting else "processing"},
+                json={"channel_id": ref.channel_id, "thread_ts": thread, "status": status},
             )
         except SlackApiError as exc:
             logger.debug("agent session status not set for %s: %s", thread, _err(exc))
         except (aiohttp.ClientError, TimeoutError, OSError) as exc:
+            # A network that did not answer is no reason the turn should not run.
             logger.debug("agent session status not set for %s: %s", thread, exc)
 
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:

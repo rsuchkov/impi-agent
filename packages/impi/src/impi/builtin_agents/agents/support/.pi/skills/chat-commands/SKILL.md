@@ -87,7 +87,8 @@ scopes `assistant:write` and `chat:write`, and the events `app_home_opened`,
 beside `message.im`, and `SLACK_AGENT_SESSIONS=true` in the engine's `.env`,
 per agent `AGENTS_SLACK_AGENT_SESSIONS__<AGENT>`) a session shows a working
 indicator while the agent's turn runs and a native **Stop** button, which ends
-the turn as `/stop` does (§5). A session is a thread to Slack, and the panel
+the turn as `/stop` does (§5); while a tool's confirmation card waits on the
+person the session reads `suspended`, `processing` again once they answer. A session is a thread to Slack, and the panel
 sends the person's message at the top of the direct message: `DM_REPLIES=thread`
 (per agent `AGENTS_DM_REPLIES__<AGENT>`; Mattermost honours it too) puts the
 answer and the status in a thread under the message — and a tool's
