@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.40.0 — 2026-10-30
+
 - **One tracer for an agent on several gateways, chosen by the gateway.**
   `TracerByGateway({"http": hub.turns}, default=ToolTrace(…))`
   (`crucible.flows.tracers`) hands a turn the journal when it came through the
