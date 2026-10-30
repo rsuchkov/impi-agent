@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.41.0 — 2026-10-30
+
 - **The model's remarks stay with the steps they led to.** What the model
   says on its way to a call (`TextProgress`) used to live in the progress
   message's first line alone, eighty characters of it, until the next call's
