@@ -557,12 +557,21 @@ credential, is another user's credential.
 - **An HTTP API for your own frontend** is what the `http` gateway is
   (`crucible.gateways.http`, contract in [http-gateway.md](http-gateway.md)):
   `HttpHub(host, port, callers, dispatcher=…, control=runtime,
-  turns=HttpTurns(cards=store))` plus, per agent, `HttpChatClient(hub.turns,
-  name)` as the chat client and `hub.turns` as the flow's `tracer`;
-  `GatewayFactory(http_hub=hub)` does this for a `GatewayConfig(kind="http")`.
-  `cards` is where a conversation's cards raised on another gateway wait
-  (`ports.held_cards.HeldCards`, which the store implements) — give it the
-  store, or every replica shows only what its own turns raised. The piece that is yours is `callers`, a
+  turns=HttpTurns(cards=store, traces=store))` plus, per agent,
+  `HttpChatClient(hub.turns, name)` as the chat client and `hub.turns` as the
+  flow's `tracer`; `GatewayFactory(http_hub=hub)` does this for a
+  `GatewayConfig(kind="http")`. `cards` is where a conversation's cards raised
+  on another gateway wait (`ports.held_cards.HeldCards`, which the store
+  implements) — give it the store, or every replica shows only what its own
+  turns raised; `traces` is where a turn's calls are kept once it has ended
+  (`ports.traces.Traces`, the store again), read back by the token
+  `turn.finished` carries after the journal is gone. An agent reached through
+  the http gateway **and** a chat gateway hands the flow one tracer for both:
+  `AgentFlow(tracer=TracerByGateway({"http": hub.turns}, default=ToolTrace(…)))`
+  (`crucible.flows.tracers`) picks by the gateway the turn came through — the
+  journal for an http caller, the widget under the reply in chat — by the
+  gateway's name, never by the type of the chat client, so a client you wrap
+  is still answered right. The piece that is yours is `callers`, a
   `CallerAuthenticator`: `TokenCallers` trusts a bearer token and two headers,
   and an application whose users prove themselves otherwise (a session cookie
   checked upstream) implements `authenticate(request, body) -> Caller | None`

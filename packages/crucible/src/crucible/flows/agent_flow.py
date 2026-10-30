@@ -270,10 +270,12 @@ class TurnTracer(Protocol):
     posts widgets."""
 
     def begin(
-        self, record: SessionRecord, chat: ChatClient, *, anchor: ConversationRef | None = None
+        self, record: SessionRecord, chat: ChatClient, *,
+        anchor: ConversationRef | None = None, gateway: str = "",
     ) -> ActiveTrace:
         """``anchor`` is the message the turn answers — None when there is no
-        real one (a click, a command, a scheduled run)."""
+        real one (a click, a command, a scheduled run); ``gateway`` is the one
+        the turn came through, for a tracer that picks a view by it."""
         ...
 
 
@@ -608,7 +610,9 @@ class AgentFlow:
         # The trace posts nothing until the first tool runs, so a turn that
         # only talks leaves no extra message.
         trace = (
-            self._tracer.begin(record, chat, anchor=None if anchor.synthetic else anchor.ref)
+            self._tracer.begin(
+                record, chat, anchor=None if anchor.synthetic else anchor.ref, gateway=anchor.gateway,
+            )
             if self._tracer is not None else None
         )
         # The anchor's scope is the turn's: a batch is one turn, and the newest

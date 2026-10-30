@@ -36,9 +36,10 @@ from crucible.conversation_files import (
 )
 from crucible.conversation_profiles import EntitledProfiles, GatewayEntitlements
 from crucible.engine_state import tell_engine_state
-from crucible.flows.agent_flow import AgentFlow
+from crucible.flows.agent_flow import AgentFlow, TurnTracer
 from crucible.flows.coalescer import MessageCoalescer
 from crucible.flows.owned import OwnedFlow
+from crucible.flows.tracers import TracerByGateway
 from crucible.gateways import (
     GatewayConfig,
     GatewayFactory,
@@ -46,7 +47,6 @@ from crucible.gateways import (
     LeasedGateway,
 )
 from crucible.gateways.http import (
-    HttpChatClient,
     HttpHub,
     HttpTurns,
     HubForwarder,
@@ -326,32 +326,6 @@ class ProfileBuilder:
 CONNECTION_GATEWAYS = frozenset({GATEWAY_MATTERMOST, GATEWAY_SLACK})
 
 
-class _TracerByChat:
-    """One tracer per kind of chat: an http caller's turn writes its tool
-    events into the caller's journal, a chat turn draws the widget. Chosen per
-    turn by the chat the message came with, so an agent reached through both
-    is traced right on each."""
-
-    def __init__(self, journal: HttpTurns | None, widget: ToolTrace | None) -> None:
-        self._journal = journal
-        self._widget = widget
-
-    def begin(self, record, chat, *, anchor=None):
-        if isinstance(chat, HttpChatClient) and self._journal is not None:
-            return self._journal.begin(record, chat, anchor=anchor)
-        if self._widget is not None:
-            return self._widget.begin(record, chat, anchor=anchor)
-        return _NoTrace()
-
-
-class _NoTrace:
-    def on_event(self, event) -> None:
-        return None
-
-    async def end(self, *, interrupted: bool = False) -> None:
-        return None
-
-
 def _posting_tools(tools: ToolWiring) -> frozenset[str]:
     """The registry's tools whose call puts something in front of a person
     (``speaks_to_user`` or ``posts_to_user``): a turn that called one and wrote
@@ -376,7 +350,7 @@ def _build_unit(
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
     inline_image_max_bytes: int,
-    tracer: ToolTrace | HttpTurns | _TracerByChat | None,
+    tracer: TurnTracer | None,
     turns: TurnRegistry,
     captions: CallCaptions,
     posting_tools: Collection[str] = (),
@@ -491,10 +465,10 @@ def _build_units(
             inline_image_max_bytes=int(settings.inline_image_max_mb * 1024 * 1024),
             # An http caller's tool activity goes to the caller's journal, a
             # chat turn's to a widget under the reply — chosen per turn by the
-            # chat the message came with.
+            # gateway the message came through.
             tracer=(
-                http_turns if set(handles) == {GATEWAY_HTTP}
-                else _TracerByChat(http_turns, tracer) if GATEWAY_HTTP in handles
+                TracerByGateway({GATEWAY_HTTP: http_turns}, default=tracer)
+                if http_turns is not None and GATEWAY_HTTP in handles
                 else tracer
             ),
             turns=turns,
@@ -783,7 +757,9 @@ def build_app(settings: ImpiSettings) -> App:
             # Cards a conversation holds outside a turn of this gateway's go in
             # the store: every replica shows them, not only the one whose turn
             # raised them.
-            turns=HttpTurns(cards=sessions),
+            # The calls of a turn go in the store too, read back by token
+            # after the journal is gone.
+            turns=HttpTurns(cards=sessions, traces=sessions),
             directory=registry, attachments=attachments,
             dispatcher=interactions.dispatcher, control=runtime,
             max_wait_s=settings.http_max_wait_s,

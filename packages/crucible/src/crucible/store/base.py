@@ -22,6 +22,8 @@ from crucible.ports.chat.types import KIND_DM
 from crucible.ports.held_cards import HeldCards
 from crucible.ports.lease import Leases
 from crucible.ports.replica import Replicas
+from crucible.ports.traces import TraceRecord as TraceRecord
+from crucible.ports.traces import Traces
 
 # Which implementation holds the inventory. A closed set, like the run statuses
 # below: the name comes from configuration a person typed, so an unknown one has
@@ -231,35 +233,10 @@ class FormStore(Protocol):
     async def delete_form(self, token: str) -> None: ...
 
 
-@dataclass(frozen=True)
-class TraceRecord:
-    """What one turn's tool calls were, kept so the widget under the reply can
-    be opened long after the turn — minutes or a restart later.
-
-    ``calls`` is opaque JSON, like a form's ``spec``: the widget owns its shape
-    and the store only keeps it. It holds names, arguments, outcomes and
-    timings; never results, which is where a value the agent was granted could
-    surface. ``post_id`` names the widget message the trace is drawn in.
-    """
-
-    token: str
-    agent: str
-    channel_id: str
-    conversation_id: str
-    kind: str
-    created_at: str
-    finished_at: str
-    calls: str
-    post_id: str = ""
-
-
-class TraceStore(Protocol):
-    """One trace per turn that called tools, written once when the turn ends and
-    read on every click. Pruned by age, since nobody opens last month's."""
-
-    async def create_trace(self, record: TraceRecord) -> None: ...
-
-    async def get_trace(self, token: str) -> TraceRecord | None: ...
+class TraceStore(Traces, Protocol):
+    """The traces (``ports.traces``) as the store keeps them: written once when
+    the turn ends, read on every look, pruned by age since nobody opens last
+    month's."""
 
     async def prune_traces(self, *, before: str) -> int:
         """Delete traces that finished before ``before``; return how many."""

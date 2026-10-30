@@ -93,7 +93,11 @@ posts the message, the engine answers every click by rewriting it, and no model
 is involved. The click carries only a token and a position; the calls
 themselves are written to the inventory once, when the turn ends, so the panel
 opens minutes or a restart later. Traces older than the retention are dropped
-at startup.
+at startup. The record (`ports.traces.TraceRecord`) is the same whatever shows
+the turn: a turn an http caller started writes one too, and its journal's
+`turn.finished` names the token (`GET /v1/traces/{token}`,
+[http-gateway.md](http-gateway.md)), so a page opened after the journal is
+gone still has the steps.
 
 The live counter comes from the runtime's event stream. The runtime driver
 translates its own tool events into three neutral ones — a call started, with

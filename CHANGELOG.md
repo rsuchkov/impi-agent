@@ -6,7 +6,22 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **One tracer for an agent on several gateways, chosen by the gateway.**
+  `TracerByGateway({"http": hub.turns}, default=ToolTrace(…))`
+  (`crucible.flows.tracers`) hands a turn the journal when it came through the
+  http gateway and the widget when it came through chat — by the gateway's
+  name: `TurnTracer.begin(record, chat, *, anchor, gateway)` is told it.
+  Before, the fork lived in the application and chose by the type of the chat
+  client, so an application that wrapped its client got the wrong one.
+- **A finished turn accounts for itself, and its calls outlive the journal.**
+  The http journal's `turn.finished` carries `durationS`, `steps`,
+  `failedSteps` and `trace`; the turn's calls are written to the trace store
+  (`HttpTurns(traces=store)`) as the chat widget's are, and
+  `GET /v1/traces/{token}` reads them back after the journal's retention — a
+  page opened later shows "Worked 12 s · 4 steps" and the steps without
+  keeping them itself. The record and the bookkeeping moved to
+  `crucible.ports.traces` (`TraceRecord`, `Call`, `TurnCalls`, `Traces`);
+  `crucible.store.base.TraceRecord` still names it.
 
 ## v0.39.1 — 2026-10-29
 

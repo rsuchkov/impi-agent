@@ -37,8 +37,9 @@ from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.gateway import GATEWAY_HTTP
 from crucible.ports.chat.interactions import actions_to_json, approval_card_to_json
-from crucible.ports.chat.types import Action, ApprovalCard
+from crucible.ports.chat.types import KIND_DM, Action, ApprovalCard
 from crucible.ports.held_cards import HeldCard, HeldCards
+from crucible.ports.traces import TraceRecord, Traces, TurnCalls, encode_calls
 
 logger = logging.getLogger(__name__)
 
@@ -77,17 +78,29 @@ class Turn:
     # The posts the turn is waiting on (a confirmation card), as opposed to a
     # screen it merely drew: the status says "awaiting input" while any is up.
     blocking: set[str] = field(default_factory=set)
+    # The tool calls so far, from the runtime's events; the record's token once
+    # the turn has ended and the record is written ("" when it called no tool,
+    # or no store keeps records). Loop time at the start, for `durationS`.
+    calls: TurnCalls = field(default_factory=TurnCalls)
+    trace_token: str = ""
+    started_at: float = 0.0
 
 
 class _Trace:
-    """The flow's view of a turn: feed it the runtime's events."""
+    """The flow's view of a turn: feed it the runtime's events. They go to the
+    caller's journal as they come, and into the turn's record of calls, which
+    is written to the store when the turn ends — the same record the chat
+    widget keeps, read back by its token after the journal is gone."""
 
-    def __init__(self, turn: Turn | None) -> None:
+    def __init__(self, turn: Turn | None, traces: Traces | None, created_at: str) -> None:
         self._turn = turn
+        self._traces = traces
+        self._created_at = created_at
 
     def on_event(self, event: object) -> None:
         if self._turn is None:
             return
+        self._turn.calls.on_event(event)
         if isinstance(event, ToolStarted):
             self._turn.journal.emit(
                 EV_TOOL_STARTED, callId=event.call_id, tool=event.tool, caption=event.caption
@@ -100,7 +113,23 @@ class _Trace:
             )
 
     async def end(self, *, interrupted: bool = False) -> None:
-        return  # the ending is reported from the outcome, not from here
+        # The ending itself is reported from the outcome (`finish`); here the
+        # calls are written, before `turn.finished` names their token.
+        turn = self._turn
+        if turn is None or self._traces is None or not len(turn.calls):
+            return
+        token = uuid.uuid4().hex
+        try:
+            await self._traces.create_trace(TraceRecord(
+                token=token, agent=turn.agent, channel_id=turn.conversation,
+                conversation_id=turn.conversation, kind=KIND_DM,
+                created_at=self._created_at, finished_at=now_iso(),
+                calls=encode_calls(turn.calls.calls),
+            ))
+        except Exception:
+            logger.warning("the calls of turn %s could not be recorded", turn.id, exc_info=True)
+            return
+        turn.trace_token = token
 
 
 class InMemoryHeldCards:
@@ -127,10 +156,13 @@ class InMemoryHeldCards:
 class HttpTurns:
     def __init__(
         self, *, journal_retention_s: float = 600.0, remembered: int = 10_000,
-        cards: HeldCards | None = None,
+        cards: HeldCards | None = None, traces: Traces | None = None,
     ) -> None:
         self._retention = journal_retention_s
         self._remembered = remembered
+        # Where a turn's calls are kept once it has ended (None: nowhere — the
+        # journal alone, for its retention).
+        self._traces = traces
         self._by_id: dict[str, Turn] = {}
         self._active: dict[str, Turn] = {}  # conversation -> its running turn
         # Cards conversations hold outside any turn of this gateway's: in the
@@ -164,6 +196,7 @@ class HttpTurns:
             client_message_id=client_message_id, journal=TurnJournal(turn_id),
             started_by=started_by,
         )
+        turn.started_at = asyncio.get_running_loop().time()
         self._by_id[turn_id] = turn
         self._active[conversation] = turn
         self.idle.clear()
@@ -176,7 +209,14 @@ class HttpTurns:
     def finish(self, turn: Turn, outcome: TurnOutcome) -> None:
         turn.posted.clear()
         turn.blocking.clear()
-        turn.journal.emit(EV_TURN_FINISHED, outcome=outcome.name.lower())
+        # The turn's own account of itself, so no client has to add it up:
+        # how long it took, how many tools it called and how many of them
+        # failed, and the token its calls are kept under (see `trace`).
+        took = asyncio.get_running_loop().time() - turn.started_at if turn.started_at else 0.0
+        turn.journal.emit(
+            EV_TURN_FINISHED, outcome=outcome.name.lower(), durationS=round(took, 1),
+            steps=len(turn.calls), failedSteps=turn.calls.failed, trace=turn.trace_token,
+        )
         turn.journal.finish(STATUS_FAILED if outcome in _FAILED else STATUS_DONE)
         if self._active.get(turn.conversation) is turn:
             del self._active[turn.conversation]
@@ -245,11 +285,18 @@ class HttpTurns:
 
     # -- TurnTracer: the flow hands us the runtime's events -----------------------
 
-    def begin(self, record, chat, *, anchor=None) -> _Trace:
+    def begin(self, record, chat, *, anchor=None, gateway: str = "") -> _Trace:
         """Called by the flow as the turn starts, with the conversation's
         session record — which is where the turn learns its runtime session id
-        (what a cancel needs). The journal has no threads: ``anchor`` is moot."""
+        (what a cancel needs). The journal has no threads: ``anchor`` is moot,
+        and so is ``gateway`` — a journal is this gateway's."""
         turn = self._active.get(record.conversation_id)
         if turn is not None:
             turn.runtime_session_id = record.runtime_session_id
-        return _Trace(turn)
+        return _Trace(turn, self._traces, now_iso())
+
+    async def trace(self, token: str) -> TraceRecord | None:
+        """The calls of a turn that has ended, by the token its `turn.finished`
+        carried — kept past the journal's retention, in the store. None when
+        no store keeps them, or the token names nothing."""
+        return await self._traces.get_trace(token) if self._traces is not None else None

@@ -27,18 +27,26 @@ import json
 import logging
 import secrets
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from crucible.containment import one_line, preformatted
 from crucible.interactions.screens import ScreenState, View, screen_action
 from crucible.interactions.service import conversation_ref
-from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import Action, Card, ConversationRef
+from crucible.ports.traces import (
+    CALL_FAILED,
+    CALL_UNFINISHED,
+    Call,
+    TraceRecord,
+    TurnCalls,
+    decode_calls,
+    encode_calls,
+)
 from crucible.store import clock
-from crucible.store.base import SessionRecord, TraceRecord, TraceStore
+from crucible.store.base import SessionRecord, TraceStore
 
 logger = logging.getLogger(__name__)
 
@@ -52,38 +60,18 @@ PAGE_SIZE = 10
 # One card's text. Slack cuts a section at 3000 and says nothing when the
 # update is refused, so the widget stays under it with room to spare.
 CARD_MAX = 2800
-# Arguments as shown inside the open row, and as kept in the store. The
-# stored copy is larger than anyone reads in chat because a `write` call
-# carries a whole file, and cutting it at display time keeps the row honest.
+# Arguments as shown inside the open row; the record keeps more
+# (``ports.traces.ARGS_STORED_MAX``), and cutting at display time keeps the
+# row honest.
 ARGS_SHOWN_MAX = 1200
-ARGS_STORED_MAX = 8000
 # How often the counter is redrawn while the turn runs. The reader loop only
 # notes events; the chat platform is spoken to at most this often.
 REDRAW_INTERVAL_S = 1.0
 # The most a caption or a progress remark gets on the counter and in a row.
 LATEST_MAX = 80
 
-CALL_OK = "ok"
-CALL_FAILED = "failed"
-CALL_UNFINISHED = "unfinished"
-
 _EXPIRED = "This trace has expired."
 _BY_HAND = "This panel opens itself under an answer and cannot be opened by hand."
-
-
-@dataclass
-class Call:
-    """One tool call as the widget keeps it. ``args`` is compact JSON, cut at
-    ``ARGS_STORED_MAX`` with the original length in ``cut`` when it was."""
-
-    index: int
-    call_id: str
-    tool: str
-    args: str = "{}"
-    cut: int = 0
-    state: str = CALL_UNFINISHED
-    duration_s: float = 0.0
-    caption: str = ""  # the call's one line for a person, when whoever knows the tool gave one
 
 
 def trace_ref(record: SessionRecord, anchor: ConversationRef | None) -> ConversationRef:
@@ -96,17 +84,6 @@ def trace_ref(record: SessionRecord, anchor: ConversationRef | None) -> Conversa
     if ref.thread_root_id or anchor is None or not anchor.message_id:
         return ref
     return replace(ref, message_id=anchor.message_id, thread_root_id=anchor.message_id)
-
-
-def encode_calls(calls: list[Call]) -> str:
-    return json.dumps([asdict(call) for call in calls], ensure_ascii=False)
-
-
-def decode_calls(raw: str) -> list[Call]:
-    try:
-        return [Call(**item) for item in json.loads(raw)]
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return []
 
 
 # -- rendering --------------------------------------------------------------
@@ -319,9 +296,7 @@ class TurnTrace:
         self._callback_url = callback_url
         self._token = secrets.token_hex(16)
         self._created_at = clock.now_iso()
-        self._calls: list[Call] = []
-        self._open: dict[str, int] = {}  # call id -> index of the call still running
-        self._latest = ""  # the latest caption or remark, for the counter
+        self._calls = TurnCalls()  # the record in the making, and the latest word for the counter
         self._post_id: str | None = None
         self._closed = False
         self._dead = False  # the first post failed; nothing further is attempted
@@ -331,37 +306,10 @@ class TurnTrace:
 
     @property
     def calls(self) -> list[Call]:
-        return list(self._calls)
+        return self._calls.calls
 
     def on_event(self, event: object) -> None:
-        if self._closed:
-            return
-        if isinstance(event, ToolStarted):
-            args = json.dumps(event.args, ensure_ascii=False, separators=(",", ":"))
-            cut = len(args) if len(args) > ARGS_STORED_MAX else 0
-            call = Call(
-                index=len(self._calls), call_id=event.call_id, tool=event.tool,
-                args=args[:ARGS_STORED_MAX], cut=cut, caption=event.caption,
-            )
-            self._calls.append(call)
-            self._open[event.call_id] = call.index
-            if event.caption:
-                self._latest = event.caption
-        elif isinstance(event, TextProgress):
-            # The model's own words on the way: shown on the counter while the
-            # turn runs, kept nowhere — the record is the calls.
-            if event.text.strip():
-                self._latest = event.text
-        elif isinstance(event, ToolFinished):
-            index = self._open.pop(event.call_id, None)
-            if index is None:
-                return
-            call = self._calls[index]
-            call.state = CALL_FAILED if event.is_error else CALL_OK
-            call.duration_s = event.duration_s
-        else:
-            return
-        if not self._calls:
+        if self._closed or not self._calls.on_event(event):
             return  # a remark before any call: nothing to count yet, no message
         # Only mark; never wake. The loop redraws once per interval while there
         # is something new, so a burst costs one redraw — an event that woke it
@@ -374,7 +322,7 @@ class TurnTrace:
         while self._dirty and not self._closed and not self._dead:
             self._dirty = False
             self._wake.clear()
-            await self._draw(render_counter(len(self._calls), self._latest))
+            await self._draw(render_counter(len(self._calls), self._calls.latest))
             if self._closed:
                 break  # end() arrived while drawing; it is waiting on us
             try:
@@ -425,11 +373,11 @@ class TurnTrace:
                 channel_id=self._record.channel_id,
                 conversation_id=self._record.conversation_id, kind=self._record.kind,
                 created_at=self._created_at, finished_at=clock.now_iso(),
-                calls=encode_calls(self._calls), post_id=self._post_id or "",
+                calls=encode_calls(self._calls.calls), post_id=self._post_id or "",
             ))
             state = ScreenState(screen=TRACE_SCREEN, agent=self._record.agent,
                                 data={"t": self._token})
-            await self._draw(render_collapsed(state, self._calls, interrupted=interrupted))
+            await self._draw(render_collapsed(state, self._calls.calls, interrupted=interrupted))
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -449,7 +397,8 @@ class ToolTrace:
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def begin(
-        self, record: SessionRecord, chat: ChatClient, *, anchor: ConversationRef | None = None
+        self, record: SessionRecord, chat: ChatClient, *,
+        anchor: ConversationRef | None = None, gateway: str = "",
     ) -> TurnTrace:
         return TurnTrace(self._store, chat, record, callback_url=self._callback_url, anchor=anchor)
 

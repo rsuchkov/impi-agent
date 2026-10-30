@@ -25,6 +25,7 @@ from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import Action, IncomingMessage
 from crucible.store.base import SessionRecord
+from crucible.store.sqlite import SqliteSessionStore
 
 Script = Callable[[IncomingMessage, HttpChatClient], Awaitable[TurnOutcome]]
 
@@ -1492,5 +1493,93 @@ async def test_cancel_goes_through_the_flow_when_the_sink_can_stop_a_turn() -> N
             status, answer = await _post(s, 8493, "/v1/agents/helper/conversations/c1/cancel", {})
             assert (status, answer) == (200, {"turnId": started["turnId"], "cancelled": True})
             assert sink.stopped == ["portal:c1"] and control.cancelled == []  # the flow, not the runtime directly
+    finally:
+        await hub.stop()
+
+
+async def test_a_finished_turn_accounts_for_itself_and_its_calls_outlive_the_journal(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+
+    async def tools(msg, chat):
+        record = SessionRecord("helper", msg.channel_id, msg.conversation_id, "dm", "helper--portal-c1-abc", "t", "t")
+        trace = hub.turns.begin(record, chat, gateway="http")
+        trace.on_event(ToolStarted("call-1", "search", {"q": "x"}, caption="Searching for x"))
+        trace.on_event(ToolFinished("call-1", "search", is_error=True, duration_s=0.4))
+        trace.on_event(ToolStarted("call-2", "read", {"path": "a.txt"}, caption="Reading a.txt"))
+        trace.on_event(ToolFinished("call-2", "read"))
+        await trace.end()
+        return TurnOutcome.REPLIED
+
+    hub, _ = _hub(8499, script=tools, turns=HttpTurns(traces=store, journal_retention_s=0.0))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8499, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            events, _ = await _drain(s, 8499, started["turnId"])
+            finished = events[-1]
+            assert finished["type"] == "turn.finished" and finished["outcome"] == "replied"
+            assert (finished["steps"], finished["failedSteps"]) == (2, 1)
+            assert isinstance(finished["durationS"], float) and finished["durationS"] >= 0
+            token = finished["trace"]
+            assert len(token) == 32
+            # The journal is gone (no retention); the calls are not.
+            status, body = await _get(s, 8499, f"/v1/traces/{token}")
+            assert status == 200
+            assert body["agent"] == "helper" and body["conversationId"] == "c1"
+            assert [(c["tool"], c["caption"], c["state"]) for c in body["calls"]] == [
+                ("search", "Searching for x", "failed"), ("read", "Reading a.txt", "ok"),
+            ]
+            assert body["calls"][0]["durationS"] == 0.4 and body["calls"][0]["args"] == '{"q":"x"}'
+            # Another realm, even with the token in hand, is told nothing.
+            other = {**AUTH, "Authorization": "Bearer tok-other"}
+            status, _ = await _get(s, 8499, f"/v1/traces/{token}", headers=other)
+            assert status == 404
+            status, _ = await _get(s, 8499, "/v1/traces/0123456789abcdef0123456789abcdef")
+            assert status == 404
+    finally:
+        await hub.stop()
+        await store.close()
+
+
+async def test_a_turn_without_tools_records_no_trace_and_neither_does_a_hub_without_a_store(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    written: list[str] = []
+
+    class _Store:
+        async def create_trace(self, record):
+            written.append(record.token)
+            await store.create_trace(record)
+
+        async def get_trace(self, token):
+            return await store.get_trace(token)
+
+    async def talks(msg, chat):
+        record = SessionRecord("helper", msg.channel_id, msg.conversation_id, "dm", "helper--portal-c1-abc", "t", "t")
+        trace = hub.turns.begin(record, chat, gateway="http")
+        trace.on_event(TextProgress("just thinking"))  # a remark, no call
+        await trace.end()
+        return TurnOutcome.REPLIED
+
+    hub, _ = _hub(8498, script=talks, turns=HttpTurns(traces=_Store()))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8498, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
+            events, _ = await _drain(s, 8498, started["turnId"])
+            finished = events[-1]
+            assert (finished["steps"], finished["failedSteps"], finished["trace"]) == (0, 0, "")
+            assert written == []  # nothing to keep
+    finally:
+        await hub.stop()
+        await store.close()
+    hub, _ = _hub(8497)  # the default HttpTurns: no store at all
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8497, MESSAGES, {"clientMessageId": "m1", "text": "hi"})
+            events, _ = await _drain(s, 8497, started["turnId"])
+            assert events[-1]["trace"] == ""
+            status, _ = await _get(s, 8497, "/v1/traces/0123456789abcdef0123456789abcdef")
+            assert status == 404
     finally:
         await hub.stop()

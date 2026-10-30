@@ -130,7 +130,7 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | `actions.retired` | `postId`, `text` | the controls of an `actions` post are gone; show `text` in their place |
 | `cards` | `postId`, `cards[{text, accent, actions[]}]` | a message built from cards; the same `postId` again means redraw it |
 | `file` | `name`, `mime`, `data` (base64), `text` | a file the agent sent (the caption rides with the first) |
-| `turn.finished` | `outcome` | the last event: `replied`, `acted` (a speaking tool — a widget, a form — answered for it), `truncated` (the answer hit the model's length limit; what there was came as `message`, then a `notice`), `empty`, `duplicate`, `timeout`, `error`, `stopped` (a person ended the turn — `/cancel`, a `/stop` in chat; what there was came as `message`, then a `notice` with code `stopped`) |
+| `turn.finished` | `outcome`, `durationS`, `steps`, `failedSteps`, `trace` | the last event — with the turn's own account of itself: how long it took, how many tools it called and how many of those failed, and the token its calls are kept under (`GET /v1/traces/{token}`; `""` when it called none, or the engine keeps no records). `outcome`: `replied`, `acted` (a speaking tool — a widget, a form — answered for it), `truncated` (the answer hit the model's length limit; what there was came as `message`, then a `notice`), `empty`, `duplicate`, `timeout`, `error`, `stopped` (a person ended the turn — `/cancel`, a `/stop` in chat; what there was came as `message`, then a `notice` with code `stopped`) |
 
 An action: `{id, label, value, style, kind, options[{label, value}]}`. `kind` is
 `button`, `select`, `user_select` or `channel_select`; a button echoes its
@@ -195,6 +195,20 @@ as the approvals judge the caller's `X-User-Id` on this gateway; `not_mine`
 means it was answered elsewhere first (the card is let go). `404` when the
 conversation holds no such card or control — answered, expired, withdrawn —
 `409` for a control that is not a confirmation's.
+
+### `GET /v1/traces/{token}`
+
+The calls of a turn that has ended, by the `trace` token its `turn.finished`
+carried — what the journal said while the turn ran, kept past the journal's
+retention (the engine's trace store, pruned after `TOOL_TRACE_RETENTION_DAYS`),
+so a page opened later can still show "Worked 12 s · 4 steps" and the steps.
+
+`200 {"token", "agent", "conversationId", "createdAt", "finishedAt", "calls":
+[{"index", "callId", "tool", "caption", "args", "cut", "state", "durationS"}]}`
+— `state` is `ok`, `failed` or `unfinished` (the turn ended with the call
+still running); `args` is the call's arguments as compact JSON, cut at 8000
+characters with the original length in `cut`; never a result. `404` for a
+token the caller's realm did not see, or that names nothing.
 
 ### `GET /v1/agents/{agent}/conversations?startedSince=<ISO-8601>`
 

@@ -53,6 +53,7 @@ from crucible.ports.chat.types import (
 )
 from crucible.ports.conversation import EngineTurnsSince
 from crucible.ports.engine_turn import DispatchError, TurnRequest, requested_message
+from crucible.ports.traces import decode_calls
 from crucible.ports.turn import TurnScope
 
 logger = logging.getLogger(__name__)
@@ -282,6 +283,7 @@ class HttpHub:
         app.router.add_post("/v1/agents/{agent}/conversations/{conversation}/cancel", self._cancel)
         app.router.add_post("/v1/agents/{agent}/conversations/{conversation}/actions", self._conversation_action)
         app.router.add_get("/v1/turns/{turn}/events", self._events)
+        app.router.add_get("/v1/traces/{token}", self._trace)
         app.router.add_post("/v1/turns/{turn}/actions", self._action)
         app.add_routes(self._routes)
         self._runner = web.AppRunner(app)
@@ -542,6 +544,30 @@ class HttpHub:
             "status": turn.journal.status,
             "events": [e.to_wire() for e in found],
             "cursor": found[-1].seq if found else after,
+        })
+
+    async def _trace(self, request: web.Request) -> web.Response:
+        """The calls of a turn that has ended, by the token its `turn.finished`
+        carried: what the journal said while it ran, kept past the journal's
+        retention. The token came to the caller in their own journal; the
+        record is answered to a caller of that conversation's realm."""
+        caller = await self.caller(request, None)
+        record = await self.turns.trace(request.match_info["token"])
+        if record is None or not record.conversation_id.startswith(f"{caller.realm}{_SEP}"):
+            raise Refusal(404, "not_found", "no such trace")
+        return web.json_response({
+            "token": record.token,
+            "agent": record.agent,
+            "conversationId": record.conversation_id.removeprefix(f"{caller.realm}{_SEP}"),
+            "createdAt": record.created_at,
+            "finishedAt": record.finished_at,
+            "calls": [
+                {
+                    "index": call.index, "callId": call.call_id, "tool": call.tool, "caption": call.caption,
+                    "args": call.args, "cut": call.cut, "state": call.state, "durationS": call.duration_s,
+                }
+                for call in decode_calls(record.calls)
+            ],
         })
 
     async def _list_conversations(self, request: web.Request) -> web.Response:

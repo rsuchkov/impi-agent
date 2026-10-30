@@ -21,24 +21,27 @@ from crucible.interactions.screens import (
 )
 from crucible.interactions.tooltrace import (
     ARGS_SHOWN_MAX,
-    ARGS_STORED_MAX,
-    CALL_FAILED,
-    CALL_OK,
-    CALL_UNFINISHED,
     CARD_MAX,
     PAGE_SIZE,
     TRACE_SCREEN,
-    Call,
     ToolTrace,
     TraceScreen,
     TurnTrace,
-    decode_calls,
-    encode_calls,
     render_accordion,
     render_collapsed,
     render_counter,
 )
 from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.traces import (
+    ARGS_STORED_MAX,
+    CALL_FAILED,
+    CALL_OK,
+    CALL_UNFINISHED,
+    Call,
+    TurnCalls,
+    decode_calls,
+    encode_calls,
+)
 from crucible.store.base import SessionRecord, TraceRecord
 from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.fake_chat import FakeChat
@@ -413,3 +416,35 @@ async def test_captions_and_remarks_show_on_the_counter_and_captions_stay_in_the
     # Stored and read back with the caption, and a record from before captions decodes too.
     assert decode_calls(encode_calls(trace.calls))[0].caption == "Reading X-1"
     assert decode_calls('[{"index": 0, "call_id": "c", "tool": "t"}]')[0].caption == ""
+
+
+def test_the_calls_of_a_turn_are_collected_from_the_events_as_they_come() -> None:
+    from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
+
+    calls = TurnCalls()
+    assert len(calls) == 0 and calls.failed == 0 and calls.latest == ""
+    assert calls.on_event(TextProgress("Looking first")) is False  # a remark before any call: nothing to count
+    assert calls.latest == "Looking first"
+    assert calls.on_event(ToolStarted("c1", "search", {"q": "x" * 9000}, caption="Searching for x")) is True
+    assert calls.latest == "Searching for x"
+    assert calls.on_event(ToolStarted("c2", "read", {"path": "a.txt"})) is True
+    assert calls.on_event(ToolFinished("c1", "search", is_error=True, duration_s=1.5)) is True
+    assert calls.on_event(ToolFinished("zzz", "read")) is False  # a call nobody started
+    assert calls.on_event(object()) is False
+    first, second = calls.calls
+    assert (first.state, first.duration_s, first.cut > 0, len(first.args)) == (CALL_FAILED, 1.5, True, ARGS_STORED_MAX)
+    assert second.state == CALL_UNFINISHED and second.caption == ""
+    assert len(calls) == 2 and calls.failed == 1
+    assert calls.on_event(TextProgress("   ")) is True and calls.latest == "Searching for x"  # blank: kept
+
+
+async def test_the_widget_tracer_takes_the_gateway_the_flow_knows(tmp_path) -> None:
+    from crucible.store.sqlite import SqliteSessionStore
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    try:
+        record, _ = await store.get_or_create("assistant", "dm1", "dm1", "dm")
+        trace = ToolTrace(store, callback_url=CB).begin(record, FakeChat(), gateway="slack")
+        assert isinstance(trace, TurnTrace)
+    finally:
+        await store.close()

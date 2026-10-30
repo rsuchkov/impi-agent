@@ -1646,7 +1646,7 @@ async def test_the_flow_captions_a_call_once_for_every_trace(tmp_path: Path) -> 
             return None
 
     class _Tracer:
-        def begin(self, record, chat, *, anchor=None):
+        def begin(self, record, chat, *, anchor=None, gateway=""):
             return _Trace()
 
     captions = _Captions()
@@ -2142,7 +2142,7 @@ async def test_a_call_on_a_persons_file_is_captioned_by_the_name_they_gave_it(tm
             return None
 
     class _Tracer:
-        def begin(self, record, chat, *, anchor=None):
+        def begin(self, record, chat, *, anchor=None, gateway=""):
             return _Trace()
 
     class _ByName:
@@ -2295,3 +2295,24 @@ async def test_the_flow_binds_where_the_turn_answers_even_when_the_message_carri
     assert seen == [TurnPlace(threaded.gateway, "p1")]
     record, _ = await store.get_or_create("assistant", "dm1", "dm1", KIND_DM)
     assert registry.place(record.runtime_session_id) is None  # gone with the turn
+
+
+async def test_the_flow_tells_the_tracer_which_gateway_the_turn_came_through(tmp_path: Path) -> None:
+    begun: list[tuple] = []
+
+    class _Trace:
+        def on_event(self, event):
+            return None
+
+        async def end(self, *, interrupted=False):
+            return None
+
+    class _Tracer:
+        def begin(self, record, chat, *, anchor=None, gateway=""):
+            begun.append((anchor, gateway))
+            return _Trace()
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(FakeRuntime(), PROFILE, store, agent_name="assistant", tracer=_Tracer())
+    await flow.handle(dataclasses.replace(_dm(), gateway="slack"), FakeChat())
+    assert len(begun) == 1 and begun[0][1] == "slack" and begun[0][0] is not None

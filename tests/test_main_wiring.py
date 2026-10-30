@@ -437,8 +437,12 @@ async def test_build_app_puts_an_agent_on_the_http_hub(tmp_path: Path, monkeypat
         assert app.http_hub is not None and app.ws_hub is None
         unit = app.units[0]
         assert isinstance(unit.gateways["http"], HttpGateway)
-        assert unit.flow._tracer is app.http_hub.turns  # the journal, not ToolTrace
+        from crucible.flows.tracers import TracerByGateway
+
+        tracer = unit.flow._tracer
+        assert isinstance(tracer, TracerByGateway) and tracer._by_gateway == {"http": app.http_hub.turns}  # the journal
         assert app.http_hub.turns._cards is app.sessions  # held cards go in the store: every replica shows them
+        assert app.http_hub.turns._traces is app.sessions  # and a turn's calls, read back by token after the journal
         assert unit.flow._turns is not None  # a caller's TurnScope has somewhere to go
         sink, chat = app.http_hub._agents["assistant"]
         assert isinstance(chat, HttpChatClient)
@@ -919,8 +923,8 @@ async def test_build_app_reaches_one_agent_through_two_gateways(tmp_path: Path) 
 
 
 async def test_a_capability_one_gateway_lacks_is_still_advertised_and_checked_per_call(tmp_path: Path, monkeypatch) -> None:
+    from crucible.flows.tracers import TracerByGateway
     from crucible.tools.base import CAP_CHAT_ADMIN
-    from impi.app import _TracerByChat
 
     monkeypatch.setenv("HTTP_CALLER_TOKEN__PORTAL", "tok-portal")
     settings = _settings(tmp_path).model_copy(update={"gateway": "mattermost,http"})
@@ -941,7 +945,7 @@ async def test_a_capability_one_gateway_lacks_is_still_advertised_and_checked_pe
         _, dropped = _gate_tools(engine_tool_registry(), ("create_channel",), caps["http"])
         assert dropped == {"create_channel": frozenset({CAP_CHAT_ADMIN})}
         assert app.tools.gateway_admins["assistant"]["http"] is None  # over http there is no admin client
-        assert isinstance(unit.flow._tracer, _TracerByChat)  # the journal for http turns, the widget for chat
+        assert isinstance(unit.flow._tracer, TracerByGateway)  # the journal for http turns, the widget for chat
         assert app.http_hub is not None and app.http_hub.serves("assistant")
     finally:
         await _closed(app)
