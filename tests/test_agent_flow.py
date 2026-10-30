@@ -18,7 +18,7 @@ from crucible.ports.agent.errors import (
     STALLED_MESSAGE,
     TIMEOUT_MESSAGE,
 )
-from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.agent.events import CallAwaiting, ToolFinished, ToolStarted
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
@@ -2316,3 +2316,33 @@ async def test_the_flow_tells_the_tracer_which_gateway_the_turn_came_through(tmp
     flow = AgentFlow(FakeRuntime(), PROFILE, store, agent_name="assistant", tracer=_Tracer())
     await flow.handle(dataclasses.replace(_dm(), gateway="slack"), FakeChat())
     assert len(begun) == 1 and begun[0][1] == "slack" and begun[0][0] is not None
+
+
+async def test_what_the_engine_tells_the_turn_reaches_its_trace(tmp_path: Path) -> None:
+    # The gate feeds the registry mid-turn; the flow bound the trace's observer
+    # to the turn, so the widget or the journal hears it like a runtime event.
+    from crucible.turns import TurnRegistry
+
+    registry = TurnRegistry()
+    seen: list[object] = []
+
+    class _Trace:
+        def on_event(self, event):
+            seen.append(event)
+
+        async def end(self, *, interrupted=False):
+            return None
+
+    class _Tracer:
+        def begin(self, record, chat, *, anchor=None, gateway=""):
+            return _Trace()
+
+    class _Gated(FakeRuntime):
+        async def run_stateful(self, profile, session_id, message, **kw):
+            registry.feed(session_id, CallAwaiting("bash"))  # what the gate does when its card is up
+            return await super().run_stateful(profile, session_id, message, **kw)
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(_Gated(), PROFILE, store, agent_name="assistant", tracer=_Tracer(), turns=registry)
+    await flow.handle(_dm(), FakeChat())
+    assert CallAwaiting("bash") in seen

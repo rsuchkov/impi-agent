@@ -69,6 +69,8 @@ ARGS_SHOWN_MAX = 1200
 REDRAW_INTERVAL_S = 1.0
 # The most a caption or a progress remark gets on the counter and in a row.
 LATEST_MAX = 80
+# The counter's word while a call waits on the person (a confirmation card is up).
+WAITING_FOR_YOU = "waiting for you"
 
 _EXPIRED = "This trace has expired."
 _BY_HAND = "This panel opens itself under an answer and cannot be opened by hand."
@@ -108,12 +110,16 @@ def _summary(calls: list[Call], *, interrupted: bool) -> str:
     return " · ".join(parts)
 
 
-def render_counter(count: int, latest: str = "") -> View:
+def render_counter(count: int, latest: str = "", *, awaiting: str = "") -> View:
     """The counter, with the latest word on what the turn is doing after it:
-    a call's caption or the model's last remark on the way. ``latest`` is made
-    one line of bounded length here — the remark is the model's text."""
+    a call's caption or the model's last remark on the way — or, while a call
+    waits on the person's answer, that (``awaiting`` names the call), since a
+    turn waiting for them should not read as a tool that is slow. ``latest``
+    is made one line of bounded length here — the remark is the model's text."""
     line = f"⚙️ Running {_plural(count, 'tool')}…"
-    if latest:
+    if awaiting:
+        line += f" · {WAITING_FOR_YOU}: {one_line(awaiting, limit=LATEST_MAX)}"
+    elif latest:
         line += f" · {one_line(latest, limit=LATEST_MAX)}"
     return View.of(line)
 
@@ -322,7 +328,11 @@ class TurnTrace:
         while self._dirty and not self._closed and not self._dead:
             self._dirty = False
             self._wake.clear()
-            await self._draw(render_counter(len(self._calls), self._calls.latest))
+            waiting = self._calls.awaiting
+            await self._draw(render_counter(
+                len(self._calls), self._calls.latest,
+                awaiting=(waiting.caption or waiting.tool) if waiting is not None else "",
+            ))
             if self._closed:
                 break  # end() arrived while drawing; it is waiting on us
             try:

@@ -68,3 +68,17 @@ async def test_the_registry_knows_where_the_turn_answers_only_while_it_is_bound(
     assert registry.place("s") is None
     async with registry.bind("s", TurnScope("t1")):
         assert registry.place("s") is None  # a turn bound without a place has none
+
+
+async def test_a_turn_is_told_what_happens_to_it_only_while_it_is_bound() -> None:
+    registry = TurnRegistry()
+    told: list[object] = []
+    registry.feed("s", "too early")  # nobody bound: nothing happens
+    async with registry.bind("s", None, events=told.append):
+        registry.feed("s", "a card is up")
+        registry.feed("other", "not this turn")
+    registry.feed("s", "too late")
+    assert told == ["a card is up"]
+    async with registry.bind("s", None):
+        registry.feed("s", "a turn that listens to nothing")  # harmless
+    assert told == ["a card is up"]

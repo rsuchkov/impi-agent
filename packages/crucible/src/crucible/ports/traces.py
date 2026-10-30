@@ -20,7 +20,12 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
-from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
+from crucible.ports.agent.events import (
+    CallAwaiting,
+    TextProgress,
+    ToolFinished,
+    ToolStarted,
+)
 
 # Arguments as kept in the record. Larger than anyone reads in chat because a
 # `write` call carries a whole file; whoever shows them cuts at display time.
@@ -62,13 +67,19 @@ class TurnCalls:
 
     ``latest`` is the latest word for a person watching — a call's caption, or
     the model's remark on its way to the next call — kept nowhere but here: the
-    record is the calls. ``on_event`` says whether the event changed the calls,
-    so a view redraws on a call and not on a remark before any."""
+    record is the calls. ``awaiting`` is the call put to the person (a card is
+    up), until it finishes. ``on_event`` says whether the event changed any of
+    this, so a view redraws on a call and not on a remark before any."""
 
     def __init__(self) -> None:
         self._calls: list[Call] = []
         self._open: dict[str, int] = {}  # call id -> index of the call still running
+        self._awaiting: int | None = None  # index of the call waiting on the person
         self.latest = ""
+
+    @property
+    def awaiting(self) -> Call | None:
+        return self._calls[self._awaiting] if self._awaiting is not None else None
 
     @property
     def calls(self) -> list[Call]:
@@ -103,6 +114,15 @@ class TurnCalls:
             call = self._calls[index]
             call.state = CALL_FAILED if event.is_error else CALL_OK
             call.duration_s = event.duration_s
+            if self._awaiting == index:
+                self._awaiting = None
+        elif isinstance(event, CallAwaiting):
+            # The gate names the tool, not the call: the one of that tool still
+            # running is the one it asked about (a runtime runs calls one at a time).
+            waiting = [i for i in self._open.values() if self._calls[i].tool == event.tool]
+            if not waiting:
+                return False
+            self._awaiting = waiting[-1]
         else:
             return False
         return bool(self._calls)

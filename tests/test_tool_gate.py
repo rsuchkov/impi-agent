@@ -194,6 +194,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         people=over.pop("people", None),
         telemetry=over.pop("telemetry", None),
         places=over.pop("places", None),
+        events=over.pop("events", None),
     )
     dangerous, plain = Dangerous(), Harmless()
     clock = FakeClock()
@@ -974,5 +975,26 @@ async def test_the_card_is_posted_in_the_thread_the_turn_answers_in_on_the_gatew
         await _answer(rig, ANSWER_ONCE)
         assert await pending == 200
         assert slack.posts[1].ref is not None and slack.posts[1].ref.thread_root_id == ""
+    finally:
+        await _close(rig)
+
+
+async def test_the_gate_tells_the_turn_its_call_waits_on_the_person(tmp_path: Path) -> None:
+    from crucible.ports.agent.events import CallAwaiting
+    from crucible.turns import TurnRegistry
+
+    turns = TurnRegistry()
+    told: list[object] = []
+    rig = await _rig(tmp_path, 8564, events=turns)
+    try:
+        async with turns.bind(rig.session, None, events=told.append):
+            pending = asyncio.create_task(_call(rig, "dangerous"))
+            await _answer(rig, ANSWER_ONCE)
+            assert await pending == 200
+        assert told == [CallAwaiting("dangerous")]  # said once the card was up, before the answer
+        # A tool that needs no confirmation tells the turn nothing.
+        async with turns.bind(rig.session, None, events=told.append):
+            assert await _call(rig, "harmless") == 200
+        assert told == [CallAwaiting("dangerous")]
     finally:
         await _close(rig)

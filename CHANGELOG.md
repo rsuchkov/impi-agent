@@ -22,6 +22,14 @@ when a release is cut, and `impi update` shows the target version's section.
   keeping them itself. The record and the bookkeeping moved to
   `crucible.ports.traces` (`TraceRecord`, `Call`, `TurnCalls`, `Traces`);
   `crucible.store.base.TraceRecord` still names it.
+- **A call waiting on the person says so.** When the tool gate puts a call to
+  the person, it tells the running turn (`CallAwaiting(tool)`, through the
+  turn registry: `TurnRegistry.feed`, `TurnBinding.bind(…, events=)`,
+  `ToolGate(events=)`), and whoever shows the turn says "waiting for you" on
+  that call instead of letting it look slow: the widget's counter, and the
+  http journal's new `tool.awaiting` event (`callId`, `tool`, `caption`).
+  Over with the call's `tool.finished`. Before, an application drew this
+  itself from the `confirmation` event.
 
 ## v0.39.1 — 2026-10-29
 

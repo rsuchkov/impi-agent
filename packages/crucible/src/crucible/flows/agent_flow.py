@@ -615,25 +615,28 @@ class AgentFlow:
             )
             if self._tracer is not None else None
         )
+        interrupted = True  # until the runtime hands back a result
+        log = _TurnLog()
+        names = await self._file_names(record.conversation_id)
+        observer = self._observer(trace, log, names)
         # The anchor's scope is the turn's: a batch is one turn, and the newest
         # message is the one whose credentials are freshest. Where the anchor
         # is answered is the turn's too — a card or a widget posted for the
-        # turn goes there, not merely to the conversation's standing address.
+        # turn goes there, not merely to the conversation's standing address —
+        # and so is what the engine has to tell the turn on the way (a call
+        # now waiting on the person), which goes where the runtime's events do.
         bound = (
             self._turns.bind(
-                record.runtime_session_id, anchor.turn, place=TurnPlace(anchor.gateway, anchor.ref.thread_root_id),
+                record.runtime_session_id, anchor.turn,
+                place=TurnPlace(anchor.gateway, anchor.ref.thread_root_id), events=observer,
             )
             if self._turns is not None
             else contextlib.nullcontext()
         )
-        interrupted = True  # until the runtime hands back a result
-        log = _TurnLog()
-        names = await self._file_names(record.conversation_id)
         try:
             async with bound:
                 result = await self._runtime.run_stateful(
-                    profile, record.runtime_session_id, prompt, images=images,
-                    on_event=self._observer(trace, log, names),
+                    profile, record.runtime_session_id, prompt, images=images, on_event=observer,
                 )
             interrupted = False
             facts.result = result

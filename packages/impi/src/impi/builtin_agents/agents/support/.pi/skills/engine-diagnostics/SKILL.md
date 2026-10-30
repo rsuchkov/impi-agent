@@ -142,7 +142,10 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
 - A conversation that fails on **every** turn after someone sent a picture: the
   session replays its history. Reset just that conversation:
   `impi sessions delete <agent> <conversation>`.
-- A turn that ran tools leaves a message — `Running 3 tools · 1 failed →` —
+- While a turn runs tools its counter says what it is on — `Running 2 tools… ·
+  Reading PROJ-123` — or `waiting for you: <call>` while a confirmation card is
+  up: a turn that seems stuck with that word is waiting on a person, not on a
+  tool. A turn that ran tools leaves a message — `Running 3 tools · 1 failed →` —
   above the reply in a thread, in a thread under the person's message in a
   direct message or a channel, and beside the reply after a click, a slash
   command or a scheduled run. Ask the operator to open it and paste the row

@@ -19,6 +19,7 @@ from typing import Any
 TOOL_STARTED = "tool_started"
 TOOL_FINISHED = "tool_finished"
 TEXT_PROGRESS = "text_progress"
+CALL_AWAITING = "call_awaiting"
 
 
 @dataclass(frozen=True)
@@ -57,3 +58,15 @@ class TextProgress:
 
     text: str
     type: str = field(default=TEXT_PROGRESS, init=False)
+
+
+@dataclass(frozen=True)
+class CallAwaiting:
+    """The engine, not the runtime: a call of ``tool`` has been put to the
+    person — a confirmation card is up — and the turn waits on their answer.
+    What a person watching should read as "waiting for you", not as a tool
+    that is slow. Over when that call's ``ToolFinished`` comes: allowed and
+    run, or refused (``is_error``)."""
+
+    tool: str
+    type: str = field(default=CALL_AWAITING, init=False)

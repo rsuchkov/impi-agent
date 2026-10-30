@@ -49,6 +49,7 @@ from crucible.approvals import (
 )
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.service import turn_ref
+from crucible.ports.agent.events import CallAwaiting
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.keying import PersonKey, PlatformPerson
 from crucible.ports.chat.types import (
@@ -59,7 +60,7 @@ from crucible.ports.chat.types import (
 )
 from crucible.ports.replica import tag_token
 from crucible.ports.telemetry import CardAnswered, Telemetry
-from crucible.ports.turn import TurnPlaces
+from crucible.ports.turn import TurnFeed, TurnPlaces
 from crucible.store.base import (
     DECISION_ABANDONED,
     DECISION_APPROVED_GRANT,
@@ -109,12 +110,15 @@ class ToolGate:
         people: PersonKey | None = None,
         telemetry: Telemetry | None = None,
         places: TurnPlaces | None = None,
+        events: TurnFeed | None = None,
     ) -> None:
         self._presence = presence
         self._telemetry = telemetry
         self._sessions = sessions
-        # Where the turn answers, so the card goes there (None: the address).
+        # Where the turn answers, so the card goes there (None: the address);
+        # and the turn itself, told that its call now waits on the person.
         self._places = places
+        self._events = events
         self._ledger = ledger
         self._approvals = approvals
         self._callback_url = callback_url
@@ -259,6 +263,10 @@ class ToolGate:
         if not copies:
             self._approvals.discard(token)
             return None
+        if self._events is not None:
+            # Whoever shows the turn — the widget's counter, the journal — says
+            # "waiting for you" rather than letting the call look slow.
+            self._events.feed(runtime_session_id, CallAwaiting(tool))
 
         try:
             answer = await asyncio.wait_for(future, timeout=self._timeout)

@@ -32,7 +32,7 @@ from crucible.ports.chat.keying import PersonKey
 from crucible.ports.chat.types import IncomingMessage
 from crucible.ports.replica import ClickForwarder, Replica
 from crucible.ports.telemetry import Telemetry
-from crucible.ports.turn import TurnPlaces
+from crucible.ports.turn import BoundTurns
 from crucible.store.base import Store
 
 
@@ -62,7 +62,7 @@ class InteractionWiring:
         stop_command: str = "",
         people: PersonKey | None = None,
         telemetry: Telemetry | None = None,
-        turns: TurnPlaces | None = None,
+        turns: BoundTurns | None = None,
     ) -> None:
         # The concrete store, not the SessionStore port: the dispatcher/interaction
         # service need its InteractionStore + FormStore facets too.
@@ -131,7 +131,7 @@ class InteractionWiring:
                 replica_id=replica_id,
                 people=people,
                 telemetry=telemetry,
-                places=turns,
+                places=turns, events=turns,
             )
         # The HTTP receiver is only for gateways that deliver callbacks over HTTP
         # (Mattermost); socket gateways (Slack) drive the same dispatcher over their

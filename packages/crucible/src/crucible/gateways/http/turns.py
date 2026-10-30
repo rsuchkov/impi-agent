@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 from crucible.gateways.http.journal import (
     EV_PROGRESS,
+    EV_TOOL_AWAITING,
     EV_TOOL_FINISHED,
     EV_TOOL_STARTED,
     EV_TURN_FINISHED,
@@ -33,7 +34,12 @@ from crucible.gateways.http.journal import (
     TurnJournal,
     now_iso,
 )
-from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
+from crucible.ports.agent.events import (
+    CallAwaiting,
+    TextProgress,
+    ToolFinished,
+    ToolStarted,
+)
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.gateway import GATEWAY_HTTP
 from crucible.ports.chat.interactions import actions_to_json, approval_card_to_json
@@ -100,7 +106,7 @@ class _Trace:
     def on_event(self, event: object) -> None:
         if self._turn is None:
             return
-        self._turn.calls.on_event(event)
+        changed = self._turn.calls.on_event(event)
         if isinstance(event, ToolStarted):
             self._turn.journal.emit(
                 EV_TOOL_STARTED, callId=event.call_id, tool=event.tool, caption=event.caption
@@ -111,6 +117,12 @@ class _Trace:
             self._turn.journal.emit(
                 EV_TOOL_FINISHED, callId=event.call_id, tool=event.tool, ok=not event.is_error
             )
+        elif isinstance(event, CallAwaiting):
+            waiting = self._turn.calls.awaiting
+            if changed and waiting is not None:  # names a running call; one that does not is not news
+                self._turn.journal.emit(
+                    EV_TOOL_AWAITING, callId=waiting.call_id, tool=waiting.tool, caption=waiting.caption
+                )
 
     async def end(self, *, interrupted: bool = False) -> None:
         # The ending itself is reported from the outcome (`finish`); here the

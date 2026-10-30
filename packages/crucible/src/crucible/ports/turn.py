@@ -19,10 +19,10 @@ answered in a thread under the person's message, say) and not merely to the
 conversation's standing address.
 """
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import NoReturn, Protocol
+from typing import Any, NoReturn, Protocol
 
 # The attribute a dispatcher puts on the scope of a turn the engine started
 # with no scope of the application's: nobody is behind this turn, so a tool
@@ -105,10 +105,30 @@ class TurnPlaces(Protocol):
     def place(self, runtime_session_id: str) -> TurnPlace | None: ...
 
 
+# What a turn is told while it runs — an event for whoever shows the turn
+# (``ports.agent.events``; typed loosely so this leaf knows no event, and
+# whatever the sink returns is ignored — a runtime's own callback fits).
+TurnEvents = Callable[[Any], object]
+
+
+class TurnFeed(Protocol):
+    """A way to tell the turn on a session what happened to it — the gate
+    saying a call now waits on the person. Nothing is told between turns."""
+
+    def feed(self, runtime_session_id: str, event: object) -> None: ...
+
+
+class BoundTurns(TurnPlaces, TurnFeed, Protocol):
+    """The turns bound right now, as whoever posts for one holds them: where
+    each answers, and a way to tell it what happened."""
+
+
 class TurnBinding(Protocol):
     """What a flow holds: bind a turn — its scope, if the message carried one,
-    and where it answers — to a session for exactly that turn."""
+    where it answers, and who is told what happens to it — to a session for
+    exactly that turn."""
 
     def bind(
-        self, runtime_session_id: str, scope: TurnScope | None, *, place: TurnPlace | None = None
+        self, runtime_session_id: str, scope: TurnScope | None, *,
+        place: TurnPlace | None = None, events: TurnEvents | None = None,
     ) -> AbstractAsyncContextManager[None]: ...

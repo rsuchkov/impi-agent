@@ -551,7 +551,12 @@ credential, is another user's credential.
   and the file service post there — in the thread under the person's message
   when a direct message is answered so (`DM_REPLIES=thread`) — and a widget's
   record keeps that thread, so a click resumes the turn in it. Without the
-  registry they post at the conversation's standing address. A program reading the journal acts on
+  registry they post at the conversation's standing address. The registry is
+  also how the engine tells a running turn what happened to it: the tool gate
+  feeds it `CallAwaiting(tool)` when a card is up (`ToolGate(events=turns)`,
+  which `InteractionWiring(turns=)` does), and the flow has bound the turn's
+  event observer, so the widget's counter and the http journal say "waiting
+  for you" on that call. A program reading the journal acts on
   the code; a person reads the sentence. Chat gateways set no scope: nothing on
   Slack or Mattermost belongs to one turn.
 - **An HTTP API for your own frontend** is what the `http` gateway is

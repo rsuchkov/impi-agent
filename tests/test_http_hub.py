@@ -19,7 +19,12 @@ from crucible.gateways.http.journal import (
     STATUS_FAILED,
     STATUS_RUNNING,
 )
-from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
+from crucible.ports.agent.events import (
+    CallAwaiting,
+    TextProgress,
+    ToolFinished,
+    ToolStarted,
+)
 from crucible.ports.agent.runtime import RuntimeStats
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.flow import TurnOutcome
@@ -1581,5 +1586,30 @@ async def test_a_turn_without_tools_records_no_trace_and_neither_does_a_hub_with
             assert events[-1]["trace"] == ""
             status, _ = await _get(s, 8497, "/v1/traces/0123456789abcdef0123456789abcdef")
             assert status == 404
+    finally:
+        await hub.stop()
+
+
+async def test_a_call_waiting_on_the_person_is_an_event_of_the_journal() -> None:
+    async def tools(msg, chat):
+        record = SessionRecord("helper", msg.channel_id, msg.conversation_id, "dm", "helper--portal-c1-abc", "t", "t")
+        trace = hub.turns.begin(record, chat, gateway="http")
+        trace.on_event(ToolStarted("call-1", "comment", {"key": "P-1"}, caption="Commenting on P-1"))
+        trace.on_event(CallAwaiting("comment"))  # what the gate tells the turn when its card is up
+        trace.on_event(CallAwaiting("nothing-running"))  # names no running call: nothing said
+        trace.on_event(ToolFinished("call-1", "comment"))
+        await trace.end()
+        return TurnOutcome.REPLIED
+
+    hub, _ = _hub(8496, script=tools)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8496, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            events, _ = await _drain(s, 8496, started["turnId"])
+            assert [e["type"] for e in events] == [
+                "turn.started", "tool.started", "tool.awaiting", "tool.finished", "turn.finished",
+            ]
+            assert events[2] == {**events[2], "callId": "call-1", "tool": "comment", "caption": "Commenting on P-1"}
     finally:
         await hub.stop()

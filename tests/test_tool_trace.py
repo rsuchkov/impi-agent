@@ -31,7 +31,7 @@ from crucible.interactions.tooltrace import (
     render_collapsed,
     render_counter,
 )
-from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.agent.events import CallAwaiting, ToolFinished, ToolStarted
 from crucible.ports.traces import (
     ARGS_STORED_MAX,
     CALL_FAILED,
@@ -446,5 +446,46 @@ async def test_the_widget_tracer_takes_the_gateway_the_flow_knows(tmp_path) -> N
         record, _ = await store.get_or_create("assistant", "dm1", "dm1", "dm")
         trace = ToolTrace(store, callback_url=CB).begin(record, FakeChat(), gateway="slack")
         assert isinstance(trace, TurnTrace)
+    finally:
+        await store.close()
+
+
+def test_a_call_put_to_the_person_is_the_one_awaiting_until_it_finishes() -> None:
+    calls = TurnCalls()
+    assert calls.on_event(CallAwaiting("search")) is False and calls.awaiting is None  # no such call running
+    calls.on_event(ToolStarted("c1", "comment", {"key": "P-1"}, caption="Commenting on P-1"))
+    calls.on_event(ToolStarted("c2", "search", {"q": "x"}, caption="Searching for x"))
+    assert calls.on_event(CallAwaiting("comment")) is True
+    assert calls.awaiting is not None and calls.awaiting.call_id == "c1"  # the call of that tool, not the newest
+    calls.on_event(ToolFinished("c2", "search"))  # another call finishing changes nothing
+    assert calls.awaiting is not None and calls.awaiting.call_id == "c1"
+    calls.on_event(ToolFinished("c1", "comment", is_error=True))  # refused, or run: over either way
+    assert calls.awaiting is None
+    assert calls.on_event(CallAwaiting("nothing")) is False
+
+
+def test_the_counter_says_waiting_for_you_while_a_call_awaits_the_person() -> None:
+    assert _text(render_counter(2, "Found it", awaiting="Commenting on P-1")) == (
+        "⚙️ Running 2 tools… · waiting for you: Commenting on P-1"
+    )
+    assert _text(render_counter(2, "Found it")) == "⚙️ Running 2 tools… · Found it"
+
+
+async def test_the_widget_counter_shows_the_awaiting_call(tmp_path) -> None:
+    from crucible.store.sqlite import SqliteSessionStore
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat = FakeChat()
+    try:
+        record, _ = await store.get_or_create("assistant", "ch1", "root1", "thread")
+        trace = ToolTrace(store, callback_url=CB).begin(record, chat)
+        trace.on_event(ToolStarted("c1", "comment", {"key": "P-1"}, caption="Commenting on P-1"))
+        trace.on_event(CallAwaiting("comment"))
+        await asyncio.sleep(0.05)
+        drawn = [card.text for _, cards, _ in chat.posted_cards for card in cards]
+        drawn += [card.text for _, cards in chat.updated for card in cards]
+        assert any("waiting for you: Commenting on P-1" in text for text in drawn)
+        trace.on_event(ToolFinished("c1", "comment"))
+        await trace.end()
     finally:
         await store.close()

@@ -22,6 +22,7 @@ EV_TURN_STARTED = "turn.started"
 EV_TOOL_STARTED = "tool.started"
 EV_TOOL_FINISHED = "tool.finished"
 EV_PROGRESS = "progress"  # the model's remark on the way to its next call
+EV_TOOL_AWAITING = "tool.awaiting"  # the call waits on the person: its card is up
 EV_MESSAGE = "message"
 EV_NOTICE = "notice"
 EV_ACTIONS = "actions"  # a question with controls (what the runtime asks mid-turn)

@@ -10,6 +10,7 @@ it beside the reply:
 
 ```
 ⚙️ Running 2 tools… · Reading PROJ-123     ← while the turn runs; the count grows
+⚙️ Running 2 tools… · waiting for you: Commenting on PROJ-123   ← a confirmation card is up
 ```
 
 After the count comes the latest word on what the turn is doing: the
@@ -104,7 +105,11 @@ translates its own tool events into three neutral ones — a call started, with
 its arguments; a call finished, with its outcome and duration; the model's
 remark before its next call (`TextProgress`) — the flow captions the started
 call once (`CallCaptions`) and feeds them to the trace without waiting on the chat platform: a burst of calls costs
-one redraw a second, not one per call.
+one redraw a second, not one per call. One event is the engine's own: when the
+tool gate puts a call to the person, it tells the turn (`CallAwaiting`, through
+the turn registry the flow bound the trace to), and the counter says "waiting
+for you" with that call's caption until the call finishes — allowed and run,
+or refused.
 
 ## Turning it on and off
 
