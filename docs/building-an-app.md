@@ -651,9 +651,12 @@ credential, is another user's credential.
   `context_changed(user_id, context)` hears what the person looks at. Without
   a `SlackHome` the events are acknowledged and nothing is shown. A chat client that has a view of the conversation beside its
   messages implements `ConversationView` (`ports.chat.client`,
-  `set_busy(ref, busy)`): the flow marks the conversation busy for the turn
-  and free after it — Slack's agent session shows its indicator and Stop
-  button, whose press ends the turn as `/stop` does.
+  `set_busy(ref, busy)` and `set_waiting(ref, waiting)`): the flow marks the
+  conversation busy for the turn and free after it — Slack's agent session
+  shows its indicator and Stop button, whose press ends the turn as `/stop`
+  does — and the tool gate marks it waiting while a confirmation card is up
+  (Slack: the session `suspended`, its own status for "cannot go on until the
+  user intervenes") and busy again once it is answered.
 - **Tools from MCP servers.** `crucible.mcp` ([mcp.md](mcp.md)) is a source
   of tools for the registry: `mcp = McpServers(McpLibrary(Path(agents) /
   "_mcp"), values)` reads the servers an operator declared and their pinned

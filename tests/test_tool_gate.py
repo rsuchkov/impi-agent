@@ -134,6 +134,20 @@ class FakePoster:
         self.retracted.append((post_id, text))
 
 
+class ViewingPoster(FakePoster):
+    """A poster whose platform has a view of the conversation (ConversationView)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.waiting: list[tuple[str, bool]] = []
+
+    async def set_busy(self, ref, busy: bool) -> None:
+        return None
+
+    async def set_waiting(self, ref, waiting: bool) -> None:
+        self.waiting.append((ref.conversation_id, waiting))
+
+
 @dataclass
 class FakePresence:
     chat: FakePoster
@@ -996,5 +1010,52 @@ async def test_the_gate_tells_the_turn_its_call_waits_on_the_person(tmp_path: Pa
         async with turns.bind(rig.session, None, events=told.append):
             assert await _call(rig, "harmless") == 200
         assert told == [CallAwaiting("dangerous")]
+    finally:
+        await _close(rig)
+
+
+async def _answer_on(poster: FakePoster, rig: Rig, value: str) -> None:
+    """Answer the card posted on ``poster`` — a gateway other than the rig's default."""
+    for _ in range(400):
+        for card in reversed(poster.posts):
+            token = str(card.actions[0].context.get(APPROVAL_KEY, ""))
+            if token and rig.approvals.pending(token):
+                rig.approvals.resolve(token, value, CLICKER)
+                return
+        await asyncio.sleep(0.005)
+    raise AssertionError("nobody was asked")
+
+
+async def test_the_gate_tells_the_conversations_view_the_agent_waits_and_goes_on(tmp_path: Path) -> None:
+    slack = ViewingPoster()
+    rig = await _rig(tmp_path, 8565, by_gateway={"slack": slack})
+    try:
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="slack")
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer_on(slack, rig, ANSWER_ONCE)
+        assert await pending == 200
+        assert slack.waiting == [("dm1", True), ("dm1", False)]  # suspended while the card was up
+        # A refused answer ends the wait the same way.
+        slack.waiting.clear()
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer_on(slack, rig, ANSWER_DENY)
+        await pending
+        assert slack.waiting == [("dm1", True), ("dm1", False)]
+    finally:
+        await _close(rig)
+
+
+async def test_a_view_that_cannot_be_told_costs_the_question_nothing(tmp_path: Path) -> None:
+    class BrokenView(ViewingPoster):
+        async def set_waiting(self, ref, waiting: bool) -> None:
+            raise OSError("network down")
+
+    slack = BrokenView()
+    rig = await _rig(tmp_path, 8566, by_gateway={"slack": slack})
+    try:
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="slack")
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer_on(slack, rig, ANSWER_ONCE)
+        assert await pending == 200
     finally:
         await _close(rig)

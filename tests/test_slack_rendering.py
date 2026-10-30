@@ -500,3 +500,27 @@ def test_a_controls_data_is_bounded_and_refused_whole_rather_than_cut() -> None:
     assert Action(id="a", label="A", data="x" * ACTION_DATA_MAX).data == "x" * ACTION_DATA_MAX
     with pytest.raises(ValueError, match="at most"):
         Action(id="a", label="A", data="x" * (ACTION_DATA_MAX + 1))
+
+
+def test_a_card_with_steps_is_a_plan_block() -> None:
+    from crucible.gateways.slack.rendering import build_card_blocks
+    from crucible.ports.chat.types import (
+        STEP_DONE,
+        STEP_FAILED,
+        STEP_RUNNING,
+        Card,
+        Step,
+    )
+
+    blocks = build_card_blocks([Card(text="⚙️ Running 3 tools…", steps=(
+        Step("c1", "Searching for x", STEP_DONE),
+        Step("c2", "Reading a.txt", STEP_FAILED),
+        Step("c3", "Commenting on P-1", STEP_RUNNING, note="waiting for you"),
+    ))])
+    assert len(blocks) == 1 and blocks[0]["type"] == "plan" and blocks[0]["title"] == "⚙️ Running 3 tools…"
+    tasks = blocks[0]["tasks"]
+    assert [(t["task_id"], t["title"], t["status"]) for t in tasks] == [
+        ("c1", "Searching for x", "complete"), ("c2", "Reading a.txt", "error"), ("c3", "Commenting on P-1", "in_progress"),
+    ]
+    assert "details" not in tasks[0]
+    assert tasks[2]["details"]["elements"][0]["elements"][0]["text"] == "waiting for you"

@@ -107,6 +107,12 @@ class ChatClient(Protocol):
         clicked afterwards. Best-effort (a failure must not break the turn)."""
         ...
 
+    async def delete_post(self, post_id: str) -> None:
+        """Remove a post the engine made — a progress message whose turn is
+        over. Best-effort: a post already gone, or a platform that cannot
+        delete, costs the turn nothing."""
+        ...
+
     async def post_cards(
         self, ref: ConversationRef, cards: list[Card], *, callback_url: str
     ) -> str:
@@ -141,3 +147,9 @@ class ConversationView(Protocol):
     it; a client without the view ignores the matter and is never asked."""
 
     async def set_busy(self, ref: ConversationRef, busy: bool) -> None: ...
+
+    async def set_waiting(self, ref: ConversationRef, waiting: bool) -> None:
+        """The busy conversation waits on the person — a confirmation card is
+        up — and goes on once they answer. Only ever between ``set_busy(True)``
+        and ``set_busy(False)``; a view with no such state ignores it."""
+        ...

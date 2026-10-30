@@ -1613,3 +1613,31 @@ async def test_a_call_waiting_on_the_person_is_an_event_of_the_journal() -> None
             assert events[2] == {**events[2], "callId": "call-1", "tool": "comment", "caption": "Commenting on P-1"}
     finally:
         await hub.stop()
+
+
+async def test_a_cards_event_carries_the_steps_and_a_deleted_post_is_reported_retired() -> None:
+    from crucible.ports.chat.types import STEP_DONE, STEP_RUNNING, Card, Step
+
+    async def progresses(msg, chat):
+        post = await chat.post_cards(msg.ref, [Card("⚙️ Running 2 tools…", steps=(
+            Step("c1", "Searching for x", STEP_DONE), Step("c2", "Reading a.txt", STEP_RUNNING, note="waiting for you"),
+        ))], callback_url="")
+        await asyncio.sleep(0.05)
+        await chat.delete_post(post)
+        return TurnOutcome.REPLIED
+
+    hub, _ = _hub(8489, script=progresses)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8489, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            events, _ = await _drain(s, 8489, started["turnId"])
+            cards = next(e for e in events if e["type"] == "cards")
+            assert cards["cards"][0]["steps"] == [
+                {"id": "c1", "title": "Searching for x", "state": "done", "note": ""},
+                {"id": "c2", "title": "Reading a.txt", "state": "running", "note": "waiting for you"},
+            ]
+            gone = next(e for e in events if e["type"] == "actions.retired")
+            assert gone["postId"] == cards["postId"] and gone["text"] == ""
+    finally:
+        await hub.stop()

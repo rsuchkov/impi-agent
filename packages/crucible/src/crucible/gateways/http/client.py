@@ -212,6 +212,11 @@ class HttpChatClient:
         if not turn.blocking:
             turn.journal.set_status(STATUS_RUNNING)
 
+    async def delete_post(self, post_id: str) -> None:
+        # A journal keeps what was said; the post is reported gone, as a
+        # retired one with nothing in its place.
+        await self.retract(post_id, "")
+
     async def retract(self, post_id: str, text: str) -> None:
         turn = self._turn_of_post(post_id)
         if turn is None:
@@ -254,7 +259,10 @@ class HttpChatClient:
         turn.journal.emit(
             EV_CARDS, postId=post_id,
             cards=[
-                {"text": c.text, "accent": c.accent, "actions": [wire_action(a) for a in c.actions]}
+                {
+                    "text": c.text, "accent": c.accent, "actions": [wire_action(a) for a in c.actions],
+                    "steps": [{"id": s.id, "title": s.title, "state": s.state, "note": s.note} for s in c.steps],
+                }
                 for c in cards
             ],
         )

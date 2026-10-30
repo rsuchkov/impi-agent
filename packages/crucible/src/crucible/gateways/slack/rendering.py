@@ -23,6 +23,9 @@ from crucible.ports.chat.types import (
     ACTION_SELECT,
     ACTION_USER_SELECT,
     PICK_FIELD_BY_KIND,
+    STEP_DONE,
+    STEP_FAILED,
+    STEP_RUNNING,
     Action,
     ApprovalCard,
     Card,
@@ -229,7 +232,11 @@ def build_card_blocks(cards: list[Card]) -> list[dict[str, Any]]:
         # above), so it gets no divider of its own.
         if blocks and card.text:
             blocks.append({"type": "divider"})
-        if card.text:
+        if card.steps:
+            # A turn in flight: Slack's own plan — the text is its title, each
+            # step a task card with its state, a note as the task's details.
+            blocks.append(plan_block(card))
+        elif card.text:
             # Card text is Markdown, like every other model- and engine-authored
             # string that reaches this gateway. It used to go into the mrkdwn
             # section verbatim, so `**name**` arrived with its asterisks showing
@@ -244,6 +251,26 @@ def build_card_blocks(cards: list[Card]) -> list[dict[str, Any]]:
             blocks.append(_actions_block(list(card.actions), offset=index))
             index += len(card.actions)
     return blocks
+
+
+_TASK_STATUS = {STEP_RUNNING: "in_progress", STEP_DONE: "complete", STEP_FAILED: "error"}
+
+
+def plan_block(card: Card) -> dict[str, Any]:
+    """A card's steps as a Slack plan block: plain-text title and task cards.
+    Block Kit takes a task's details as rich text, so a note is wrapped."""
+    tasks = []
+    for step in card.steps:
+        task: dict[str, Any] = {
+            "task_id": step.id, "title": step.title, "status": _TASK_STATUS.get(step.state, "in_progress"),
+        }
+        if step.note:
+            task["details"] = {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": step.note}]}],
+            }
+        tasks.append(task)
+    return {"type": "plan", "title": card.text, "tasks": tasks}
 
 
 def _actions_block(actions: list[Action], *, offset: int = 0) -> dict[str, Any]:

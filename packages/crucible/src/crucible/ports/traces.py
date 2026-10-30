@@ -35,6 +35,13 @@ CALL_OK = "ok"
 CALL_FAILED = "failed"
 CALL_UNFINISHED = "unfinished"
 
+# What becomes of the message that shows a turn's calls while it runs, once
+# the turn is over: the button that opens the list of calls, or nothing — the
+# message is deleted and the reply stands alone (the record is kept either way).
+TRACE_AFTER_BUTTON = "button"
+TRACE_AFTER_NOTHING = "nothing"
+TRACE_AFTER = (TRACE_AFTER_BUTTON, TRACE_AFTER_NOTHING)
+
 
 @dataclass
 class Call:

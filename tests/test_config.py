@@ -12,7 +12,8 @@ from impi.config import ImpiSettings
 def _settings(**over) -> Settings:
     # Explicit kwargs override any .env value (init > env in pydantic-settings),
     # so the fields under test are deterministic regardless of the local .env.
-    return Settings(integrations_port=8423, **over)
+    # A local .env may carry a minted INTEGRATIONS_SECRET: the bare endpoints unless a test says otherwise.
+    return Settings(**{"integrations_port": 8423, "integrations_secret": "", **over})
 
 
 def test_public_url_auto_resolves_to_ip_and_port() -> None:
@@ -93,6 +94,10 @@ def test_the_tool_trace_is_on_by_default_and_kept_two_weeks() -> None:
     settings = _settings()
     assert settings.tool_trace_enabled is True
     assert settings.tool_trace_retention_days == 14
+    assert settings.tool_trace_after == "nothing"
+    assert Settings(_env_file=None, tool_trace_after="BUTTON").tool_trace_after == "button"  # pyright: ignore[reportCallIssue]
+    with pytest.raises(ValueError, match="TOOL_TRACE_AFTER"):
+        Settings(_env_file=None, tool_trace_after="vanish")  # pyright: ignore[reportCallIssue]
 
 
 def test_the_human_answer_window_must_close_before_the_call_deadline() -> None:

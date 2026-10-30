@@ -21,6 +21,7 @@ from crucible.ports.agent.confinement import check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
 from crucible.ports.chat.gateway import DM_REPLIES
+from crucible.ports.traces import TRACE_AFTER
 from crucible.receiver_paths import RECEIVER_SECRET_RE, callback_path
 
 # The backend names, spelled out rather than imported. `crucible.store` owns the
@@ -498,6 +499,14 @@ class Settings(BaseSettings):
     def _dm_replies_is_a_place(cls, value: str) -> str:
         return _checked_dm_replies("DM_REPLIES", value)
 
+    @field_validator("tool_trace_after")
+    @classmethod
+    def _tool_trace_after_is_known(cls, value: str) -> str:
+        word = value.strip().lower()
+        if word not in TRACE_AFTER:
+            raise ValueError(f"TOOL_TRACE_AFTER: {value!r} is not one of {', '.join(TRACE_AFTER)}")
+        return word
+
     @field_validator("stop_command")
     @classmethod
     def _stop_command_is_a_word(cls, value: str) -> str:
@@ -552,6 +561,10 @@ class Settings(BaseSettings):
     # Retention is in days of the trace's own age; 0 keeps every one.
     tool_trace_enabled: bool = True
     tool_trace_retention_days: int = 14
+    # What becomes of the progress message when the turn ends: `nothing` — it
+    # is deleted and the reply stands alone (the record of the calls is kept
+    # either way); `button` — it settles into the button that opens the list.
+    tool_trace_after: str = "nothing"
 
     # Scheduled and recurring work (env: SCHEDULER_*) — read grouped via
     # `.scheduler`. Off means the ticker never starts and no agent is offered

@@ -15,6 +15,9 @@ from crucible.ports.chat.types import (
     ACTION_SELECT,
     ACTION_USER_SELECT,
     PICKER_KINDS,
+    STEP_DONE,
+    STEP_FAILED,
+    STEP_RUNNING,
     Action,
     ApprovalCard,
     Card,
@@ -297,6 +300,12 @@ class MattermostChatClient:
             },
         )
 
+    async def delete_post(self, post_id: str) -> None:
+        try:
+            await self._driver.posts.delete_post(post_id)
+        except Exception:
+            logger.debug("delete_post failed for %s", post_id, exc_info=True)
+
     async def retract(self, post_id: str, text: str) -> None:
         # Rewrite the message and drop its attachments, so an expired/cancelled
         # widget's buttons can't be clicked afterwards (MM shows an integration
@@ -462,13 +471,28 @@ def _attachment_actions(
     return built
 
 
+_STEP_MARK = {STEP_RUNNING: "⏳", STEP_DONE: "✅", STEP_FAILED: "❌"}
+
+
+def card_text_with_steps(card: Card) -> str:
+    """The card's text with its steps as lines under it — what a platform
+    without a plan of its own shows of a turn in flight."""
+    lines = [card.text] if card.text else []
+    for step in card.steps:
+        line = f"{_STEP_MARK.get(step.state, '⏳')} {step.title}"
+        if step.note:
+            line += f" — {step.note}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _card_attachments(cards: list[Card], callback_url: str) -> list[dict[str, Any]]:
     """Cards -> MM attachments. The card's text goes INSIDE the attachment, where
     Mattermost renders markdown and draws the coloured edge."""
     built: list[dict[str, Any]] = []
     seen = 0  # action ids must be unique across the MESSAGE, not the card
     for card in cards:
-        attachment: dict[str, Any] = {"text": card.text}
+        attachment: dict[str, Any] = {"text": card_text_with_steps(card)}
         if card.accent:
             attachment["color"] = card.accent
         if card.actions:

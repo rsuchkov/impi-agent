@@ -1,17 +1,26 @@
 # The tool trace
 
-When an agent's turn calls tools, one extra message appears. In a thread it
-sits in the thread, above the reply, because it appears before the reply
-exists. Anywhere else — a direct message, a channel the agent answers in — it
-goes into a thread under the message the turn answers, so the conversation
-itself holds the messages and the replies and nothing else; a turn with no
-real message to hang it on (a click, a slash command, a scheduled run) keeps
-it beside the reply:
+When an agent's turn calls tools, a progress message appears for as long as
+the turn runs. In a thread it sits in the thread, above the reply, because it
+appears before the reply exists. Anywhere else — a direct message, a channel
+the agent answers in — it goes into a thread under the message the turn
+answers, so the conversation itself holds the messages and the replies and
+nothing else; a turn with no real message to hang it on (a click, a slash
+command, a scheduled run) keeps it beside the reply:
 
 ```
 ⚙️ Running 2 tools… · Reading PROJ-123     ← while the turn runs; the count grows
+✅ Searching for release notes
+⏳ Reading PROJ-123
 ⚙️ Running 2 tools… · waiting for you: Commenting on PROJ-123   ← a confirmation card is up
+✅ Searching for release notes
+⏳ Commenting on PROJ-123 — waiting for you
 ```
+
+Under the line, the steps so far, each in its state. On Slack they are the
+platform's own **plan block** — the line as its title, a task card per call,
+ticked, running or failed, "waiting for you" as a task's details — the view
+a bot in the Agents panel has of its work; on Mattermost, the lines above.
 
 After the count comes the latest word on what the turn is doing: the
 **caption** of the call that just began ("Reading PROJ-123"), written by the
@@ -23,7 +32,10 @@ the http journal carries it as a `progress` event. The reply is what the model
 says after its last call; a turn that says nothing after its last call answers
 with its last remark.
 
-When the turn ends it settles into a button, and the reply follows:
+When the turn ends, the progress message is **deleted** and the reply stands
+alone — that is the default, `TOOL_TRACE_AFTER=nothing`. With
+`TOOL_TRACE_AFTER=button` it settles into a button instead, and the reply
+follows:
 
 ```
 [ Running 3 tools · 1 failed → ]
@@ -92,7 +104,8 @@ sees the tool-gate card, and the same audience the agent's own reply addresses.
 It is a **screen** — the same mechanism as `/skills` and `/tasks`: the engine
 posts the message, the engine answers every click by rewriting it, and no model
 is involved. The click carries only a token and a position; the calls
-themselves are written to the inventory once, when the turn ends, so the panel
+themselves are written to the inventory once, when the turn ends (with the
+button; a message that is deleted keeps no record of its own), so the panel
 opens minutes or a restart later. Traces older than the retention are dropped
 at startup. The record (`ports.traces.TraceRecord`) is the same whatever shows
 the turn: a turn an http caller started writes one too, and its journal's
@@ -116,6 +129,7 @@ or refused.
 | Variable | Default | Purpose |
 |---|---|---|
 | `TOOL_TRACE_ENABLED` | `true` | draw the widget for turns that ran tools |
+| `TOOL_TRACE_AFTER` | `nothing` | what becomes of it when the turn ends: `nothing` — deleted, the reply stands alone; `button` — the button that opens the list of calls |
 | `TOOL_TRACE_RETENTION_DAYS` | `14` | drop traces older than this at startup; `0` keeps them all |
 
 It needs interactivity (`INTEGRATIONS_ENABLED`, on by default): the button has
@@ -128,8 +142,8 @@ the switch still opens.
 
 ## What it does not cover
 
-- **An engine that dies mid-turn** leaves the counter as it was, with no button
-  behind it. The trace is written when the turn ends, and that turn never did.
+- **An engine that dies mid-turn** leaves the counter as it was — not deleted,
+  and with no button behind it. The turn never ended.
 - **Memoryless scheduled runs** (`prompt` mode) do not go through the
   conversation flow and get no widget. Tasks in `turn` mode do.
 - **The runtime's own cost** — starting it, waiting for the model — is not a

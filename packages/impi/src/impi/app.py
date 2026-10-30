@@ -780,6 +780,7 @@ def build_app(settings: ImpiSettings) -> App:
             sessions,
             callback_url=settings.integrations.interact_url,
             retention_days=settings.tool_trace_retention_days,
+            after=settings.tool_trace_after,
         )
         if settings.integrations.enabled and settings.tool_trace_enabled
         else None

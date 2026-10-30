@@ -101,6 +101,9 @@ class WsChatClient:
     async def retract(self, post_id: str, text: str) -> None:
         pass
 
+    async def delete_post(self, post_id: str) -> None:
+        pass  # nothing was posted to delete (see post_cards)
+
     async def update_confirmation(
         self, post_id: str, card: ApprovalCard, actions: list[Action] | None = None,
         *, callback_url: str = "",

@@ -433,8 +433,10 @@ feeds it the runtime's neutral turn events (`ToolStarted`/`ToolFinished` and
 `ports/agent/events.py`), captioning each call once on the way
 (`ports/agent/captions.CallCaptions`: the registry asks a `Captioning` tool,
 the runtime driver answers for its built-ins) so the chat widget and an http
-journal say the same line; the trace draws a live counter through the agent's
-own `ChatClient`, writes the calls to the store when the turn ends, and settles
+journal say the same line; the trace draws a live counter with the steps so
+far through the agent's own `ChatClient` (a card's `steps`: Slack's plan
+block, lines elsewhere) and, when the turn ends, deletes it (`delete_post`)
+or — `TOOL_TRACE_AFTER=button` — writes the calls to the store and settles
 the message into a button. It posts in the conversation's thread, or — when the
 conversation is not one — in a thread under the message the turn answers
 (`trace_ref`; the flow passes that message as `anchor`, none for a synthetic one). Its screen is registered but not listed — clicks route to

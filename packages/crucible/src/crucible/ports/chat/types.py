@@ -245,6 +245,24 @@ class ApprovalCard:
     grant_s: int = 0
 
 
+STEP_RUNNING = "running"
+STEP_DONE = "done"
+STEP_FAILED = "failed"
+STEP_STATES = (STEP_RUNNING, STEP_DONE, STEP_FAILED)
+
+
+@dataclass(frozen=True)
+class Step:
+    """One step of a turn as a person watching sees it — a tool call with its
+    caption — in the state it is in. ``note`` is a line under the title: the
+    model's remark that led to the call, or "waiting for your approval"."""
+
+    id: str
+    title: str
+    state: str = STEP_RUNNING
+    note: str = ""
+
+
 @dataclass(frozen=True)
 class Card:
     """A block of text with its own controls — one row of a rendered screen.
@@ -252,11 +270,14 @@ class Card:
     A message built from cards puts the buttons NEXT TO what they act on (a
     skill and its "Details"), instead of one prompt above a row of buttons.
     ``accent`` is a colour hint an adapter may use for the card's edge (""=none);
-    platforms without the notion ignore it."""
+    platforms without the notion ignore it. ``steps`` are the steps of a turn
+    in flight, under the text: a platform with a view of a plan draws them as
+    one (Slack's plan block), another lists them as lines."""
 
     text: str
     actions: tuple[Action, ...] = ()
     accent: str = ""
+    steps: tuple[Step, ...] = ()
 
 
 @dataclass(frozen=True)

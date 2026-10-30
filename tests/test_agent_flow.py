@@ -870,9 +870,9 @@ class _OrderedChat(FakeChat):
         await super().post_reply(ref, text, hop_depth=hop_depth)
 
 
-def _traced_flow(tmp_path: Path, runtime) -> tuple[AgentFlow, SqliteSessionStore]:
+def _traced_flow(tmp_path: Path, runtime, after: str = "button") -> tuple[AgentFlow, SqliteSessionStore]:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
-    tracer = ToolTrace(store, callback_url="http://x/interact")
+    tracer = ToolTrace(store, callback_url="http://x/interact", after=after)
     return AgentFlow(runtime, PROFILE, store, agent_name="assistant", tracer=tracer), store
 
 
@@ -2018,6 +2018,9 @@ async def test_a_platform_with_a_view_of_the_conversation_sees_the_agent_busy_fo
         async def set_busy(self, ref, busy: bool) -> None:
             self.busy.append(busy)
 
+        async def set_waiting(self, ref, waiting: bool) -> None:
+            return None
+
     flow, store = _flow(tmp_path, FakeRuntime())
     chat = ViewingChat()
     assert await flow.handle(_dm("hi"), chat) is TurnOutcome.REPLIED
@@ -2346,3 +2349,26 @@ async def test_what_the_engine_tells_the_turn_reaches_its_trace(tmp_path: Path) 
     flow = AgentFlow(_Gated(), PROFILE, store, agent_name="assistant", tracer=_Tracer(), turns=registry)
     await flow.handle(_dm(), FakeChat())
     assert CallAwaiting("bash") in seen
+
+
+async def test_by_default_the_progress_message_is_gone_before_the_reply_is_posted(tmp_path: Path) -> None:
+    import asyncio
+
+    class _Lingers(_StreamingRuntime):
+        async def run_stateful(self, profile, session_id, message, **kw):
+            result = await super().run_stateful(profile, session_id, message, **kw)
+            await asyncio.sleep(0.05)  # long enough for the counter to be drawn
+            return result
+
+    flow, store = _traced_flow(tmp_path, _Lingers(events=_TOOL_EVENTS), after="nothing")
+    chat = _OrderedChat()
+    assert await flow.handle(_dm(), chat) is TurnOutcome.REPLIED
+    assert chat.deleted == ["widget-post-id"] and chat.order[-1] == "reply" and "widget" in chat.order
+    assert not any(a for _, cards in chat.updated for c in cards for a in c.actions)  # never a button
+    # A turn over before the counter was ever drawn leaves nothing to remove and draws nothing after.
+    quick, store2 = _traced_flow(tmp_path / "second", _StreamingRuntime(events=_TOOL_EVENTS), after="nothing")
+    chat = _OrderedChat()
+    assert await quick.handle(_dm(), chat) is TurnOutcome.REPLIED
+    assert chat.deleted == [] and chat.posted_cards == []
+    await store.close()
+    await store2.close()

@@ -37,6 +37,7 @@ from crucible.ports.traces import (
     CALL_FAILED,
     CALL_OK,
     CALL_UNFINISHED,
+    TRACE_AFTER_BUTTON,
     Call,
     TurnCalls,
     decode_calls,
@@ -253,7 +254,7 @@ def _finished(n: int, *, error: bool = False) -> ToolFinished:
 
 async def test_a_burst_of_events_costs_one_post_and_at_most_one_redraw(store) -> None:
     chat = FakeChat()
-    trace = TurnTrace(store, chat, _record(), callback_url=CB)
+    trace = TurnTrace(store, chat, _record(), callback_url=CB, after=TRACE_AFTER_BUTTON)
 
     for n in range(5):
         trace.on_event(_started(n))
@@ -268,7 +269,7 @@ async def test_a_burst_of_events_costs_one_post_and_at_most_one_redraw(store) ->
 
 async def test_a_turn_without_tools_leaves_no_message_and_no_trace(store) -> None:
     chat = FakeChat()
-    trace = TurnTrace(store, chat, _record(), callback_url=CB)
+    trace = TurnTrace(store, chat, _record(), callback_url=CB, after=TRACE_AFTER_BUTTON)
     await trace.end()
     assert chat.posted_cards == [] and chat.updated == []
 
@@ -277,7 +278,7 @@ async def test_ending_before_the_counter_was_drawn_posts_the_button_directly(sto
     # A sub-millisecond turn: the redraw task never got the loop before the
     # turn ended. The button still appears — once — and nothing counts.
     chat = FakeChat()
-    trace = TurnTrace(store, chat, _record(), callback_url=CB)
+    trace = TurnTrace(store, chat, _record(), callback_url=CB, after=TRACE_AFTER_BUTTON)
     trace.on_event(_started(0))
     trace.on_event(_finished(0))
     await trace.end()
@@ -304,7 +305,7 @@ async def test_the_trace_is_stored_before_the_button_that_opens_it(store, monkey
 
     monkeypatch.setattr(store, "create_trace", create)
     monkeypatch.setattr(chat, "update_cards", update)
-    trace = TurnTrace(store, chat, _record(), callback_url=CB)
+    trace = TurnTrace(store, chat, _record(), callback_url=CB, after=TRACE_AFTER_BUTTON)
     trace.on_event(_started(0))
     await asyncio.sleep(0.02)  # let the counter be drawn
     trace.on_event(_finished(0, error=True))
@@ -319,7 +320,7 @@ async def test_the_trace_is_stored_before_the_button_that_opens_it(store, monkey
 
 async def test_an_interrupted_turn_marks_what_never_finished(store) -> None:
     chat = FakeChat()
-    trace = TurnTrace(store, chat, _record(), callback_url=CB)
+    trace = TurnTrace(store, chat, _record(), callback_url=CB, after=TRACE_AFTER_BUTTON)
     trace.on_event(_started(0))
     trace.on_event(_finished(0))
     trace.on_event(_started(1))  # never finishes
@@ -332,7 +333,7 @@ async def test_an_interrupted_turn_marks_what_never_finished(store) -> None:
 
 async def test_stored_arguments_are_capped_and_the_cut_is_recorded(store) -> None:
     chat = FakeChat()
-    trace = TurnTrace(store, chat, _record(), callback_url=CB)
+    trace = TurnTrace(store, chat, _record(), callback_url=CB, after=TRACE_AFTER_BUTTON)
     trace.on_event(ToolStarted(call_id="c0", tool="write", args={"content": "x" * 20000}))
     await trace.end()
 
@@ -348,7 +349,7 @@ async def test_a_failed_first_post_gives_up_without_a_trace(store, monkeypatch) 
         raise RuntimeError("platform down")
 
     monkeypatch.setattr(chat, "post_cards", refuse)
-    trace = TurnTrace(store, chat, _record(), callback_url=CB)
+    trace = TurnTrace(store, chat, _record(), callback_url=CB, after=TRACE_AFTER_BUTTON)
     trace.on_event(_started(0))
     await asyncio.sleep(0.02)
     trace.on_event(_finished(0))
@@ -395,7 +396,7 @@ async def test_captions_and_remarks_show_on_the_counter_and_captions_stay_in_the
     from crucible.ports.agent.events import TextProgress
 
     chat = FakeChat()
-    trace = TurnTrace(store, chat, _record(), callback_url=CB)
+    trace = TurnTrace(store, chat, _record(), callback_url=CB, after=TRACE_AFTER_BUTTON)
     trace.on_event(TextProgress("Looking at the ticket first"))  # before any call: no message yet
     await asyncio.sleep(0.02)
     assert chat.posted_cards == []
@@ -487,5 +488,50 @@ async def test_the_widget_counter_shows_the_awaiting_call(tmp_path) -> None:
         assert any("waiting for you: Commenting on P-1" in text for text in drawn)
         trace.on_event(ToolFinished("c1", "comment"))
         await trace.end()
+    finally:
+        await store.close()
+
+
+async def test_the_counter_carries_the_steps_and_goes_when_the_turn_is_over(tmp_path) -> None:
+    from crucible.ports.chat.types import STEP_DONE, STEP_FAILED, STEP_RUNNING
+    from crucible.store.sqlite import SqliteSessionStore
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat = FakeChat()
+    try:
+        record, _ = await store.get_or_create("assistant", "ch1", "root1", "thread")
+        trace = ToolTrace(store, callback_url=CB).begin(record, chat)  # the default: nothing after
+        trace.on_event(ToolStarted("c1", "search", {"q": "x"}, caption="Searching for x"))
+        trace.on_event(ToolFinished("c1", "search", is_error=True))
+        trace.on_event(ToolStarted("c2", "jira_comment", {}, caption="Commenting on P-1"))
+        trace.on_event(CallAwaiting("jira_comment"))
+        await asyncio.sleep(0.05)
+        drawn = [cards for _, cards, _ in chat.posted_cards] + [cards for _, cards in chat.updated]
+        card = drawn[-1][0]
+        assert card.text.startswith("⚙️ Running 2 tools… · waiting for you: Commenting on P-1")
+        assert [(s.id, s.title, s.state, s.note) for s in card.steps] == [
+            ("c1", "Searching for x", STEP_FAILED, ""),
+            ("c2", "Commenting on P-1", STEP_RUNNING, "waiting for you"),
+        ]
+        trace.on_event(ToolFinished("c2", "jira_comment"))
+        await asyncio.sleep(1.1)  # the counter is redrawn once a second
+        assert [s.state for s in chat.updated[-1][1][0].steps][-1] == STEP_DONE
+        await trace.end()
+        assert chat.deleted == ["widget-post-id"]  # the progress message is gone; the reply stands alone
+        assert not any(c.actions for _, cards in chat.updated for c in cards)  # never a button
+    finally:
+        await store.close()
+
+
+async def test_a_turn_that_drew_nothing_deletes_nothing(tmp_path) -> None:
+    from crucible.store.sqlite import SqliteSessionStore
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat = FakeChat()
+    try:
+        record, _ = await store.get_or_create("assistant", "ch1", "root1", "thread")
+        trace = ToolTrace(store, callback_url=CB).begin(record, chat)
+        await trace.end()
+        assert chat.deleted == [] and chat.posted_cards == []
     finally:
         await store.close()

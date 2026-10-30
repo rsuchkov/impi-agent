@@ -25,6 +25,7 @@ class FakeChat:
         self.recent_posts: dict[str, list[PostSnippet]] = {}  # channel_id -> history
         self.posted_actions: list[tuple] = []  # (ref, text, actions, callback_url)
         self.retracted: list[tuple[str, str]] = []  # (post_id, text)
+        self.deleted: list[str] = []  # posts the engine removed
         self.posted_cards: list[tuple] = []  # (ref, cards, callback_url)
         self.updated: list[tuple] = []  # (post_id, cards) — screen redraws
         self.dialogs: list[tuple] = []  # (trigger_id, form, submit_url, state)
@@ -90,6 +91,9 @@ class FakeChat:
 
     async def retract(self, post_id: str, text: str) -> None:
         self.retracted.append((post_id, text))
+
+    async def delete_post(self, post_id: str) -> None:
+        self.deleted.append(post_id)
 
     async def post_cards(
         self, ref: ConversationRef, cards: list[Card], *, callback_url: str

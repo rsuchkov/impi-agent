@@ -26,6 +26,10 @@ class _Recorder:
                 recorder.calls.append(("patch_post", {"post_id": post_id, **options}))
                 return {"id": post_id}
 
+            async def delete_post(self, post_id):
+                recorder.calls.append(("delete_post", {"post_id": post_id}))
+                return {"status": "OK"}
+
             async def create_post_ephemeral(self, user_id, post):
                 recorder.calls.append(
                     ("create_post_ephemeral", {"user_id": user_id, "post": post})
@@ -515,3 +519,30 @@ def test_a_label_too_long_for_mattermost_is_cut_but_said_out_loud(caplog) -> Non
 
     assert elements[0]["display_name"] == long_label[:_DISPLAY_NAME_MAX]
     assert any(long_label in record.getMessage() for record in caplog.records)
+
+
+async def test_a_card_with_steps_lists_them_under_its_text() -> None:
+    from crucible.ports.chat.types import (
+        STEP_DONE,
+        STEP_FAILED,
+        STEP_RUNNING,
+        Card,
+        Step,
+    )
+    driver = _Recorder()
+    await _client(driver).post_cards(
+        REF,
+        [Card(text="⚙️ Running 3 tools…", steps=(
+            Step("c1", "Searching for x", STEP_DONE), Step("c2", "Reading a.txt", STEP_FAILED),
+            Step("c3", "Commenting on P-1", STEP_RUNNING, note="waiting for you"),
+        ))],
+        callback_url="http://x/interact",
+    )
+    attachment = next(kw for name, kw in driver.calls if name == "create_post")["props"]["attachments"][0]
+    assert attachment["text"] == "⚙️ Running 3 tools…\n✅ Searching for x\n❌ Reading a.txt\n⏳ Commenting on P-1 — waiting for you"
+
+
+async def test_delete_post_deletes_and_a_refusal_costs_nothing() -> None:
+    driver = _Recorder()
+    await _client(driver).delete_post("p1")
+    assert ("delete_post", {"post_id": "p1"}) in driver.calls

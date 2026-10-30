@@ -50,13 +50,14 @@ from crucible.approvals import (
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.service import turn_ref
 from crucible.ports.agent.events import CallAwaiting
-from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.client import ChatClient, ConversationView
 from crucible.ports.chat.keying import PersonKey, PlatformPerson
 from crucible.ports.chat.types import (
     VERDICT_EXPIRED,
     VERDICT_WITHDRAWN,
     ApprovalCard,
     CallPreview,
+    ConversationRef,
 )
 from crucible.ports.replica import tag_token
 from crucible.ports.telemetry import CardAnswered, Telemetry
@@ -92,6 +93,19 @@ ARGUMENTS_LIMIT = 2000
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+async def _set_waiting(views: list[tuple[ConversationView, ConversationRef]], waiting: bool) -> None:
+    """Never raises: the view is a courtesy, the question is the thing."""
+    for view, ref in views:
+        try:
+            await view.set_waiting(ref, waiting)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "the conversation's view could not be told the agent %s", "waits" if waiting else "goes on", exc_info=True,
+            )
 
 
 class ToolGate:
@@ -249,17 +263,19 @@ class ToolGate:
         named = _named(tool, display_name)
         actions = approval_actions(token, offers=windows(ceiling_s=self._max_grant_s))
         copies: list[tuple[ChatClient, str]] = []  # (poster, post id) of every copy posted
+        views: list[tuple[ConversationView, ConversationRef]] = []  # where a platform shows the wait
         for gateway, poster in posters:
+            ref = turn_ref(record, gateway, place)
             try:
-                post_id = await poster.post_confirmation(
-                    turn_ref(record, gateway, place), card, actions, callback_url=self._callback_url
-                )
+                post_id = await poster.post_confirmation(ref, card, actions, callback_url=self._callback_url)
             except Exception:
                 logger.warning(
                     "tool gate: could not post the question on %s", gateway or "-", exc_info=True
                 )
                 continue
             copies.append((poster, post_id))
+            if isinstance(poster, ConversationView):
+                views.append((poster, ref))
         if not copies:
             self._approvals.discard(token)
             return None
@@ -267,6 +283,10 @@ class ToolGate:
             # Whoever shows the turn — the widget's counter, the journal — says
             # "waiting for you" rather than letting the call look slow.
             self._events.feed(runtime_session_id, CallAwaiting(tool))
+        # A platform with a view of the conversation (Slack's agent session)
+        # says the agent waits on the person, and that it goes on once they
+        # have answered — however the wait ends.
+        await _set_waiting(views, True)
 
         try:
             answer = await asyncio.wait_for(future, timeout=self._timeout)
@@ -275,6 +295,7 @@ class ToolGate:
             await self._rewrite_all(
                 copies, _closed(card, _EXPIRED.format(tool=named), VERDICT_EXPIRED)
             )
+            await _set_waiting(views, False)
             return Approval(allowed=False, timed_out=True)
         except asyncio.CancelledError:
             # Retire the card first: a click after this must find no question.
@@ -283,6 +304,7 @@ class ToolGate:
                 copies, _closed(card, _ABANDONED.format(tool=named), VERDICT_WITHDRAWN)
             )
             raise
+        await _set_waiting(views, False)
         verdict, words = verdict_of(answer)
         headline = _ANSWERED.format(words=words, tool=named)
         # The first answer is the answer: the token went with it (a second click

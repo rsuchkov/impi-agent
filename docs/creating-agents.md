@@ -197,9 +197,10 @@ it. Two things follow, and they are worth knowing when writing a `SYSTEM.md`:
 
 Separately from what an agent asks, the engine itself posts a message for
 every turn that ran tools — in a thread, above the reply; in a direct message
-or a channel, in a thread under the message the turn answers — a live counter
-that settles into a button listing the calls. Nothing in a profile turns it on; see
-[tool-trace.md](tool-trace.md).
+or a channel, in a thread under the message the turn answers — a live progress
+message with the steps so far (Slack's own plan block), gone when the reply
+comes, or settling into a button listing the calls (`TOOL_TRACE_AFTER`).
+Nothing in a profile turns it on; see [tool-trace.md](tool-trace.md).
 
 ### Form field types
 

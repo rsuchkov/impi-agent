@@ -134,6 +134,25 @@ class SlackChatClient:
             # A network that did not answer is no reason the turn should not run.
             logger.debug("agent session status not set for %s: %s", thread, exc)
 
+    async def set_waiting(self, ref: ConversationRef, waiting: bool) -> None:
+        """``suspended`` while a call waits on the person's answer — Slack's
+        own status for "cannot go on until the user intervenes" — and
+        ``processing`` again after. The same session as ``set_busy``, the same
+        silence without ``agent_sessions``."""
+        thread = ref.thread_root_id or ref.message_id
+        if not self._agent_sessions or not thread:
+            return
+        try:
+            await self._client.api_call(
+                api_method="agents.sessions.setStatus",
+                json={"channel_id": ref.channel_id, "thread_ts": thread,
+                      "status": "suspended" if waiting else "processing"},
+            )
+        except SlackApiError as exc:
+            logger.debug("agent session status not set for %s: %s", thread, _err(exc))
+        except (aiohttp.ClientError, TimeoutError, OSError) as exc:
+            logger.debug("agent session status not set for %s: %s", thread, exc)
+
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:
         try:
             await self._client.reactions_add(
@@ -248,6 +267,15 @@ class SlackChatClient:
             markdown_to_mrkdwn(card_markdown(card)),
             build_confirmation_blocks(card, list(actions or [])),
         )
+
+    async def delete_post(self, post_id: str) -> None:
+        channel, _, ts = post_id.partition(MESSAGE_ID_SEP)
+        if not ts:
+            return
+        try:
+            await self._client.chat_delete(channel=channel, ts=ts)
+        except SlackApiError:
+            logger.debug("chat_delete failed for %s", post_id, exc_info=True)
 
     async def retract(self, post_id: str, text: str) -> None:
         # Converted HERE rather than inside _rewrite: the other caller passes

@@ -35,10 +35,20 @@ from crucible.containment import one_line, preformatted
 from crucible.interactions.screens import ScreenState, View, screen_action
 from crucible.interactions.service import conversation_ref
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.types import Action, Card, ConversationRef
+from crucible.ports.chat.types import (
+    STEP_DONE,
+    STEP_FAILED,
+    STEP_RUNNING,
+    Action,
+    Card,
+    ConversationRef,
+    Step,
+)
 from crucible.ports.traces import (
     CALL_FAILED,
+    CALL_OK,
     CALL_UNFINISHED,
+    TRACE_AFTER_NOTHING,
     Call,
     TraceRecord,
     TurnCalls,
@@ -71,6 +81,7 @@ REDRAW_INTERVAL_S = 1.0
 LATEST_MAX = 80
 # The counter's word while a call waits on the person (a confirmation card is up).
 WAITING_FOR_YOU = "waiting for you"
+_STEP_STATE = {CALL_UNFINISHED: STEP_RUNNING, CALL_OK: STEP_DONE, CALL_FAILED: STEP_FAILED}
 
 _EXPIRED = "This trace has expired."
 _BY_HAND = "This panel opens itself under an answer and cannot be opened by hand."
@@ -110,18 +121,33 @@ def _summary(calls: list[Call], *, interrupted: bool) -> str:
     return " · ".join(parts)
 
 
-def render_counter(count: int, latest: str = "", *, awaiting: str = "") -> View:
+def steps_of(calls: list[Call], awaiting: Call | None = None) -> tuple[Step, ...]:
+    """The calls as the steps a person watches: each with its caption and in
+    its state, the one awaiting the person's answer saying so."""
+    return tuple(
+        Step(
+            id=call.call_id, title=one_line(call.caption or call.tool, limit=LATEST_MAX),
+            state=_STEP_STATE.get(call.state, STEP_RUNNING),
+            note=WAITING_FOR_YOU if awaiting is not None and call.call_id == awaiting.call_id else "",
+        )
+        for call in calls
+    )
+
+
+def render_counter(count: int, latest: str = "", *, awaiting: str = "", steps: tuple[Step, ...] = ()) -> View:
     """The counter, with the latest word on what the turn is doing after it:
     a call's caption or the model's last remark on the way — or, while a call
     waits on the person's answer, that (``awaiting`` names the call), since a
     turn waiting for them should not read as a tool that is slow. ``latest``
-    is made one line of bounded length here — the remark is the model's text."""
+    is made one line of bounded length here — the remark is the model's text.
+    ``steps`` go under the line (``steps_of``): a platform with a plan of its
+    own draws them as one."""
     line = f"⚙️ Running {_plural(count, 'tool')}…"
     if awaiting:
         line += f" · {WAITING_FOR_YOU}: {one_line(awaiting, limit=LATEST_MAX)}"
     elif latest:
         line += f" · {one_line(latest, limit=LATEST_MAX)}"
-    return View.of(line)
+    return View(cards=(Card(text=line, steps=steps),))
 
 
 def render_collapsed(state: ScreenState, calls: list[Call], *, interrupted: bool) -> View:
@@ -293,11 +319,12 @@ class TurnTrace:
 
     def __init__(
         self, store: TraceStore, chat: ChatClient, record: SessionRecord, *,
-        callback_url: str, anchor: ConversationRef | None = None,
+        callback_url: str, anchor: ConversationRef | None = None, after: str = TRACE_AFTER_NOTHING,
     ) -> None:
         self._store = store
         self._chat = chat
         self._record = record
+        self._after = after
         self._ref = trace_ref(record, anchor)
         self._callback_url = callback_url
         self._token = secrets.token_hex(16)
@@ -332,6 +359,7 @@ class TurnTrace:
             await self._draw(render_counter(
                 len(self._calls), self._calls.latest,
                 awaiting=(waiting.caption or waiting.tool) if waiting is not None else "",
+                steps=steps_of(self._calls.calls, waiting),
             ))
             if self._closed:
                 break  # end() arrived while drawing; it is waiting on us
@@ -377,6 +405,17 @@ class TurnTrace:
                 logger.warning("tool trace redraw failed", exc_info=True)
         if not self._calls or self._dead:
             return
+        if self._after == TRACE_AFTER_NOTHING:
+            # The turn is over and the reply is about to follow: the progress
+            # message has done its job and goes, so the reply stands alone.
+            if self._post_id is not None:
+                try:
+                    await self._chat.delete_post(self._post_id)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning("tool trace could not be removed", exc_info=True)
+            return
         try:
             await self._store.create_trace(TraceRecord(
                 token=self._token, agent=self._record.agent,
@@ -398,19 +437,20 @@ class ToolTrace:
     """Builds a trace for each turn, and sweeps old ones at startup."""
 
     def __init__(
-        self, store: TraceStore, *, callback_url: str, retention_days: int = 14,
+        self, store: TraceStore, *, callback_url: str, retention_days: int = 14, after: str = TRACE_AFTER_NOTHING,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._store = store
         self._callback_url = callback_url
         self._retention_days = retention_days
+        self._after = after
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def begin(
         self, record: SessionRecord, chat: ChatClient, *,
         anchor: ConversationRef | None = None, gateway: str = "",
     ) -> TurnTrace:
-        return TurnTrace(self._store, chat, record, callback_url=self._callback_url, anchor=anchor)
+        return TurnTrace(self._store, chat, record, callback_url=self._callback_url, anchor=anchor, after=self._after)
 
     async def sweep(self) -> int:
         """Drop traces past the retention; 0 keeps every one."""

@@ -270,3 +270,26 @@ async def test_busy_marks_the_agent_session_and_a_top_level_message_is_left_alon
 
     web.raise_on["api_call"] = aiohttp.ClientConnectionError("no route")  # type: ignore[assignment]
     await agent.set_busy(_ref(root="100.1"), True)  # a network that did not answer: nor this
+
+
+async def test_delete_post_removes_the_message_and_a_refusal_costs_nothing() -> None:
+    web = FakeWeb()
+    client = _sc(web)
+    await client.delete_post("C1\x1f100.5")
+    assert web.last("chat_delete") == {"channel": "C1", "ts": "100.5"}
+    web.raise_on["chat_delete"] = SlackApiError("x", {"error": "message_not_found"})
+    await client.delete_post("C1\x1f100.5")  # must not raise
+    await client.delete_post("no-separator")  # nothing to delete
+    assert len(web.all("chat_delete")) == 2
+
+
+async def test_waiting_suspends_the_agent_session_and_processing_resumes_it() -> None:
+    web = FakeWeb()
+    agent = SlackChatClient(web, agent_sessions=True)  # type: ignore[arg-type]
+    await agent.set_waiting(_ref(channel="D1", root="100.1"), True)
+    await agent.set_waiting(_ref(channel="D1", root="100.1"), False)
+    assert [kw["json"]["status"] for _, kw in web.calls] == ["suspended", "processing"]
+    await _sc(web).set_waiting(_ref(root="100.1"), True)  # a plain bot: no session
+    assert len(web.calls) == 2
+    web.raise_on["api_call"] = SlackApiError("x", {"error": "not_allowed_token_type"})
+    await agent.set_waiting(_ref(root="100.1"), True)  # must not raise

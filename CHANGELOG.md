@@ -30,6 +30,21 @@ when a release is cut, and `impi update` shows the target version's section.
   http journal's new `tool.awaiting` event (`callId`, `tool`, `caption`).
   Over with the call's `tool.finished`. Before, an application drew this
   itself from the `confirmation` event.
+- **The progress message shows the steps and goes when the reply comes.**
+  Under its line, the turn's steps so far, each in its state — on Slack as
+  the platform's own plan block (a task card per call, ticked, running or
+  failed, "waiting for you" as a task's details), on Mattermost as lines
+  (`Card.steps`, `ports.chat.types.Step`). When the turn ends the message is
+  deleted (`ChatClient.delete_post`) and the reply stands alone.
+  **Breaks:** that is the default now, `TOOL_TRACE_AFTER=nothing`; the
+  button that opened the list of calls is `TOOL_TRACE_AFTER=button`. With
+  `SLACK_AGENT_SESSIONS` the session is `suspended` while a call waits on
+  the person's answer — Slack's own status for "cannot go on until the user
+  intervenes" — and `processing` again once it is answered
+  (`ConversationView.set_waiting`, which the tool gate calls). Slack's Agents
+  panel shows no custom text in its "Working…" state and does not render the
+  older status line inside a session, so the steps are a message, not a
+  status.
 
 ## v0.39.1 — 2026-10-29
 
