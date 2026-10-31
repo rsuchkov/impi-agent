@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.43.0 — 2026-10-31
+
 - **A loop guard for a turn, off by default.** `runtime.loop_guard` in
   `agent.yaml` (`true`, or `{repeat: 4, same_result: 4, calls: 40}`, `0`
   turning a rule off) loads a guard into the agent's process — an extension
