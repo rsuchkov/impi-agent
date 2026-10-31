@@ -138,7 +138,11 @@ Commands* → *Create New Command*, any name, no request URL — Socket Mode
 delivers it), and the engine answers `/skills`, `/tasks` and — where
 connected accounts are configured — `/connections` with their panels, `/stop`
 by ending the turn, and anything else as a turn of the agent. It never carries thread context,
-which is why the shortcut exists.
+which is why the shortcut exists. Slack says only that a command was typed in
+*a* direct message; the engine asks the channel whom it is with, once, and
+counts it as the agent's direct message only when the other party is the app
+itself — in a direct message with a colleague or another app the command runs
+as a channel's, and a panel of the person's own things refuses to open there.
 
 ## Reactions as commands
 

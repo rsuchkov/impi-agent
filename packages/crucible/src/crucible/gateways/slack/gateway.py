@@ -91,7 +91,7 @@ class SlackGateway:
         if dispatcher is not None:
             self.interactions = SlackInteractions(
                 app, dispatcher, poster or chat, agent=agent, command_prefix=command_prefix,
-                dm_thread=dm_thread,
+                dm_thread=dm_thread, own_user_id=lambda: self._own_user_id,
             )
         # Reactions that are commands: the third door beside the slash command
         # and the shortcut, and like them nothing without a dispatcher.

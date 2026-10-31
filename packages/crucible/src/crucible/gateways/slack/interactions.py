@@ -13,6 +13,7 @@ import re
 from collections.abc import Awaitable, Callable
 
 from slack_bolt.async_app import AsyncApp
+from slack_sdk.errors import SlackApiError
 
 from crucible.approvals import ApprovalOutcome
 from crucible.gateways.dispatch import GatewayDispatcher
@@ -72,6 +73,7 @@ class SlackInteractions:
         agent: str,
         command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX,
         dm_thread: bool = False,
+        own_user_id: Callable[[], str] | None = None,
     ) -> None:
         self._app = app
         self._dispatcher = dispatcher
@@ -81,6 +83,11 @@ class SlackInteractions:
         # Which message shortcuts are commands, and where the command name starts.
         # Empty = every shortcut is a command and its callback id IS the name.
         self._command_prefix = command_prefix
+        # The app's own user id, once it has logged in: what tells the agent's
+        # direct message from any other. None = no way to tell, and a command
+        # typed in any direct message counts as typed in the agent's.
+        self._own_user_id = own_user_id
+        self._direct_partners: dict[str, str] = {}  # direct channel id -> the other user in it
 
     def register(self) -> None:
         # One handler for every engine widget (action ids share a prefix).
@@ -228,8 +235,10 @@ class SlackInteractions:
             return
         channel_id = str(body.get("channel_id", ""))
         # A command carries no thread (Slack forbids them there), so it runs as
-        # the channel's own conversation — or the direct message's.
-        kind = KIND_DM if body.get("channel_name") == "directmessage" else KIND_CHANNEL
+        # the channel's own conversation — or the direct message's, when it is
+        # the agent's own direct message and not one between two people.
+        direct = body.get("channel_name") == "directmessage" and await self._direct_with_agent(channel_id)
+        kind = KIND_DM if direct else KIND_CHANNEL
         user_id = str(body.get("user_id", ""))
         opened = await self._dispatcher.open_screen(
             self._agent, command,
@@ -256,6 +265,27 @@ class SlackInteractions:
             await respond(AGENT_UNAVAILABLE_TEXT)
             return
         await respond(COMMAND_ACK_TEXT)
+
+    async def _direct_with_agent(self, channel_id: str) -> bool:
+        """Whether the direct message a command was typed in is one with this
+        app. The payload says only that it is *a* direct message; the one
+        between two people, or with another app, is the same word there, and
+        a screen that shows a person their own things (``direct_only``) must
+        not open in it. The channel is asked once whom it is with; a channel
+        that cannot be asked is not the agent's."""
+        if self._own_user_id is None:
+            return True
+        partner = self._direct_partners.get(channel_id)
+        if partner is None:
+            try:
+                resp = await self._app.client.conversations_info(channel=channel_id)
+            except SlackApiError:
+                logger.warning("conversations_info %s failed; the command is not taken as a direct message", channel_id, exc_info=True)
+                return False
+            channel = resp.get("channel") or {}
+            partner = str(channel.get("user") or "")  # an `im` names the other user; nothing else has one
+            self._direct_partners[channel_id] = partner
+        return partner == self._own_user_id() != ""
 
     # -- modals and message surgery -------------------------------------------------
 

@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from slack_bolt.async_app import AsyncApp
+from slack_sdk.errors import SlackApiError
 
 from crucible.approvals import ApprovalOutcome
 from crucible.gateways.slack.interactions import SlackInteractions
@@ -317,6 +318,66 @@ async def test_a_command_a_screen_owns_is_drawn_by_the_engine_and_answered_with_
     await _interactions(dispatcher, agent="ward").handle_command(_command(), respond)
     assert dispatcher.calls == [("open_screen", "ward", "ward", "D0AB1", "D0AB1", "dm", "U0HNU8P60")]
     assert respond.said == []
+
+
+class _Channels:
+    """conversations.info as Slack answers it: an `im` names the other user."""
+
+    def __init__(self, channels: dict[str, dict], *, fail: bool = False) -> None:
+        self.channels, self.fail, self.asked = channels, fail, []
+
+    async def __call__(self, *, channel: str) -> dict:
+        self.asked.append(channel)
+        if self.fail:
+            raise SlackApiError("channel_not_found", response={"ok": False, "error": "channel_not_found"})
+        return {"ok": True, "channel": self.channels[channel]}
+
+
+async def test_a_command_in_a_direct_message_is_the_agent_s_only_when_the_agent_is_the_other_party() -> None:
+    """Slack says "directmessage" of a direct message with anyone — the app,
+    another app, a colleague. A screen of the person's own things opens in the
+    agent's; in another's the command runs as a channel's, and the direct_only
+    screen refuses. The channel is asked once."""
+    dispatcher = FakeDispatcher(opened=ScreenOpened(owned=True))
+    it = _interactions(dispatcher, agent="ward", own_user_id=lambda: "UWARD")
+    channels = _Channels({
+        "D0AB1": {"id": "D0AB1", "is_im": True, "user": "UWARD"},
+        "D0OTHER": {"id": "D0OTHER", "is_im": True, "user": "UCOLLEAGUE"},
+        "G0MPIM": {"id": "G0MPIM", "is_mpim": True},  # a group direct message: nobody in particular
+    })
+    it._app.client.conversations_info = channels  # type: ignore[method-assign]
+    await it.handle_command(_command(), Respond())
+    await it.handle_command(_command(channel="D0OTHER"), Respond())
+    await it.handle_command(_command(channel="G0MPIM"), Respond())
+    await it.handle_command(_command(), Respond())
+    assert [c[5] for c in dispatcher.calls] == ["dm", "channel", "channel", "dm"]
+    assert channels.asked == ["D0AB1", "D0OTHER", "G0MPIM"]  # the second command in D0AB1 was not asked again
+
+
+async def test_before_the_app_has_logged_in_no_direct_message_is_the_agent_s() -> None:
+    # An own id of "" (login not done yet) must not match a channel with no
+    # other user in it; the two empties are not the same person.
+    dispatcher = FakeDispatcher(opened=ScreenOpened(owned=True))
+    it = _interactions(dispatcher, agent="ward", own_user_id=lambda: "")
+    it._app.client.conversations_info = _Channels({"G0MPIM": {"id": "G0MPIM", "is_mpim": True}})  # type: ignore[method-assign]
+    await it.handle_command(_command(channel="G0MPIM"), Respond())
+    assert dispatcher.calls[0][5] == "channel"
+
+
+async def test_a_direct_message_the_channel_will_not_tell_about_is_not_the_agent_s() -> None:
+    dispatcher = FakeDispatcher(opened=ScreenOpened(owned=True))
+    it = _interactions(dispatcher, agent="ward", own_user_id=lambda: "UWARD")
+    it._app.client.conversations_info = _Channels({}, fail=True)  # type: ignore[method-assign]
+    await it.handle_command(_command(), Respond())
+    assert dispatcher.calls[0][5] == "channel"
+
+
+async def test_without_an_own_id_any_direct_message_counts_as_before() -> None:
+    # An app that never logs in as a user (the broker's) has no id to compare:
+    # the payload's word is all there is, as it was.
+    dispatcher = FakeDispatcher(opened=ScreenOpened(owned=True))
+    await _interactions(dispatcher, agent="ward").handle_command(_command(), Respond())
+    assert dispatcher.calls[0][5] == "dm"
 
 
 async def test_a_screen_s_refusal_reaches_only_the_person_who_typed_the_command() -> None:
