@@ -3,8 +3,12 @@
 install:
 	uv sync
 
-test:
+test: extension-test
 	uv run pytest -v
+
+# The runtime extensions' own tests (TypeScript, run by Node's type stripping).
+extension-test:
+	node --test packages/crucible/src/crucible/runtimes/pi/extension/*.test.ts
 
 # The store conformance suite against a real Mongo. `make test` covers SQLite
 # only, on purpose: the tests here are offline, and the claim protocol rests on

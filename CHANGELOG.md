@@ -6,7 +6,21 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A loop guard for a turn, off by default.** `runtime.loop_guard` in
+  `agent.yaml` (`true`, or `{repeat: 4, same_result: 4, calls: 40}`, `0`
+  turning a rule off) loads a guard into the agent's process — an extension
+  beside the tool bridge, `extension/loopguard.ts` — that refuses the same
+  call with the same arguments, or nearly the same with the same answer every
+  time, the fourth time and bans it for the session the fifth, warns the model when a tool answers exactly the same thing the
+  fourth time and stops it two past that, and refuses every call past the
+  turn's budget, each refusal a tool error with what to do instead. It runs
+  where the calls and their answers are: the engine never sees a result, by
+  its own rule, so only the runtime can tell "the same answer again" — and
+  the engine knows nothing of the limits: it hands `runtime.loop_guard` on as
+  written (`RUNTIME_LOOP_GUARD`), baked into the process (a change starts a
+  fresh one); the agent image loads the extension beside the bridge and the
+  fallback, inert without the variable. The engine's
+  `LoopGuard` (cascades between agents) is unchanged and always on.
 
 ## v0.42.0 — 2026-10-31
 

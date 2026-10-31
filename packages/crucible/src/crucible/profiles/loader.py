@@ -14,7 +14,11 @@ from pathlib import Path
 
 import yaml
 
-from crucible.ports.agent import DEFAULT_IDLE_TIMEOUT_S, AgentSpec, check_thinking_level
+from crucible.ports.agent import (
+    DEFAULT_IDLE_TIMEOUT_S,
+    AgentSpec,
+    check_thinking_level,
+)
 from crucible.ports.agent.confinement import ConfinementLevel, check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
@@ -251,6 +255,11 @@ class FsProfileStore:
             raise ProfileError(
                 f"{manifest}: runtime.wrap_up_after ({wrap_up_after}) must come before runtime.timeout ({timeout})"
             )
+        loop_guard = runtime.get("loop_guard")
+        if loop_guard is not None and not isinstance(loop_guard, (bool, dict)):
+            raise ProfileError(f"{manifest}: runtime.loop_guard must be true, false or a map of limits")
+        if loop_guard is False:
+            loop_guard = None
         thinking = ""
         if runtime.get("thinking") is not None:
             try:
@@ -270,6 +279,7 @@ class FsProfileStore:
             timeout=float(timeout),
             idle_timeout=float(idle_timeout),
             wrap_up_after=float(wrap_up_after),
+            loop_guard=loop_guard,
             thinking=thinking,
             tools=tuple(tools),
             tools_by_gateway=tools_by_gateway,

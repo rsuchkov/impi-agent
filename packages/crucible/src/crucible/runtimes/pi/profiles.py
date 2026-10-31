@@ -64,6 +64,10 @@ class PiProfile:
     # (0 = never).
     idle_timeout: float = DEFAULT_IDLE_TIMEOUT_S
     wrap_up_after: float = 0.0
+    # The loop guard as the profile wrote it (``True`` or a map of limits),
+    # baked into the process as its extension's setting (extension/loopguard.ts
+    # reads it); None = the extension is not loaded.
+    loop_guard: bool | Mapping[str, int] | None = None
 
 
 def build_pi_profile(spec: AgentSpec) -> PiProfile:
@@ -84,6 +88,7 @@ def build_pi_profile(spec: AgentSpec) -> PiProfile:
         thinking=spec.thinking,
         idle_timeout=spec.idle_timeout,
         wrap_up_after=spec.wrap_up_after,
+        loop_guard=spec.loop_guard,
     )
 
 

@@ -44,6 +44,8 @@ runtime:
   timeout: 180               # seconds of active time per turn (waiting on a person does not count)
   # idle_timeout: 120        # optional; seconds without a word from the model before the turn is stopped as stalled
   # wrap_up_after: 0         # optional; active seconds after which the model is told once to round off (below timeout)
+  # loop_guard: true         # optional; refuse a call repeated 4 times, warn on the same answer 4 times, 40 calls a turn
+  #                          #   (or {repeat: 4, same_result: 4, calls: 40}; 0 turns a rule off). Off by default
   # thinking: medium         # optional; off | minimal | low | medium | high | xhigh | max — lower it when answers get truncated
   tools: [read, bash]        # the ONE allowlist (see "Tool gating")
   # tools_by_gateway:        # optional; an agent on several gateways allowed less on one:

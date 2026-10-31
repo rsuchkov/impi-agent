@@ -38,6 +38,8 @@ runtime:
   wrap_up_after: 0        # optional; active seconds after which the model is told, once, to stop
                           # calling tools and say what is done and what is left — so a long turn
                           # rounds off before `timeout` cuts it. 0 = never; must be below timeout
+  loop_guard: false       # optional; the agent's loop guard, off by default — true for the
+                          # defaults, or {repeat: 4, same_result: 4, calls: 40} (see "Loop guard")
   thinking: medium        # optional; how much the model reasons before it answers:
                           # off | minimal | low | medium | high | xhigh | max (the runtime's levels;
                           # omit for its default). An answer that comes back cut short, or not at
@@ -69,6 +71,39 @@ still ends the turn. Each model needs a login or a definition the runtime has
 where the agent runs (`impi doctor` — `impi health` in a source checkout —
 names one that does not). The deployment can set one list for every agent
 (`DEFAULT_FALLBACK_MODELS`); `AGENTS_FALLBACK_MODELS__<AGENT>` overrides an agent.
+
+### Loop guard
+
+A small model repeats a call that changes nothing, or varies it and gets the
+same answer back, reads a refusal and tries again; nothing bounds a turn's
+calls but `timeout`. `loop_guard` turns on a guard that runs inside the
+agent's process, where the calls and their answers are, and refuses on three
+counts, each per turn:
+
+- `repeat` — the same tool with the same arguments (whatever order the model
+  spelled them in), or nearly the same — nine words in ten in common — that
+  got the same answer every time: the fourth such call is refused with a word
+  to the model, the fifth is banned for the rest of the session. A call whose
+  answer changes is progress (paging through results, a clock) and is left
+  alone;
+- `same_result` — the same tool answering exactly the same thing: the fourth
+  time the answer carries a warning, two past that the next call of the tool
+  is refused and the model is told to stop and report;
+- `calls` — the fortieth call of a turn and every one after is refused, and
+  the model is told to stop and report.
+
+`true` is those defaults; a map names its own (`{repeat: 3, calls: 20}`, the
+rest at their defaults; `0` turns a rule off; a limit the guard does not know
+is ignored with a line in the log). The engine hands the value on as written —
+the limits, their defaults and what a refusal says are the guard's
+(`extension/loopguard.ts`), not the engine's. A refusal is a tool error the
+model reads, with what to do instead; the log says `loop guard: <tool>
+refused: …`. Off by default: a guard refuses the model's own calls, which an
+agent that reads files in a loop on purpose does not want. It is the engine's
+`LoopGuard` for cascades *between* agents that is always on; this one bounds
+one turn. The runtime loads it as an extension beside the tool bridge — nothing
+to install. The limits are baked into the agent's process, so changing them
+starts a fresh one at the next turn (`impi reload`).
 
 `.pi/SYSTEM.md` is the agent's true personality — who it is, its scope, its house
 rules. Write it in whatever language the agent should think in. `pi` loads it

@@ -184,11 +184,12 @@ def test_every_network_a_service_names_is_declared() -> None:
         assert f"  {network}:" in declarations
 
 
-def test_every_agents_runtime_loads_the_bridge_and_the_fallback_extension() -> None:
-    # The fallback extension is inert until the engine names models for the agent.
-    assert "RUNTIME_RELAY_EXTENSIONS: /app/extension/index.ts:/app/extension/fallback.ts" in _rendered()
+def test_every_agents_runtime_loads_the_bridge_the_fallback_and_the_loop_guard_extensions() -> None:
+    # The fallback and loop guard extensions are inert until the engine sets their variables for the agent.
+    every = "/app/extension/index.ts:/app/extension/fallback.ts:/app/extension/loopguard.ts"
+    assert f"RUNTIME_RELAY_EXTENSIONS: {every}" in _rendered()
     dockerfile = (Path(__file__).parents[1] / "deploy" / "Dockerfile.agent").read_text()
-    assert "RUNTIME_RELAY_EXTENSIONS=/app/extension/index.ts:/app/extension/fallback.ts" in dockerfile
+    assert f"RUNTIME_RELAY_EXTENSIONS={every}" in dockerfile
 
 
 def test_the_extensions_directory_is_mounted_only_when_something_in_it_is_enabled() -> None:

@@ -7,13 +7,13 @@ this type names no runtime, so profile loading and the registry stay independent
 of any backend.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from crucible.ports.agent.confinement import ConfinementLevel
 
 DEFAULT_IDLE_TIMEOUT_S = 120.0
-
 # The levels ``AgentSpec.thinking`` may name, least to most. The scale is the
 # port's; a runtime driver maps it onto its own setting (one driver's happens
 # to spell the same words).
@@ -81,6 +81,12 @@ class AgentSpec:
     # and say what is done and what is left (``WRAP_UP_NOTE``); the hard
     # ``timeout`` stays as the ceiling. 0 = never.
     wrap_up_after: float = 0.0
+    # The agent's loop guard, as written in the profile: ``True`` for the
+    # runtime's defaults, a map of limits (``repeat``, ``same_result``,
+    # ``calls``), or None — off, the default. What the limits mean and what a
+    # guard does is the runtime's (its extension reads the value); the engine
+    # only hands it on.
+    loop_guard: bool | Mapping[str, int] | None = None
 
     def tools_on(self, gateway: str) -> tuple[str, ...] | None:
         """The tools a conversation on ``gateway`` may use: the gateway's own

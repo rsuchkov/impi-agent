@@ -1035,3 +1035,46 @@ async def test_the_turns_limits_come_from_the_profile() -> None:
     profile = dataclasses.replace(_profile(), timeout=300.0, idle_timeout=45.0, wrap_up_after=240.0)
     await rt.run_stateful(profile, "assistant--T1", "a")
     assert session.limits == (300.0, 45.0, 240.0)
+
+
+async def test_a_profile_with_a_loop_guard_loads_the_extension_and_hands_the_value_on(monkeypatch) -> None:
+    import json
+
+    from crucible.runtimes.pi.runtime import (
+        LOOP_GUARD_ENV,
+        LOOP_GUARD_EXTENSION_PATH,
+        spawn_fingerprint,
+    )
+
+    captured: list = []
+
+    async def fake_open(self, request):
+        captured.append(request)
+        return SimpleNamespace()
+
+    monkeypatch.setattr("crucible.runtimes.pi.hosts.local.LocalHost.open", fake_open)
+    rt = PiRuntime(extra_extensions=["/bridge/index.ts"])
+    guarded = dataclasses.replace(_profile(), loop_guard={"repeat": 3, "calls": 20})
+    await rt._spawn_session(guarded, "assistant--c1")
+    await rt._spawn_session(_profile(), "assistant--c2")
+    await rt._spawn_session(dataclasses.replace(_profile(), loop_guard=True), "assistant--c3")
+    with_guard, plain, defaults = captured
+    assert json.loads(with_guard.env[LOOP_GUARD_ENV]) == {"repeat": 3, "calls": 20}  # as written: the extension reads it
+    assert with_guard.extensions == ("/bridge/index.ts", str(LOOP_GUARD_EXTENSION_PATH))
+    assert LOOP_GUARD_ENV not in plain.env and plain.extensions == ("/bridge/index.ts",)
+    assert defaults.env[LOOP_GUARD_ENV] == "true" and str(LOOP_GUARD_EXTENSION_PATH) in defaults.extensions
+    # Baked into the process: a change of limits is a new process.
+    assert spawn_fingerprint(guarded) != spawn_fingerprint(_profile())
+    assert spawn_fingerprint(guarded) == spawn_fingerprint(dataclasses.replace(guarded))
+
+
+def test_the_loop_guard_reaches_the_drivers_profile() -> None:
+    from crucible.ports.agent import AgentSpec
+    from crucible.runtimes.pi.profiles import build_pi_profile
+
+    spec = AgentSpec(
+        name="assistant", display_name="A", role="r", description="", profile_dir=Path("agents/assistant"),
+        loop_guard={"repeat": 2, "same_result": 2, "calls": 5},
+    )
+    assert build_pi_profile(spec).loop_guard == {"repeat": 2, "same_result": 2, "calls": 5}
+    assert build_pi_profile(dataclasses.replace(spec, loop_guard=None)).loop_guard is None

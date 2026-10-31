@@ -61,6 +61,11 @@ SESSION_PROOF_ENV = "TOOL_SESSION_PROOF"
 # loaded for a profile that names fallback models — by this runtime itself, so
 # an application cannot forget it. It reads its chain from FALLBACK_MODELS_ENV.
 FALLBACK_EXTENSION_PATH = Path(__file__).with_name("extension") / "fallback.ts"
+# The loop guard ships the same way: loaded for an agent whose profile turns it
+# on, with the profile's value handed on as JSON — the limits, their defaults
+# and what they mean are the extension's.
+LOOP_GUARD_EXTENSION_PATH = Path(__file__).with_name("extension") / "loopguard.ts"
+LOOP_GUARD_ENV = "RUNTIME_LOOP_GUARD"
 FALLBACK_MODELS_ENV = "RUNTIME_FALLBACK_MODELS"
 # Granted to every process, wherever it runs. PI_OFFLINE stops the runtime's
 # own network calls — its version check, downloading rg/fd, installing a
@@ -119,6 +124,7 @@ def spawn_fingerprint(profile: PiProfile) -> str:
         "envelope_note": profile.envelope_note,
         "fallback_models": list(profile.fallback_models),
         "thinking": profile.thinking,
+        "loop_guard": profile.loop_guard,
     }
     return hashlib.sha256(json.dumps(baked, sort_keys=True).encode()).hexdigest()
 
@@ -572,6 +578,9 @@ class PiRuntime:
         if chain:
             env[FALLBACK_MODELS_ENV] = ",".join(chain)
             extensions.append(str(FALLBACK_EXTENSION_PATH))
+        if profile.loop_guard:
+            env[LOOP_GUARD_ENV] = json.dumps(profile.loop_guard, separators=(",", ":"))
+            extensions.append(str(LOOP_GUARD_EXTENSION_PATH))
         scope = await self._scopes.scope_for(profile.name, safe_id) if self._scopes else None
         request = SpawnRequest(
             agent=profile.name,

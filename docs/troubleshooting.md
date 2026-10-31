@@ -57,6 +57,11 @@ and the `agent.yaml` key behind it:
   which was still running without a result, so the model does not repeat a
   call that may have taken effect. `runtime.wrap_up_after` tells a long turn,
   once, to round off before the limit.
+- A turn that calls the same tool over and over, or runs dozens of calls to no
+  end: `runtime.loop_guard` in the agent's `agent.yaml` refuses a repeated
+  call, a repeated answer and a turn past its budget of calls, with a word to
+  the model each time (`loop guard: … refused: …` in the log). Off by
+  default; see "Loop guard" in [creating-agents.md](creating-agents.md).
 - "The model stopped responding in the middle of this turn, so I stopped it"
   (`stalled`) — no text, reasoning or tool activity for `runtime.idle_timeout`
   seconds (120 by default; not counted while a tool runs or a card is up); the

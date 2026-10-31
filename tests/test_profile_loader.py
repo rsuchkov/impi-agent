@@ -427,3 +427,18 @@ def test_a_gateway_may_be_allowed_everything_except_a_few_tools(tmp_path: Path) 
         _write_agent(root, "assistant", f"name: assistant\nrole: r\nruntime:\n  tools: [read, bash, mcp__notes__*]\n{body}")
         with pytest.raises(ProfileError, match=problem):
             FsProfileStore(root, library=None).get("assistant")
+
+
+def test_the_loop_guard_is_handed_on_as_written_and_off_unless_asked_for(tmp_path: Path) -> None:
+    from crucible.profiles.loader import ProfileError
+
+    def load(root: Path, runtime_lines: str):
+        _write_agent(root, "assistant", _yaml_with_runtime(runtime_lines))
+        return FsProfileStore(root, library=None).get("assistant").loop_guard
+
+    assert load(tmp_path / "default", "") is None  # off by default
+    assert load(tmp_path / "plain", "  loop_guard: true\n") is True  # the runtime's defaults
+    assert load(tmp_path / "tuned", "  loop_guard: {repeat: 3, calls: 0}\n") == {"repeat": 3, "calls": 0}  # as written: the runtime reads it
+    assert load(tmp_path / "off", "  loop_guard: false\n") is None
+    with pytest.raises(ProfileError, match="true, false or a map"):
+        load(tmp_path / "words", "  loop_guard: soon\n")
