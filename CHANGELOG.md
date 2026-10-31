@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.42.0 — 2026-10-31
+
 - **A connection's owner may be decided once the provider has named the
   account.** An application that keys a person by their account at the
   provider — one person reached through several chats — hands
