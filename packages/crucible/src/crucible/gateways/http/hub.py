@@ -549,11 +549,14 @@ class HttpHub:
     async def _trace(self, request: web.Request) -> web.Response:
         """The calls of a turn that has ended, by the token its `turn.finished`
         carried: what the journal said while it ran, kept past the journal's
-        retention. The token came to the caller in their own journal; the
-        record is answered to a caller of that conversation's realm."""
+        retention. The token came to the caller in their own journal, and the
+        record is answered to that caller alone — the turn's owner, their realm
+        and user, as the journal is — not to anyone of the realm: the arguments
+        of one person's calls are theirs. A record written before the owner
+        was kept (an older engine's) names nobody, and nobody is ""."""
         caller = await self.caller(request, None)
         record = await self.turns.trace(request.match_info["token"])
-        if record is None or not record.conversation_id.startswith(f"{caller.realm}{_SEP}"):
+        if record is None or record.owner != caller.owner:
             raise Refusal(404, "not_found", "no such trace")
         return web.json_response({
             "token": record.token,

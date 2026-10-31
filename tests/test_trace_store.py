@@ -4,8 +4,11 @@ The widget that shows them is clicked minutes or a restart after the turn, so
 the trace has to be there whatever holds it, and gone once nobody would open it.
 """
 
+import sqlite3
+
 from crucible.ports.traces import TraceRecord
 from crucible.store.base import Store
+from crucible.store.sqlite import SqliteSessionStore
 from tests.conftest import StoreBackend
 
 T0 = "2026-09-17T09:00:00+00:00"
@@ -18,7 +21,7 @@ def _trace(**over) -> TraceRecord:
         token="tr_1", agent="assistant", channel_id="ch1", conversation_id="dm1",
         kind="dm", created_at=T0, finished_at=T1,
         calls='[{"i":0,"tool":"bash","args":"{\\"command\\":\\"make test\\"}"}]',
-        post_id="p-42",
+        post_id="p-42", owner="portal/u1",
     )
     base.update(over)
     return TraceRecord(**base)  # type: ignore[arg-type]
@@ -58,3 +61,26 @@ async def test_pruning_takes_only_what_finished_before_the_cutoff(store: Store) 
     assert await store.get_trace("tr_old") is None
     assert await store.get_trace("tr_new") is not None
     assert await store.prune_traces(before=T1) == 0  # nothing left to take
+
+
+async def test_a_table_from_before_owners_gains_the_column_on_open(tmp_path) -> None:
+    # An engine older than the owner column made the table without it; the
+    # facet adds the column on open, and a record with an owner round-trips.
+    path = tmp_path / "old.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TABLE tool_traces (token TEXT PRIMARY KEY, agent TEXT NOT NULL, channel_id TEXT NOT NULL,"
+            " conversation_id TEXT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL,"
+            " finished_at TEXT NOT NULL, calls TEXT NOT NULL, post_id TEXT NOT NULL DEFAULT '')"
+        )
+        conn.execute(
+            "INSERT INTO tool_traces VALUES ('tr_old', 'assistant', 'ch1', 'dm1', 'dm', ?, ?, '[]', '')", (T0, T1)
+        )
+    store = SqliteSessionStore(path)
+    try:
+        old = await store.get_trace("tr_old")
+        assert old is not None and old.owner == ""
+        await store.create_trace(_trace())
+        assert await store.get_trace("tr_1") == _trace()
+    finally:
+        await store.close()

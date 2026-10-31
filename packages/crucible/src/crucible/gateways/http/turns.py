@@ -135,7 +135,7 @@ class _Trace:
             await self._traces.create_trace(TraceRecord(
                 token=token, agent=turn.agent, conversation_id=turn.conversation,
                 created_at=self._created_at, finished_at=now_iso(),
-                calls=encode_calls(turn.calls.calls),
+                calls=encode_calls(turn.calls.calls), owner=turn.owner,
             ))
         except Exception:
             logger.warning("the calls of turn %s could not be recorded", turn.id, exc_info=True)

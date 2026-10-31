@@ -210,7 +210,11 @@ so a page opened later can still show "Worked 12 s · 4 steps" and the steps.
 event that led to it, `""` when none); `state` is `ok`, `failed` or
 `unfinished` (the turn ended with the call still running); `args` is the call's arguments as compact JSON, cut at 8000
 characters with the original length in `cut`; never a result. `404` for a
-token the caller's realm did not see, or that names nothing.
+token that names nothing, or a turn the caller did not start: the record is
+read by the turn's owner — the realm and user the journal was read by — not
+by anyone of the realm, since one person's arguments are theirs. A record an
+engine wrote before it kept the owner (v0.42 and earlier) is answered to
+nobody.
 
 ### `GET /v1/agents/{agent}/conversations?startedSince=<ISO-8601>`
 

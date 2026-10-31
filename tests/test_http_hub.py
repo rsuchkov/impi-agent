@@ -29,6 +29,7 @@ from crucible.ports.agent.runtime import RuntimeStats
 from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.types import Action, IncomingMessage
+from crucible.ports.traces import TraceRecord
 from crucible.store.base import SessionRecord
 from crucible.store.sqlite import SqliteSessionStore
 
@@ -1537,10 +1538,21 @@ async def test_a_finished_turn_accounts_for_itself_and_its_calls_outlive_the_jou
             ]
             assert body["calls"][0]["durationS"] == 0.4 and body["calls"][0]["args"] == '{"q":"x"}'
             assert [c["remark"] for c in body["calls"]] == ["", "Nothing there, reading the file instead"]
-            # Another realm, even with the token in hand, is told nothing.
+            # Another realm, even with the token in hand, is told nothing —
+            # nor is another user of the same realm: the record is its owner's,
+            # as the journal was, not the calling program's.
             other = {**AUTH, "Authorization": "Bearer tok-other"}
             status, _ = await _get(s, 8499, f"/v1/traces/{token}", headers=other)
             assert status == 404
+            neighbour = {**AUTH, "X-User-Id": "u2"}
+            status, _ = await _get(s, 8499, f"/v1/traces/{token}", headers=neighbour)
+            assert status == 404
+            # A record that names no owner — written by an engine before owners
+            # were kept — is answered to nobody, realm or not.
+            await store.create_trace(TraceRecord(
+                token="0123456789abcdef0123456789abcdef", agent="helper", conversation_id="portal:c1",
+                created_at="2026-10-31T09:00:00+00:00", finished_at="2026-10-31T09:00:01+00:00", calls="[]",
+            ))
             status, _ = await _get(s, 8499, "/v1/traces/0123456789abcdef0123456789abcdef")
             assert status == 404
     finally:

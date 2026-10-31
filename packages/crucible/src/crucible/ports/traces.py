@@ -157,7 +157,11 @@ class TraceRecord:
     record owns its shape and the store only keeps it. It holds names,
     arguments, outcomes and timings; never results. ``channel_id``, ``kind``
     and ``post_id`` are the chat widget's — the place and the message it is
-    drawn in — and "" for a turn that has none (an http caller's).
+    drawn in — and "" for a turn that has none (an http caller's). ``owner``
+    is who may read the record where reading is asked for by token — the http
+    caller a turn was started by (their realm and user, as the turn's journal
+    names them) — and "" for a chat widget's, which is read by a click in the
+    conversation it shows.
     """
 
     token: str
@@ -169,6 +173,7 @@ class TraceRecord:
     channel_id: str = ""
     kind: str = ""
     post_id: str = ""
+    owner: str = ""
 
 
 class Traces(Protocol):

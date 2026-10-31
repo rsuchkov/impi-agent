@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS tool_traces (
   created_at      TEXT NOT NULL,
   finished_at     TEXT NOT NULL,
   calls           TEXT NOT NULL,
-  post_id         TEXT NOT NULL DEFAULT ''
+  post_id         TEXT NOT NULL DEFAULT '',
+  owner           TEXT NOT NULL DEFAULT ''
 );
 -- Pruning is by age; nothing else ever scans the table.
 CREATE INDEX IF NOT EXISTS idx_traces_finished ON tool_traces (finished_at);
@@ -41,6 +42,11 @@ class TraceStoreMixin(SqliteBase):
         """Create this facet's table. The composing store calls it while it
         holds the lock on open, so the schema stays the mixin's own business."""
         self._conn.executescript(_TRACES_SCHEMA)
+        # A table made by an older version lacks the columns added since;
+        # CREATE TABLE IF NOT EXISTS leaves it as it was.
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(tool_traces)")}
+        if "owner" not in columns:
+            self._conn.execute("ALTER TABLE tool_traces ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
 
     # -- sync core -------------------------------------------------------------
 
