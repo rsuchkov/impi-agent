@@ -101,7 +101,7 @@ Run statuses and what each one means:
 | `interrupted` | the engine died mid-run; the occurrence is **not** re-run |
 | `no_agent` | the agent isn't live — no profile, or no token |
 | `no_conversation` | nowhere to post the result |
-| `missed` | later than its grace window, or the task has `on_missed: skip` |
+| `missed` | later than its grace window, or late and the task has `on_missed: skip` |
 | `overlap` | the previous run outlasted the task's own period |
 | `cancelled` | shutdown, or the task was removed mid-run |
 | `stopped` | a person stopped the run's turn (`/stop`, Slack's Stop button); the turn said so itself; not a failure, does not pause the task |

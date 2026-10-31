@@ -281,8 +281,11 @@ class Scheduler:
             await self._tick_watch(task, scheduled, upcoming, next_due, now)
             return
 
+        # Late is later than one tick: a punctual occurrence is seen within a
+        # tick of its time, and on_missed speaks only of a late one.
+        late = lateness.total_seconds() > self._fresh_slack()
         grace = grace_window(trigger, now=now)
-        if task.on_missed == ON_MISSED_SKIP or lateness > grace:
+        if (late and task.on_missed == ON_MISSED_SKIP) or lateness > grace:
             why = (
                 "on_missed=skip"
                 if task.on_missed == ON_MISSED_SKIP
@@ -294,7 +297,6 @@ class Scheduler:
             )
             return
 
-        late = lateness.total_seconds() > self._fresh_slack()
         run = await self._store.claim_due(
             task_id=task.id,
             seen_due_at=task.due_at or "",

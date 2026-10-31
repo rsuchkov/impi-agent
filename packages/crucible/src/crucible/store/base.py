@@ -273,7 +273,7 @@ RUN_DEADLINE = "deadline"  # we stopped waiting; the turn may still be running
 RUN_INTERRUPTED = "interrupted"  # the engine died mid-run
 RUN_NO_AGENT = "no_agent"  # the agent isn't live (profile gone, no token)
 RUN_NO_CONVERSATION = "no_conversation"  # nowhere to post the result
-RUN_MISSED = "missed"  # past its grace window, or on_missed=skip
+RUN_MISSED = "missed"  # past its grace window, or late with on_missed=skip
 RUN_OVERLAP = "overlap"  # the previous run outlasted the task's own period
 RUN_CANCELLED = "cancelled"  # shutdown, or the task was removed mid-run
 RUN_DUPLICATE = "duplicate"  # the turn was deduped — a run id was replayed

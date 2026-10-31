@@ -282,6 +282,24 @@ async def test_a_task_that_asked_not_to_be_caught_up_is_only_reported(store) -> 
     assert (run.status, run.detail) == (RUN_MISSED, "on_missed=skip")
 
 
+async def test_a_task_that_asked_not_to_be_caught_up_still_runs_on_time(store) -> None:
+    # on_missed speaks of a late occurrence only: one seen within a tick of
+    # its time is punctual, and a "skip" task that never ran was the bug.
+    clock = Clock()
+    await store.create_task(_task(clock, spec="every 1h", on_missed=ON_MISSED_SKIP))
+    clock.advance(seconds=20)  # within a tick of its time: punctual
+    sched, kw = _scheduler(store, clock)
+
+    await sched.tick()
+    await _settle()
+
+    assert len(kw["dispatcher"].requests) == 1
+    run = (await store.list_runs("tsk_1"))[0]
+    assert (run.status, run.trigger) == (RUN_OK, TRIGGERED_SCHEDULE)
+    task = await store.get_task("tsk_1")
+    assert task is not None and task.miss_count == 0
+
+
 async def test_a_late_task_waits_out_the_startup_grace_then_runs(store) -> None:
     # Gateways may still be logging in; a burst of catch-up the moment the
     # process starts is how a restart turns into a restart loop.

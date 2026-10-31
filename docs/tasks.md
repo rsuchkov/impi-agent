@@ -125,8 +125,9 @@ and says so once — a broken task should stop burning turns.
 grace window (half the period, between two minutes and two hours; fifteen minutes
 for a one-off). Later than that it is recorded as `missed`, with the reason, and
 moves on to the next occurrence. A task where a late run is worse than no run can
-say `on_missed: skip`. Nothing catches up in the first minute after a restart,
-so a restart cannot turn into a burst.
+say `on_missed: skip`: a late occurrence is recorded as missed instead of caught
+up, while one seen on time runs as always. Nothing catches up in the first minute
+after a restart, so a restart cannot turn into a burst.
 
 ## What survives what
 

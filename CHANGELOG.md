@@ -21,6 +21,11 @@ when a release is cut, and `impi update` shows the target version's section.
   fresh one); the agent image loads the extension beside the bridge and the
   fallback, inert without the variable. The engine's
   `LoopGuard` (cascades between agents) is unchanged and always on.
+- **Fixed: a task with `on_missed: skip` never ran.** The skip was applied to
+  every occurrence, punctual ones included, so such a task was recorded
+  `missed` with `on_missed=skip` at every due time and ran zero times. The
+  skip now applies to a late occurrence only — one seen later than a tick
+  after its time — and a punctual one runs as any task's does.
 
 ## v0.42.0 — 2026-10-31
 
