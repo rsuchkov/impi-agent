@@ -684,6 +684,12 @@ class ConnectionStore(Protocol):
         ``version`` that is given. Whether one was deleted."""
         ...
 
+    async def move_connection(self, owner: str, provider: str, *, to: str) -> bool:
+        """Put the pair's record under ``to`` — the same record, grant, version
+        and lease, a new owner. False when there is none, or ``to`` already
+        has one of ``provider``: nothing is overwritten."""
+        ...
+
 
 class LeaseStore(Leases, Protocol):
     """The store's leases (``ports.lease.Leases``): named, one holder at a time

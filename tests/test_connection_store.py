@@ -163,3 +163,23 @@ async def test_sqlite_drops_links_nobody_came_back_for(tmp_path: Path) -> None:
         assert rows == [("new",)]
     finally:
         await store.close()
+
+
+async def test_a_connection_moves_to_another_owner_whole_and_never_over_one(connections) -> None:
+    await connections.save_connection(_record(owner="slack:U1", version=3))
+    assert await connections.claim_refresh(
+        "slack:U1", "gitlab", connect_id=_record().connect_id, version=3, now="2026-01-01T00:00:00+00:00",
+        until="2026-01-01T00:01:00+00:00",
+    )
+    assert await connections.move_connection("slack:U1", "gitlab", to="person:7") is True
+    moved = await connections.get_connection("person:7", "gitlab")
+    assert moved == _record(owner="person:7", version=3) and await connections.get_connection("slack:U1", "gitlab") is None
+    # The lease moved with it: the same credential cannot be claimed again until it runs out.
+    assert not await connections.claim_refresh(
+        "person:7", "gitlab", connect_id=_record().connect_id, version=3, now="2026-01-01T00:00:30+00:00",
+        until="2026-01-01T00:02:00+00:00",
+    )
+    await connections.save_connection(_record(owner="slack:U2", connect_id="g2"))
+    assert await connections.move_connection("slack:U2", "gitlab", to="person:7") is False  # taken
+    assert await connections.get_connection("slack:U2", "gitlab") == _record(owner="slack:U2", connect_id="g2")
+    assert await connections.move_connection("nobody", "gitlab", to="person:9") is False

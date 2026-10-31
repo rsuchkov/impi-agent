@@ -61,6 +61,19 @@ class AccountPolicy(Protocol):
     ) -> str | None: ...
 
 
+class ConnectionOwner(Protocol):
+    """The application's word on whom a connection belongs to, once the
+    provider has named the account — for an application that keys a person by
+    that account rather than by the chat user who started the connect (one
+    person, several chats, one connection). ``started_by`` is whom ``begin``
+    started it for; the answer is the owner the connection is saved under —
+    ``started_by`` itself to keep it. ``facts`` as for ``AccountPolicy``."""
+
+    async def owner_of(
+        self, started_by: str, provider: str, account: ProviderAccount, facts: Mapping[str, str]
+    ) -> str: ...
+
+
 class ConnectionsAudit(Protocol):
     """Where each event of a connection is recorded: one call per event, with
     an outcome and plain fields — never a token, a code or a state."""

@@ -40,6 +40,7 @@ from crucible.connections.audit import (
     EVENT_CONNECT_START,
     EVENT_DISCONNECT,
     EVENT_FORGET,
+    EVENT_MOVE,
     EVENT_REFRESH,
     RESULT_NOT_CONNECTED,
     RESULT_OK,
@@ -65,6 +66,7 @@ from crucible.connections.pkce import (
 )
 from crucible.connections.ports import (
     AccountPolicy,
+    ConnectionOwner,
     ConnectionsAudit,
     OAuthProvider,
     Sealer,
@@ -133,6 +135,7 @@ class OAuthConnections:
         providers: Mapping[str, OAuthProvider],
         sealer: Sealer,
         policy: AccountPolicy | None = None,
+        owners: ConnectionOwner | None = None,
         audit: ConnectionsAudit | None = None,
         telemetry: Telemetry | None = None,
         link_ttl_s: float = 600.0,
@@ -148,6 +151,9 @@ class OAuthConnections:
         self._providers = dict(providers)
         self._sealer = sealer
         self._policy = policy
+        # Who a finished connect is saved for, when that is known only once the
+        # provider has named the account (None: whom begin() started it for).
+        self._owners = owners
         self._audit = audit or LoggingAudit()
         self._telemetry = telemetry
         # How long a started connect waits for the person to come back.
@@ -229,12 +235,18 @@ class OAuthConnections:
         except ProviderUnavailable:
             self._audit_and_tell(EVENT_CONNECT, RESULT_UNAVAILABLE, **where)
             raise
+        known = dict(facts or {})
         try:
             account = await oauth.identify(tokens.access_token)
             refusal = (
-                await self._policy.refusal(link.owner, link.provider, account, dict(facts or {}))
+                await self._policy.refusal(link.owner, link.provider, account, known)
                 if self._policy else None
             )
+            # Whom it is saved for: whom the connect was started for, unless
+            # the application names somebody else now that the account is known.
+            saved_for = (
+                await self._owners.owner_of(link.owner, link.provider, account, known) if self._owners else ""
+            ) or link.owner
         except BaseException:
             # Issued, and about to be dropped: nobody may keep using them.
             await self._revoke_tokens(oauth, tokens)
@@ -244,16 +256,20 @@ class OAuthConnections:
             await self._revoke_tokens(oauth, tokens)
             self._audit_and_tell(EVENT_CONNECT, ACCOUNT_REFUSED, account=account.username, **where)
             raise LinkRefused(ACCOUNT_REFUSED, provider=link.provider, account=account.username, detail=refusal)
-        previous = await self._connections.get_connection(link.owner, link.provider)
+        if saved_for != link.owner:
+            where = {"owner": saved_for, "provider": link.provider, "started_by": link.owner}
+        previous = await self._connections.get_connection(saved_for, link.provider)
         try:
-            await self._connections.save_connection(self._record(link.owner, link.provider, tokens, account))
+            await self._connections.save_connection(self._record(saved_for, link.provider, tokens, account))
         except BaseException:
             await self._revoke_tokens(oauth, tokens)
             raise
         if previous is not None:
             await self._revoke_stored(previous)  # the grant this connect replaced
         self._audit_and_tell(EVENT_CONNECT, RESULT_OK, account=account.username, **where)
-        connected = Connected(owner=link.owner, provider=link.provider, account=account, return_to=link.return_to)
+        connected = Connected(
+            owner=saved_for, provider=link.provider, account=account, return_to=link.return_to, started_by=link.owner,
+        )
         if self._on_connected is not None:
             try:
                 await self._on_connected(connected)
@@ -321,6 +337,21 @@ class OAuthConnections:
             EVENT_FORGET, RESULT_OK if deleted else RESULT_NOT_CONNECTED,
             owner=owner, provider=grant.provider, account=grant.account.username,
         )
+
+    async def move(self, owner: str, provider: str, *, to: str) -> bool:
+        """Hand ``owner``'s connection to ``provider`` to ``to`` — the one
+        record, with its grant, its version and any refresh lease, under the
+        new owner; nothing is copied, since a provider that rotates its
+        refresh token would leave two records of one grant killing each
+        other. For an application that learns whom a connection is a person's
+        after it was made. False when ``owner`` has none, or ``to`` already
+        has one of that provider: which to keep is the application's call
+        (``disconnect`` one first)."""
+        moved = await self._connections.move_connection(owner, provider, to=to)
+        self._audit_and_tell(
+            EVENT_MOVE, RESULT_OK if moved else RESULT_NOT_CONNECTED, owner=owner, provider=provider, to=to,
+        )
+        return moved
 
     async def disconnect(self, owner: str, provider: str) -> Disconnection | None:
         """End ``owner``'s connection to ``provider`` and revoke it there. None

@@ -768,7 +768,17 @@ credential, is another user's credential.
   an account may not be bound to that person, or None; `facts` is what your
   route knew about the person when it finished the connect (an email, a
   realm), passed as plain strings rather than through a context variable
-  around the call. The consent URL `begin` returns goes to the
+  around the call. When whom a connection belongs to is known only once the
+  provider has named the account — one person reached through several chats,
+  keyed by that account — a `ConnectionOwner` (`OAuthConnections(owners=)`)
+  answers `owner_of(started_by, provider, account, facts)` with the owner to
+  save it under; `Connected.started_by` still says whom `begin` started it
+  for, so the application can bind the chat user to the person. A connection
+  made before the rule existed is handed over whole with
+  `move(owner, provider, to=…)` (its grant, version and lease; never a copy,
+  since a rotated refresh token leaves two records of one grant killing each
+  other) — False when the new owner already has one, which is yours to
+  resolve. The consent URL `begin` returns goes to the
   person privately: whoever holds it can finish the connect. Seal with
   `FernetSealer(keys)` (`crucible[connections]`); the first key seals, every
   key opens. `OAuth2Provider(OAuth2Config(...))` covers a provider that

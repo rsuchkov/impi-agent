@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from pymongo.errors import DuplicateKeyError
+
 from crucible.store.base import ConnectionLinkRecord, ConnectionRecord
 from crucible.store.mongo.base import (
     CONNECTION_LINKS,
@@ -87,6 +89,14 @@ class MongoConnectionMixin(MongoBase):
         db = await self._ready()
         result = await db[CONNECTIONS].delete_one({**_key(owner, provider), **_credential(connect_id, version)})
         return result.deleted_count == 1
+
+    async def move_connection(self, owner: str, provider: str, *, to: str) -> bool:
+        db = await self._ready()
+        try:
+            result = await db[CONNECTIONS].update_one(_key(owner, provider), {"$set": {"owner": to}})
+        except DuplicateKeyError:  # `to` already has one: the unique index says so, and nothing moved
+            return False
+        return result.matched_count == 1
 
     # -- links ----------------------------------------------------------------------
 

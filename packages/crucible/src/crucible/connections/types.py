@@ -30,12 +30,15 @@ class OAuthTokens:
 @dataclass(frozen=True)
 class Connected:
     """A connect that finished: whose, where, as whom — and the ``return_to``
-    the application gave ``begin``."""
+    the application gave ``begin``. ``started_by`` is whom ``begin`` started it
+    for, which ``owner`` differs from when the application's ``ConnectionOwner``
+    named somebody else once the provider had named the account."""
 
     owner: str
     provider: str
     account: ProviderAccount
     return_to: str = ""
+    started_by: str = ""
 
 
 @dataclass(frozen=True)

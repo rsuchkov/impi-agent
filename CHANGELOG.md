@@ -6,7 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A connection's owner may be decided once the provider has named the
+  account.** An application that keys a person by their account at the
+  provider — one person reached through several chats — hands
+  `OAuthConnections(owners=)` a `ConnectionOwner` whose
+  `owner_of(started_by, provider, account, facts)` names whom to save the
+  connection for; `begin` still starts it for the chat user, and
+  `Connected.started_by` says so beside `owner`. Before, the owner was whom
+  `begin` named and nothing could change it, so a person connecting from
+  Slack and from a panel ended up with two connections of one account. A
+  connection made before the rule is handed over whole with
+  `move(owner, provider, to=…)` (`ConnectionStore.move_connection`; the same
+  grant, version and lease — never a copy), False when the new owner already
+  has one; the audit says `move`.
 
 ## v0.41.0 — 2026-10-30
 

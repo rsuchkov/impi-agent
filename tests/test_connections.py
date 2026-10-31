@@ -565,3 +565,61 @@ async def test_every_connection_event_is_told() -> None:
     assert told[0] == ("grant", "not_connected") and ("connect", "ok") in told
     assert ("grant", "ok") in told and told[-1] == ("forget", "ok")
     assert all(e.provider == "gitlab" for e in telemetry.events if isinstance(e, ConnectionChanged))
+
+
+class _Owners:
+    """Keys a person by the provider's account: whoever signs in as account 7 is person p7."""
+
+    def __init__(self, fail: Exception | None = None) -> None:
+        self.asked: list[tuple[str, str, str, dict]] = []
+        self.fail = fail
+
+    async def owner_of(self, started_by, provider, account, facts) -> str:
+        self.asked.append((started_by, provider, account.id, dict(facts)))
+        if self.fail is not None:
+            raise self.fail
+        return f"person:{account.id}"
+
+
+async def test_the_application_may_name_the_owner_once_the_provider_has_named_the_account() -> None:
+    provider, owners = FakeProvider(), _Owners()
+    service = _service(provider, owners=owners)
+    state, code = provider.consent(await service.begin("slack:U1", "gitlab", return_to="m-1"))
+    connected = await service.finish(state, code, facts={"realm": "r"})
+    assert (connected.owner, connected.started_by, connected.return_to) == ("person:7", "slack:U1", "m-1")
+    assert owners.asked == [("slack:U1", "gitlab", "7", {"realm": "r"})]
+    assert await service.account("person:7", "gitlab") == ALICE
+    assert await service.account("slack:U1", "gitlab") is None  # nothing under who started it
+    # The same person signing in from another chat replaces the person's connection, revoking the old grant.
+    state, code = provider.consent(await service.begin("mattermost:u1", "gitlab"))
+    again = await service.finish(state, code)
+    assert again.owner == "person:7" and again.started_by == "mattermost:u1"
+    assert len(provider.revoked) == 1 and await service.connected("person:7") == {"gitlab": ALICE}
+    # An application that names nobody (""), or has no owners at all, keeps whom begin() started it for.
+    plain = _service(provider)
+    state, code = provider.consent(await plain.begin("slack:U2", "gitlab"))
+    assert (await plain.finish(state, code)).started_by == "slack:U2"
+
+
+async def test_an_owner_rule_that_fails_costs_the_tokens_nothing_but_the_connect() -> None:
+    provider = FakeProvider()
+    service = _service(provider, owners=_Owners(fail=RuntimeError("directory down")))
+    state, code = provider.consent(await service.begin("slack:U1", "gitlab"))
+    with pytest.raises(RuntimeError):
+        await service.finish(state, code)
+    assert len(provider.revoked) == 1  # issued and dropped: revoked
+    assert await service.account("slack:U1", "gitlab") is None
+
+
+async def test_a_connection_can_be_handed_to_another_owner_but_never_over_one() -> None:
+    provider = FakeProvider()
+    service = _service(provider)
+    await _connect(service, provider, owner="slack:U1")
+    assert await service.move("slack:U1", "gitlab", to="person:7") is True
+    assert await service.account("person:7", "gitlab") == ALICE and await service.account("slack:U1", "gitlab") is None
+    grant = await service.grant("person:7", "gitlab")
+    assert grant.token.reveal() == "access-1"  # the same grant, nothing re-issued
+    await _connect(service, provider, owner="slack:U2")
+    assert await service.move("slack:U2", "gitlab", to="person:7") is False  # the person has one: nothing overwritten
+    assert await service.account("slack:U2", "gitlab") == ALICE
+    assert await service.move("slack:U9", "gitlab", to="person:8") is False  # nothing to move

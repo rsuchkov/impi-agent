@@ -36,7 +36,10 @@ The panel is the other way in, and the place to see or end a connection:
 4. The agent can now use `connected_api_read` and `connected_api_write`.
 
 A connection belongs to the chat user on one gateway (`mattermost:<id>`): the
-same person on Mattermost and Slack connects twice. With
+same person on Mattermost and Slack connects twice — unless the application
+keys people by the account itself (see "owner" in
+[building-an-app.md](building-an-app.md)), in which case one person connects
+once, from whichever chat. With
 `CONNECTION_MATCH_EMAIL__<NAME>` (on by default) the account's email must be
 the one the chat profile shows — so nobody binds someone else's account, or
 their own to someone else. A profile that shows no email cannot be matched:

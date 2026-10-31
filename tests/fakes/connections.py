@@ -22,6 +22,16 @@ class MemoryConnectionStore:
         self._records[key] = record
         self._leases.pop(key, None)
 
+    async def move_connection(self, owner: str, provider: str, *, to: str) -> bool:
+        if (to, provider) in self._records or (owner, provider) not in self._records:
+            return False
+        record = self._records.pop((owner, provider))
+        self._records[(to, provider)] = replace(record, owner=to)
+        lease = self._leases.pop((owner, provider), None)
+        if lease is not None:
+            self._leases[(to, provider)] = lease
+        return True
+
     async def claim_refresh(
         self, owner: str, provider: str, *, connect_id: str, version: int, now: str, until: str
     ) -> bool:

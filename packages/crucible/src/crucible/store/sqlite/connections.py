@@ -141,6 +141,19 @@ class ConnectionStoreMixin(SqliteBase):
             self._conn.commit()
         return cursor.rowcount == 1
 
+    def move_connection_sync(self, owner: str, provider: str, *, to: str) -> bool:
+        with self._lock:
+            taken = self._conn.execute(
+                "SELECT 1 FROM connections WHERE owner = ? AND provider = ?", (to, provider)
+            ).fetchone()
+            if taken is not None:
+                return False
+            cursor = self._conn.execute(
+                "UPDATE connections SET owner = ? WHERE owner = ? AND provider = ?", (to, owner, provider)
+            )
+            self._conn.commit()
+        return cursor.rowcount == 1
+
     def delete_connection_sync(
         self, owner: str, provider: str, *, connect_id: str | None = None, version: int | None = None
     ) -> bool:
@@ -213,6 +226,9 @@ class ConnectionStoreMixin(SqliteBase):
         return await asyncio.to_thread(
             lambda: self.delete_connection_sync(owner, provider, connect_id=connect_id, version=version)
         )
+
+    async def move_connection(self, owner: str, provider: str, *, to: str) -> bool:
+        return await asyncio.to_thread(lambda: self.move_connection_sync(owner, provider, to=to))
 
     async def put_link(self, link: ConnectionLinkRecord) -> None:
         await asyncio.to_thread(self.put_link_sync, link)
