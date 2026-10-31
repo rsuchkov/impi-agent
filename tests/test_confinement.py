@@ -2,6 +2,7 @@
 — on a kernel that has it — Landlock actually holding."""
 
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -40,11 +41,33 @@ def test_the_launcher_reads_its_rules_and_the_command() -> None:
     assert command == ["sh", "-c", "true"]
 
 
+def test_a_urls_port_is_the_one_it_names_else_its_schemes() -> None:
+    from crucible.confinement import url_port
+
+    assert url_port("http://127.0.0.1:8422") == 8422
+    assert url_port("https://ward:8425/x") == 8425
+    assert url_port("https://api.example.com/v1") == 443 and url_port("http://tools.internal") == 80
+    assert url_port("") is None and url_port("tools.internal:8422") is None and url_port("ftp://x") is None
+    assert url_port("http://x:notaport") is None
+
+
+def test_ports_are_rules_of_their_own_beside_the_paths() -> None:
+    scope = ProcessScope(readable=(Path("/usr"),), tcp_ports=(443, 8422))
+    command = confined_command(scope, ["pi"], python="/py")
+    assert command[-6:] == ["--connect-tcp", "443", "--connect-tcp", "8422", "--", "pi"]
+    rules, _ = launcher.parse_command_line(command[4:])
+    assert launcher.tcp_ports(rules) == [443, 8422]
+    assert launcher.tcp_ports([("--readable", "/usr")]) == []  # no port named: the network is not touched
+
+
 @pytest.mark.parametrize("argv, message", [
     (["--readable", "/usr"], "no command"),
     (["--readable", "/usr", "--"], "no command after"),
-    (["--readable", "--", "sh"], "takes a path"),
+    (["--readable", "--", "sh"], "takes a value"),
     (["--everything", "/", "--", "sh"], "unknown option"),
+    (["--connect-tcp", "https", "--", "sh"], "takes a port"),
+    (["--connect-tcp", "0", "--", "sh"], "takes a port"),
+    (["--connect-tcp", "65536", "--", "sh"], "takes a port"),
 ])
 def test_the_launcher_refuses_what_it_cannot_read(argv: list[str], message: str) -> None:
     with pytest.raises(ValueError, match=message):
@@ -132,6 +155,48 @@ def test_a_mkdir_only_directory_takes_a_lock_and_no_file(tmp_path: Path) -> None
 def test_a_path_that_does_not_exist_is_skipped_not_fatal(tmp_path: Path) -> None:
     scope = ProcessScope(readable=_base(tmp_path / "missing"), writable=(Path("/dev"),))
     assert _run(scope, "true").returncode == 0
+
+
+@pytest.mark.skipif(ABI < launcher.NET_ABI, reason="network rules arrived in Landlock ABI 4")
+def test_the_command_connects_to_the_ports_named_and_to_no_other(tmp_path: Path) -> None:
+    """Two servers on this host; the confined command reaches the one whose
+    port the scope names and is refused the other — and refused a port of
+    its own to listen on. Without a port named, both are reached as before."""
+    allowed, other = socket.socket(), socket.socket()
+    allowed.bind(("127.0.0.1", 0))
+    other.bind(("127.0.0.1", 0))
+    allowed.listen()
+    other.listen()
+    try:
+        allowed_port, other_port = allowed.getsockname()[1], other.getsockname()[1]
+        connect = "import socket; socket.create_connection(('127.0.0.1', {}), timeout=5).close(); print('connected')"
+        scope = ProcessScope(readable=_base(), writable=(Path("/dev"),), tcp_ports=(allowed_port,))
+        reached = _run(scope, sys.executable, "-I", "-S", "-c", connect.format(allowed_port))
+        assert reached.returncode == 0 and reached.stdout.strip() == "connected"
+        refused = _run(scope, sys.executable, "-I", "-S", "-c", connect.format(other_port))
+        assert refused.returncode != 0 and "PermissionError" in refused.stderr
+        listen = "import socket; s = socket.socket(); s.bind(('127.0.0.1', 0)); print('bound')"
+        bound = _run(scope, sys.executable, "-I", "-S", "-c", listen)
+        assert bound.returncode != 0 and "PermissionError" in bound.stderr
+        # No port named: the network is not restricted at all.
+        open_scope = ProcessScope(readable=_base(), writable=(Path("/dev"),))
+        assert _run(open_scope, sys.executable, "-I", "-S", "-c", connect.format(other_port)).returncode == 0
+        assert _run(open_scope, sys.executable, "-I", "-S", "-c", listen).returncode == 0
+    finally:
+        allowed.close()
+        other.close()
+
+
+def test_before_network_rules_the_ports_are_ignored_and_said_so(monkeypatch, capsys) -> None:
+    confined: list[list[tuple[str, str]]] = []
+    monkeypatch.setattr(launcher, "landlock_abi", lambda: 3)
+    monkeypatch.setattr(launcher, "confine_self", lambda rules, abi: confined.append(list(rules)))
+    monkeypatch.setattr(launcher.os, "execvp", lambda file, args: None)
+    launcher.main(["--readable", "/usr", "--connect-tcp", "443", "--", "true"])
+    assert confined == [[("--readable", "/usr"), ("--connect-tcp", "443")]]
+    assert launcher.NET_UNAVAILABLE_NOTICE in capsys.readouterr().err
+    launcher.main(["--readable", "/usr", "--", "true"])
+    assert launcher.NET_UNAVAILABLE_NOTICE not in capsys.readouterr().err  # nothing asked, nothing to say
 
 
 def test_without_landlock_the_command_runs_and_says_so(monkeypatch, capsys) -> None:

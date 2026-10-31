@@ -14,15 +14,17 @@ on the level:
   Scratch space is scratch: a memoryless run's goes when its process ends, a
   conversation's a day after its last process ended.
 
-What the runtime itself needs (its program, its memory) the runtime adds;
-what is in neither list the process cannot reach.
+The network, when the application restricts it (``network_ports``): the
+deployment's ports plus the agent's own, at every level. What the runtime
+itself needs (its program, its memory, its tool server's port) the runtime
+adds; what is in neither list the process cannot reach.
 """
 
 import os
 import shutil
 import tempfile
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 
 from crucible.confinement import ProcessScope
@@ -56,6 +58,7 @@ class AgentProcessScopes:
         skills_root: Path | None = None,
         scratch_root: Path | None = None,
         unconfined_by_default: frozenset[str] = frozenset(),
+        network_ports: Sequence[int] = (),
     ) -> None:
         # Read on every spawn, so a reloaded profile's level and paths apply
         # to the next process.
@@ -74,6 +77,9 @@ class AgentProcessScopes:
         # operator's assistant that reads the application's own configuration):
         # off unless their profile says otherwise.
         self._unconfined_by_default = unconfined_by_default
+        # TCP ports every confined process may connect to; an agent's profile
+        # adds its own. Empty = the network is not restricted for anyone.
+        self._network_ports = tuple(network_ports)
         # Scratch directories handed to processes that have not ended, with
         # how many hold each (a conversation's next process may start before
         # the last one is reported gone).
@@ -96,10 +102,13 @@ class AgentProcessScopes:
         tmp, home = private_dir(scratch / "tmp"), private_dir(scratch / "home")
         readable: list[Path] = []
         writable: list[Path] = [tmp, home]
+        ports: list[int] = list(self._network_ports)
         if spec is not None:
             readable.append(spec.profile_dir)
             readable += spec.confinement_readable
             writable += spec.confinement_writable
+            if ports:
+                ports += [p for p in spec.network_ports if p not in ports]
         if self._skills_root is not None:
             readable.append(self._skills_root)
         env = {"TMPDIR": str(tmp), "HOME": str(home)}
@@ -114,7 +123,7 @@ class AgentProcessScopes:
         # its caller is never released, and would keep its scratch for good.
         if level != "agent":
             self._in_use[scratch] = self._in_use.get(scratch, 0) + 1
-        return ProcessScope(readable=tuple(readable), writable=tuple(writable), env=env)
+        return ProcessScope(readable=tuple(readable), writable=tuple(writable), tcp_ports=tuple(ports), env=env)
 
     async def _files_dir(self, agent: str, session_id: str | None, level: ConfinementLevel) -> Path | None:
         if level == "agent":

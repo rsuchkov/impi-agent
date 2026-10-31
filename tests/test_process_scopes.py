@@ -188,3 +188,13 @@ async def test_a_scope_that_fails_before_it_is_handed_out_holds_nothing(tmp_path
     assert run is not None
     scopes.release("assistant", run)
     assert not scratch.exists()
+
+
+async def test_the_network_is_the_deployments_ports_and_the_agents_own_or_not_restricted(tmp_path: Path) -> None:
+    specs = {"assistant": _spec(tmp_path, network_ports=(8080, 443))}
+    scope = await _scopes(tmp_path, specs, network_ports=(443, 80)).scope_for("assistant", "assistant--c1")
+    assert scope is not None and scope.tcp_ports == (443, 80, 8080)  # each once; the agent's beside the deployment's
+    # A deployment that names no port restricts nobody's network, whatever a
+    # profile adds: an addition to nothing would be a restriction of its own.
+    open_scope = await _scopes(tmp_path, specs).scope_for("assistant", "assistant--c1")
+    assert open_scope is not None and open_scope.tcp_ports == ()

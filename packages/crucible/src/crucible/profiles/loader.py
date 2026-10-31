@@ -232,6 +232,7 @@ class FsProfileStore:
                 raise ProfileError(f"{manifest}: runtime.confinement: {exc}") from exc
         readable = _confinement_paths(runtime, "confinement_read", manifest)
         writable = _confinement_paths(runtime, "confinement_write", manifest)
+        network_ports = _network_ports(runtime, manifest)
         timeout = runtime.get("timeout", self._default_timeout)
         if not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ProfileError(f"{manifest}: runtime.timeout must be a positive number")
@@ -288,6 +289,7 @@ class FsProfileStore:
             confinement=confinement,
             confinement_readable=readable,
             confinement_writable=writable,
+            network_ports=network_ports,
             fallback_models=fallback_models,
         )
 
@@ -319,6 +321,14 @@ def _read_override[T](read: Callable[[str], T | None] | None, agent: str) -> T |
         return read(agent)
     except ValueError as exc:
         raise ProfileError(str(exc)) from exc
+
+
+def _network_ports(runtime: dict, manifest: Path) -> tuple[int, ...]:
+    """``runtime.network_ports``: a list of TCP ports, each once."""
+    raw = runtime.get("network_ports") or []
+    if not isinstance(raw, list) or not all(isinstance(p, int) and not isinstance(p, bool) and 0 < p < 65536 for p in raw):
+        raise ProfileError(f"{manifest}: runtime.network_ports must be a list of TCP ports (1–65535)")
+    return tuple(dict.fromkeys(raw))
 
 
 def _confinement_paths(runtime: dict, key: str, manifest: Path) -> tuple[Path, ...]:

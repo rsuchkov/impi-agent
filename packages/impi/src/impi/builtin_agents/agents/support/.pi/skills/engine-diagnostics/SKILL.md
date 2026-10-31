@@ -222,6 +222,14 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
 - **An agent "forgot" a file from another conversation** — at the default
   level each conversation has its own files directory. Working as designed;
   `runtime.confinement: agent` shares them.
+- **A skill fails with `Permission denied` / `EACCES` on `connect`, or on
+  `bind`** — the network is confined too: a process connects only to the TCP
+  ports named (`RUNTIME_NETWORK_PORTS`, 443 and 80 by default, plus the tool
+  server's and, in a container, the broker's) and binds none. The startup log
+  and `impi health` say which (`network: a confined process connects to tcp
+  ports …`). An internal service on its own port goes in the agent's
+  `runtime.network_ports`; a proxy's port in `RUNTIME_NETWORK_PORTS`.
+  `Connection refused` is not this — that is the service not listening.
 - **Someone clicked Allow on a tool's card and was told only an approver can
   answer** — the card is addressed to the person whose message started the
   turn, or to `TOOL_APPROVERS` when set (log: `approval … may not answer
@@ -311,6 +319,10 @@ And from the session check:
   no Landlock) and can read the environment of every process in the engine's
   container. The answer is confinement (drop `off`), a container per agent, or
   no shell for them (`$IMPI_ROOT/docs/security.md`).
+- `network: a confined process connects to tcp ports 443, 80 and the tool
+  server's 8422; binds none` — what a confined process reaches. `network: not
+  restricted — …` names why: no Landlock, a Landlock before network rules (ABI
+  4, Linux 6.7), or `RUNTIME_NETWORK_PORTS` left empty.
 - `confinement: Landlock ABI N; a=conversation, b=agent; unconfined: support`
   — each agent's level. `! confinement: this kernel has no Landlock` — every
   agent runs unconfined; the host's kernel (Linux 5.13+ with Landlock in its

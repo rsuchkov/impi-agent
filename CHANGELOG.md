@@ -26,6 +26,39 @@ when a release is cut, and `impi update` shows the target version's section.
   `missed` with `on_missed=skip` at every due time and ran zero times. The
   skip now applies to a late occurrence only — one seen later than a tick
   after its time — and a punctual one runs as any task's does.
+- **Security: a turn's trace is read by its owner, not by anyone of the
+  realm.** `GET /v1/traces/{token}` answered a caller of the conversation's
+  realm — any user of the calling program with the token in hand — while the
+  journal the token came from was answered to the turn's owner alone. The
+  record now keeps the owner (`TraceRecord.owner`, realm/user; a new column,
+  added on open) and is answered to that caller only. **Breaks:** a record
+  written before this release names no owner and is no longer served; the
+  retention (`TOOL_TRACE_RETENTION_DAYS`, 14) drains them.
+- **Security: a Slack slash command in a direct message is the agent's only
+  when the agent is the other party.** Slack's payload says `directmessage`
+  of any direct message — with the app, with a colleague, with another app —
+  and the engine took each as the agent's own, where a panel of the person's
+  own things (`/connections`) may open. The channel is now asked whom it is
+  with (`conversations.info`, once per channel); any other party, a group
+  direct message or a channel that cannot be asked runs the command as a
+  channel's, as Mattermost's `a__b` channel name already let the engine do.
+- **Security: a confined process's network is confined too.** A confined
+  runtime process connected to any address and port the deployment's network
+  reaches — its database, a hub, the receiver, the broker. It now connects
+  over TCP only to the ports the deployment names (`RUNTIME_NETWORK_PORTS`,
+  `443,80` by default — the model's API and the web), the tool server's own
+  and, in an agent's container, the secret broker's, plus what an agent's
+  profile adds (`runtime.network_ports`); every other port is refused and
+  binding one always is. Landlock knows TCP alone, so UDP and DNS are not
+  touched. Needs Landlock ABI 4 (Linux 6.7): an older Landlock confines the
+  files and leaves the network, and the startup line (`network: …`, also in
+  `impi doctor`) says which it is. The ports travel to an agent's container
+  with the spawn (`confinement.ports` on the wire); an agent image older than
+  this knows no ports and leaves the network open until `impi agent sync`
+  rebuilds it. **Breaks:** an agent that reaches an internal service on a
+  port of its own, or the web through a proxy on one, needs that port in
+  `runtime.network_ports` or `RUNTIME_NETWORK_PORTS`; `RUNTIME_NETWORK_PORTS=`
+  (empty) restores the open network.
 
 ## v0.42.0 — 2026-10-31
 

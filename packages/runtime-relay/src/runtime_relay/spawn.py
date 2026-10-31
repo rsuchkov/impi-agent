@@ -31,10 +31,12 @@ class SpawnRejected(Exception):
 class Confinement:
     """Start the process confined. What it may write beyond its own memory and
     scratch space — directories under this host's files directory — and the
-    variables that point it at them."""
+    variables that point it at them; the TCP ports it may connect to, empty
+    when the network is not restricted."""
 
     writable: tuple[Path, ...] = ()
     variables: Mapping[str, Path] = field(default_factory=dict)
+    tcp_ports: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -229,7 +231,13 @@ def _confinement(raw: object, config: HostConfig) -> Confinement | None:
             if not isinstance(variable, str) or not ENV_NAME_RE.fullmatch(variable):
                 raise SpawnRejected(f"{variable!r} is not an environment variable name")
             variables[variable] = resolved
-    return Confinement(writable=tuple(writable), variables=variables)
+    ports: list[int] = []
+    for port in _sequence(raw.get(wire.KEY_PORTS)):
+        if not isinstance(port, int) or isinstance(port, bool) or not 0 < port < 65536:
+            raise SpawnRejected(f"{port!r} is not a TCP port")
+        if port not in ports:
+            ports.append(port)
+    return Confinement(writable=tuple(writable), variables=variables, tcp_ports=tuple(ports))
 
 
 def _skill(ref: object, config: HostConfig) -> str:

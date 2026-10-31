@@ -227,6 +227,19 @@ write to `$AGENT_FILES_DIR` or `$TMPDIR`; declare the path in `agent.yaml`
 engine's user can reach. In a container of its own, declared paths do not
 apply — the level does.
 
+## A skill fails to connect: `Connection refused` is not this, `Permission denied` on connect is
+
+A confined process connects over TCP only to the ports the deployment names
+(`RUNTIME_NETWORK_PORTS`, 443 and 80 by default), the tool server's and, in a
+container, the secret broker's; any other port answers `EACCES` /
+`PermissionError` on `connect`, and binding a port answers the same. The
+startup log and `impi doctor` say which (`network: a confined process connects
+to tcp ports …`). An internal service on a port of its own goes in
+`runtime.network_ports` of the agent that needs it (reload applies it to the
+next process); a proxy on its own port goes in `RUNTIME_NETWORK_PORTS`. A
+kernel whose Landlock predates network rules (before Linux 6.7) leaves the
+network open and says so in the same line.
+
 ## "refusing to start the runtime: … holds a value it would run as a command"
 
 The model credential (`~/.impi/pi/agent/auth.json`) holds a key that begins

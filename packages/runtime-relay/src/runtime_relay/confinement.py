@@ -11,6 +11,7 @@ import importlib.util
 import logging
 import shutil
 from pathlib import Path
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,25 @@ SYSTEM_READABLE = ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc", "/opt", "/
 DEVICE_WRITABLE = ("/dev/null", "/dev/zero", "/dev/full", "/dev/tty", "/dev/ptmx")
 # The launcher's options, in the order its rules are given.
 READABLE, WRITABLE, WRITABLE_FILE, MKDIR_ONLY = "--readable", "--writable", "--writable-file", "--mkdir-only"
+CONNECT_TCP = "--connect-tcp"
+# The services a process here reaches for the engine, by the variable that
+# names each: the engine's tool server (the bridge calls it) and the secret
+# broker (``secret-exec`` calls it). Their ports join the ones the engine
+# named whenever the network is restricted.
+SERVICE_URL_VARIABLES = ("TOOL_URL", "SECRET_BROKER_URL")
+
+
+def url_port(url: str) -> int | None:
+    """The TCP port a URL is reached on — the one it names, else its scheme's
+    — or None for anything else."""
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    if port is not None:
+        return port
+    return {"https": 443, "http": 80}.get(parts.scheme)
 
 
 def install_roots(program: str) -> list[Path]:

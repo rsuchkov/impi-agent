@@ -64,6 +64,10 @@ class AgentSpec:
     confinement: ConfinementLevel | None = None
     confinement_readable: tuple[Path, ...] = ()
     confinement_writable: tuple[Path, ...] = ()
+    # TCP ports its confined processes may connect to beside the deployment's
+    # (an internal service on a port of its own); nothing when the deployment
+    # does not restrict the network.
+    network_ports: tuple[int, ...] = ()
     # Models to turn to, in order, when a turn's model fails in a way the
     # runtime retries (an overloaded or unreachable service), as
     # ``provider/model`` (``model_ref.check_model_ref``). The runtime skips

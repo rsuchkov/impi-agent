@@ -339,3 +339,12 @@ def test_the_stop_command_is_a_word_or_nothing() -> None:
     assert Settings(_env_file=None, stop_command="").stop_command == ""  # pyright: ignore[reportCallIssue]
     with pytest.raises(ValueError, match="STOP_COMMAND"):
         Settings(_env_file=None, stop_command="Stop now")  # pyright: ignore[reportCallIssue]
+
+
+def test_runtime_network_ports_default_to_the_web_and_refuse_what_is_not_a_port() -> None:
+    assert _settings().runtime_network_port_list() == (443, 80)
+    assert _settings(runtime_network_ports="").runtime_network_port_list() == ()  # the network is not restricted
+    assert _settings(runtime_network_ports=" 443, 8080,443 ,22 ").runtime_network_port_list() == (443, 8080, 22)
+    for bad in ("https", "0", "65536", "443;80"):
+        with pytest.raises(ValidationError, match="RUNTIME_NETWORK_PORTS"):
+            _settings(runtime_network_ports=bad)

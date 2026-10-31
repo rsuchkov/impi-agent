@@ -1,7 +1,8 @@
 """Run a command under Landlock rules, then get out of the way.
 
     python3 -I -S launcher.py --readable DIR … --writable DIR … \
-        --writable-file FILE … --mkdir-only DIR … -- COMMAND [ARGS…]
+        --writable-file FILE … --mkdir-only DIR … --connect-tcp PORT … \
+        -- COMMAND [ARGS…]
 
 The process restricts itself, sets no-new-privileges and replaces itself with
 COMMAND, which inherits the rules for good: Landlock cannot be lifted, and
@@ -10,6 +11,14 @@ is out of reach — no read, no write, no listing — and, from ABI 6, the
 command can neither signal nor reach the abstract sockets of any process
 outside its own domain. Reading another process's ``/proc/<pid>/environ`` or
 ``mem`` is refused by the kernel for a process outside the domain as well.
+
+With one ``--connect-tcp`` or more, the network is restricted too (ABI 4,
+Linux 6.7): the command connects over TCP to the ports named and to no other,
+whatever the address, and binds a TCP port never — a runtime process has
+nothing to listen for. Landlock knows TCP alone: UDP, and so DNS, is not
+touched. Without any ``--connect-tcp`` the network is left as it is; on a
+kernel whose Landlock predates network rules the ports are ignored and
+stderr says so.
 
 Self-contained on purpose: standard library only, no imports from the package
 it ships in, runnable by path. An agent's container runs this same file
@@ -31,7 +40,13 @@ _SYS_ADD_RULE = 445
 _SYS_RESTRICT_SELF = 446
 _PR_SET_NO_NEW_PRIVS = 38
 _RULE_PATH_BENEATH = 1
+_RULE_NET_PORT = 2  # ABI 4
 _CREATE_RULESET_VERSION = 1
+# Network rights (ABI 4): both handled whenever a port is named, so a bind is
+# refused and a connect reaches the ports allowed and nothing else.
+_NET_BIND_TCP = 1 << 0
+_NET_CONNECT_TCP = 1 << 1
+NET_ABI = 4  # the first ABI with network rules
 # Scopes (ABI 6): no signals to, no abstract unix sockets of, processes outside.
 _SCOPE_ABSTRACT_UNIX_SOCKET = 1 << 0
 _SCOPE_SIGNAL = 1 << 1
@@ -57,8 +72,13 @@ READABLE = "--readable"
 WRITABLE = "--writable"
 WRITABLE_FILE = "--writable-file"
 MKDIR_ONLY = "--mkdir-only"
-OPTIONS = (READABLE, WRITABLE, WRITABLE_FILE, MKDIR_ONLY)
+CONNECT_TCP = "--connect-tcp"
+PATH_OPTIONS = (READABLE, WRITABLE, WRITABLE_FILE, MKDIR_ONLY)
+OPTIONS = (*PATH_OPTIONS, CONNECT_TCP)
 UNAVAILABLE_NOTICE = "confinement: Landlock is not available; running unconfined"
+NET_UNAVAILABLE_NOTICE = (
+    "confinement: this kernel's Landlock has no network rules (ABI 4, Linux 6.7); the network is not restricted"
+)
 
 
 class _RulesetAttr(ctypes.Structure):
@@ -72,6 +92,10 @@ class _RulesetAttr(ctypes.Structure):
 class _PathBeneathAttr(ctypes.Structure):
     _pack_ = 1
     _fields_ = [("allowed_access", ctypes.c_uint64), ("parent_fd", ctypes.c_int32)]
+
+
+class _NetPortAttr(ctypes.Structure):
+    _fields_ = [("allowed_access", ctypes.c_uint64), ("port", ctypes.c_uint64)]
 
 
 def _libc() -> ctypes.CDLL:
@@ -132,7 +156,8 @@ def granted_access(option: str, abi: int, *, is_dir: bool) -> int:
 
 
 def parse_command_line(argv: Sequence[str]) -> tuple[list[tuple[str, str]], list[str]]:
-    """``[(option, path), …]`` and the command after ``--``."""
+    """``[(option, value), …]`` — a path, or a port for ``--connect-tcp`` —
+    and the command after ``--``."""
     if "--" not in argv:
         raise ValueError("no command: the rules end with `--`, the command follows it")
     split = list(argv).index("--")
@@ -140,29 +165,48 @@ def parse_command_line(argv: Sequence[str]) -> tuple[list[tuple[str, str]], list
     if not command:
         raise ValueError("no command after `--`")
     if len(options) % 2:
-        raise ValueError("every option takes a path")
+        raise ValueError("every option takes a value")
     rules: list[tuple[str, str]] = []
     for index in range(0, len(options), 2):
-        option, path = options[index], options[index + 1]
+        option, value = options[index], options[index + 1]
         if option not in OPTIONS:
             raise ValueError(f"unknown option {option!r}")
-        rules.append((option, path))
+        if option == CONNECT_TCP and not (value.isdigit() and 0 < int(value) < 65536):
+            raise ValueError(f"{CONNECT_TCP} takes a port, not {value!r}")
+        rules.append((option, value))
     return rules, command
 
 
+def tcp_ports(rules: Sequence[tuple[str, str]]) -> list[int]:
+    return [int(value) for option, value in rules if option == CONNECT_TCP]
+
+
 def confine_self(rules: Sequence[tuple[str, str]], abi: int) -> None:
-    """Confine this process to ``rules``. Irreversible."""
+    """Confine this process to ``rules``. Irreversible. The network is handled
+    only when a port is named and the ABI can: a ruleset that handles
+    connecting with no port allowed would cut the process off entirely."""
     libc = _libc()
-    size = 8 if abi < 4 else (16 if abi < 6 else 24)
+    size = 8 if abi < NET_ABI else (16 if abi < 6 else 24)
     scoped = (_SCOPE_ABSTRACT_UNIX_SOCKET | _SCOPE_SIGNAL) if abi >= 6 else 0
-    attr = _RulesetAttr(handled_access(abi), 0, scoped)
+    ports = tcp_ports(rules) if abi >= NET_ABI else []
+    handled_net = (_NET_BIND_TCP | _NET_CONNECT_TCP) if ports else 0
+    attr = _RulesetAttr(handled_access(abi), handled_net, scoped)
     ruleset = libc.syscall(
         _SYS_CREATE_RULESET, ctypes.byref(attr), ctypes.c_size_t(size), ctypes.c_uint32(0)
     )
     if ruleset < 0:
         raise OSError(ctypes.get_errno(), "landlock_create_ruleset failed")
     try:
+        for port in ports:
+            allowed_port = _NetPortAttr(_NET_CONNECT_TCP, port)
+            if libc.syscall(
+                _SYS_ADD_RULE, ctypes.c_int(ruleset), ctypes.c_int(_RULE_NET_PORT),
+                ctypes.byref(allowed_port), ctypes.c_uint32(0),
+            ) < 0:
+                raise OSError(ctypes.get_errno(), f"landlock_add_rule failed for tcp port {port}")
         for option, path in rules:
+            if option == CONNECT_TCP:
+                continue
             try:
                 fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
             except FileNotFoundError:
@@ -189,6 +233,8 @@ def main(argv: Sequence[str]) -> None:
     rules, command = parse_command_line(argv)
     abi = landlock_abi()
     if abi:
+        if 0 < abi < NET_ABI and tcp_ports(rules):
+            print(NET_UNAVAILABLE_NOTICE, file=sys.stderr)
         confine_self(rules, abi)
     else:
         print(UNAVAILABLE_NOTICE, file=sys.stderr)

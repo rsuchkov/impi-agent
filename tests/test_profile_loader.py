@@ -442,3 +442,12 @@ def test_the_loop_guard_is_handed_on_as_written_and_off_unless_asked_for(tmp_pat
     assert load(tmp_path / "off", "  loop_guard: false\n") is None
     with pytest.raises(ProfileError, match="true, false or a map"):
         load(tmp_path / "words", "  loop_guard: soon\n")
+
+
+def test_runtime_network_ports_are_read_each_once_and_must_be_ports(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime("  network_ports: [8080, 5432, 8080]\n"))
+    assert FsProfileStore(tmp_path, library=None).get("assistant").network_ports == (8080, 5432)
+    for bad in ("  network_ports: [https]\n", "  network_ports: [0]\n", "  network_ports: [true]\n", "  network_ports: 443\n"):
+        (tmp_path / "agents" / "assistant" / "agent.yaml").write_text(_yaml_with_runtime(bad), encoding="utf-8")
+        with pytest.raises(ProfileError, match="runtime.network_ports must be a list of TCP ports"):
+            FsProfileStore(tmp_path, library=None).get("assistant")

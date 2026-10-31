@@ -11,7 +11,7 @@ import os
 import shutil
 from pathlib import Path
 
-from crucible.confinement import ProcessScope, confined_command, landlock_abi
+from crucible.confinement import ProcessScope, confined_command, landlock_abi, url_port
 from crucible.private_files import private_dir
 from crucible.runtimes.pi.auth_file import (
     auth_file_path,
@@ -182,6 +182,10 @@ def _environment(request: SpawnRequest) -> dict[str, str]:
     return {**inherited, **request.env, **granted}
 
 
+# The variable the bridge extension reads the tool server's address from
+# (tools/wiring.py hands it to the process).
+TOOL_URL_ENV = "TOOL_URL"
+
 # What every process of this runtime reads, wherever its agent's files are: the
 # system, the device nodes, the process table (another process's private
 # entries stay out of reach — the kernel refuses them outside the domain).
@@ -198,7 +202,8 @@ def runtime_process_scope(request: SpawnRequest, session_dir: Path | None, *, pr
     else creatable there. Not written: a process that could rewrite the
     credential could plant a command every other process would run
     (auth_file.py); the application keeps the login fresh instead
-    (auth_refresh.py)."""
+    (auth_refresh.py). Where the application restricts the network, the tool
+    server's port is the runtime's to add: the bridge calls it."""
     assert request.process_scope is not None
     readable = [Path(p) for p in SYSTEM_READABLE]
     readable += install_roots(program)
@@ -212,11 +217,17 @@ def runtime_process_scope(request: SpawnRequest, session_dir: Path | None, *, pr
     agent_dir = runtime_agent_dir()
     readable.append(agent_dir)
     writable = [session_dir] if session_dir is not None else []
+    ports = list(request.process_scope.tcp_ports)
+    if ports:
+        tool_port = url_port(request.env.get(TOOL_URL_ENV, ""))
+        if tool_port is not None and tool_port not in ports:
+            ports.append(tool_port)
     return ProcessScope(
         readable=(*request.process_scope.readable, *readable),
         writable=(*request.process_scope.writable, *writable),
         writable_files=(*request.process_scope.writable_files, *(Path(p) for p in DEVICE_WRITABLE)),
         mkdir_only=(*request.process_scope.mkdir_only, agent_dir),
+        tcp_ports=tuple(ports),
         env=dict(request.process_scope.env),
     )
 

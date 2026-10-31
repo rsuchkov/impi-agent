@@ -54,6 +54,7 @@ runtime:
   skills: [<name>, registry:<name>]   # private, and/or from the shared library
   # confinement: agent        # optional; conversation (default) | agent | off
   # confinement_write: [/srv/reports]   # optional; paths beyond its own
+  # network_ports: [8080]      # optional; TCP ports beside RUNTIME_NETWORK_PORTS it may connect to
 ```
 
 Keep `.pi/SYSTEM.md` short and concrete: who the agent is, its scope, and its

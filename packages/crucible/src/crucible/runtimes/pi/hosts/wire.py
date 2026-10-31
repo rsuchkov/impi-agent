@@ -74,10 +74,14 @@ ROOT_FILES = "files"
 # Confinement on the wire: present = start the process confined. What it may
 # write beyond its own memory and scratch space, as references against the
 # agent's files directory, each optionally naming the variable that points the
-# process at it. The host builds the rest of the rules from its own mounts.
+# process at it; and the TCP ports it may connect to (absent or empty = the
+# network is not restricted), to which the host adds the ports of the services
+# it reaches for the engine. The host builds the rest of the rules from its
+# own mounts.
 KEY_CONFINEMENT = "confinement"
 KEY_WRITABLE = "writable"
 KEY_VARIABLE = "variable"
+KEY_PORTS = "ports"
 
 # One event can be a large tool result; the local transport gives the reader the
 # same room, and a mismatch here would surface as a dead socket mid-answer.

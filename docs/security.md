@@ -92,7 +92,11 @@ conversation's process, another agent's, the engine's — and, from Linux 6.12
 (Landlock ABI 6), its signals. Its own environment is still its own; what it
 can read there is its own token and proof. Below Linux 6.2 (ABI 3) the kernel
 cannot stop a confined process truncating a file its user may write, such as
-`conf/.env`: reading it stays refused, emptying it does not.
+`conf/.env`: reading it stays refused, emptying it does not. From Linux 6.7
+(ABI 4) the network is confined as well: the process connects over TCP to the
+ports named (`RUNTIME_NETWORK_PORTS`, the tool server's, an agent's own) and
+to no other — not the deployment's database, not a hub, not the receiver — and
+binds none.
 
 What remains, and what the engine does about it:
 
@@ -352,10 +356,15 @@ Things the design does not solve, stated so nobody relies on them by accident.
   before Linux 6.2 (ABI 3) a confined process can still truncate a file its
   user may write, and before 6.12 (ABI 6) it can signal processes outside its
   domain. `impi doctor` prints the ABI.
-- **Confinement covers files and processes, not the network.** A confined
-  process reaches every address the deployment's network does — the chat
-  server, the tool server (with its own token only), the internet. Landlock
-  can restrict TCP ports as well; it is not used yet.
+- **Confinement restricts TCP ports, not addresses.** A confined process
+  connects only to the ports named (`RUNTIME_NETWORK_PORTS`, 443 and 80 by
+  default, the tool server's and the broker's added) — so the deployment's
+  databases, hubs and receivers on ports of their own are out of its reach —
+  but on a port it may use it reaches every address: the internet on 443, and
+  anything of the deployment's that listens there. Landlock knows TCP alone:
+  UDP, and so DNS, is open. Network rules need Landlock ABI 4 (Linux 6.7);
+  before that the files are confined and the network is not, and the startup
+  line says so.
 - **An agent at `off` is unconfined**, and so is `support` unless its profile
   says otherwise; the engine names the user's agents concerned.
 - **One browser for every agent.** Per-agent browser contexts are not

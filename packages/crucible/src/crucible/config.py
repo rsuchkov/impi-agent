@@ -70,6 +70,17 @@ class ToolSettings(BaseModel):
         return self.public_url or f"http://{self.server_host}:{self.server_port}"
 
 
+def _checked_ports(key: str, raw: str) -> tuple[int, ...]:
+    """A CSV of TCP ports as ints, each once, or ``ValueError`` naming the key."""
+    ports: list[int] = []
+    for item in (p.strip() for p in raw.split(",") if p.strip()):
+        if not item.isdigit() or not 0 < int(item) < 65536:
+            raise ValueError(f"{key}: {item!r} is not a TCP port (1–65535)")
+        if int(item) not in ports:
+            ports.append(int(item))
+    return tuple(ports)
+
+
 def _checked_env_names(key: str, raw: str, reserved: tuple[str, ...]) -> list[str]:
     """The names a CSV setting lists, each one a name or family a runtime
     process may inherit — or ValueError naming ``key``."""
@@ -400,6 +411,12 @@ class Settings(BaseSettings):
     # runtime.confinement in its profile. A kernel without Landlock runs
     # every process unconfined, with a warning.
     runtime_confinement: str = "conversation"
+    # TCP ports a confined runtime process may connect to, at any address (CSV):
+    # the model's API and the web, on 443 and 80; the engine adds the tool
+    # server's own port. More for one agent: runtime.network_ports in its
+    # profile. Empty = the network is not restricted. Needs Landlock ABI 4
+    # (Linux 6.7); an older Landlock confines the files and leaves the network.
+    runtime_network_ports: str = "443,80"
     # Names (or families, ``PREFIX_*``) of the engine's own environment
     # variables every runtime process inherits beside the base set (CSV).
     # Beside it, every RUNTIME_ENV__<AXIS> key — see runtime_env_names().
@@ -470,6 +487,17 @@ class Settings(BaseSettings):
             return check_confinement_level(value)
         except ValueError as exc:
             raise ValueError(f"RUNTIME_CONFINEMENT: {exc}") from exc
+
+    @field_validator("runtime_network_ports")
+    @classmethod
+    def _network_ports_are_ports(cls, value: str) -> str:
+        _checked_ports("RUNTIME_NETWORK_PORTS", value)
+        return value
+
+    def runtime_network_port_list(self) -> tuple[int, ...]:
+        """The ports of RUNTIME_NETWORK_PORTS, each once, in order; () = the
+        network is not restricted."""
+        return _checked_ports("RUNTIME_NETWORK_PORTS", self.runtime_network_ports)
 
     @field_validator("default_fallback_models")
     @classmethod

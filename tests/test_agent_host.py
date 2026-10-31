@@ -515,6 +515,23 @@ def test_the_runtime_adds_what_it_needs_to_the_applications_scope(tmp_path: Path
     assert tmp_path / "pihome" not in scope.writable
 
 
+def test_the_runtime_adds_its_tool_servers_port_where_the_network_is_restricted(tmp_path: Path, monkeypatch) -> None:
+    from crucible.confinement import ProcessScope
+    from crucible.runtimes.pi.hosts.local import runtime_process_scope
+
+    profile, library = _dirs(tmp_path)
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pihome"))
+    restricted = ProcessScope(tcp_ports=(443, 80))
+    request = _request(profile, library, process_scope=restricted, env={"TOOL_URL": "http://127.0.0.1:8422", "TOOL_TOKEN": "t"})
+    assert runtime_process_scope(request, None, program="pi").tcp_ports == (443, 80, 8422)
+    # The port is named once, and a URL on its scheme's port adds that port.
+    again = _request(profile, library, process_scope=restricted, env={"TOOL_URL": "http://tools.internal", "TOOL_TOKEN": "t"})
+    assert runtime_process_scope(again, None, program="pi").tcp_ports == (443, 80)
+    # Not restricted: nothing to add — a port alone would be a restriction.
+    open_request = _request(profile, library, process_scope=ProcessScope(), env={"TOOL_URL": "http://127.0.0.1:8422"})
+    assert runtime_process_scope(open_request, None, program="pi").tcp_ports == ()
+
+
 async def test_a_scoped_request_starts_the_runtime_through_the_launcher(tmp_path: Path, monkeypatch) -> None:
     from crucible.confinement import LAUNCHER_PATH
 
@@ -585,6 +602,23 @@ def test_the_scope_crosses_the_wire_as_names_the_host_resolves(tmp_path: Path) -
     assert confinement is not None
     assert confinement.writable == (host_files.resolve() / "dm1",)
     assert confinement.variables == {"AGENT_FILES_DIR": host_files.resolve() / "dm1"}
+    assert confinement.tcp_ports == ()  # no port named: the network is not restricted over there either
+
+
+def test_the_ports_cross_the_wire_as_they_are(tmp_path: Path) -> None:
+    from crucible.confinement import ProcessScope
+
+    profile, library = _dirs(tmp_path)
+    host = RemoteHost(url="http://x", token="t", library_root=library, files_root=tmp_path / "files")
+    request = _request(profile, library, process_scope=ProcessScope(tcp_ports=(443, 80)))
+    payload = host._spawn_payload(request)
+    assert payload[engine_wire.KEY_CONFINEMENT] == {engine_wire.KEY_WRITABLE: [], engine_wire.KEY_PORTS: [443, 80]}
+    config = _host_config(tmp_path, profile, library)
+    assert host_parse(payload, config).confinement.tcp_ports == (443, 80)  # type: ignore[union-attr]
+    for bad in (["https"], [0], [65536], [True]):
+        payload[engine_wire.KEY_CONFINEMENT] = {engine_wire.KEY_WRITABLE: [], engine_wire.KEY_PORTS: bad}
+        with pytest.raises(SpawnRejected, match="is not a TCP port"):
+            host_parse(payload, config)
 
 
 @pytest.mark.parametrize(
@@ -786,6 +820,30 @@ def test_the_host_never_lets_a_confined_process_write_the_credential(tmp_path: P
     written = [path for option, path in rules if option in ("--writable", "--writable-file")]
     assert not any(path.startswith(str(agent_dir)) for path in written)
     assert ("--readable", str(agent_dir)) in rules and ("--mkdir-only", str(agent_dir)) in rules
+
+
+def test_the_host_adds_the_ports_of_the_engines_services_to_the_ports_named(tmp_path: Path, monkeypatch) -> None:
+    """The bridge calls the tool server and secret-exec the broker, by the
+    URLs this container was given; a restricted network has to reach both."""
+    from runtime_relay.spawn import Confinement
+
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pihome"))
+    launcher = tmp_path / "launcher.py"
+    launcher.write_text("")
+    profile, library = _dirs(tmp_path)
+    server = RelayServer(_host_config(tmp_path, profile, library, launcher=launcher))
+
+    def rules_of(confinement: Confinement, env: dict[str, str]) -> list[tuple[str, str]]:
+        command = server._confined_command(["pi"], confinement, env, tmp_path / "work" / "s", None)
+        return list(zip(command[4:command.index("--")][::2], command[5:command.index("--")][::2], strict=True))
+
+    env = {"TOOL_URL": "http://impi:8422", "SECRET_BROKER_URL": "https://ward:8425"}
+    ports = [value for option, value in rules_of(Confinement(tcp_ports=(443, 80)), env) if option == "--connect-tcp"]
+    assert ports == ["443", "80", "8422", "8425"]
+    # A service on a port already named is named once; an open network stays open.
+    ports = [value for option, value in rules_of(Confinement(tcp_ports=(443, 8422)), env) if option == "--connect-tcp"]
+    assert ports == ["443", "8422", "8425"]
+    assert not any(option == "--connect-tcp" for option, _ in rules_of(Confinement(), env))
 
 
 def test_the_relay_refuses_a_thinking_level_that_is_not_one(tmp_path: Path) -> None:

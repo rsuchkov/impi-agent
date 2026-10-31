@@ -165,7 +165,8 @@ class RemoteHost:
     def _confinement_payload(self, request: SpawnRequest) -> dict[str, object]:
         """The application's scope, said in names the host can resolve: each
         writable path under the agent's files directory, and the variable that
-        points the process at it. The rest of the scope is paths on this side
+        points the process at it; the TCP ports it may connect to, which mean
+        the same on either side. The rest of the scope is paths on this side
         — scratch space, a profile's declared paths — that mean nothing over
         there; the host gives the process its own memory and scratch space."""
         scope = request.process_scope
@@ -181,7 +182,10 @@ class RemoteHost:
             if named:
                 ref[wire.KEY_VARIABLE] = named[0]
             writable.append(ref)
-        return {wire.KEY_CONFINEMENT: {wire.KEY_WRITABLE: writable}}
+        confinement: dict[str, object] = {wire.KEY_WRITABLE: writable}
+        if scope.tcp_ports:
+            confinement[wire.KEY_PORTS] = list(scope.tcp_ports)
+        return {wire.KEY_CONFINEMENT: confinement}
 
     def _skill_ref(self, skill: str, request: SpawnRequest) -> dict[str, str]:
         path = Path(skill).resolve()

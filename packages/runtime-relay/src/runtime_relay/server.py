@@ -23,14 +23,17 @@ from runtime_relay import wire
 from runtime_relay.auth_file import auth_file_path, executable_entries
 from runtime_relay.config import RELAY_VARIABLE_PREFIX, HostConfig
 from runtime_relay.confinement import (
+    CONNECT_TCP,
     DEVICE_WRITABLE,
     MKDIR_ONLY,
     READABLE,
+    SERVICE_URL_VARIABLES,
     SYSTEM_READABLE,
     WRITABLE,
     WRITABLE_FILE,
     install_roots,
     log_confinement,
+    url_port,
 )
 from runtime_relay.spawn import (
     Confinement,
@@ -263,7 +266,10 @@ class RelayServer:
         the skill library, its extensions and the files the engine shipped; it
         writes its own memory, its own scratch ``TMPDIR`` and ``HOME`` and the
         parts of the files directory the engine named; it reads the credential
-        file, with room for the lock beside it and nothing else creatable."""
+        file, with room for the lock beside it and nothing else creatable. With
+        the network restricted, it connects to the ports the engine named and
+        to the engine's own services — the tool server, the secret broker —
+        by the URLs this container was given."""
         launcher = self._config.launcher
         if not launcher.is_file():
             raise OSError(f"the confinement launcher {launcher} is missing — the image is out of date")
@@ -298,6 +304,14 @@ class RelayServer:
         ):
             for path in paths:
                 rules += [option, str(path)]
+        ports = list(confinement.tcp_ports)
+        if ports:
+            for variable in SERVICE_URL_VARIABLES:
+                port = url_port(env.get(variable, ""))
+                if port is not None and port not in ports:
+                    ports.append(port)
+            for port in ports:
+                rules += [CONNECT_TCP, str(port)]
         return [sys.executable, "-I", "-S", str(launcher), *rules, "--", *command]
 
     # -- pumps --------------------------------------------------------------

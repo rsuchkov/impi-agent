@@ -100,6 +100,11 @@ directory the engine names, and a scratch `TMPDIR` and `HOME` of its own that
 go when it ends; it cannot read another process's environment. The level is
 the engine's to say (`RUNTIME_CONFINEMENT`, `runtime.confinement`) — at `agent`
 the whole files directory is writable; at `off` the process runs as it did.
+The network too: the ports the engine names (`RUNTIME_NETWORK_PORTS`,
+`runtime.network_ports`) travel with the spawn, and the host adds the tool
+server's and the secret broker's from the URLs its container was given; an
+image older than this rule knows no ports and leaves the network open until
+`impi agent sync` rebuilds it.
 Paths a profile declares with `runtime.confinement_read` / `confinement_write`
 are paths on the engine's filesystem and do not apply here; give such an agent
 the level it needs.

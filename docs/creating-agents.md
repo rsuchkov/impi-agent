@@ -53,6 +53,7 @@ runtime:
   confinement: agent      # optional; conversation | agent | off (default: RUNTIME_CONFINEMENT)
   confinement_read: [/srv/checkout]   # optional; more paths its process may read
   confinement_write: [state]          # optional; more it may write (relative = in the profile)
+  network_ports: [8080]   # optional; TCP ports beside RUNTIME_NETWORK_PORTS its process may connect to
   packages:               # OPTIONAL, and only with agent containers (see below)
     apt: [ffmpeg]
 ```

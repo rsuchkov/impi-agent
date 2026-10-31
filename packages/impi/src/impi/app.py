@@ -28,7 +28,7 @@ from pathlib import Path
 from crucible.approvals import PendingApprovals
 from crucible.attachment_retention import run_attachment_sweeps
 from crucible.attachments import AttachmentStore
-from crucible.confinement import landlock_abi
+from crucible.confinement import NET_ABI, landlock_abi
 from crucible.conversation_files import (
     conversation_files_dir_lookup,
     conversation_lookup,
@@ -124,6 +124,7 @@ from impi.deployment_report import (
     connections_report,
     fallback_report,
     needs_receiver,
+    network_line,
     select_specs,
 )
 from impi.engine_tools import engine_tool_registry
@@ -649,6 +650,7 @@ def build_app(settings: ImpiSettings) -> App:
         files_dir_env=FILES_DIR_ENV,
         skills_root=settings.resolved_skills_path,
         unconfined_by_default=frozenset(engine_names),
+        network_ports=settings.runtime_network_port_list(),
     )
     hosts = build_agent_hosts(settings, specs, attachments.dir_for if attachments else None)
     abi = landlock_abi()
@@ -659,6 +661,10 @@ def build_app(settings: ImpiSettings) -> App:
     (logger.info if abi else logger.warning)(line)
     if shared_warning:
         logger.warning(shared_warning)
+    network = network_line(settings.runtime_network_port_list(), settings.tool_server_port, abi)
+    # A kernel that confines the files but not the network is worth a word; a
+    # setting left empty is the operator's choice.
+    (logger.warning if 0 < abi < NET_ABI else logger.info)(network)
     # An agent in its own container is handed the credential file alone.
     here, own_container = configured_providers(), configured_providers(definitions=False)
     fallback_line, fallback_warning = fallback_report(

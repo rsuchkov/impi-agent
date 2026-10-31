@@ -297,7 +297,9 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   takes. `files_dir_env` names the variable
   that tells the process which directory it was given. Or implement the
   `ProcessScopes` port yourself (`crucible.ports.agent.confinement`):
-  `scope_for` returns the paths a process may read and write, or `None` for
+  `scope_for` returns the paths a process may read and write — and the TCP
+  ports it may connect to (`tcp_ports`; empty = the network is not
+  restricted; the runtime adds its tool server's port) — or `None` for
   unconfined; `release(agent, scope)` is called once that process has ended
   (or failed to start), so whatever you set aside for it can go. The
   runtime adds what it needs itself — its program, its memory, its account.
