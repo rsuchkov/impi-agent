@@ -256,11 +256,7 @@ class FsProfileStore:
             raise ProfileError(
                 f"{manifest}: runtime.wrap_up_after ({wrap_up_after}) must come before runtime.timeout ({timeout})"
             )
-        loop_guard = runtime.get("loop_guard")
-        if loop_guard is not None and not isinstance(loop_guard, (bool, dict)):
-            raise ProfileError(f"{manifest}: runtime.loop_guard must be true, false or a map of limits")
-        if loop_guard is False:
-            loop_guard = None
+        loop_guard = _loop_guard(runtime, manifest)
         thinking = ""
         if runtime.get("thinking") is not None:
             try:
@@ -321,6 +317,24 @@ def _read_override[T](read: Callable[[str], T | None] | None, agent: str) -> T |
         return read(agent)
     except ValueError as exc:
         raise ProfileError(str(exc)) from exc
+
+
+def _loop_guard(runtime: dict, manifest: Path) -> bool | dict[str, int] | None:
+    """``runtime.loop_guard``: ``true`` for the runtime's defaults, a map of
+    limits to whole numbers (0 turns a rule off; a key the runtime does not
+    know is its to ignore), ``false`` or absent for none. An empty map names
+    no limit of its own and means the defaults, as ``true`` does — the engine
+    checks the shape, never the names: the limits are the runtime's."""
+    raw = runtime.get("loop_guard")
+    if raw is None or raw is False:
+        return None
+    if raw is True:
+        return True
+    if not isinstance(raw, dict) or not all(
+        isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and v >= 0 for k, v in raw.items()
+    ):
+        raise ProfileError(f"{manifest}: runtime.loop_guard must be true, false or a map of limits to whole numbers")
+    return dict(raw) if raw else True
 
 
 def _network_ports(runtime: dict, manifest: Path) -> tuple[int, ...]:

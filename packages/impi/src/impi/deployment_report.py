@@ -72,10 +72,11 @@ def confinement_line(levels: Mapping[str, str], abi: int) -> str:
     return f"confinement: Landlock ABI {abi}; {confined or 'no agent confined'}; unconfined: {off or 'none'}"
 
 
-def network_line(ports: Sequence[int], tool_port: int, abi: int) -> str:
+def network_line(ports: Sequence[int], abi: int) -> str:
     """What a confined process may connect to, or why the network is not
     restricted: the kernel (no Landlock, or one before network rules) or the
-    setting (no port named)."""
+    setting (no port named). The services' ports are the process's own
+    environment's and differ by process; the line names the rule."""
     if not abi:
         return "network: not restricted — this kernel has no Landlock"
     if abi < NET_ABI:
@@ -83,7 +84,7 @@ def network_line(ports: Sequence[int], tool_port: int, abi: int) -> str:
     if not ports:
         return "network: not restricted — RUNTIME_NETWORK_PORTS is empty"
     named = ", ".join(str(p) for p in ports)
-    return f"network: a confined process connects to tcp ports {named} and the tool server's {tool_port}; binds none"
+    return f"network: a confined process connects to tcp ports {named} and the services its environment points it at; binds none"
 
 
 def confinement_report(

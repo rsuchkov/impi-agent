@@ -48,7 +48,7 @@ def test_a_urls_port_is_the_one_it_names_else_its_schemes() -> None:
     assert url_port("https://ward:8425/x") == 8425
     assert url_port("https://api.example.com/v1") == 443 and url_port("http://tools.internal") == 80
     assert url_port("") is None and url_port("tools.internal:8422") is None and url_port("ftp://x") is None
-    assert url_port("http://x:notaport") is None
+    assert url_port("http://x:notaport") is None and url_port("/srv/http://x") is None and url_port("/usr/bin") is None
 
 
 def test_ports_are_rules_of_their_own_beside_the_paths() -> None:

@@ -213,8 +213,8 @@ characters with the original length in `cut`; never a result. `404` for a
 token that names nothing, or a turn the caller did not start: the record is
 read by the turn's owner — the realm and user the journal was read by — not
 by anyone of the realm, since one person's arguments are theirs. A record an
-engine wrote before it kept the owner (v0.42 and earlier) is answered to
-nobody.
+engine wrote before it kept the owner — one that names no owner — is
+answered to nobody.
 
 ### `GET /v1/agents/{agent}/conversations?startedSince=<ISO-8601>`
 

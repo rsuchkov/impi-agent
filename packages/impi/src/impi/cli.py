@@ -971,7 +971,7 @@ def _cmd_health(args: argparse.Namespace) -> int:
         scopes = AgentProcessScopes(
             by_name.get, default_level=settings.runtime_confinement,
             unconfined_by_default=frozenset(engine_names),
-            network_ports=settings.runtime_network_port_list(),
+            network_ports=settings.confined_network_ports(),
         )
         abi = landlock_abi()
         line, shared_warning = confinement_report(
@@ -981,7 +981,7 @@ def _cmd_health(args: argparse.Namespace) -> int:
         (_ok if abi else _warn)(line)
         if shared_warning:
             _warn(shared_warning)
-        network = network_line(settings.runtime_network_port_list(), settings.tool_server_port, abi)
+        network = network_line(settings.confined_network_ports(), abi)
         (_warn if 0 < abi < NET_ABI else _ok)(network)
         # An agent in its own container is handed the credential file alone.
         here, own_container = configured_providers(), configured_providers(definitions=False)

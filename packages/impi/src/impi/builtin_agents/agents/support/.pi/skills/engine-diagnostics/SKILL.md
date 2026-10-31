@@ -224,12 +224,13 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   `runtime.confinement: agent` shares them.
 - **A skill fails with `Permission denied` / `EACCES` on `connect`, or on
   `bind`** — the network is confined too: a process connects only to the TCP
-  ports named (`RUNTIME_NETWORK_PORTS`, 443 and 80 by default, plus the tool
-  server's and, in a container, the broker's) and binds none. The startup log
-  and `impi health` say which (`network: a confined process connects to tcp
-  ports …`). An internal service on its own port goes in the agent's
-  `runtime.network_ports`; a proxy's port in `RUNTIME_NETWORK_PORTS`.
-  `Connection refused` is not this — that is the service not listening.
+  ports named (`RUNTIME_NETWORK_PORTS`, 443 and 80 by default) and to the
+  services its environment points it at by URL (the tool server, the browser,
+  the broker, a proxy), and binds none. The startup log and `impi health` say
+  so (`network: a confined process connects to tcp ports …`). An internal
+  service on its own port goes in the agent's `runtime.network_ports`, or in
+  `RUNTIME_NETWORK_PORTS` for every agent. `Connection refused` is not this —
+  that is the service not listening.
 - **Someone clicked Allow on a tool's card and was told only an approver can
   answer** — the card is addressed to the person whose message started the
   turn, or to `TOOL_APPROVERS` when set (log: `approval … may not answer
@@ -319,8 +320,8 @@ And from the session check:
   no Landlock) and can read the environment of every process in the engine's
   container. The answer is confinement (drop `off`), a container per agent, or
   no shell for them (`$IMPI_ROOT/docs/security.md`).
-- `network: a confined process connects to tcp ports 443, 80 and the tool
-  server's 8422; binds none` — what a confined process reaches. `network: not
+- `network: a confined process connects to tcp ports 443, 80 and the services
+  its environment points it at; binds none` — what a confined process reaches. `network: not
   restricted — …` names why: no Landlock, a Landlock before network rules (ABI
   4, Linux 6.7), or `RUNTIME_NETWORK_PORTS` left empty.
 - `confinement: Landlock ABI N; a=conversation, b=agent; unconfined: support`

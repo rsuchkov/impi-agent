@@ -17,8 +17,8 @@
 //   RUNTIME_LOOP_GUARD — `runtime.loop_guard` from the agent's profile, as
 //                        JSON: `true` for the defaults below, or a map of
 //                        limits {"repeat": 4, "same_result": 4, "calls": 40}
-//                        — a limit not named keeps its default, 0 turns the
-//                        rule off, a limit that is not a number is ignored
+//                        — a limit not named keeps its default; 0, or a
+//                        value that is not a number, turns the rule off
 //
 // The engine loads this for an agent whose profile turns it on and hands the
 // value on; without it the extension does nothing. The limits, their defaults
@@ -220,8 +220,8 @@ export default function (pi: ExtensionAPI) {
   const limits = readLimits(process.env.RUNTIME_LOOP_GUARD);
   if (!limits) return;
   const guard = new Guard(limits);
-  // A result refused by the same_result rule: the next call of that tool is
-  // refused outright, with the stop hint, instead of running once more.
+  // A result the same_result rule stopped at: the next call, of any tool, is
+  // refused outright with the stop hint, instead of running once more.
   let stopAfter = "";
 
   pi.on("agent_start", async () => {

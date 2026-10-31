@@ -88,7 +88,7 @@ counts, each per turn:
   answer changes is progress (paging through results, a clock) and is left
   alone;
 - `same_result` — the same tool answering exactly the same thing: the fourth
-  time the answer carries a warning, two past that the next call of the tool
+  time the answer carries a warning, two past that the next call, of any tool,
   is refused and the model is told to stop and report;
 - `calls` — the fortieth call of a turn and every one after is refused, and
   the model is told to stop and report.
@@ -367,7 +367,11 @@ steps:
 
 1. **Create the bot account** on the platform and copy its token:
    - Mattermost: System Console → Integrations → Bot Accounts.
-   - Slack: create an app with Socket Mode + a bot user. For the bot to be an
+   - Slack: create an app with Socket Mode + a bot user. Beside the usual bot
+     scopes (`chat:write`, the `*:history` of the conversations it reads,
+     `users:read`, `commands`), the engine asks `conversations.info` of a
+     direct message a slash command came from, to tell its own from another's
+     — `im:read`. For the bot to be an
      agent in Slack's Agents panel — a working indicator and a Stop button
      while it works — the manifest needs `features.agent_view`, the scopes
      `assistant:write` and `chat:write`, and the events `message.im`,

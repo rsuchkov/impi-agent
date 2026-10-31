@@ -95,6 +95,10 @@ suggest pasting a password for an agent to type.
   or the engine has not re-read the profile (`impi reload`). After the reload a
   conversation already in flight picks the skill up on its next turn: its
   process restarts with the new profile, memory kept.
+- **`Permission denied` on connect** — the process's network is confined; the
+  browser's port is allowed because `BROWSER_CDP_URL` is in its environment,
+  so check the variable reaches the agent (`runtime.env`, the overlay) before
+  anything else.
 - **Connection refused, or Chrome never opens its port** — `impi logs browser`,
   then `docs/browsing.md`. Never advise `--no-sandbox`: the renderer is what
   parses a stranger's HTML, and that isolation is the point.

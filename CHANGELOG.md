@@ -10,17 +10,20 @@ when a release is cut, and `impi update` shows the target version's section.
   `agent.yaml` (`true`, or `{repeat: 4, same_result: 4, calls: 40}`, `0`
   turning a rule off) loads a guard into the agent's process — an extension
   beside the tool bridge, `extension/loopguard.ts` — that refuses the same
-  call with the same arguments, or nearly the same with the same answer every
-  time, the fourth time and bans it for the session the fifth, warns the model when a tool answers exactly the same thing the
-  fourth time and stops it two past that, and refuses every call past the
-  turn's budget, each refusal a tool error with what to do instead. It runs
+  call — exactly, or nearly so — that got the same answer every time, the
+  fourth time, and bans it for the session the fifth; warns the model when a
+  tool answers exactly the same thing the fourth time and stops the turn two
+  past that; and refuses every call past the turn's budget, each refusal a
+  tool error with what to do instead. It runs
   where the calls and their answers are: the engine never sees a result, by
   its own rule, so only the runtime can tell "the same answer again" — and
   the engine knows nothing of the limits: it hands `runtime.loop_guard` on as
   written (`RUNTIME_LOOP_GUARD`), baked into the process (a change starts a
   fresh one); the agent image loads the extension beside the bridge and the
-  fallback, inert without the variable. The engine's
-  `LoopGuard` (cascades between agents) is unchanged and always on.
+  fallback, inert without the variable — an image built before this release
+  has no guard to load, so the setting does nothing there until `impi agent
+  sync` rebuilds it. The engine's `LoopGuard` (cascades between agents) is
+  unchanged and always on.
 - **Fixed: a task with `on_missed: skip` never ran.** The skip was applied to
   every occurrence, punctual ones included, so such a task was recorded
   `missed` with `on_missed=skip` at every due time and ran zero times. The
@@ -38,25 +41,30 @@ when a release is cut, and `impi update` shows the target version's section.
   when the agent is the other party.** Slack's payload says `directmessage`
   of any direct message — with the app, with a colleague, with another app —
   and the engine took each as the agent's own, where a panel of the person's
-  own things (`/connections`) may open. The channel is now asked whom it is
-  with (`conversations.info`, once per channel); any other party, a group
+  own things (`/connections`) may open. The channel is now asked
+  (`conversations.info`, once per channel) and counts as the agent's only
+  when it is a direct message the app is in with the person who typed the
+  command; a direct message between people, one with another app, a group
   direct message or a channel that cannot be asked runs the command as a
   channel's, as Mattermost's `a__b` channel name already let the engine do.
 - **Security: a confined process's network is confined too.** A confined
   runtime process connected to any address and port the deployment's network
   reaches — its database, a hub, the receiver, the broker. It now connects
   over TCP only to the ports the deployment names (`RUNTIME_NETWORK_PORTS`,
-  `443,80` by default — the model's API and the web), the tool server's own
-  and, in an agent's container, the secret broker's, plus what an agent's
-  profile adds (`runtime.network_ports`); every other port is refused and
-  binding one always is. Landlock knows TCP alone, so UDP and DNS are not
-  touched. Needs Landlock ABI 4 (Linux 6.7): an older Landlock confines the
-  files and leaves the network, and the startup line (`network: …`, also in
-  `impi doctor`) says which it is. The ports travel to an agent's container
-  with the spawn (`confinement.ports` on the wire); an agent image older than
-  this knows no ports and leaves the network open until `impi agent sync`
-  rebuilds it. **Breaks:** an agent that reaches an internal service on a
-  port of its own, or the web through a proxy on one, needs that port in
+  `443,80` by default — the model's API and the web), the ports of the
+  services its own environment points it at by URL (the tool server the
+  bridge calls, the browser, the secret broker, a proxy in `HTTPS_PROXY` —
+  as a file it is pointed at is one it may read), and what an agent's profile
+  adds (`runtime.network_ports`); every other port is refused and binding one
+  always is. Landlock knows TCP alone, so UDP and DNS are not touched. Needs
+  Landlock ABI 4 (Linux 6.7): an older Landlock confines the files and leaves
+  the network, and the startup line (`network: …`, also in `impi doctor`)
+  says which it is. The ports travel to an agent's container with the spawn
+  (`confinement.ports` on the wire), where the host adds its own
+  environment's services the same way; an agent image older than this knows
+  no ports and leaves the network open until `impi agent sync` rebuilds it.
+  **Breaks:** an agent that reaches an internal service on a port of its own
+  and is not pointed at it by a URL in its environment needs that port in
   `runtime.network_ports` or `RUNTIME_NETWORK_PORTS`; `RUNTIME_NETWORK_PORTS=`
   (empty) restores the open network.
 

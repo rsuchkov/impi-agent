@@ -21,7 +21,7 @@ directly: every agent turn is delegated to the external
 | `make run-bg` | run in the background, logging to `data/logs/engine.log` |
 | `make stop` | stop the engine and sweep orphaned `pi` children |
 | `make reload` | hot-reload agent profiles (re-read every `agent.yaml` + `.pi/`) |
-| `make test` | `uv run pytest` |
+| `make test` | the runtime extensions' `node --test` (needs Node 22.6+), then `uv run pytest` |
 | `make lint` | ruff + import-linter (layer boundaries) + the two text checks in `scripts/` + pyright |
 | `make relay-lint` | `go vet` + `gofmt` over the browser relay (skipped without Go) |
 | `make relay-test` | `go test -race` over the browser relay (skipped without Go) |

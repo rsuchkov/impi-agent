@@ -9,6 +9,7 @@ import fnmatch
 import logging
 import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 
 from crucible.confinement import ProcessScope, confined_command, landlock_abi, url_port
@@ -55,7 +56,7 @@ class LocalHost:
             env.update(request.process_scope.env)
             env["PI_CODING_AGENT_DIR"] = str(runtime_agent_dir())
         if request.process_scope is not None and self._can_confine():
-            scope = runtime_process_scope(request, session_dir, program=self._program)
+            scope = runtime_process_scope(request, session_dir, program=self._program, env=env)
             command = confined_command(scope, [self._program, *args])
             return await SubprocessTransport.spawn(command[0], command[1:], cwd=cwd, env=env)
         return await SubprocessTransport.spawn(self._program, args, cwd=cwd, env=env)
@@ -182,10 +183,6 @@ def _environment(request: SpawnRequest) -> dict[str, str]:
     return {**inherited, **request.env, **granted}
 
 
-# The variable the bridge extension reads the tool server's address from
-# (tools/wiring.py hands it to the process).
-TOOL_URL_ENV = "TOOL_URL"
-
 # What every process of this runtime reads, wherever its agent's files are: the
 # system, the device nodes, the process table (another process's private
 # entries stay out of reach — the kernel refuses them outside the domain).
@@ -194,7 +191,9 @@ SYSTEM_READABLE = ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc", "/opt", "/
 DEVICE_WRITABLE = ("/dev/null", "/dev/zero", "/dev/full", "/dev/tty", "/dev/ptmx")
 
 
-def runtime_process_scope(request: SpawnRequest, session_dir: Path | None, *, program: str) -> ProcessScope:
+def runtime_process_scope(
+    request: SpawnRequest, session_dir: Path | None, *, program: str, env: Mapping[str, str] | None = None,
+) -> ProcessScope:
     """The application's scope for this process, plus what the runtime itself
     needs: its program and node, the system, its memory for this session, the
     files it is handed (skills, extensions, the tool manifest) and its account
@@ -202,8 +201,11 @@ def runtime_process_scope(request: SpawnRequest, session_dir: Path | None, *, pr
     else creatable there. Not written: a process that could rewrite the
     credential could plant a command every other process would run
     (auth_file.py); the application keeps the login fresh instead
-    (auth_refresh.py). Where the application restricts the network, the tool
-    server's port is the runtime's to add: the bridge calls it."""
+    (auth_refresh.py). Where the application restricts the network, the
+    services the process is pointed at by a URL in its environment (``env``,
+    what it is started with) are services it was meant to reach — the tool
+    server the bridge calls, a browser, a broker, a proxy — and their ports
+    are added, as the files it is pointed at are made readable."""
     assert request.process_scope is not None
     readable = [Path(p) for p in SYSTEM_READABLE]
     readable += install_roots(program)
@@ -219,9 +221,10 @@ def runtime_process_scope(request: SpawnRequest, session_dir: Path | None, *, pr
     writable = [session_dir] if session_dir is not None else []
     ports = list(request.process_scope.tcp_ports)
     if ports:
-        tool_port = url_port(request.env.get(TOOL_URL_ENV, ""))
-        if tool_port is not None and tool_port not in ports:
-            ports.append(tool_port)
+        for value in (env if env is not None else _environment(request)).values():
+            port = url_port(value)
+            if port is not None and port not in ports:
+                ports.append(port)
     return ProcessScope(
         readable=(*request.process_scope.readable, *readable),
         writable=(*request.process_scope.writable, *writable),

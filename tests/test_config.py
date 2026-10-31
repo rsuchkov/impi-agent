@@ -342,9 +342,9 @@ def test_the_stop_command_is_a_word_or_nothing() -> None:
 
 
 def test_runtime_network_ports_default_to_the_web_and_refuse_what_is_not_a_port() -> None:
-    assert _settings().runtime_network_port_list() == (443, 80)
-    assert _settings(runtime_network_ports="").runtime_network_port_list() == ()  # the network is not restricted
-    assert _settings(runtime_network_ports=" 443, 8080,443 ,22 ").runtime_network_port_list() == (443, 8080, 22)
+    assert _settings().confined_network_ports() == (443, 80)
+    assert _settings(runtime_network_ports="").confined_network_ports() == ()  # the network is not restricted
+    assert _settings(runtime_network_ports=" 443, 8080,443 ,22 ").confined_network_ports() == (443, 8080, 22)
     for bad in ("https", "0", "65536", "443;80"):
         with pytest.raises(ValidationError, match="RUNTIME_NETWORK_PORTS"):
             _settings(runtime_network_ports=bad)

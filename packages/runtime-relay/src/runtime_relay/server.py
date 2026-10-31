@@ -27,7 +27,6 @@ from runtime_relay.confinement import (
     DEVICE_WRITABLE,
     MKDIR_ONLY,
     READABLE,
-    SERVICE_URL_VARIABLES,
     SYSTEM_READABLE,
     WRITABLE,
     WRITABLE_FILE,
@@ -268,8 +267,9 @@ class RelayServer:
         parts of the files directory the engine named; it reads the credential
         file, with room for the lock beside it and nothing else creatable. With
         the network restricted, it connects to the ports the engine named and
-        to the engine's own services — the tool server, the secret broker —
-        by the URLs this container was given."""
+        to the services it is pointed at by a URL in its environment — the
+        tool server, the secret broker, a browser — as this container was
+        given them."""
         launcher = self._config.launcher
         if not launcher.is_file():
             raise OSError(f"the confinement launcher {launcher} is missing — the image is out of date")
@@ -306,8 +306,8 @@ class RelayServer:
                 rules += [option, str(path)]
         ports = list(confinement.tcp_ports)
         if ports:
-            for variable in SERVICE_URL_VARIABLES:
-                port = url_port(env.get(variable, ""))
+            for value in env.values():
+                port = url_port(value)
                 if port is not None and port not in ports:
                     ports.append(port)
             for port in ports:

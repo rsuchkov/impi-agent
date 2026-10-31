@@ -94,9 +94,10 @@ can read there is its own token and proof. Below Linux 6.2 (ABI 3) the kernel
 cannot stop a confined process truncating a file its user may write, such as
 `conf/.env`: reading it stays refused, emptying it does not. From Linux 6.7
 (ABI 4) the network is confined as well: the process connects over TCP to the
-ports named (`RUNTIME_NETWORK_PORTS`, the tool server's, an agent's own) and
-to no other — not the deployment's database, not a hub, not the receiver — and
-binds none.
+ports named (`RUNTIME_NETWORK_PORTS`, those of the services its environment
+points it at — the tool server, the browser, the broker — and an agent's own)
+and to no other — not the deployment's database, not a hub, not the receiver —
+and binds none.
 
 What remains, and what the engine does about it:
 
@@ -174,9 +175,9 @@ The honest summary, for an agent that has a shell:
 
 If agents of different trust share a deployment — one reads public channels,
 another holds a release token — confinement keeps their files and processes
-apart, not their network: both reach whatever the deployment's network
-reaches. Turn the containers on for a network of their own, or do not give
-the first one a shell.
+apart, and their network by port only: both reach every address on the ports
+named. Turn the containers on for a network of their own, or do not give the
+first one a shell.
 
 ### An MCP server and the engine
 
@@ -358,7 +359,7 @@ Things the design does not solve, stated so nobody relies on them by accident.
   domain. `impi doctor` prints the ABI.
 - **Confinement restricts TCP ports, not addresses.** A confined process
   connects only to the ports named (`RUNTIME_NETWORK_PORTS`, 443 and 80 by
-  default, the tool server's and the broker's added) — so the deployment's
+  default, and those of the services its environment points it at) — so the deployment's
   databases, hubs and receivers on ports of their own are out of its reach —
   but on a port it may use it reaches every address: the internet on 443, and
   anything of the deployment's that listens there. Landlock knows TCP alone:

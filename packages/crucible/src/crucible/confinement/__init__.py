@@ -73,15 +73,18 @@ def confined_command(
     return [python, "-I", "-S", str(LAUNCHER_PATH), *rules, "--", *command]
 
 
-def url_port(url: str) -> int | None:
-    """The TCP port a URL is reached on — the one it names, else its scheme's
-    (443 for https, 80 for http) — or None for anything else: whoever adds a
-    URL's port to a scope has nothing to add for a URL that has none."""
+def url_port(value: str) -> int | None:
+    """The TCP port an http or https URL is reached on — the one it names,
+    else its scheme's (443, 80) — or None for anything that is not one: a
+    path, a word, a URL of another scheme. Made for reading a process's
+    environment, where most values are not URLs at all."""
+    if not value.startswith(("http://", "https://")):
+        return None
     try:
-        parts = urlsplit(url)
+        parts = urlsplit(value)
         port = parts.port
     except ValueError:
         return None
     if port is not None:
         return port
-    return {"https": 443, "http": 80}.get(parts.scheme)
+    return 443 if parts.scheme == "https" else 80

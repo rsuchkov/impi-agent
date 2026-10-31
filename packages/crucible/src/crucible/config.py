@@ -494,9 +494,10 @@ class Settings(BaseSettings):
         _checked_ports("RUNTIME_NETWORK_PORTS", value)
         return value
 
-    def runtime_network_port_list(self) -> tuple[int, ...]:
-        """The ports of RUNTIME_NETWORK_PORTS, each once, in order; () = the
-        network is not restricted."""
+    def confined_network_ports(self) -> tuple[int, ...]:
+        """The TCP ports a confined process may connect to, from
+        RUNTIME_NETWORK_PORTS, each once, in order; () = the network is not
+        restricted."""
         return _checked_ports("RUNTIME_NETWORK_PORTS", self.runtime_network_ports)
 
     @field_validator("default_fallback_models")

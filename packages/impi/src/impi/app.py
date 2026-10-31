@@ -650,7 +650,7 @@ def build_app(settings: ImpiSettings) -> App:
         files_dir_env=FILES_DIR_ENV,
         skills_root=settings.resolved_skills_path,
         unconfined_by_default=frozenset(engine_names),
-        network_ports=settings.runtime_network_port_list(),
+        network_ports=settings.confined_network_ports(),
     )
     hosts = build_agent_hosts(settings, specs, attachments.dir_for if attachments else None)
     abi = landlock_abi()
@@ -661,7 +661,7 @@ def build_app(settings: ImpiSettings) -> App:
     (logger.info if abi else logger.warning)(line)
     if shared_warning:
         logger.warning(shared_warning)
-    network = network_line(settings.runtime_network_port_list(), settings.tool_server_port, abi)
+    network = network_line(settings.confined_network_ports(), abi)
     # A kernel that confines the files but not the network is worth a word; a
     # setting left empty is the operator's choice.
     (logger.warning if 0 < abi < NET_ABI else logger.info)(network)

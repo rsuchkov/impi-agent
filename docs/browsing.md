@@ -148,6 +148,12 @@ this, the same way it has none for the secret store.
   exactly this reason: naming any network takes a service off the implicit
   default.
 - **Connection refused** — `impi logs browser`.
+- **`Permission denied` on connect** — the agent's process is confined and
+  its network with it; the browser's port is allowed because
+  `BROWSER_CDP_URL` is in the process's environment. An agent whose profile
+  does not inherit the variable, or a URL changed by hand to another port,
+  is the thing to look at; `RUNTIME_NETWORK_PORTS` names the rest
+  ([configuration.md](configuration.md)).
 - **Chrome never opens its port** — either the seccomp profile did not apply
   (its path in the overlay is absolute through `IMPI_HOME`; a relative one
   resolves against the wrong directory), or the host refused a nested user

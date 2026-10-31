@@ -1213,9 +1213,9 @@ def test_impi_hands_the_flow_the_conversations_received_files_for_its_captions(t
 def test_the_network_line_says_what_is_reached_or_why_nothing_is_restricted() -> None:
     from impi.deployment_report import network_line
 
-    assert network_line((443, 80), 8422, abi=7) == (
-        "network: a confined process connects to tcp ports 443, 80 and the tool server's 8422; binds none"
+    assert network_line((443, 80), abi=7) == (
+        "network: a confined process connects to tcp ports 443, 80 and the services its environment points it at; binds none"
     )
-    assert network_line((443, 80), 8422, abi=0) == "network: not restricted — this kernel has no Landlock"
-    assert "ABI 3 has no network rules" in network_line((443, 80), 8422, abi=3)
-    assert network_line((), 8422, abi=7) == "network: not restricted — RUNTIME_NETWORK_PORTS is empty"
+    assert network_line((443, 80), abi=0) == "network: not restricted — this kernel has no Landlock"
+    assert "ABI 3 has no network rules" in network_line((443, 80), abi=3)
+    assert network_line((), abi=7) == "network: not restricted — RUNTIME_NETWORK_PORTS is empty"

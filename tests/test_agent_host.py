@@ -515,18 +515,30 @@ def test_the_runtime_adds_what_it_needs_to_the_applications_scope(tmp_path: Path
     assert tmp_path / "pihome" not in scope.writable
 
 
-def test_the_runtime_adds_its_tool_servers_port_where_the_network_is_restricted(tmp_path: Path, monkeypatch) -> None:
+def test_the_runtime_adds_the_ports_of_the_services_the_environment_points_at(tmp_path: Path, monkeypatch) -> None:
+    """The tool server the bridge calls, a browser, a broker, a proxy: each a
+    URL in the environment the process is started with — what the engine
+    grants it and what it inherits — and each a service it was meant to
+    reach, as a file it is pointed at is one it was meant to read."""
     from crucible.confinement import ProcessScope
     from crucible.runtimes.pi.hosts.local import runtime_process_scope
 
     profile, library = _dirs(tmp_path)
     monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pihome"))
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.internal:3128")  # inherited always
+    monkeypatch.setenv("BROWSER_CDP_URL", "http://browser:9222")  # inherited when the request names it
+    monkeypatch.setenv("NOT_FOR_THE_PROCESS", "http://elsewhere:9999")
     restricted = ProcessScope(tcp_ports=(443, 80))
-    request = _request(profile, library, process_scope=restricted, env={"TOOL_URL": "http://127.0.0.1:8422", "TOOL_TOKEN": "t"})
-    assert runtime_process_scope(request, None, program="pi").tcp_ports == (443, 80, 8422)
-    # The port is named once, and a URL on its scheme's port adds that port.
-    again = _request(profile, library, process_scope=restricted, env={"TOOL_URL": "http://tools.internal", "TOOL_TOKEN": "t"})
-    assert runtime_process_scope(again, None, program="pi").tcp_ports == (443, 80)
+    request = _request(
+        profile, library, process_scope=restricted, inherit=("BROWSER_CDP_URL",),
+        env={"TOOL_URL": "http://127.0.0.1:8422", "TOOL_TOKEN": "t", "OTHER": "not a url", "PATH_LIKE": "/http://x"},
+    )
+    assert set(runtime_process_scope(request, None, program="pi").tcp_ports) == {443, 80, 8422, 3128, 9222}
+    # The host hands the environment it computed, so the two agree; a URL on
+    # its scheme's port adds nothing new, and the port is named once.
+    again = _request(profile, library, process_scope=restricted, env={"TOOL_URL": "https://tools.internal", "TOOL_TOKEN": "t"})
+    scope = runtime_process_scope(again, None, program="pi", env={"TOOL_URL": "https://tools.internal"})
+    assert scope.tcp_ports == (443, 80)
     # Not restricted: nothing to add — a port alone would be a restriction.
     open_request = _request(profile, library, process_scope=ProcessScope(), env={"TOOL_URL": "http://127.0.0.1:8422"})
     assert runtime_process_scope(open_request, None, program="pi").tcp_ports == ()
@@ -822,9 +834,10 @@ def test_the_host_never_lets_a_confined_process_write_the_credential(tmp_path: P
     assert ("--readable", str(agent_dir)) in rules and ("--mkdir-only", str(agent_dir)) in rules
 
 
-def test_the_host_adds_the_ports_of_the_engines_services_to_the_ports_named(tmp_path: Path, monkeypatch) -> None:
-    """The bridge calls the tool server and secret-exec the broker, by the
-    URLs this container was given; a restricted network has to reach both."""
+def test_the_host_adds_the_ports_of_the_services_the_environment_points_at(tmp_path: Path, monkeypatch) -> None:
+    """The bridge calls the tool server, secret-exec the broker, a skill the
+    browser — by the URLs this container's environment carries; a restricted
+    network has to reach each."""
     from runtime_relay.spawn import Confinement
 
     monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pihome"))
@@ -837,12 +850,12 @@ def test_the_host_adds_the_ports_of_the_engines_services_to_the_ports_named(tmp_
         command = server._confined_command(["pi"], confinement, env, tmp_path / "work" / "s", None)
         return list(zip(command[4:command.index("--")][::2], command[5:command.index("--")][::2], strict=True))
 
-    env = {"TOOL_URL": "http://impi:8422", "SECRET_BROKER_URL": "https://ward:8425"}
+    env = {"TOOL_URL": "http://impi:8422", "SECRET_BROKER_URL": "https://ward:8425", "BROWSER_CDP_URL": "http://browser:9222", "HOME": "/home/x"}
     ports = [value for option, value in rules_of(Confinement(tcp_ports=(443, 80)), env) if option == "--connect-tcp"]
-    assert ports == ["443", "80", "8422", "8425"]
+    assert ports == ["443", "80", "8422", "8425", "9222"]
     # A service on a port already named is named once; an open network stays open.
     ports = [value for option, value in rules_of(Confinement(tcp_ports=(443, 8422)), env) if option == "--connect-tcp"]
-    assert ports == ["443", "8422", "8425"]
+    assert ports == ["443", "8422", "8425", "9222"]
     assert not any(option == "--connect-tcp" for option, _ in rules_of(Confinement(), env))
 
 

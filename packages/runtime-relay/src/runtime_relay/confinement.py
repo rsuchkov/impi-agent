@@ -24,24 +24,23 @@ DEVICE_WRITABLE = ("/dev/null", "/dev/zero", "/dev/full", "/dev/tty", "/dev/ptmx
 # The launcher's options, in the order its rules are given.
 READABLE, WRITABLE, WRITABLE_FILE, MKDIR_ONLY = "--readable", "--writable", "--writable-file", "--mkdir-only"
 CONNECT_TCP = "--connect-tcp"
-# The services a process here reaches for the engine, by the variable that
-# names each: the engine's tool server (the bridge calls it) and the secret
-# broker (``secret-exec`` calls it). Their ports join the ones the engine
-# named whenever the network is restricted.
-SERVICE_URL_VARIABLES = ("TOOL_URL", "SECRET_BROKER_URL")
 
 
-def url_port(url: str) -> int | None:
-    """The TCP port a URL is reached on — the one it names, else its scheme's
-    — or None for anything else."""
+def url_port(value: str) -> int | None:
+    """The TCP port an http or https URL is reached on — the one it names,
+    else its scheme's — or None for anything that is not one. A service the
+    process is pointed at by a URL in its environment (the tool server, the
+    broker, a browser, a proxy) is one it was meant to reach."""
+    if not value.startswith(("http://", "https://")):
+        return None
     try:
-        parts = urlsplit(url)
+        parts = urlsplit(value)
         port = parts.port
     except ValueError:
         return None
     if port is not None:
         return port
-    return {"https": 443, "http": 80}.get(parts.scheme)
+    return 443 if parts.scheme == "https" else 80
 
 
 def install_roots(program: str) -> list[Path]:

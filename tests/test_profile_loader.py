@@ -440,8 +440,10 @@ def test_the_loop_guard_is_handed_on_as_written_and_off_unless_asked_for(tmp_pat
     assert load(tmp_path / "plain", "  loop_guard: true\n") is True  # the runtime's defaults
     assert load(tmp_path / "tuned", "  loop_guard: {repeat: 3, calls: 0}\n") == {"repeat": 3, "calls": 0}  # as written: the runtime reads it
     assert load(tmp_path / "off", "  loop_guard: false\n") is None
-    with pytest.raises(ProfileError, match="true, false or a map"):
-        load(tmp_path / "words", "  loop_guard: soon\n")
+    assert load(tmp_path / "empty", "  loop_guard: {}\n") is True  # names no limit of its own: the defaults
+    for name, bad in (("words", "soon"), ("quoted", "{repeat: '4'}"), ("negative", "{calls: -1}"), ("flag", "{repeat: true}")):
+        with pytest.raises(ProfileError, match="true, false or a map of limits to whole numbers"):
+            load(tmp_path / name, f"  loop_guard: {bad}\n")
 
 
 def test_runtime_network_ports_are_read_each_once_and_must_be_ports(tmp_path: Path) -> None:
