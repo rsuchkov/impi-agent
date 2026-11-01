@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.44.0 — 2026-11-01
+
 - **Whether a turn may run at all, as the application says.** `AgentFlow(
   admission=)` takes a `TurnAdmission` (`crucible.ports.admission`) asked
   from the message that opens a turn, once per author, every turn — synthetic
