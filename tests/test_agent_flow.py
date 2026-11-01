@@ -2515,3 +2515,41 @@ async def test_admission_by_gateway_asks_the_rule_of_the_messages_gateway_and_ad
         assert [a[1] for a in slack_rule.asked] == ["u1"]  # asked once: for the Slack message alone
     finally:
         await store.close()
+
+
+async def test_a_private_word_that_fails_is_said_in_the_open_without_the_link(tmp_path: Path, caplog) -> None:
+    # A bot without the platform's permission for an ephemeral post: the person
+    # still gets the sentence, the link stays back, the turn is not an error.
+    class _Deaf(_PrivateChat):
+        async def post_private_notice(self, ref, user_id, text, *, code="", link="", label=""):
+            raise RuntimeError("create_post_ephemeral: permission denied")
+
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    verdict = NotAdmitted("Sign in first.", link="https://idp.example/s")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=_Admission({"u1": verdict}))
+    try:
+        chat = _Deaf()
+        with caplog.at_level("WARNING"):
+            assert await flow.handle(_dm("hello"), chat) is TurnOutcome.NOT_ADMITTED
+        assert chat.notices == [(_dm().ref, "Sign in first.")] and chat.notice_codes == [NOTICE_NOT_ADMITTED]
+        assert "could not speak to u1 alone" in caplog.text and "idp.example" not in caplog.text
+    finally:
+        await store.close()
+
+
+async def test_a_message_with_no_author_is_told_in_the_open_since_nobody_can_be_told_alone(tmp_path: Path) -> None:
+    # An engine-started turn from a dispatcher that named nobody: the private
+    # verb would fail on the platform, so the word goes out without the link.
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    verdict = NotAdmitted("Sign in first.", link="https://idp.example/s")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=_Admission({"": verdict}))
+    try:
+        msg = _dm("hello")
+        msg.user_id = ""
+        chat = _PrivateChat()
+        assert await flow.handle(msg, chat) is TurnOutcome.NOT_ADMITTED
+        assert chat.private == [] and chat.notices == [(msg.ref, "Sign in first.")]
+    finally:
+        await store.close()

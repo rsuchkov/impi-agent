@@ -10,6 +10,7 @@ from crucible.approvals.card import card_markdown
 from crucible.gateways.mattermost.dialogs import build_dialog
 from crucible.gateways.mattermost.events import PROPS_KEY, post_time
 from crucible.ports.chat.admin import ChannelMember
+from crucible.ports.chat.client import PRIVATE_LINK_LABEL
 from crucible.ports.chat.types import (
     ACTION_CHANNEL_SELECT,
     ACTION_SELECT,
@@ -72,9 +73,6 @@ def _snippet_text(post: dict) -> str:
         if isinstance(info, dict) and info.get("name")
     ]
     return f"[files: {', '.join(names)}]" if names else "[shared a file]"
-
-
-PRIVATE_LINK_LABEL = "Open"
 
 
 class MattermostChatClient:

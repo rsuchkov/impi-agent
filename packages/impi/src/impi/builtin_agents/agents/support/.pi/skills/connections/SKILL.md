@@ -49,6 +49,7 @@ redirect URI to register) and `!` lines for what is wrong.
 | Engine will not start: `CONNECTIONS_KEYS is empty` / `CONNECTIONS_PUBLIC_URL is required` | a provider is configured without them | `impi connections key`; set the URL |
 | `CONNECTION_… is required` / `is not one of` at start | a provider key missing or wrong — the message names it | fix that key |
 | `/connections` answers "opens only in a direct message" | typed in a channel, a thread, or a DM with another person or another agent (a Mattermost command belongs to the agent its URL names) | open a DM with that agent; with several agents, rely on the Connect offer a tool posts |
+| Told to sign in before a turn, or again each day, though connected | the application's admission rule wants a connect younger than its limit (`connected_at`); a provider without a refresh scope ends the connection when the token ends; a connection made before the engine kept the moment counts as none | sign in again — by design, the application's rule, not the engine's |
 | `/connections` reaches the agent as a turn | the word is not the engine's: slash command not named `CONNECTIONS_COMMAND`, or no provider configured | match the word; configure a provider |
 | "This agent uses no connected accounts" | no provider allows this agent | `CONNECTION_AGENTS__<NAME>` |
 | Provider shows "redirect URI is invalid" | the registered URI is not `<CONNECTIONS_PUBLIC_URL>/oauth/callback` exactly | copy it from `impi health` |
@@ -74,6 +75,8 @@ a token or a code.
 - A skill's own CLI gets no token. For a credential in a command line, use
   **ward** (that is the deployment's credential, not the person's).
 - Scheduled tasks act as nobody, even one scheduled in somebody's DM.
+- A sign-in older than the application's rule allows is refused before the
+  turn (`not_admitted`); the engine itself never requires one.
 - Agents on the ws/http gateway are offered no connected accounts: the user id
   there is whatever the calling program says.
 - Channels and shared threads: not designed yet. A thread inside the person's DM works (only they and the agent read it).

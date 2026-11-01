@@ -15,7 +15,9 @@ when a release is cut, and `impi update` shows the target version's section.
   with the link that is theirs (a sign-in), where they wrote. The outcome is
   `TurnOutcome.NOT_ADMITTED`, the notice code `not_admitted` (http journal and
   ws frame carry `link` and `label` beside it), a scheduled run ends as
-  `not_admitted` (not a failure). `AdmissionByGateway({"slack": rule})`
+  `not_admitted` (not a failure); a `turn`-mode run comes in under the task
+  creator's id, and the rule decides whether that counts as them — a
+  `prompt`-mode task runs no turn and is not put to the rule. `AdmissionByGateway({"slack": rule})`
   (`crucible.flows.admission`) holds one gateway to a rule and admits the
   rest — an agent reached through a chat whose session lives for months and
   through a system that signs its people in itself. Made for a step-up
@@ -28,7 +30,7 @@ when a release is cut, and `impi update` shows the target version's section.
   and `label` on http and ws. The flow uses it for a turn not admitted; a
   client without it is told the text in the open and the link is kept back.
 - **A connection remembers when it was made.** `ConnectionRecord.connected_at`
-  (a column added on open; `""` for a record from before) and
+  (SQLite adds the column on open; an older record reads as `""`) and
   `OAuthConnections.connected_at(owner, provider)` — the connect, kept through
   refreshes and a move, new at a reconnect; `None` for a record from before.
   A rule that wants a recent sign-in asks it; a provider registered without a

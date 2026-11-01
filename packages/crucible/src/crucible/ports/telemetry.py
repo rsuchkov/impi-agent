@@ -30,7 +30,7 @@ class TurnEnded:
     synthetic: bool  # a click, a command, a form, an engine-started turn
     messages: int  # how many messages the turn answered at once
     attachments: int  # how many files came with them
-    outcome: str  # TurnOutcome, lower-cased: replied, acted, empty, truncated, timeout, error
+    outcome: str  # TurnOutcome, lower-cased: replied, acted, empty, truncated, timeout, error, stopped, not_admitted
     notice: str  # the notice code the person got, "" when none
     duration_s: float  # from the batch's arrival to the outcome
     model: str  # provider/model that answered, "" when the runtime did not say

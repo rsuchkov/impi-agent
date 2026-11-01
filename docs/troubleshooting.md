@@ -62,6 +62,10 @@ and the `agent.yaml` key behind it:
   call, a repeated answer and a turn past its budget of calls, with a word to
   the model each time (`loop guard: … refused: …` in the log). Off by
   default; see "Loop guard" in [creating-agents.md](creating-agents.md).
+- A person is told to sign in and the agent does nothing else (notice code
+  `not_admitted`, seen by that person alone) — the application's admission
+  rule did not let the turn run; not the engine's doing, and not a failure. A
+  scheduled run of such an agent ends as `not_admitted` for the same reason.
 - "The model stopped responding in the middle of this turn, so I stopped it"
   (`stalled`) — no text, reasoning or tool activity for `runtime.idle_timeout`
   seconds (120 by default; not counted while a tool runs or a card is up); the

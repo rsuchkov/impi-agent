@@ -438,9 +438,13 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   (`PrivateNotices`, below), with the link; the turn's outcome is
   `TurnOutcome.NOT_ADMITTED`, its notice code `not_admitted`, and a scheduled
   run ends as `not_admitted`. Asked once per author of the turn's messages,
-  every turn, synthetic messages included (a command, a click, a scheduled
-  run carries the id the engine gave it and no person's session) — so the
-  rule decides what a turn with nobody behind it gets. One agent reached
+  every turn, synthetic messages included — a command or a click carries the
+  person who typed or clicked; a scheduled run carries the id of the person
+  who created the task, with `synthetic=True` and `engine_started=True`, and
+  no session of theirs — so the rule decides whether a run in their name
+  counts as them. A `prompt`-mode task runs no turn (the runtime answers a
+  prompt and the result is delivered) and is never put to the rule; it acts
+  with the deployment's credential alone, as [tasks.md](tasks.md) says. One agent reached
   through two gateways may need the bar on one and not the other:
   `AdmissionByGateway({"slack": rule})` (`crucible.flows.admission`) asks the
   rule for the gateway named and admits the rest. The recipe for a sign-in:
@@ -461,8 +465,11 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   event with `link` and `label` in an http caller's journal and a ws service's
   frame (each reaches one program anyway). A client without it is never asked;
   the flow then says the text in the open with `post_notice` and keeps the
-  link to itself, with a warning in the log. `ChatAdmin.post_ephemeral` is the
-  tools' plain ephemeral post and knows neither code nor link.
+  link to itself, with a warning in the log — and does the same when the
+  private word fails: on Mattermost the bot needs the `create_post_ephemeral`
+  permission ([creating-agents.md](creating-agents.md)), and without it the
+  person still gets the sentence, in the open. `ChatAdmin.post_ephemeral` is
+  the tools' plain ephemeral post and knows neither code nor link.
 - **Turns the engine starts.** A person's message opens a turn through a
   gateway; the engine opens one by itself through a `TurnDispatcher`
   (`crucible.ports.engine_turn`) — the scheduler does for a `turn`-mode task,

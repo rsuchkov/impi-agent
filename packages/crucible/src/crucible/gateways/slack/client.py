@@ -19,6 +19,7 @@ from crucible.gateways.slack.rendering import (
     build_modal_view,
 )
 from crucible.ports.chat.admin import ChannelMember
+from crucible.ports.chat.client import PRIVATE_LINK_LABEL
 from crucible.ports.chat.types import (
     Action,
     ApprovalCard,
@@ -70,9 +71,6 @@ def chunk_text(text: str, limit: int) -> list[str]:
 # The action id of the link button in a private notice: Slack reports the click
 # of a URL button like any other, and the app acks it and does nothing else.
 PRIVATE_LINK_ACTION_ID = "private_link"
-PRIVATE_LINK_LABEL = "Open"
-
-
 class SlackChatClient:
     def __init__(self, client: AsyncWebClient, *, max_post_chars: int = 3500, agent_sessions: bool = False) -> None:
         self._client = client

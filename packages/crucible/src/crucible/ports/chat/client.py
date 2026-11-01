@@ -155,6 +155,11 @@ class ConversationView(Protocol):
         ...
 
 
+# The word on a private notice's link where the platform draws a button and
+# the notice names none.
+PRIVATE_LINK_LABEL = "Open"
+
+
 @runtime_checkable
 class PrivateNotices(Protocol):
     """A word to one person in a conversation, seen by them alone. A client
@@ -169,9 +174,11 @@ class PrivateNotices(Protocol):
     async def post_private_notice(
         self, ref: ConversationRef, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "",
     ) -> None:
-        """``text`` to ``user_id`` in the conversation ``ref`` names; ``code``
-        as for ``post_notice``; ``link`` a URL for that person alone, shown
-        as a button where the platform has one (``label`` its word, the
-        client's default when "") and as a link in the text where it has
+        """``text`` to ``user_id`` in the conversation ``ref`` names — markdown,
+        rendered as the platform renders a reply (a ``post_notice`` is sent as
+        it is; this is a sentence the application wrote); ``code`` as for
+        ``post_notice``; ``link`` a URL for that person alone, shown as a
+        button where the platform has one (``label`` its word,
+        ``PRIVATE_LINK_LABEL`` when "") and as a link in the text where it has
         not."""
         ...

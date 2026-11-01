@@ -469,7 +469,7 @@ class AgentFlow:
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         started = time.monotonic()
         facts = _TurnFacts(record.runtime_session_id)
-        if self._admission is not None and not await self._admit(fresh, chat):
+        if self._admission is not None and not await self._every_author_admitted(fresh, chat):
             # Nothing ran: no prompt, no process, no reaction. Each person not
             # admitted has been told, alone; a caller that started the turn
             # learns it did not happen.
@@ -508,7 +508,7 @@ class AgentFlow:
                 )
         return outcome
 
-    async def _admit(self, msgs: list[IncomingMessage], chat: ChatClient) -> bool:
+    async def _every_author_admitted(self, msgs: list[IncomingMessage], chat: ChatClient) -> bool:
         """Whether the turn may run: every author of its messages is admitted.
         Each is asked about once, with their newest message — where they will
         look for the answer; each who is not is told, alone — in the open
@@ -525,18 +525,26 @@ class AgentFlow:
         return admitted
 
     async def _tell_not_admitted(self, chat: ChatClient, msg: IncomingMessage, verdict: NotAdmitted) -> None:
-        if isinstance(chat, PrivateNotices):
-            await chat.post_private_notice(
-                msg.ref, msg.user_id, verdict.text, code=NOTICE_NOT_ADMITTED, link=verdict.link, label=verdict.label,
-            )
-            return
-        if verdict.link:
-            # The link is the person's alone and the conversation is not: the
-            # word goes out without it.
+        # A message with no author (an engine-started turn from a dispatcher
+        # that named nobody) has nobody to be told alone.
+        if msg.user_id and isinstance(chat, PrivateNotices):
+            try:
+                await chat.post_private_notice(
+                    msg.ref, msg.user_id, verdict.text, code=NOTICE_NOT_ADMITTED, link=verdict.link, label=verdict.label,
+                )
+                return
+            except Exception:  # noqa: BLE001 - a bot without the platform's permission for it, say
+                logger.warning(
+                    "the %s client could not speak to %s alone; the word goes out without the link",
+                    msg.gateway or "chat", msg.user_id, exc_info=True,
+                )
+        elif verdict.link:
             logger.warning(
-                "the %s client cannot speak to one person in a conversation; a link for %s was not delivered",
-                msg.gateway or "chat", msg.user_id,
+                "the %s client cannot speak to %s alone in a conversation; the link was not delivered",
+                msg.gateway or "chat", msg.user_id or "a message with no author",
             )
+        # The link is the person's alone and the conversation is not: the word
+        # goes out without it.
         await chat.post_notice(msg.ref, verdict.text, code=NOTICE_NOT_ADMITTED)
 
     async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:

@@ -120,7 +120,9 @@ chat session lives for months, the provider signs people in every day — asks
 that moment in a `TurnAdmission` ([building-an-app.md](building-an-app.md#composition-notes-from-the-field))
 and, when the connect is too old or there is none, answers with the person's
 own `begin(owner, provider)` link; the flow delivers it to them alone, in the
-channel or the thread they wrote in, and runs no turn until they are back.
+channel or the thread they wrote in (on Mattermost the bot needs the
+`create_post_ephemeral` permission for that, as for the tools' ephemeral
+posts), and runs no turn until they are back.
 Register the provider's application without a refresh scope (`offline_access`
 at an OpenID provider) for that: with no refresh token an ended access token
 ends the connection (`grant` answers `NotConnected`), and the only way on is to

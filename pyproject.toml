@@ -158,6 +158,7 @@ type = "forbidden"
 source_modules = [
     "crucible.ports.attachments",
     "crucible.ports.connections",
+    "crucible.ports.admission",
     "crucible.ports.entitlement",
     "crucible.ports.engine_turn",
     "crucible.ports.held_cards",
