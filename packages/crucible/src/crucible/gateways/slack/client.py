@@ -67,6 +67,12 @@ def chunk_text(text: str, limit: int) -> list[str]:
     return chunks
 
 
+# The action id of the link button in a private notice: Slack reports the click
+# of a URL button like any other, and the app acks it and does nothing else.
+PRIVATE_LINK_ACTION_ID = "private_link"
+PRIVATE_LINK_LABEL = "Open"
+
+
 class SlackChatClient:
     def __init__(self, client: AsyncWebClient, *, max_post_chars: int = 3500, agent_sessions: bool = False) -> None:
         self._client = client
@@ -381,6 +387,25 @@ class SlackChatClient:
         # Visible only to user_id; convert Markdown to mrkdwn like a normal reply.
         await self._client.chat_postEphemeral(
             channel=channel_id, user=user_id, text=markdown_to_mrkdwn(message)
+        )
+
+    async def post_private_notice(
+        self, ref: ConversationRef, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "",
+    ) -> None:
+        # An ephemeral post where the person wrote — in the thread when they
+        # did — with the link as a button: Slack posts a button's URL to the
+        # person's browser and tells the app of the click, which is acked and
+        # nothing more (PRIVATE_LINK_ACTION_ID).
+        mrkdwn = markdown_to_mrkdwn(text)
+        blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": mrkdwn}}]
+        if link:
+            blocks.append({"type": "actions", "elements": [{
+                "type": "button", "action_id": PRIVATE_LINK_ACTION_ID, "url": link,
+                "text": {"type": "plain_text", "text": label or PRIVATE_LINK_LABEL},
+            }]})
+        await self._client.chat_postEphemeral(
+            channel=ref.channel_id, user=user_id, text=mrkdwn, blocks=blocks,
+            thread_ts=ref.thread_root_id or None,
         )
 
     # -- internals ----------------------------------------------------------

@@ -110,6 +110,26 @@ a provider allows that run there.
    which agents, the redirect URI to register, and what would keep a connect
    from working.
 
+## A sign-in before a turn
+
+A connection is also a sign-in: the person proved who they are at the
+provider, at a moment the engine keeps (`OAuthConnections.connected_at(owner,
+provider)` — the connect, not the latest refresh, which a tool does without
+them). An application that wants the chat held to a provider's own bar — a
+chat session lives for months, the provider signs people in every day — asks
+that moment in a `TurnAdmission` ([building-an-app.md](building-an-app.md#composition-notes-from-the-field))
+and, when the connect is too old or there is none, answers with the person's
+own `begin(owner, provider)` link; the flow delivers it to them alone, in the
+channel or the thread they wrote in, and runs no turn until they are back.
+Register the provider's application without a refresh scope (`offline_access`
+at an OpenID provider) for that: with no refresh token an ended access token
+ends the connection (`grant` answers `NotConnected`), and the only way on is to
+connect again. Who the connect binds to is the application's rule
+(`ConnectionOwner.owner_of`): compare the account the provider names with what
+the chat says of the person (an email), and refuse a sign-in by somebody else.
+`connected_at` is `None` for a connection made before the engine kept the
+moment; such a person connects once more.
+
 ## The tools
 
 | Tool | Does | Asks first |
@@ -167,7 +187,10 @@ a provider allows that run there.
   there, and its tools say so.
 - **Several people in one place.** Channels, merged threads, an allowlist of
   who may connect, and an offboarding command are not designed yet; until they
-  are, connected accounts are a direct-message feature.
+  are, connected accounts are a direct-message feature. The one word that
+  reaches a person anywhere is the sign-in link a turn not admitted carries
+  — delivered to them alone (an ephemeral post) wherever they wrote; a tool's
+  Connect offer still opens in a direct message only.
 
 Where the tokens live, and what someone with the database alone can read:
 [storage.md](storage.md) and [security.md](security.md#where-the-credentials-live).

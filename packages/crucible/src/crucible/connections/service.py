@@ -295,6 +295,16 @@ class OAuthConnections:
         """Every provider ``owner`` is connected to, and as whom."""
         return {r.provider: _account(r) for r in await self._connections.list_connections(owner)}
 
+    async def connected_at(self, owner: str, provider: str) -> datetime | None:
+        """When ``owner``'s current connection to ``provider`` was made — the
+        connect, not the latest refresh — for a rule that wants a recent one
+        (a sign-in no older than a working day). None when there is none, or
+        the record predates the engine keeping the moment."""
+        record = await self._connections.get_connection(owner, provider)
+        if record is None or not record.connected_at:
+            return None
+        return _parse(record.connected_at)
+
     async def grant(self, owner: str, provider: str) -> TokenGrant:
         """The token to act as ``owner`` at ``provider`` with — refreshed first
         when it is about to end. ``NotConnected`` when there is none to give."""
@@ -485,6 +495,7 @@ class OAuthConnections:
             account_id=account.id, account_username=account.username,
             account_name=account.name, account_email=account.email,
             scope=tokens.scope, connect_id=secrets.token_hex(16),
+            connected_at=_iso(self._clock()),
         )
 
     async def _revoke_tokens(self, oauth: OAuthProvider, tokens: OAuthTokens) -> bool:

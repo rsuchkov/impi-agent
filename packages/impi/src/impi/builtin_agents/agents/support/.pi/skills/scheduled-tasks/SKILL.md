@@ -106,6 +106,7 @@ Run statuses and what each one means:
 | `cancelled` | shutdown, or the task was removed mid-run |
 | `stopped` | a person stopped the run's turn (`/stop`, Slack's Stop button); the turn said so itself; not a failure, does not pause the task |
 | `duplicate` | the turn was deduped |
+| `not_admitted` | the application did not let the run's turn happen (its rule wants a person signed in, and a run acts as nobody); nothing ran; not a failure, does not pause the task |
 | `gone` | a watch ended: the application said there was nothing left to wait for (or no hook was wired to ask) |
 
 **Missed runs.** If the engine was down at the due time, the task catches up

@@ -5,6 +5,7 @@ import asyncio
 import gc
 import logging
 import pickle
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
@@ -623,3 +624,25 @@ async def test_a_connection_can_be_handed_to_another_owner_but_never_over_one() 
     assert await service.move("slack:U2", "gitlab", to="person:7") is False  # the person has one: nothing overwritten
     assert await service.account("slack:U2", "gitlab") == ALICE
     assert await service.move("slack:U9", "gitlab", to="person:8") is False  # nothing to move
+
+
+async def test_a_connection_remembers_when_it_was_made_through_refreshes_until_a_reconnect() -> None:
+    """A rule that wants a recent sign-in asks when the connect happened — not
+    when the token was last refreshed, which a tool does without the person."""
+    provider, clock, store = FakeProvider(), Clock(), MemoryConnectionStore()
+    service = _service(provider, clock=clock, store=store)
+    assert await service.connected_at(OWNER, "gitlab") is None  # not connected
+    await _connect(service, provider)
+    made = clock.now
+    assert await service.connected_at(OWNER, "gitlab") == made
+    clock.advance(3600 - 30)
+    await service.grant(OWNER, "gitlab")  # refreshed, the connect stands
+    assert provider.refreshes == 1 and await service.connected_at(OWNER, "gitlab") == made
+    clock.advance(600)
+    await _connect(service, provider)  # connected again: a new moment
+    assert await service.connected_at(OWNER, "gitlab") == clock.now != made
+    # A record written before the moment was kept answers None, not a guess.
+    old = await store.get_connection(OWNER, "gitlab")
+    assert old is not None
+    await store.save_connection(replace(old, connected_at=""))
+    assert await service.connected_at(OWNER, "gitlab") is None

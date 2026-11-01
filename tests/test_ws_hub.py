@@ -406,3 +406,26 @@ async def test_a_cancel_frame_stops_the_conversations_turn_and_says_whether_one_
             await ws.close()
     finally:
         await hub.stop()
+
+
+async def test_a_private_notice_is_a_notice_frame_with_its_link() -> None:
+    # A service's frames reach that service alone; the link rides beside the text.
+    hub = _hub(8476, {"one": ("tok-1", None)})
+    chat = WsChatClient(hub, "helper")
+    hub.register_agent("helper", FakeSink(), chat)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            ws = await _connect(session, 8476, "tok-1")
+            ref = ConversationRef("one:user-7", "one:user-7", "m")
+            await chat.post_private_notice(ref, "user-7", "Sign in first.", code="not_admitted", link="https://idp.example/s", label="Sign in")
+            await chat.post_private_notice(ref, "user-7", "Not now.", code="not_admitted")
+            assert await ws.receive_json(timeout=2) == {
+                "type": "notice", "agent": "helper", "conversation_id": "user-7", "text": "Sign in first.",
+                "code": "not_admitted", "link": "https://idp.example/s", "label": "Sign in",
+            }
+            frame = await ws.receive_json(timeout=2)
+            assert "link" not in frame and "label" not in frame
+            await ws.close()
+    finally:
+        await hub.stop()

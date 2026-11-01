@@ -213,6 +213,30 @@ server on stdio is a child of the engine, not of an agent: it runs with the
 engine's rights (not confined) and sees `PATH` and the variables its entry
 names, nothing else of the engine's environment.
 
+### A person's chat session and the agent
+
+What crosses: a person's word, under the identity the chat platform vouches
+for, into an agent that may act in other systems with that person's own
+account (connected accounts). A chat session lives for months; the systems
+behind the agent may sign their people in every day, with a second factor.
+Whoever holds the chat holds the agent's hands for as long as the chat does.
+
+Enforced by: nothing in the engine by itself — the platform's session is the
+platform's. An application that wants the agent held to the systems' bar
+puts a `TurnAdmission` in front of its turns (`ports.admission`,
+[building-an-app.md](building-an-app.md#composition-notes-from-the-field)): no turn runs
+for a person whose sign-in at the identity provider — a connection, with the
+moment it was made — is older than the rule allows, and the person is sent to
+sign in by a link that reaches them alone, wherever they wrote. The rule may
+hold one gateway and not another (`AdmissionByGateway`): a chat beside a
+system that signs its people in itself.
+
+Does not hold against: a person who holds both the chat and the identity
+provider's session, and — on its own — a tool the agent calls with the
+deployment's credential rather than the person's. It bounds what a stolen
+chat session is worth, to the sign-in's lifetime; it does not make the chat
+platform's session short.
+
 ### The deployment and the outside
 
 What crosses: chat traffic (the engine holds a bot token per agent and calls

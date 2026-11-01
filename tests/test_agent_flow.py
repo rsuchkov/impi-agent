@@ -13,6 +13,7 @@ from crucible.flows.agent_flow import (
     AgentFlow,
 )
 from crucible.interactions.tooltrace import ToolTrace
+from crucible.ports.admission import NOTICE_NOT_ADMITTED, NotAdmitted
 from crucible.ports.agent.errors import (
     INTERNAL_ERROR_MESSAGE,
     STALLED_MESSAGE,
@@ -2372,3 +2373,145 @@ async def test_by_default_the_progress_message_is_gone_before_the_reply_is_poste
     assert chat.deleted == [] and chat.posted_cards == []
     await store.close()
     await store2.close()
+
+
+# --- admission: whether a turn may run at all ---------------------------------------
+
+
+class _Admission:
+    """Admits everyone but the users named, who are told to sign in."""
+
+    def __init__(self, refused: dict[str, NotAdmitted]) -> None:
+        self.refused = refused
+        self.asked: list[tuple[str, str, bool]] = []
+
+    async def admit(self, agent: str, msg: IncomingMessage) -> NotAdmitted | None:
+        self.asked.append((agent, msg.user_id, msg.synthetic))
+        return self.refused.get(msg.user_id)
+
+
+class _PrivateChat(FakeChat):
+    """A chat client that can speak to one person in a conversation."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.private: list[tuple[str, str, str, str, str, str]] = []  # (message id, user, text, code, link, label)
+
+    async def post_private_notice(self, ref, user_id, text, *, code="", link="", label=""):
+        self.private.append((ref.message_id, user_id, text, code, link, label))
+
+
+async def test_an_admitted_turn_runs_as_before_and_the_source_is_asked_once_per_author(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    admission = _Admission({})
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=admission)
+    try:
+        chat = _PrivateChat()
+        assert await flow.handle(_dm("hello"), chat) is TurnOutcome.REPLIED
+        assert admission.asked == [("assistant", "u1", False)]
+        assert runtime.calls and chat.replies and chat.private == []
+    finally:
+        await store.close()
+
+
+async def test_a_turn_not_admitted_runs_nothing_and_tells_the_person_alone(tmp_path: Path) -> None:
+    """Nothing is rendered, no process starts, no reaction is put on the
+    message; the person is told where the platform lets one person be told,
+    with the link that is theirs alone, and a caller learns the outcome."""
+    from crucible.ports.telemetry import TurnEnded
+
+    class _Telemetry:
+        def __init__(self) -> None:
+            self.events: list = []
+
+        def record(self, event) -> None:
+            self.events.append(event)
+
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    verdict = NotAdmitted("Sign in to Okta to go on.", link="https://idp.example/start?s=1", label="Sign in")
+    telemetry = _Telemetry()
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=_Admission({"u1": verdict}), telemetry=telemetry)
+    try:
+        chat = _PrivateChat()
+        assert await flow.handle(_dm("hello"), chat) is TurnOutcome.NOT_ADMITTED
+        assert runtime.calls == [] and chat.replies == [] and chat.reactions == [] and chat.notices == []
+        assert chat.private == [("p1", "u1", "Sign in to Okta to go on.", NOTICE_NOT_ADMITTED, "https://idp.example/start?s=1", "Sign in")]
+        (event,) = telemetry.events
+        assert isinstance(event, TurnEnded) and (event.outcome, event.notice) == ("not_admitted", NOTICE_NOT_ADMITTED)
+        # The message is processed: a replay of it is a duplicate, not a second word.
+        assert await flow.handle(_dm("hello"), chat) is TurnOutcome.DUPLICATE
+        assert len(chat.private) == 1
+    finally:
+        await store.close()
+
+
+async def test_a_batch_runs_only_when_every_author_is_admitted(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    verdict = NotAdmitted("Sign in first.", link="https://idp.example/s")
+    admission = _Admission({"u2": verdict})
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=admission)
+    try:
+        first, second, third = _thread_msg(post="p1"), _thread_msg(post="p2"), _thread_msg(post="p3")
+        second.user_id, third.user_id = "u2", "u2"
+        chat = _PrivateChat()
+        assert await flow.handle_batch([first, second, third], chat) is TurnOutcome.NOT_ADMITTED
+        assert runtime.calls == []
+        assert sorted(a[1] for a in admission.asked) == ["u1", "u2"]  # each author once, not each message
+        assert [(p[0], p[1]) for p in chat.private] == [("p3", "u2")]  # the one not admitted, at their newest message
+    finally:
+        await store.close()
+
+
+async def test_a_synthetic_message_is_put_to_the_source_too(tmp_path: Path) -> None:
+    # A command, a click, a scheduled run: the application's rule decides
+    # what a turn with no person behind it gets; the engine does not presume.
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    admission = _Admission({"u1": NotAdmitted("Not now.")})
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=admission)
+    try:
+        msg = _dm("/summarize")
+        msg.synthetic = True
+        assert await flow.handle(msg, _PrivateChat()) is TurnOutcome.NOT_ADMITTED
+        assert admission.asked == [("assistant", "u1", True)]
+    finally:
+        await store.close()
+
+
+async def test_a_client_that_cannot_speak_to_one_person_is_told_in_the_open_without_the_link(tmp_path: Path, caplog) -> None:
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    verdict = NotAdmitted("Sign in first.", link="https://idp.example/s")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=_Admission({"u1": verdict}))
+    try:
+        chat = FakeChat()  # no PrivateNotices
+        with caplog.at_level("WARNING"):
+            assert await flow.handle(_dm("hello"), chat) is TurnOutcome.NOT_ADMITTED
+        assert chat.notices == [(_dm().ref, "Sign in first.")] and chat.notice_codes == [NOTICE_NOT_ADMITTED]
+        assert "https://idp.example/s" not in caplog.text and "was not delivered" in caplog.text
+        assert all("idp.example" not in text for _, text in chat.notices)
+    finally:
+        await store.close()
+
+
+async def test_admission_by_gateway_asks_the_rule_of_the_messages_gateway_and_admits_the_rest(tmp_path: Path) -> None:
+    """One agent, two gateways: the chat whose session lives for months gets a
+    sign-in rule; the system that signs its people in itself gets none."""
+    from crucible.flows.admission import AdmissionByGateway
+
+    slack_rule = _Admission({"u1": NotAdmitted("Sign in first.", link="https://idp.example/s")})
+    admission = AdmissionByGateway({"slack": slack_rule})
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=admission)
+    try:
+        from_slack, from_http = _dm("hello"), _dm2("hello", "p2")
+        from_slack.gateway, from_http.gateway = "slack", "http"
+        assert await flow.handle(from_slack, _PrivateChat()) is TurnOutcome.NOT_ADMITTED
+        assert await flow.handle(from_http, _PrivateChat()) is TurnOutcome.REPLIED
+        assert [a[1] for a in slack_rule.asked] == ["u1"]  # asked once: for the Slack message alone
+    finally:
+        await store.close()

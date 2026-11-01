@@ -546,3 +546,17 @@ async def test_delete_post_deletes_and_a_refusal_costs_nothing() -> None:
     driver = _Recorder()
     await _client(driver).delete_post("p1")
     assert ("delete_post", {"post_id": "p1"}) in driver.calls
+
+
+async def test_a_private_notice_is_an_ephemeral_post_with_the_link_in_the_text() -> None:
+    # Mattermost has no button that opens a URL: the link is a markdown link
+    # under the text, in the thread the person wrote in.
+    driver = _Recorder()
+    ref = ConversationRef(channel_id="chan1", conversation_id="root1", message_id="p9", thread_root_id="root1")
+    await _client(driver).post_private_notice(ref, "u-42", "Sign in first.", code="not_admitted", link="https://idp.example/s", label="Sign in")
+    call = next(kw for name, kw in driver.calls if name == "create_post_ephemeral")
+    assert call["user_id"] == "u-42"
+    assert call["post"] == {"channel_id": "chan1", "root_id": "root1", "message": "Sign in first.\n\n[Sign in](https://idp.example/s)"}
+    top = ConversationRef(channel_id="chan1", conversation_id="chan1", message_id="p9")
+    await _client(driver).post_private_notice(top, "u-42", "Not now.")
+    assert driver.calls[-1][1]["post"] == {"channel_id": "chan1", "message": "Not now."}

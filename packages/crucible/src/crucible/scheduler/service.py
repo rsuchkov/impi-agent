@@ -60,6 +60,7 @@ from crucible.store.base import (
     RUN_INTERRUPTED,
     RUN_MISSED,
     RUN_NO_AGENT,
+    RUN_NOT_ADMITTED,
     RUN_OK,
     RUN_OVERLAP,
     RUN_RUNNING,
@@ -100,15 +101,18 @@ _STATUS_BY_OUTCOME = {
     # A person stopped the run's turn: its own status, so it is neither the
     # engine's failure nor a shutdown's "cancelled".
     TurnOutcome.STOPPED: RUN_STOPPED,
+    # The application did not admit the run's turn (a run acts as nobody, and
+    # a rule may want a person): its own status, not the engine's failure.
+    TurnOutcome.NOT_ADMITTED: RUN_NOT_ADMITTED,
 }
 # In turn mode the flow posts its own message for these, so a notice would be a
 # second one about the same thing.
-_FLOW_REPORTED = frozenset({RUN_TIMEOUT, RUN_ERROR, RUN_EMPTY, RUN_STOPPED})
+_FLOW_REPORTED = frozenset({RUN_TIMEOUT, RUN_ERROR, RUN_EMPTY, RUN_STOPPED, RUN_NOT_ADMITTED})
 _SUCCEEDED = frozenset({RUN_OK})
 # Not a success, not a failure: a watch that ended because there was nothing
 # left to wait for, or a turn a person stopped, does not count towards pausing
 # anything.
-_ENDED = frozenset({RUN_GONE, RUN_STOPPED})
+_ENDED = frozenset({RUN_GONE, RUN_STOPPED, RUN_NOT_ADMITTED})
 # The report a watch's turn carries when the watch gave up: the scheduler's
 # own words, since the application was never able to say what happened.
 WATCH_EXPIRED_SOURCE = "scheduler"

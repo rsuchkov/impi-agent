@@ -2,7 +2,7 @@
 
 from slack_sdk.errors import SlackApiError
 
-from crucible.gateways.slack.client import SlackChatClient
+from crucible.gateways.slack.client import PRIVATE_LINK_ACTION_ID, SlackChatClient
 from crucible.ports.chat.types import (
     Action,
     ConversationRef,
@@ -293,3 +293,25 @@ async def test_waiting_suspends_the_agent_session_and_processing_resumes_it() ->
     assert len(web.calls) == 2
     web.raise_on["api_call"] = SlackApiError("x", {"error": "not_allowed_token_type"})
     await agent.set_waiting(_ref(root="100.1"), True)  # must not raise
+
+
+async def test_a_private_notice_is_an_ephemeral_post_with_the_link_as_a_button() -> None:
+    web = FakeWeb()
+    await _sc(web).post_private_notice(
+        _ref(channel="C1", root="100.1"), "U9", "Sign in to **Okta** to go on.",
+        code="not_admitted", link="https://idp.example/s?x=1", label="Sign in",
+    )
+    kw = web.last("chat_postEphemeral")
+    assert (kw["channel"], kw["user"], kw["thread_ts"]) == ("C1", "U9", "100.1")  # where they wrote, in the thread
+    assert kw["text"] == "Sign in to *Okta* to go on."
+    assert kw["blocks"][0] == {"type": "section", "text": {"type": "mrkdwn", "text": "Sign in to *Okta* to go on."}}
+    (button,) = kw["blocks"][1]["elements"]
+    assert (button["type"], button["url"], button["text"]["text"], button["action_id"]) == (
+        "button", "https://idp.example/s?x=1", "Sign in", PRIVATE_LINK_ACTION_ID,
+    )
+    # Without a link there is no button; outside a thread no thread_ts; no label = the default word.
+    await _sc(web).post_private_notice(_ref(root=""), "U9", "Not now.")
+    kw = web.last("chat_postEphemeral")
+    assert len(kw["blocks"]) == 1 and kw["thread_ts"] is None
+    await _sc(web).post_private_notice(_ref(root=""), "U9", "Go.", link="https://x.example")
+    assert web.last("chat_postEphemeral")["blocks"][1]["elements"][0]["text"]["text"] == "Open"

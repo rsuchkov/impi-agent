@@ -18,6 +18,7 @@ from typing import Any, Protocol
 
 from crucible.containment import one_line, quoted, speaker
 from crucible.content_types import format_size, sniff_image
+from crucible.ports.admission import NOTICE_NOT_ADMITTED, NotAdmitted, TurnAdmission
 from crucible.ports.agent import (
     NOTICE_STOPPED,
     STOPPED_MESSAGE,
@@ -38,7 +39,7 @@ from crucible.ports.agent import (
 )
 from crucible.ports.agent.events import ToolFinished, ToolStarted
 from crucible.ports.attachments import FileKeeper, ReceivedFiles
-from crucible.ports.chat.client import ChatClient, ConversationView
+from crucible.ports.chat.client import ChatClient, ConversationView, PrivateNotices
 from crucible.ports.chat.context import ContextSource, HistorySource
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
@@ -297,6 +298,7 @@ class AgentFlow:
         context: ContextSource | None = None,
         entitlements: EntitlementSource | None = None,
         conversation_profiles: ConversationProfiles | None = None,
+        admission: TurnAdmission | None = None,
         captions: CallCaptions | None = None,
         keying: ConversationKey | None = None,
         posting_tools: Collection[str] = (),
@@ -357,6 +359,8 @@ class AgentFlow:
         # what turns the answer into the profile the turn runs with. None =
         # every conversation runs with the agent's profile.
         self._entitlements = entitlements
+        # Whether a turn may run at all (ports.admission); None = every turn may.
+        self._admission = admission
         self._conversation_profiles = conversation_profiles
         # Who captions a tool call for the person watching ("Reading X-1"):
         # asked once per call here, so every trace reads the same line.
@@ -465,6 +469,14 @@ class AgentFlow:
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         started = time.monotonic()
         facts = _TurnFacts(record.runtime_session_id)
+        if self._admission is not None and not await self._admit(fresh, chat):
+            # Nothing ran: no prompt, no process, no reaction. Each person not
+            # admitted has been told, alone; a caller that started the turn
+            # learns it did not happen.
+            facts.notice = NOTICE_NOT_ADMITTED
+            if self._telemetry is not None:
+                self._tell_turn(fresh, anchor, key, TurnOutcome.NOT_ADMITTED, facts, time.monotonic() - started)
+            return TurnOutcome.NOT_ADMITTED
         # Every name the gateway may know the conversation by — the id, the
         # thread, the message itself (Slack opens a session under it), and in a
         # direct message its channel, which is the conversation there — so a
@@ -495,6 +507,37 @@ class AgentFlow:
                     anchor.ref, self._flag_notices.get(flag, flag), code=flag
                 )
         return outcome
+
+    async def _admit(self, msgs: list[IncomingMessage], chat: ChatClient) -> bool:
+        """Whether the turn may run: every author of its messages is admitted.
+        Each is asked about once, with their newest message — where they will
+        look for the answer; each who is not is told, alone — in the open
+        without the link where the client cannot speak to one person."""
+        assert self._admission is not None
+        newest_by_author = {m.user_id: m for m in msgs}
+        admitted = True
+        for msg in newest_by_author.values():
+            verdict = await self._admission.admit(self._agent_name, msg)
+            if verdict is None:
+                continue
+            admitted = False
+            await self._tell_not_admitted(chat, msg, verdict)
+        return admitted
+
+    async def _tell_not_admitted(self, chat: ChatClient, msg: IncomingMessage, verdict: NotAdmitted) -> None:
+        if isinstance(chat, PrivateNotices):
+            await chat.post_private_notice(
+                msg.ref, msg.user_id, verdict.text, code=NOTICE_NOT_ADMITTED, link=verdict.link, label=verdict.label,
+            )
+            return
+        if verdict.link:
+            # The link is the person's alone and the conversation is not: the
+            # word goes out without it.
+            logger.warning(
+                "the %s client cannot speak to one person in a conversation; a link for %s was not delivered",
+                msg.gateway or "chat", msg.user_id,
+            )
+        await chat.post_notice(msg.ref, verdict.text, code=NOTICE_NOT_ADMITTED)
 
     async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
         """Stop the turn running in this conversation (``StoppableSink``): the

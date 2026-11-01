@@ -167,6 +167,10 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
 - A confirmation card left waiting no longer ends the turn: the turn's timeout
   stops while the gate waits. A turn that times out while a card is up has some
   other cause.
+- A person is told to sign in and the agent does nothing else (notice code
+  `not_admitted`, seen by that person alone) — the application's admission
+  rule did not let the turn run; not the engine's doing, and not a failure.
+  A scheduled run of such an agent ends as `not_admitted` for the same reason.
 - "This turn ran past its time limit and was stopped" (notice code `timeout`)
   — the turn's active time hit `runtime.timeout`. The next turn's prompt is told
   which tool calls the stopped one finished and which was still running without

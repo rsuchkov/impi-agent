@@ -126,6 +126,16 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   conversation's process gets it — `narrow_pi_profile` for the bundled
   driver). Without a source every conversation has the
   agent's whole profile.
+- **Admission** (`ports/admission`): `TurnAdmission` (whether the person who
+  wrote may have a turn now — answered from the message that opens it, once
+  per author, every turn; `None` admits, `NotAdmitted(text, link, label)`
+  does not and says what to tell them, alone) and `NOTICE_NOT_ADMITTED`. The
+  flow runs nothing for a turn not admitted and ends it as
+  `TurnOutcome.NOT_ADMITTED`; `AdmissionByGateway` (`crucible.flows.admission`)
+  holds one gateway to a rule and admits the rest. The word to the person
+  goes through `PrivateNotices` (`ports/chat/client`), the chat client's
+  capability to address one person inside a conversation. Without a source
+  every turn is admitted.
 
 ## The `pi` runtime driver
 

@@ -93,11 +93,12 @@ class WsHub:
     # -- outbound (called by WsChatClient) --------------------------------------
 
     async def send(
-        self, agent: str, internal_conv: str, event: str, text: str, *, code: str = ""
+        self, agent: str, internal_conv: str, event: str, text: str, *, code: str = "", link: str = "", label: str = "",
     ) -> None:
         """Deliver an agent's message to the service owning the conversation —
         over its live socket, else into its reconnect buffer. ``code`` names the
-        kind of a notice; the key is present only when there is one."""
+        kind of a notice, ``link`` (with its ``label``) a URL the notice carries
+        for the person; each key is present only when there is one."""
         service, client_conv = split_conversation(internal_conv)
         frame = {
             "type": event,
@@ -107,6 +108,9 @@ class WsHub:
         }
         if code:
             frame["code"] = code
+        if link:
+            frame["link"] = link
+            frame["label"] = label
         await self._deliver(service, frame)
 
     async def send_file(

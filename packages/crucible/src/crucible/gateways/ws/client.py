@@ -38,6 +38,13 @@ class WsChatClient:
         # something it can act on where a sentence is not.
         await self._hub.send(self._agent, ref.conversation_id, "notice", text, code=code)
 
+    async def post_private_notice(
+        self, ref: ConversationRef, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "",
+    ) -> None:
+        # A service's frames reach that service alone, so a notice is private
+        # as it is; the link rides beside the text, for the service to show.
+        await self._hub.send(self._agent, ref.conversation_id, "notice", text, code=code, link=link, label=label)
+
     async def post_files(
         self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
     ) -> None:

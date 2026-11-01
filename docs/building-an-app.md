@@ -424,6 +424,45 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   Pass `manifests_dir=` and `attachments=` to `purge_idle` (or call
   `prepare_runtime_storage`, which does) so a forgotten conversation's manifest
   and files go with its memory.
+- **Who may open a turn.** Entitlement says what a conversation may do;
+  admission says whether the person who wrote may have a turn at all right
+  now. A chat session lives for months, and the systems an agent acts in with
+  a person's own account may expect that person to sign in again every few
+  hours — so an application can hold the chat to the same bar. Hand the flow
+  `AgentFlow(..., admission=…)`: a `TurnAdmission` (`crucible.ports.admission`)
+  whose `admit(agent, msg)` answers `None` to admit or a
+  `NotAdmitted(text, link=…, label=…)` — a sentence for the person and, when
+  there is somewhere to go, the URL for them alone (a sign-in) and the word on
+  its button. The flow then runs nothing — no prompt, no process, no reaction —
+  and tells the person privately where the platform lets one person be told
+  (`PrivateNotices`, below), with the link; the turn's outcome is
+  `TurnOutcome.NOT_ADMITTED`, its notice code `not_admitted`, and a scheduled
+  run ends as `not_admitted`. Asked once per author of the turn's messages,
+  every turn, synthetic messages included (a command, a click, a scheduled
+  run carries the id the engine gave it and no person's session) — so the
+  rule decides what a turn with nobody behind it gets. One agent reached
+  through two gateways may need the bar on one and not the other:
+  `AdmissionByGateway({"slack": rule})` (`crucible.flows.admission`) asks the
+  rule for the gateway named and admits the rest. The recipe for a sign-in:
+  the rule asks `OAuthConnections.connected_at(owner, provider)` for the
+  identity provider and admits a connect younger than its working day; when
+  not, it calls `begin(owner, provider)` for the person's own link and
+  answers `NotAdmitted("Sign in to go on.", link=url, label="Sign in")`; the
+  provider's application is registered without a refresh scope, so an ended
+  token is a sign-in again, not a refresh; and `ConnectionOwner.owner_of`
+  compares the account the provider names with the chat user's own facts (an
+  email) so the sign-in is bound to the person who wrote. Nothing of the
+  provider's name reaches the engine ([connections.md](connections.md)).
+- **A word to one person.** A chat client may implement `PrivateNotices`
+  (`crucible.ports.chat.client`): `post_private_notice(ref, user_id, text, *,
+  code, link, label)` — a notice seen by that person alone, with a link they
+  alone may follow. The bundled clients do: an ephemeral post with a URL button
+  on Slack, an ephemeral post with a markdown link on Mattermost, a `notice`
+  event with `link` and `label` in an http caller's journal and a ws service's
+  frame (each reaches one program anyway). A client without it is never asked;
+  the flow then says the text in the open with `post_notice` and keeps the
+  link to itself, with a warning in the log. `ChatAdmin.post_ephemeral` is the
+  tools' plain ephemeral post and knows neither code nor link.
 - **Turns the engine starts.** A person's message opens a turn through a
   gateway; the engine opens one by itself through a `TurnDispatcher`
   (`crucible.ports.engine_turn`) — the scheduler does for a `turn`-mode task,

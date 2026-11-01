@@ -6,7 +6,33 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Whether a turn may run at all, as the application says.** `AgentFlow(
+  admission=)` takes a `TurnAdmission` (`crucible.ports.admission`) asked
+  from the message that opens a turn, once per author, every turn — synthetic
+  messages included, so the rule decides what a run with nobody behind it
+  gets. `None` admits; `NotAdmitted(text, link, label)` does not: nothing
+  runs — no prompt, no process, no reaction — and the person is told alone,
+  with the link that is theirs (a sign-in), where they wrote. The outcome is
+  `TurnOutcome.NOT_ADMITTED`, the notice code `not_admitted` (http journal and
+  ws frame carry `link` and `label` beside it), a scheduled run ends as
+  `not_admitted` (not a failure). `AdmissionByGateway({"slack": rule})`
+  (`crucible.flows.admission`) holds one gateway to a rule and admits the
+  rest — an agent reached through a chat whose session lives for months and
+  through a system that signs its people in itself. Made for a step-up
+  sign-in at an identity provider the application knows and the engine does
+  not; the recipe is in building-an-app.md and connections.md.
+- **A word to one person in a conversation.** Chat clients may implement
+  `PrivateNotices.post_private_notice(ref, user_id, text, *, code, link,
+  label)`; the bundled four do — an ephemeral post with a URL button on Slack,
+  with a markdown link on Mattermost, a journal event and a frame with `link`
+  and `label` on http and ws. The flow uses it for a turn not admitted; a
+  client without it is told the text in the open and the link is kept back.
+- **A connection remembers when it was made.** `ConnectionRecord.connected_at`
+  (a column added on open; `""` for a record from before) and
+  `OAuthConnections.connected_at(owner, provider)` — the connect, kept through
+  refreshes and a move, new at a reconnect; `None` for a record from before.
+  A rule that wants a recent sign-in asks it; a provider registered without a
+  refresh scope makes an ended token a sign-in again.
 
 ## v0.43.0 — 2026-10-31
 

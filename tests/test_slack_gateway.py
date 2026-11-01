@@ -88,8 +88,8 @@ async def test_the_interactive_half_is_the_shared_one_and_only_with_a_dispatcher
     nobody to route them to, and only the message handler is registered."""
     routed = _gateway(FakeSink(), dispatcher=FakeDispatcher())
     assert isinstance(routed.interactions, SlackInteractions)
-    # message + the agent panel's four events + action + view + shortcut + command
-    assert len(routed._app._async_listeners) == 9
+    # message + the agent panel's four events + action + private link + view + shortcut + command
+    assert len(routed._app._async_listeners) == 10
     silent = _gateway(FakeSink(), dispatcher=None)
     assert silent.interactions is None
     assert len(silent._app._async_listeners) == 5

@@ -929,3 +929,9 @@ def test_every_turn_outcome_is_recorded_as_a_run_status_and_a_stopped_turn_as_ca
 
     assert _STATUS_BY_OUTCOME[TurnOutcome.STOPPED] == RUN_STOPPED
     assert RUN_STOPPED in _FLOW_REPORTED and RUN_STOPPED in _ENDED  # said by the flow already; not a failure
+    from crucible.store.base import RUN_NOT_ADMITTED
+
+    # A turn the application did not admit: nothing ran, the flow said what it
+    # could; neither a success nor the engine's failure.
+    assert _STATUS_BY_OUTCOME[TurnOutcome.NOT_ADMITTED] == RUN_NOT_ADMITTED
+    assert RUN_NOT_ADMITTED in _FLOW_REPORTED and RUN_NOT_ADMITTED in _ENDED

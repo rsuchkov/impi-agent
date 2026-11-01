@@ -32,6 +32,9 @@ class TurnOutcome(Enum):
     # A person stopped the turn (a command, a button, a cancel frame): what it
     # had was posted, then a notice saying so. The conversation keeps its memory.
     STOPPED = auto()
+    # The application did not admit the turn (``ports.admission``): nothing
+    # ran, and the person was told privately what to do. Not a failure.
+    NOT_ADMITTED = auto()
 
 
 class Flow(Protocol):

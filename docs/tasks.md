@@ -115,6 +115,7 @@ about those; everything else it reports itself:
 | `cancelled` | shut down, or the task was removed mid-run |
 | `stopped` | a person stopped the run's turn (`/stop`, the panel's Stop button); said in the conversation by the turn itself, and not counted as a failure |
 | `gone` | a watch ended because there was nothing left to wait for — the application said so (or no hook was wired to ask) |
+| `not_admitted` | the application did not let the run's turn happen (a run acts as nobody, and its rule may want a person signed in); nothing ran, and not counted as a failure |
 
 Per task, `notify` chooses how loud this is: `failures` (default), `always` (also
 confirm good runs) or `never`. After **five failures in a row** a task is paused

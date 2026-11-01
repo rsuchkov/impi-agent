@@ -153,3 +153,25 @@ class ConversationView(Protocol):
         up — and goes on once they answer. Only ever between ``set_busy(True)``
         and ``set_busy(False)``; a view with no such state ignores it."""
         ...
+
+
+@runtime_checkable
+class PrivateNotices(Protocol):
+    """A word to one person in a conversation, seen by them alone. A client
+    implements this where its platform can address one person inside a
+    conversation (an ephemeral post, on Slack and Mattermost) or where the
+    conversation has one reader anyway (an http caller's journal, a ws
+    service's frames). The flow uses it for what nobody else there may read:
+    a turn that was not admitted, with the link only that person may follow
+    (a sign-in). A client without it is never asked; the flow then says in the
+    open what it can, and keeps the link to itself."""
+
+    async def post_private_notice(
+        self, ref: ConversationRef, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "",
+    ) -> None:
+        """``text`` to ``user_id`` in the conversation ``ref`` names; ``code``
+        as for ``post_notice``; ``link`` a URL for that person alone, shown
+        as a button where the platform has one (``label`` its word, the
+        client's default when "") and as a link in the text where it has
+        not."""
+        ...

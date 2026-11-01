@@ -17,7 +17,7 @@ from slack_sdk.errors import SlackApiError
 
 from crucible.approvals import ApprovalOutcome
 from crucible.gateways.dispatch import GatewayDispatcher
-from crucible.gateways.slack.client import MESSAGE_ID_SEP
+from crucible.gateways.slack.client import MESSAGE_ID_SEP, PRIVATE_LINK_ACTION_ID
 from crucible.gateways.slack.events import conversation_of, is_direct_channel
 from crucible.gateways.slack.rendering import (
     FORM_CALLBACK,
@@ -93,6 +93,9 @@ class SlackInteractions:
     def register(self) -> None:
         # One handler for every engine widget (action ids share a prefix).
         self._app.action(re.compile(f"^{WIDGET_ACTION_PREFIX}"))(self._on_action)
+        # The link button of a private notice opens its URL in the person's
+        # browser; the click Slack reports beside that is acked and nothing more.
+        self._app.action(PRIVATE_LINK_ACTION_ID)(self._on_private_link)
         self._app.view(FORM_CALLBACK)(self._on_view)
         # Message shortcuts are the thread-aware command entry (Slack forbids
         # custom slash commands in threads); one handler for the whole family.
@@ -111,6 +114,9 @@ class SlackInteractions:
             await self.handle_action(body)
         except Exception:
             logger.exception("failed to handle Slack block action")
+
+    async def _on_private_link(self, ack) -> None:
+        await ack()
 
     async def _on_view(self, ack, body: dict) -> None:
         await ack()

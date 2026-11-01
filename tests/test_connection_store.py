@@ -21,7 +21,7 @@ def _record(**over) -> ConnectionRecord:
     base = ConnectionRecord(
         owner="mattermost:u1", provider="gitlab", access_sealed="A1", refresh_sealed="R1",
         expires_at=T2, account_id="7", account_username="alice", account_name="Alice",
-        account_email="alice@example.com", scope="read_api", connect_id="g1",
+        account_email="alice@example.com", scope="read_api", connect_id="g1", connected_at=T0,
     )
     return replace(base, **over)
 
@@ -183,3 +183,28 @@ async def test_a_connection_moves_to_another_owner_whole_and_never_over_one(conn
     assert await connections.move_connection("slack:U2", "gitlab", to="person:7") is False  # taken
     assert await connections.get_connection("slack:U2", "gitlab") == _record(owner="slack:U2", connect_id="g2")
     assert await connections.move_connection("nobody", "gitlab", to="person:9") is False
+
+
+async def test_a_connections_table_from_before_connected_at_gains_the_column_on_open(tmp_path: Path) -> None:
+    import sqlite3
+
+    from crucible.store.sqlite import SqliteSessionStore
+
+    path = tmp_path / "old.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TABLE connections (owner TEXT NOT NULL, provider TEXT NOT NULL, access_sealed TEXT NOT NULL,"
+            " refresh_sealed TEXT NOT NULL DEFAULT '', expires_at TEXT NOT NULL DEFAULT '', account_id TEXT NOT NULL DEFAULT '',"
+            " account_username TEXT NOT NULL DEFAULT '', account_name TEXT NOT NULL DEFAULT '', account_email TEXT NOT NULL DEFAULT '',"
+            " scope TEXT NOT NULL DEFAULT '', connect_id TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0,"
+            " lease_until TEXT NOT NULL DEFAULT '', PRIMARY KEY (owner, provider))"
+        )
+        conn.execute("INSERT INTO connections VALUES ('mattermost:u1', 'gitlab', 'A1', 'R1', ?, '7', 'alice', 'Alice', 'a@x', 'read_api', 'g1', 0, '')", (T2,))
+    store = SqliteSessionStore(path)
+    try:
+        old = await store.get_connection("mattermost:u1", "gitlab")
+        assert old is not None and old.connected_at == ""
+        await store.save_connection(_record(provider="jira", connect_id="g9"))
+        assert await store.get_connection("mattermost:u1", "jira") == _record(provider="jira", connect_id="g9")
+    finally:
+        await store.close()

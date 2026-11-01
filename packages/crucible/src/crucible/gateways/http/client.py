@@ -95,6 +95,15 @@ class HttpChatClient:
         if turn is not None:
             turn.journal.emit(EV_NOTICE, code=code, text=text)
 
+    async def post_private_notice(
+        self, ref: ConversationRef, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "",
+    ) -> None:
+        # The journal is the caller's alone, so a notice there is private as it
+        # is; the link rides beside the text, for the program to show.
+        turn = self._turn(ref, "a private notice")
+        if turn is not None:
+            turn.journal.emit(EV_NOTICE, code=code, text=text, **({"link": link, "label": label} if link else {}))
+
     async def post_files(
         self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
     ) -> None:

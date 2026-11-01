@@ -1655,3 +1655,27 @@ async def test_a_cards_event_carries_the_steps_and_a_deleted_post_is_reported_re
             assert gone["postId"] == cards["postId"] and gone["text"] == ""
     finally:
         await hub.stop()
+
+
+async def test_a_private_notice_reaches_the_callers_journal_with_its_link() -> None:
+    # The journal is the caller's alone, so the notice is private as it is;
+    # the link and its label ride beside the text, for the program to show.
+    async def refused(msg, chat):
+        await chat.post_private_notice(
+            msg.ref, msg.user_id, "Sign in to go on.", code="not_admitted", link="https://idp.example/s", label="Sign in",
+        )
+        await chat.post_private_notice(msg.ref, msg.user_id, "Plain.", code="not_admitted")
+        return TurnOutcome.NOT_ADMITTED
+
+    hub, _ = _hub(8487, script=refused)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, started = await _post(s, 8487, MESSAGES, {"clientMessageId": "m1", "text": "go"})
+            events, _ = await _drain(s, 8487, started["turnId"])
+            notices = [e for e in events if e["type"] == "notice"]
+            assert notices[0] == {**notices[0], "code": "not_admitted", "text": "Sign in to go on.", "link": "https://idp.example/s", "label": "Sign in"}
+            assert "link" not in notices[1] and "label" not in notices[1]
+            assert events[-1]["type"] == "turn.finished" and events[-1]["outcome"] == "not_admitted"
+    finally:
+        await hub.stop()

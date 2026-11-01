@@ -74,6 +74,9 @@ def _snippet_text(post: dict) -> str:
     return f"[files: {', '.join(names)}]" if names else "[shared a file]"
 
 
+PRIVATE_LINK_LABEL = "Open"
+
+
 class MattermostChatClient:
     """Posts as the agent's own bot account (markdown is native in MM)."""
 
@@ -404,6 +407,18 @@ class MattermostChatClient:
         await self._driver.posts.create_post_ephemeral(
             user_id=user_id, post={"channel_id": channel_id, "message": message}
         )
+
+    async def post_private_notice(
+        self, ref: ConversationRef, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "",
+    ) -> None:
+        # An ephemeral post where the person wrote — in the thread when they
+        # did. Mattermost has no button that opens a URL, so the link is a
+        # markdown link under the text.
+        message = f"{text}\n\n[{label or PRIVATE_LINK_LABEL}]({link})" if link else text
+        post: dict[str, str] = {"channel_id": ref.channel_id, "message": message}
+        if ref.thread_root_id:
+            post["root_id"] = ref.thread_root_id
+        await self._driver.posts.create_post_ephemeral(user_id=user_id, post=post)
 
     async def _resolve_team_id(self) -> str:
         if self._team_id:
