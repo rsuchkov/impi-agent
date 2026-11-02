@@ -117,7 +117,8 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   `requested_message` (the one way a request becomes the sink's message).
 - **Entitlement** (`ports/entitlement`): `Entitlement` (what one conversation
   may do, out of its agent's profile: a subset of its tool names, built-ins
-  included, and trusted instructions for its system prompt),
+  included, trusted instructions for its system prompt, and the names whose
+  declaration is held back until the model asks for them — `deferred`),
   `EntitlementSource` (the application answers it from the message that opens
   a turn, every turn), `ConversationProfiles` (builds the profile the
   conversation's process runs with; the neutral `EntitledProfiles` in

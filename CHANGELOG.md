@@ -6,7 +6,21 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Tools the model is not told about until it asks.** `Entitlement(deferred=
+  …)` names the tools of a conversation whose declaration is held back: they
+  stay the conversation's (the allowlist and the tool server's door are the
+  whole set) but are left out of every request to the model, which is given
+  the runtime's `tool_search` and a line naming what can be loaded, and loads
+  a tool by what it does when a task wants it. Off unless the application's
+  entitlement source says so, per conversation and per turn — a person with
+  ten tools gets them all declared, one with a hundred gets the rest held back
+  — and a change restarts the conversation's process, memory kept. The
+  engine's typed tools and MCP tools can be deferred; a runtime's built-ins
+  are declared as they are. On the wire to the process: `TOOL_DEFERRED` beside
+  the manifest; the bridge registers such a tool as deferred and takes it off
+  the declared set when the session starts (a tool named in `--tools` is
+  otherwise declared whatever its exposure, and one not named is not
+  registered at all — which is why the names stay in the list).
 
 ## v0.44.0 — 2026-11-01
 

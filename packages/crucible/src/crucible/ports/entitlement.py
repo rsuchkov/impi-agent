@@ -40,11 +40,19 @@ class Entitlement:
     it is, ``()`` leaves no tool at all. ``instructions``: text the application
     vouches for, appended to the system prompt — trusted, unlike anything
     quoted in the prompt, so it must be the application's own words and never
-    something a person typed.
+    something a person typed. ``deferred``: names among ``tools`` the model is
+    not told about until it asks — their declarations are left out of every
+    request, and the runtime's own search tool loads one when the model looks
+    for what it does. For a conversation with many tools and a model with a
+    small window; ``None`` or empty declares everything, as always. Which
+    tools can be deferred is the runtime's: the engine's typed tools and MCP
+    tools can, a runtime's built-ins cannot, and a built-in named here is
+    declared as it is.
     """
 
     tools: Collection[str] | None = None
     instructions: str = ""
+    deferred: Collection[str] | None = None
 
 
 def shared_entitlement(entitlements: Sequence[Entitlement]) -> Entitlement:
@@ -53,7 +61,9 @@ def shared_entitlement(entitlements: Sequence[Entitlement]) -> Entitlement:
     the turn runs once for all of them. Tools: only what every one of them
     may use (an answer of None imposes nothing; one answer of ``()`` leaves
     none). Instructions: only when every answer says the same, since words the
-    application vouches for about one person cannot stand for another."""
+    application vouches for about one person cannot stand for another.
+    Deferred: what any answer defers — a declaration held back for one person
+    is held back for the turn, since the model that reads it is one."""
     if not entitlements:
         return Entitlement()
     tools: set[str] | None = None
@@ -67,9 +77,13 @@ def shared_entitlement(entitlements: Sequence[Entitlement]) -> Entitlement:
         first = next(e.tools for e in entitlements if e.tools is not None)
         ordered = tuple(dict.fromkeys(t for t in first if t in tools))
     instructions = {e.instructions for e in entitlements}
+    deferred: tuple[str, ...] | None = None
+    if any(e.deferred for e in entitlements):
+        deferred = tuple(dict.fromkeys(name for e in entitlements for name in (e.deferred or ())))
     return Entitlement(
         tools=ordered,
         instructions=next(iter(instructions)) if len(instructions) == 1 else "",
+        deferred=deferred,
     )
 
 
@@ -103,9 +117,10 @@ class ConversationProfiles(Protocol):
 class ProfileNarrowing(Protocol):
     """The runtime's half of building a conversation's profile: given the
     agent's profile, the tool names the conversation may use (None = all of
-    the agent's), the instructions to append and the tool env the conversation's
-    process gets (its manifest among it; None when tools are off), give back
-    the profile for its process. Each runtime driver has one; the neutral
+    the agent's), the instructions to append, the tool env the conversation's
+    process gets (its manifest among it; None when tools are off) and the
+    names whose declaration is deferred (None = none), give back the profile
+    for its process. Each runtime driver has one; the neutral
     ``crucible.conversation_profiles`` calls it and never looks inside."""
 
     def __call__(
@@ -115,4 +130,5 @@ class ProfileNarrowing(Protocol):
         tools: Collection[str] | None,
         instructions: str,
         env: Mapping[str, str] | None,
+        deferred: Collection[str] | None = None,
     ) -> AgentProfile: ...

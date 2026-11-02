@@ -147,7 +147,10 @@ runs with a profile narrowed to that list — the runtime's allowlist, the
 manifest the process advertises and the tool server's door all agree — and a
 tool outside it is refused there whatever the process claims. The engine does
 this through the same entitlement mechanism an application uses for its own
-rules ([building-an-app.md](building-an-app.md)).
+rules ([building-an-app.md](building-an-app.md)) — the mechanism an
+application also uses to hold a tool's declaration back until the model asks
+for it (`Entitlement(deferred=…)`): such a conversation's process gets the
+runtime's `tool_search` beside its list, whether or not the agent named it.
 
 Two rules to remember:
 

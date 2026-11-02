@@ -1620,6 +1620,10 @@ def test_a_shared_entitlement_is_the_intersection_and_agreement() -> None:
     both = shared_entitlement([Entitlement(instructions="x"), Entitlement(instructions="x")])
     assert both.instructions == "x"
     assert shared_entitlement([Entitlement(instructions="x"), Entitlement()]).instructions == ""
+    # A declaration held back for one person is held back for the turn: the union, each name once.
+    assert shared_entitlement([Entitlement(deferred=("a", "b")), Entitlement(deferred=("b", "c"))]).deferred == ("a", "b", "c")
+    assert shared_entitlement([Entitlement(deferred=("a",)), Entitlement()]).deferred == ("a",)
+    assert shared_entitlement([Entitlement(deferred=()), Entitlement()]).deferred is None
 
 
 class _Captions:

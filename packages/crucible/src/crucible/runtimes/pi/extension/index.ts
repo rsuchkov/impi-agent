@@ -20,6 +20,12 @@ import { readFileSync } from "node:fs";
 const TOOL_URL = process.env.TOOL_URL || "";
 const TOOL_TOKEN = process.env.TOOL_TOKEN || "";
 const MANIFEST_PATH = process.env.TOOL_MANIFEST || "";
+// Manifest tools whose declaration is held back until the model asks for them
+// (CSV; the engine sets it per conversation). Such a tool is registered as
+// deferred and taken off the declared set when the session starts, so the
+// runtime's tool_search can find and declare it; a tool named in --tools is
+// otherwise declared on registration, whatever its exposure.
+const DEFERRED = new Set((process.env.TOOL_DEFERRED || "").split(",").filter((n) => n.length > 0));
 const SESSION_ID = process.env.RUNTIME_SESSION_ID || "";
 const SESSION_PROOF = process.env.TOOL_SESSION_PROOF || "";
 
@@ -98,15 +104,22 @@ type UiConfirmCtx = { ui: { confirm(title: string, message: string): Promise<boo
 
 export default function (pi: ExtensionAPI) {
   const manifest = loadManifest();
+  const held = new Set(manifest.map((t) => t.name).filter((n) => DEFERRED.has(n)));
   for (const t of manifest) {
     pi.registerTool({
       name: t.name,
       label: t.name,
       description: t.description,
       parameters: Type.Unsafe(t.parameters) as never,
+      exposure: held.has(t.name) ? "deferred" : "direct",
       async execute(_id: string, params: Record<string, unknown>, signal?: AbortSignal) {
         return text(await callTool(t.name, params, signal));
       },
+    });
+  }
+  if (held.size > 0) {
+    pi.on("session_start", async () => {
+      pi.setActiveTools(pi.getActiveTools().filter((n) => !held.has(n)));
     });
   }
 

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from crucible.ports.agent import AgentProfile, AgentSpec
 from crucible.ports.agent.spec import DEFAULT_IDLE_TIMEOUT_S
-from crucible.tool_manifests import MANIFEST_ENV
+from crucible.tool_manifests import DEFERRED_ENV, MANIFEST_ENV
 
 
 @dataclass(frozen=True)
@@ -99,6 +99,16 @@ def require_pi_profile(profile: AgentProfile) -> PiProfile:
     return profile
 
 
+# The runtime's own tool that loads a deferred tool for the model's next call.
+TOOL_SEARCH = "tool_search"
+# What the model is told of the tools it is not told about: their names, so a
+# model that would not think to search knows there is something to find.
+DEFERRED_NOTE = (
+    "Some tools are not declared until you load them: %s. "
+    "When a task needs one of them, call tool_search with what the tool does; it is declared to you from your next call on."
+)
+
+
 def with_tool_env(profile: PiProfile, env: Mapping[str, str] | None) -> PiProfile:
     """Layer an agent's tool env (``ToolWiring.profile_env``, ``session_env``)
     onto its profile. The manifest is a PATH and goes in ``env_files``, apart
@@ -122,17 +132,32 @@ def narrow_pi_profile(
     tools: Collection[str] | None,
     instructions: str,
     env: Mapping[str, str] | None,
+    deferred: Collection[str] | None = None,
 ) -> PiProfile:
     """This driver's ``ProfileNarrowing`` (``crucible.ports.entitlement``): the
     agent's profile as one conversation's process gets it. ``--tools`` keeps
     only the names allowed — built-ins included, since it is one list — so a
     tool the conversation was not given is not offered to the model either;
     the instructions follow the profile's own appended prompt; the env is the
-    conversation's (its manifest among it)."""
+    conversation's (its manifest among it).
+
+    A deferred tool stays in ``--tools`` (a name not there is not registered
+    at all, and nothing could load it) and is named in ``TOOL_DEFERRED``: the
+    bridge registers it as deferred and takes it off the declared set when the
+    session starts, the runtime's ``tool_search`` is added to the list so the
+    model can load it, and the prompt names what can be loaded — a model is
+    not told about the tools it was not told about any other way. The env is
+    part of what a process is started with, so a change restarts it."""
     base = require_pi_profile(profile)
     if tools is not None:
         allowed = set(tools)
         base = dataclasses.replace(base, tools=tuple(t for t in base.tools if t in allowed))
+    held = tuple(t for t in base.tools if t in set(deferred or ()))
+    if held:
+        if TOOL_SEARCH not in base.tools:
+            base = dataclasses.replace(base, tools=(*base.tools, TOOL_SEARCH))
+        env = {**(env or {}), DEFERRED_ENV: ",".join(held)}
+        instructions = "\n\n".join(p for p in (instructions.strip(), DEFERRED_NOTE % ", ".join(held)) if p)
     if instructions.strip():
         joined = "\n\n".join(p for p in (base.append_system_prompt, instructions.strip()) if p)
         base = dataclasses.replace(base, append_system_prompt=joined)

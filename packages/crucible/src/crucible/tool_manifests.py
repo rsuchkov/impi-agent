@@ -23,6 +23,10 @@ MCP_SERVER_TOOLS = re.compile(r"^mcp__[a-z0-9](?:_?[a-z0-9-])*__\*$")
 # composition root has to tell it apart from the rest of the env: it is a
 # path, and a path only means something where it was written.
 MANIFEST_ENV = "TOOL_MANIFEST"
+# The env variable naming the manifest's tools whose declaration the process
+# holds back until the model asks for them (CSV of names): the engine ↔ tool
+# extension contract beside the manifest's. Set only when there are any.
+DEFERRED_ENV = "TOOL_DEFERRED"
 
 
 def manifests_dir(data_dir: Path | str) -> Path:

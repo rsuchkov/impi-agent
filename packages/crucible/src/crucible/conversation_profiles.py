@@ -51,7 +51,8 @@ class EntitledProfiles:
     ) -> AgentProfile:
         env = self._tools.session_env(agent, runtime_session_id, entitlement.tools)
         return self._narrow(
-            profile, tools=entitlement.tools, instructions=entitlement.instructions, env=env
+            profile, tools=entitlement.tools, instructions=entitlement.instructions, env=env,
+            deferred=entitlement.deferred,
         )
 
 
@@ -80,7 +81,7 @@ class GatewayEntitlements:
         # that speak of tools speak of the ones the conversation will have.
         theirs = await self._inner.entitlement(agent, msg, tools=own.tools)
         joined = shared_entitlement([own, theirs])
-        return Entitlement(tools=joined.tools, instructions=theirs.instructions)
+        return Entitlement(tools=joined.tools, instructions=theirs.instructions, deferred=theirs.deferred)
 
 
 def _tools_on(spec: AgentSpec, gateway: str) -> tuple[str, ...] | None:

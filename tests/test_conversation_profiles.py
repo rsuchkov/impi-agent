@@ -208,3 +208,63 @@ async def test_a_message_that_names_no_gateway_gets_the_narrowest_list_of_an_age
     assert (await source.entitlement("assistant", msg("mattermost"))).tools is None  # a named gateway unnamed in the map: all
     plain = GatewayEntitlements(lambda _: dataclasses.replace(spec, tools_by_gateway=()))
     assert (await plain.entitlement("assistant", msg(""))).tools is None  # no map: nothing to narrow
+
+
+def test_a_deferred_tool_stays_allowed_is_named_to_the_bridge_and_the_search_tool_and_a_note_are_added(
+    tmp_path: Path,
+) -> None:
+    """A tool the model is not told about until it asks: still in --tools (a
+    name left out is not registered, and nothing could load it), named in the
+    env the bridge reads, the runtime's search tool added so the model can
+    load it, and the prompt naming what can be loaded."""
+    from crucible.runtimes.pi.profiles import DEFERRED_NOTE, TOOL_SEARCH
+    from crucible.tool_manifests import DEFERRED_ENV
+
+    wiring, spec = _wiring(tmp_path)
+    base = _agent_profile(wiring, spec)
+    profiles = EntitledProfiles(wiring, narrow_pi_profile)
+
+    scoped = profiles.build(
+        "assistant", base,
+        Entitlement(tools=("read", "ask_user_buttons", "open_form"), instructions="Be brief.", deferred=("open_form", "not_the_agents")),
+        "assistant--dm1",
+    )
+    assert isinstance(scoped, PiProfile)
+    assert scoped.tools == ("read", "ask_user_buttons", "open_form", TOOL_SEARCH)
+    assert scoped.env[DEFERRED_ENV] == "open_form"  # the conversation's tools alone, in the agent's order
+    assert scoped.append_system_prompt == "Answer in Markdown.\n\nBe brief.\n\n" + DEFERRED_NOTE % "open_form"
+    # The server's door is the conversation's whole set: a deferred tool is still the conversation's.
+    assert wiring.session_allowlists["assistant--dm1"] == frozenset({"ask_user_buttons", "open_form"})
+    # Deferring two names the conversation has: both named, once each, search added once.
+    two = profiles.build(
+        "assistant", base, Entitlement(deferred=("open_form", "ask_user_buttons", "read")), "assistant--dm1",
+    )
+    assert isinstance(two, PiProfile)
+    assert two.env[DEFERRED_ENV] == "read,ask_user_buttons,open_form" and two.tools.count(TOOL_SEARCH) == 1
+    # An agent that names the search tool itself does not get it twice.
+    names_it = dataclasses.replace(base, tools=(*base.tools, TOOL_SEARCH))
+    again = profiles.build("assistant", names_it, Entitlement(deferred=("open_form",)), "assistant--dm1")
+    assert isinstance(again, PiProfile) and again.tools.count(TOOL_SEARCH) == 1
+    # Nothing deferred: no env, no search tool, no note — the profile as it always was.
+    plain = profiles.build("assistant", base, Entitlement(deferred=()), "assistant--dm1")
+    assert isinstance(plain, PiProfile)
+    assert DEFERRED_ENV not in plain.env and TOOL_SEARCH not in plain.tools and "not declared" not in plain.append_system_prompt
+    # The two differ in what the process is started with, so a change restarts it.
+    from crucible.runtimes.pi.runtime import spawn_fingerprint
+
+    assert spawn_fingerprint(scoped) != spawn_fingerprint(plain) != spawn_fingerprint(two)
+
+
+async def test_the_gateway_source_passes_the_inners_deferred_names_on() -> None:
+    from crucible.conversation_profiles import GatewayEntitlements
+    from crucible.ports.chat.types import ConversationRef, IncomingMessage
+
+    spec = AgentSpec(name="assistant", display_name="A", role="r", description="d", profile_dir=Path("/x"), tools=("read", "bash"))
+
+    class Inner:
+        async def entitlement(self, agent, msg, *, tools=None):
+            return Entitlement(deferred=("bash",))
+
+    msg = IncomingMessage(ref=ConversationRef("c", "c", "m"), text="hi", user_id="u1", username="u", kind="dm", gateway="slack")
+    joined = await GatewayEntitlements(lambda _: spec, inner=Inner()).entitlement("assistant", msg)
+    assert joined.deferred == ("bash",)

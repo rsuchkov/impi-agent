@@ -421,6 +421,23 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   ceiling (`entitlement(agent, msg, *, tools=None)`), so instructions that
   speak of tools speak of the ones the conversation will have; a source the
   flow calls directly gets `tools=None`.
+  **Tools the model is not told about until it asks.** Every tool a
+  conversation has is declared to the model, with its description and its
+  schema, on every call — fifty tools are a page of the model's window each
+  turn, where one `search` was wanted. `Entitlement(deferred=…)` names the
+  tools whose declaration is held back: the model is given the runtime's own
+  search tool and a line naming what can be loaded, looks a tool up by what it
+  does when a task wants it, and from its next call on the tool is declared
+  like any other — for that conversation, until its process is next started.
+  Off unless the source says so, and the source decides per conversation and
+  per turn: a person with ten tools gets them all declared, one with a hundred
+  gets the ones they use declared and the rest held back; a change restarts
+  the conversation's process (its memory is on disk). What can be deferred is
+  the runtime's: the engine's typed tools and MCP tools (`mcp__<server>__…`)
+  can, a runtime's built-ins (`read`, `bash`) cannot and are declared as they
+  are. A deferred tool is still the conversation's — the tool server's door is
+  the whole set — and `tools_by_gateway` still rules what the set is. In a
+  batch of several people, what any answer defers is deferred for the turn.
   Pass `manifests_dir=` and `attachments=` to `purge_idle` (or call
   `prepare_runtime_storage`, which does) so a forgotten conversation's manifest
   and files go with its memory.
