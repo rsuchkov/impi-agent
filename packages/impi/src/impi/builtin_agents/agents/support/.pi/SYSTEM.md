@@ -104,6 +104,7 @@ runtime:
   confinement: agent       # OPTIONAL — conversation (default) | agent | off
   confinement_write: [ ... ]  # OPTIONAL — paths beyond its own it may write (also _read)
   network_ports: [ ... ]   # OPTIONAL — TCP ports beside RUNTIME_NETWORK_PORTS its process may connect to
+  shared_dirs: [ ... ]     # OPTIONAL — directories shared with every agent naming the same ($AGENT_SHARED_DIR__<NAME>)
   loop_guard: true         # OPTIONAL — a guard against a turn running in circles; true or {repeat, same_result, calls}
 ```
 

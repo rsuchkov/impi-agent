@@ -18,6 +18,19 @@ when a release is cut, and `impi update` shows the target version's section.
   application wires `ChatDelegationService` (`crucible.interactions.delegation`)
   into `build_server(delegation_svc=)` with `ToolWiring(delegation_on=True)`,
   and `ToolContext.delegation_svc` carries it (`CAP_DELEGATION`).
+- **Directories agents share.** `runtime.shared_dirs: [crm-code]` in
+  `agent.yaml` names directories an agent shares with every other agent
+  naming the same: one per name under `SHARED_DIRS_ROOT` (`{DATA_DIR}/shared`
+  by default), made by the engine, writable to each agent's processes at
+  every confinement level, and told to the process as
+  `AGENT_SHARED_DIR__<NAME>`. With agent containers the root is the
+  `impi-shared` volume at `/app/shared` in the engine and in every container
+  whose agent names a directory (`RUNTIME_RELAY_SHARED_DIR`; a `shared` root
+  on the spawn wire); an agent image older than this refuses such a spawn
+  until `impi agent sync` rebuilds it. The startup log and `impi doctor`
+  list the directories and who shares each. Where a coder and the agent that
+  asked it hand files to each other outside the chat — and where nothing
+  with people's data belongs.
 - **The confirmation card, tidied.** A verdict under a title stands on its
   own ("Allowed once: «Change the status».", no dash in front; a card without
   a title still sets the verdict off from the agent's name with one); a tool

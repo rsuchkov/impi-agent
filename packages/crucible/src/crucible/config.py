@@ -375,6 +375,9 @@ class Settings(BaseSettings):
     # are ignored on the way in and no agent gets the send-a-file tool.
     attachments_enabled: bool = True
     attachments_dir: str = ""  # default: {data_dir}/attachments
+    # Where the directories agents share live (runtime.shared_dirs names
+    # them): one root, a directory per name. Default: {data_dir}/shared.
+    shared_dirs_root: str = ""
     attachment_max_mb: float = 20.0  # per file, both directions
     # What one conversation may hold in all, the agent's own files included;
     # past it the oldest files go to make room. 0 = no cap.
@@ -922,6 +925,13 @@ class Settings(BaseSettings):
     @property
     def attachment_conversation_max_bytes(self) -> int:
         return int(self.attachment_conversation_max_mb * 1024 * 1024)
+
+    @property
+    def resolved_shared_dirs_root(self) -> Path:
+        """Where the directories agents share live: one per name under it."""
+        if self.shared_dirs_root:
+            return Path(self.shared_dirs_root)
+        return Path(self.data_dir) / "shared"
 
     @property
     def resolved_attachments_dir(self) -> Path:

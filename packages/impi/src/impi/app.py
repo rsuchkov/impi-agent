@@ -127,6 +127,7 @@ from impi.deployment_report import (
     needs_receiver,
     network_line,
     select_specs,
+    shared_dirs_line,
 )
 from impi.engine_tools import engine_tool_registry
 from impi.gateways import resolve_gateways
@@ -206,6 +207,7 @@ def build_agent_hosts(
                 token=token,
                 library_root=library if library.is_dir() else None,
                 files_root=files_dir_for(spec.name) if files_dir_for else None,
+                shared_root=settings.resolved_shared_dirs_root if spec.shared_dirs else None,
                 connect_timeout=settings.agent_host_timeout,
             ),
         )
@@ -220,6 +222,9 @@ def build_agent_hosts(
 # The variable naming the directory an agent's process writes files to send:
 # its agent's, or its conversation's when it is confined to one.
 FILES_DIR_ENV = "AGENT_FILES_DIR"
+# The variable naming one directory an agent shares with others:
+# AGENT_SHARED_DIR__<NAME>, the name upper-cased with hyphens as underscores.
+SHARED_DIR_ENV_PREFIX = "AGENT_SHARED_DIR__"
 
 def _spec_or_none(profiles: ProfileStore, name: str) -> AgentSpec | None:
     try:
@@ -652,6 +657,8 @@ def build_app(settings: ImpiSettings) -> App:
         skills_root=settings.resolved_skills_path,
         unconfined_by_default=frozenset(engine_names),
         network_ports=settings.confined_network_ports(),
+        shared_root=settings.resolved_shared_dirs_root,
+        shared_dir_env=SHARED_DIR_ENV_PREFIX,
     )
     hosts = build_agent_hosts(settings, specs, attachments.dir_for if attachments else None)
     abi = landlock_abi()
@@ -666,6 +673,9 @@ def build_app(settings: ImpiSettings) -> App:
     # A kernel that confines the files but not the network is worth a word; a
     # setting left empty is the operator's choice.
     (logger.warning if 0 < abi < NET_ABI else logger.info)(network)
+    shared = shared_dirs_line(specs, settings.resolved_shared_dirs_root)
+    if shared:
+        logger.info(shared)
     # An agent in its own container is handed the credential file alone.
     here, own_container = configured_providers(), configured_providers(definitions=False)
     fallback_line, fallback_warning = fallback_report(

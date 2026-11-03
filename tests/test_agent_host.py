@@ -617,6 +617,34 @@ def test_the_scope_crosses_the_wire_as_names_the_host_resolves(tmp_path: Path) -
     assert confinement.tcp_ports == ()  # no port named: the network is not restricted over there either
 
 
+def test_a_shared_directory_crosses_the_wire_under_its_own_root_and_is_named_on_the_host(tmp_path: Path) -> None:
+    """A path under the engine's shared root is a `shared` reference; the host
+    resolves it under its own shared mount and points the process at it by
+    the variable the reference carries. A host with no shared mount refuses."""
+    from crucible.confinement import ProcessScope
+
+    profile, library = _dirs(tmp_path)
+    shared = tmp_path / "shared"
+    (shared / "crm-code").mkdir(parents=True)
+    host = RemoteHost(url="http://x", token="t", library_root=library, files_root=tmp_path / "files", shared_root=shared)
+    scope = ProcessScope(writable=(shared / "crm-code", Path("/srv/declared")), env={"AGENT_SHARED_DIR__CRM_CODE": str(shared / "crm-code")})
+    payload = host._spawn_payload(_request(profile, library, process_scope=scope))
+    assert payload[engine_wire.KEY_CONFINEMENT] == {
+        engine_wire.KEY_WRITABLE: [{"root": "shared", "path": "crm-code", "variable": "AGENT_SHARED_DIR__CRM_CODE"}]
+    }
+    host_shared = tmp_path / "host-shared"
+    config = _host_config(tmp_path, profile, library, shared_dir=host_shared.resolve())
+    confinement = host_parse(payload, config).confinement
+    assert confinement is not None
+    assert confinement.writable == (host_shared.resolve() / "crm-code",)
+    assert confinement.variables == {"AGENT_SHARED_DIR__CRM_CODE": host_shared.resolve() / "crm-code"}
+    with pytest.raises(SpawnRejected, match="no shared directory mounted"):
+        host_parse(payload, _host_config(tmp_path, profile, library))
+    payload[engine_wire.KEY_CONFINEMENT] = {engine_wire.KEY_WRITABLE: [{"root": "shared", "path": "../other"}]}
+    with pytest.raises(SpawnRejected, match="outside the shared directory"):
+        host_parse(payload, config)
+
+
 def test_the_ports_cross_the_wire_as_they_are(tmp_path: Path) -> None:
     from crucible.confinement import ProcessScope
 

@@ -68,6 +68,10 @@ class AgentSpec:
     # (an internal service on a port of its own); nothing when the deployment
     # does not restrict the network.
     network_ports: tuple[int, ...] = ()
+    # Directories this agent shares with every other agent naming the same
+    # — by name; the application keeps them under one root and tells each
+    # process where its are. Where two agents exchange files on a task.
+    shared_dirs: tuple[str, ...] = ()
     # Models to turn to, in order, when a turn's model fails in a way the
     # runtime retries (an overloaded or unreachable service), as
     # ``provider/model`` (``model_ref.check_model_ref``). The runtime skips

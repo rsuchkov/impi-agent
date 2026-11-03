@@ -81,6 +81,7 @@ Then, one volume each and nobody else's:
 | `/app/skills` | the shared skill library | every agent, read-only |
 | `/app/sessions` | its conversation memory, a directory per conversation | nobody |
 | `/app/files/<name>` | its own files, in and out | the engine |
+| `/app/shared` | the directories agents share (`runtime.shared_dirs`), one volume; mounted only in a container whose agent names one | the engine and every agent naming one |
 | `/home/impi/.pi/agent/auth.json` | the model credential, one file | every agent — see below |
 | `/app/agents/_extensions` | the extensions `RUNTIME_EXTENSIONS` names, read-only; absent when it names none | every agent |
 

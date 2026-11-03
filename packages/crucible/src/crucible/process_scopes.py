@@ -14,8 +14,11 @@ on the level:
   Scratch space is scratch: a memoryless run's goes when its process ends, a
   conversation's a day after its last process ended.
 
-The network, when the application restricts it (``network_ports``): the
-deployment's ports plus the agent's own, at every level. What the runtime
+The directories an agent shares with others (``AgentSpec.shared_dirs``): one
+per name under the application's root, writable at every level, each named to
+the process in a variable of its own (``shared_dir_env``). The network, when
+the application restricts it (``network_ports``): the deployment's ports plus
+the agent's own, at every level. What the runtime
 itself needs (its program, its memory, its tool server's port) the runtime
 adds; what is in neither list the process cannot reach.
 """
@@ -46,6 +49,12 @@ async def _no_conversation_files(_agent: str, _session_id: str) -> Path | None:
     return None
 
 
+def shared_dir_variable(prefix: str, name: str) -> str:
+    """The variable that names one shared directory to a process:
+    ``<prefix><NAME>``, the name upper-cased with hyphens as underscores."""
+    return prefix + name.upper().replace("-", "_")
+
+
 class AgentProcessScopes:
     def __init__(
         self,
@@ -59,6 +68,8 @@ class AgentProcessScopes:
         scratch_root: Path | None = None,
         unconfined_by_default: frozenset[str] = frozenset(),
         network_ports: Sequence[int] = (),
+        shared_root: Path | None = None,
+        shared_dir_env: str = "",
     ) -> None:
         # Read on every spawn, so a reloaded profile's level and paths apply
         # to the next process.
@@ -80,6 +91,12 @@ class AgentProcessScopes:
         # TCP ports every confined process may connect to; an agent's profile
         # adds its own. Empty = the network is not restricted for anyone.
         self._network_ports = tuple(network_ports)
+        # Where the directories agents share live, one per name; and the
+        # prefix of the variable that names each to the process
+        # (``<prefix><NAME>``, the name upper-cased with hyphens as
+        # underscores). None = no agent shares a directory.
+        self._shared_root = shared_root
+        self._shared_dir_env = shared_dir_env
         # Scratch directories handed to processes that have not ended, with
         # how many hold each (a conversation's next process may start before
         # the last one is reported gone).
@@ -102,6 +119,7 @@ class AgentProcessScopes:
         tmp, home = private_dir(scratch / "tmp"), private_dir(scratch / "home")
         readable: list[Path] = []
         writable: list[Path] = [tmp, home]
+        env = {"TMPDIR": str(tmp), "HOME": str(home)}
         ports: list[int] = list(self._network_ports)
         if spec is not None:
             readable.append(spec.profile_dir)
@@ -109,9 +127,14 @@ class AgentProcessScopes:
             writable += spec.confinement_writable
             if ports:
                 ports += [p for p in spec.network_ports if p not in ports]
+            if self._shared_root is not None:
+                for name in spec.shared_dirs:
+                    shared = private_dir(self._shared_root / name)
+                    writable.append(shared)
+                    if self._shared_dir_env:
+                        env[shared_dir_variable(self._shared_dir_env, name)] = str(shared)
         if self._skills_root is not None:
             readable.append(self._skills_root)
-        env = {"TMPDIR": str(tmp), "HOME": str(home)}
         files_dir = await self._files_dir(agent, session_id, level)
         if files_dir is not None:
             writable.append(files_dir)

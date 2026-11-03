@@ -233,6 +233,7 @@ class FsProfileStore:
         readable = _confinement_paths(runtime, "confinement_read", manifest)
         writable = _confinement_paths(runtime, "confinement_write", manifest)
         network_ports = _network_ports(runtime, manifest)
+        shared_dirs = _shared_dirs(runtime, manifest)
         timeout = runtime.get("timeout", self._default_timeout)
         if not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ProfileError(f"{manifest}: runtime.timeout must be a positive number")
@@ -286,6 +287,7 @@ class FsProfileStore:
             confinement_readable=readable,
             confinement_writable=writable,
             network_ports=network_ports,
+            shared_dirs=shared_dirs,
             fallback_models=fallback_models,
         )
 
@@ -335,6 +337,22 @@ def _loop_guard(runtime: dict, manifest: Path) -> bool | dict[str, int] | None:
     ):
         raise ProfileError(f"{manifest}: runtime.loop_guard must be true, false or a map of limits to whole numbers")
     return dict(raw) if raw else True
+
+
+# A shared directory's name: a path segment and a variable's tail — lowercase
+# letters, digits and hyphens, so it cannot climb out of the root or carry a
+# character an environment variable's name cannot.
+SHARED_DIR_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _shared_dirs(runtime: dict, manifest: Path) -> tuple[str, ...]:
+    """``runtime.shared_dirs``: a list of names, each once."""
+    raw = runtime.get("shared_dirs") or []
+    if not isinstance(raw, list) or not all(isinstance(n, str) and SHARED_DIR_NAME.match(n) for n in raw):
+        raise ProfileError(
+            f"{manifest}: runtime.shared_dirs must be a list of names (lowercase letters, digits, hyphens)"
+        )
+    return tuple(dict.fromkeys(raw))
 
 
 def _network_ports(runtime: dict, manifest: Path) -> tuple[int, ...]:

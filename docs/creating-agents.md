@@ -54,6 +54,7 @@ runtime:
   confinement_read: [/srv/checkout]   # optional; more paths its process may read
   confinement_write: [state]          # optional; more it may write (relative = in the profile)
   network_ports: [8080]   # optional; TCP ports beside RUNTIME_NETWORK_PORTS its process may connect to
+  shared_dirs: [crm-code] # optional; directories shared with every agent naming the same (see below)
   packages:               # OPTIONAL, and only with agent containers (see below)
     apt: [ffmpeg]
 ```
@@ -316,6 +317,25 @@ Skills are **toggleable per agent without editing `agent.yaml`** via the
 `AGENTS_SKILLS__<AGENT>` environment variable (CSV of names): a set value replaces
 the profile's list, empty disables all, unset keeps the profile's list. This is
 how you turn a bundled agent's skills on or off.
+
+## Directories agents share
+
+Two agents that work on one thing — one that knows the people and one that
+writes the code — need a place to hand files to each other that is not the
+chat. `runtime.shared_dirs` names such places: lowercase names, each a
+directory under the engine's `SHARED_DIRS_ROOT` (`{DATA_DIR}/shared` by
+default), made by the engine, writable to every agent that names it at every
+confinement level, and told to the process as `AGENT_SHARED_DIR__<NAME>` (the
+name upper-cased, hyphens as underscores): `shared_dirs: [crm-code]` gives the
+process `$AGENT_SHARED_DIR__CRM_CODE`. An agent that names a directory nobody
+else does has a working directory of its own that outlives its conversations.
+With agent containers the root is one volume mounted at `/app/shared` in the
+engine and in every container whose agent names a directory, so a name means
+one place everywhere. What goes there is the operator's to decide — a
+sanitized checkout for a coder, never a dump with people's data in it: every
+agent naming the directory reads all of it, whatever its model. `impi doctor`
+and the startup log list the directories and who shares each. Tell the agent
+about its directory in `SYSTEM.md` or a skill, as for `$AGENT_FILES_DIR`.
 
 ## What the agent's process inherits
 

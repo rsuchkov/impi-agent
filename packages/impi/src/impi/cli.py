@@ -77,6 +77,7 @@ from impi.deployment_report import (
     needs_receiver,
     network_line,
     select_specs,
+    shared_dirs_line,
 )
 from impi.escape import EscapeError, build_plan, parse_map, render_nul, render_text
 from impi.gateways import resolve_gateway, resolve_gateways
@@ -983,6 +984,9 @@ def _cmd_health(args: argparse.Namespace) -> int:
             _warn(shared_warning)
         network = network_line(settings.confined_network_ports(), abi)
         (_warn if 0 < abi < NET_ABI else _ok)(network)
+        shared = shared_dirs_line(specs, settings.resolved_shared_dirs_root)
+        if shared:
+            _ok(shared)
         # An agent in its own container is handed the credential file alone.
         here, own_container = configured_providers(), configured_providers(definitions=False)
         fallback_line, fallback_warning = fallback_report(

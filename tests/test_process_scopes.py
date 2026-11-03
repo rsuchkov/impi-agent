@@ -198,3 +198,25 @@ async def test_the_network_is_the_deployments_ports_and_the_agents_own_or_not_re
     # profile adds: an addition to nothing would be a restriction of its own.
     open_scope = await _scopes(tmp_path, specs).scope_for("assistant", "assistant--c1")
     assert open_scope is not None and open_scope.tcp_ports == ()
+
+
+async def test_a_shared_directory_is_writable_at_every_level_and_named_to_the_process(tmp_path: Path) -> None:
+    """Two agents naming one directory share it — made under the root, the
+    owner's alone, writable to each conversation's process beside its own
+    paths, and named to it in a variable of its own."""
+    specs = {
+        "assistant": _spec(tmp_path, "assistant", shared_dirs=("crm-code", "docs")),
+        "coder": _spec(tmp_path, "coder", shared_dirs=("crm-code",)),
+    }
+    scopes = _scopes(tmp_path, specs, shared_root=tmp_path / "shared", shared_dir_env="AGENT_SHARED_DIR__")
+    first = await scopes.scope_for("assistant", "assistant--c1")
+    coder = await scopes.scope_for("coder", "coder--c9")
+    assert first is not None and coder is not None
+    crm = tmp_path / "shared" / "crm-code"
+    assert crm in first.writable and crm in coder.writable and crm.is_dir()
+    assert stat.S_IMODE(crm.stat().st_mode) == 0o700
+    assert first.env["AGENT_SHARED_DIR__CRM_CODE"] == str(crm) and first.env["AGENT_SHARED_DIR__DOCS"] == str(tmp_path / "shared" / "docs")
+    assert "AGENT_SHARED_DIR__DOCS" not in coder.env and tmp_path / "shared" / "docs" not in coder.writable
+    # Without a root nothing is shared, whatever a profile names.
+    alone = await _scopes(tmp_path, specs).scope_for("assistant", "assistant--c1")
+    assert alone is not None and crm not in alone.writable and not any(k.startswith("AGENT_SHARED_DIR__") for k in alone.env)

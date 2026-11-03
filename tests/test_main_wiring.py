@@ -1219,3 +1219,18 @@ def test_the_network_line_says_what_is_reached_or_why_nothing_is_restricted() ->
     assert network_line((443, 80), abi=0) == "network: not restricted — this kernel has no Landlock"
     assert "ABI 3 has no network rules" in network_line((443, 80), abi=3)
     assert network_line((), abi=7) == "network: not restricted — RUNTIME_NETWORK_PORTS is empty"
+
+
+def test_the_shared_dirs_line_names_each_directory_and_who_shares_it(tmp_path) -> None:
+    from pathlib import Path
+
+    from crucible.ports.agent import AgentSpec
+    from impi.deployment_report import shared_dirs_line
+
+    def spec(name, *shared):
+        return AgentSpec(name=name, display_name=name, role="r", description="", profile_dir=tmp_path / name, shared_dirs=tuple(shared))
+
+    assert shared_dirs_line([spec("a"), spec("b")], Path("/data/shared")) is None
+    assert shared_dirs_line([spec("a", "crm-code", "docs"), spec("b", "crm-code")], Path("/data/shared")) == (
+        "shared dirs under /data/shared: crm-code (a, b); docs (a)"
+    )

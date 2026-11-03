@@ -87,6 +87,20 @@ def network_line(ports: Sequence[int], abi: int) -> str:
     return f"network: a confined process connects to tcp ports {named} and the services its environment points it at; binds none"
 
 
+def shared_dirs_line(specs: Sequence[AgentSpec], root: Path) -> str | None:
+    """Which directories agents share, and who: one line, or None when no
+    agent names any — the operator sees at a glance what two agents can
+    hand each other outside the chat."""
+    by_name: dict[str, list[str]] = {}
+    for spec in specs:
+        for name in spec.shared_dirs:
+            by_name.setdefault(name, []).append(spec.name)
+    if not by_name:
+        return None
+    shares = "; ".join(f"{name} ({', '.join(agents)})" for name, agents in sorted(by_name.items()))
+    return f"shared dirs under {root}: {shares}"
+
+
 def confinement_report(
     specs: Sequence[AgentSpec],
     configs: Mapping[str, GatewayConfig | None],

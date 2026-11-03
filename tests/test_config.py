@@ -348,3 +348,10 @@ def test_runtime_network_ports_default_to_the_web_and_refuse_what_is_not_a_port(
     for bad in ("https", "0", "65536", "443;80"):
         with pytest.raises(ValidationError, match="RUNTIME_NETWORK_PORTS"):
             _settings(runtime_network_ports=bad)
+
+
+def test_the_shared_dirs_root_defaults_under_the_data_dir() -> None:
+    from pathlib import Path
+
+    assert _settings(data_dir="/srv/impi").resolved_shared_dirs_root == Path("/srv/impi/shared")
+    assert _settings(shared_dirs_root="/mnt/shared").resolved_shared_dirs_root == Path("/mnt/shared")

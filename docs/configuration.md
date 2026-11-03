@@ -231,6 +231,7 @@ See [files.md](files.md) for what an agent gets and what each platform needs.
 |---|---|---|
 | `ATTACHMENTS_ENABLED` | `true` | master switch: off = attachments are ignored |
 | `ATTACHMENTS_DIR` | `""` | where attachments land; default `{DATA_DIR}/attachments` |
+| `SHARED_DIRS_ROOT` | `""` | where the directories agents share live (`runtime.shared_dirs`, one per name under it, writable to every agent naming it); default `{DATA_DIR}/shared`. With agent containers, the `impi-shared` volume at `/app/shared` |
 | `ATTACHMENT_MAX_MB` | `20` | per-file cap; a bigger file is skipped, the message still arrives |
 | `ATTACHMENT_CONVERSATION_MAX_MB` | `200` | what one conversation may hold in all, the agent's own files counted; past it the oldest files make room; `0` = no cap; must be at least `ATTACHMENT_MAX_MB` |
 | `ATTACHMENT_RETENTION_DAYS` | `14` | days since a conversation's last activity after which its files go — people's, the agent's and the record of what arrived ([files.md](files.md)); `0` = keep forever |

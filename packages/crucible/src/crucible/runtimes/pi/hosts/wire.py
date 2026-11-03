@@ -70,6 +70,9 @@ KEY_PATH = "path"
 ROOT_PROFILE = "profile"
 ROOT_LIBRARY = "library"
 ROOT_FILES = "files"
+# A directory agents share, under the host's shared root: writable, and
+# named to the process by the variable the reference carries.
+ROOT_SHARED = "shared"
 
 # Confinement on the wire: present = start the process confined. What it may
 # write beyond its own memory and scratch space, as references against the

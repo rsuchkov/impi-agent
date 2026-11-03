@@ -56,6 +56,10 @@ AGENTS_MOUNT = "/app/agents"
 SKILLS_MOUNT = "/app/skills"
 SESSIONS_MOUNT = "/app/sessions"
 FILES_MOUNT = "/app/files"
+# Where the directories agents share are mounted, in every container whose
+# agent names one and in the engine's: one volume, one path on every side.
+SHARED_MOUNT = "/app/shared"
+SHARED_VOLUME = "impi-shared"
 EXTENSION_PATH_IN_IMAGE = "/app/extension/index.ts"
 # Loaded into every runtime too, and inert unless the engine names fallback
 # models for the agent (crucible.runtimes.pi.runtime.FALLBACK_MODELS_ENV).
@@ -93,6 +97,8 @@ class AgentBuild:
     npm: tuple[str, ...] = ()
     pip: tuple[str, ...] = ()
     include: str = ""
+    # The directories it shares with other agents (``runtime.shared_dirs``).
+    shared_dirs: tuple[str, ...] = ()
 
     @property
     def customized(self) -> bool:
@@ -166,6 +172,7 @@ def read_build(spec: AgentSpec) -> AgentBuild:
         npm=_names(packages.get("npm"), spec.name, "npm"),
         pip=_names(packages.get("pip"), spec.name, "pip"),
         include=include,
+        shared_dirs=spec.shared_dirs,
     )
 
 
@@ -276,7 +283,7 @@ def render_compose(deployment: Deployment) -> str:
     if deployment.with_browser:
         out.append(_browser_service(names))
     out.append(_networks(names, deployment))
-    out.append(_volumes(names))
+    out.append(_volumes(names, deployment))
     return "\n".join(out)
 
 
@@ -333,6 +340,8 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         f'      RUNTIME_RELAY_PORT: "{HOST_PORT}"',
         "      RUNTIME_RELAY_WORK_DIR: /tmp/runtime-relay",
     ]
+    if build.shared_dirs:
+        lines.append(f"      RUNTIME_RELAY_SHARED_DIR: {SHARED_MOUNT}")
     if deployment.with_browser:
         # Where the browser tool attaches. The agent's process inherits this
         # container's environment, not the engine's, so the address the
@@ -360,6 +369,9 @@ def _agent_service(build: AgentBuild, deployment: Deployment) -> str:
         f"      - ${{IMPI_SKILLS_DIR:-{deployment.home_plain}/skills}}:{SKILLS_MOUNT}:ro,z",
         f"      - {SERVICE_PREFIX}{name}-sessions:{SESSIONS_MOUNT}",
         f"      - {SERVICE_PREFIX}{name}-files:{FILES_MOUNT}/{name}",
+        # The directories agents share, when this one names any: one volume,
+        # the same path here as in the engine, so a name means one place.
+        *([f"      - {SHARED_VOLUME}:{SHARED_MOUNT}"] if build.shared_dirs else []),
         # The model auth_file: one FILE, not pi's whole home. The home holds
         # settings.json and extensions/ too, and either, written by one agent,
         # would load into every other — the boundary this arrangement exists
@@ -411,9 +423,12 @@ def _engine_service(names: Sequence[str], deployment: Deployment) -> str:
         # Out of the engine's data volume, so each agent's own directory can be
         # a volume of its own mounted at the same path on both sides.
         f"      ATTACHMENTS_DIR: {FILES_MOUNT}",
+        *([f"      SHARED_DIRS_ROOT: {SHARED_MOUNT}"] if _shares(deployment) else []),
         f"    networks: [{', '.join(networks)}]",
     ]
     lines.append("    volumes:")
+    if _shares(deployment):
+        lines.append(f"      - {SHARED_VOLUME}:{SHARED_MOUNT}")
     # The parent holds the agents that still run here — the engine's own. The
     # per-agent volumes are nested inside it, which both runtimes resolve by
     # mounting the deeper path last; each agent then sees its own directory and
@@ -458,8 +473,15 @@ def _networks(names: Sequence[str], deployment: Deployment) -> str:
     return "\n".join(lines)
 
 
-def _volumes(names: Sequence[str]) -> str:
+def _shares(deployment: Deployment) -> bool:
+    """Whether any agent of the deployment names a shared directory."""
+    return any(build.shared_dirs for build in deployment.builds)
+
+
+def _volumes(names: Sequence[str], deployment: Deployment) -> str:
     lines = ["volumes:", "  impi-files:"]
+    if _shares(deployment):
+        lines.append(f"  {SHARED_VOLUME}:")
     for name in names:
         lines += [
             f"  {SERVICE_PREFIX}{name}-sessions:",

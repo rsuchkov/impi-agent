@@ -453,3 +453,12 @@ def test_runtime_network_ports_are_read_each_once_and_must_be_ports(tmp_path: Pa
         (tmp_path / "agents" / "assistant" / "agent.yaml").write_text(_yaml_with_runtime(bad), encoding="utf-8")
         with pytest.raises(ProfileError, match="runtime.network_ports must be a list of TCP ports"):
             FsProfileStore(tmp_path, library=None).get("assistant")
+
+
+def test_runtime_shared_dirs_are_names_each_once(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime("  shared_dirs: [crm-code, docs, crm-code]\n"))
+    assert FsProfileStore(tmp_path, library=None).get("assistant").shared_dirs == ("crm-code", "docs")
+    for bad in ("  shared_dirs: [../x]\n", "  shared_dirs: [CRM]\n", "  shared_dirs: crm\n", "  shared_dirs: [a b]\n"):
+        (tmp_path / "agents" / "assistant" / "agent.yaml").write_text(_yaml_with_runtime(bad), encoding="utf-8")
+        with pytest.raises(ProfileError, match="runtime.shared_dirs must be a list of names"):
+            FsProfileStore(tmp_path, library=None).get("assistant")

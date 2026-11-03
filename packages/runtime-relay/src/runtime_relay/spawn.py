@@ -30,9 +30,9 @@ class SpawnRejected(Exception):
 @dataclass(frozen=True)
 class Confinement:
     """Start the process confined. What it may write beyond its own memory and
-    scratch space — directories under this host's files directory — and the
-    variables that point it at them; the TCP ports it may connect to, empty
-    when the network is not restricted."""
+    scratch space — directories under this host's files directory or its
+    shared root — and the variables that point it at them; the TCP ports it
+    may connect to, empty when the network is not restricted."""
 
     writable: tuple[Path, ...] = ()
     variables: Mapping[str, Path] = field(default_factory=dict)
@@ -213,18 +213,23 @@ def _confinement(raw: object, config: HostConfig) -> Confinement | None:
     for ref in _sequence(raw.get(wire.KEY_WRITABLE)):
         if not isinstance(ref, dict):
             raise SpawnRejected("a writable reference must be an object")
-        if ref.get(wire.KEY_ROOT) != wire.ROOT_FILES:
-            raise SpawnRejected(f"a process may be given only its files to write, not {ref.get(wire.KEY_ROOT)!r}")
-        if config.files_dir is None:
-            raise SpawnRejected(
-                "this host has no files directory mounted, so a process cannot be given one"
-            )
+        root_name = ref.get(wire.KEY_ROOT)
+        if root_name == wire.ROOT_FILES:
+            root = config.files_dir
+            if root is None:
+                raise SpawnRejected("this host has no files directory mounted, so a process cannot be given one")
+        elif root_name == wire.ROOT_SHARED:
+            root = config.shared_dir
+            if root is None:
+                raise SpawnRejected("this host has no shared directory mounted, so a process cannot be given one")
+        else:
+            raise SpawnRejected(f"a process may be given only its files or a shared directory to write, not {root_name!r}")
         relative = ref.get(wire.KEY_PATH)
         if not isinstance(relative, str):
             raise SpawnRejected("a writable reference must carry a path")
-        resolved = (config.files_dir / relative).resolve()
-        if not resolved.is_relative_to(config.files_dir):
-            raise SpawnRejected(f"{relative!r} resolves outside the files directory")
+        resolved = (root / relative).resolve()
+        if not resolved.is_relative_to(root):
+            raise SpawnRejected(f"{relative!r} resolves outside the {root_name} directory")
         writable.append(resolved)
         variable = ref.get(wire.KEY_VARIABLE)
         if variable is not None:

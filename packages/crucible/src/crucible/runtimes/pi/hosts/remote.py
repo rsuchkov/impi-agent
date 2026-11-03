@@ -44,6 +44,7 @@ class RemoteHost:
         token: str,
         library_root: Path | None = None,
         files_root: Path | None = None,
+        shared_root: Path | None = None,
         connect_timeout: float = 30.0,
         heartbeat: float = 30.0,
     ) -> None:
@@ -53,6 +54,9 @@ class RemoteHost:
         # This agent's files directory as THIS side sees it — the directory
         # the host mounts as its own files root.
         self._files_root = files_root.resolve() if files_root else None
+        # Where the directories agents share live, as THIS side sees them —
+        # the root the host mounts as its own shared root.
+        self._shared_root = shared_root.resolve() if shared_root else None
         self._connect_timeout = connect_timeout
         # Pings the host while a turn is in flight, so a container that died
         # mid-answer surfaces as a broken connection instead of a socket that
@@ -164,8 +168,8 @@ class RemoteHost:
 
     def _confinement_payload(self, request: SpawnRequest) -> dict[str, object]:
         """The application's scope, said in names the host can resolve: each
-        writable path under the agent's files directory, and the variable that
-        points the process at it; the TCP ports it may connect to, which mean
+        writable path under the agent's files directory or the shared root,
+        and the variable that points the process at it; the TCP ports it may connect to, which mean
         the same on either side. The rest of the scope is paths on this side
         — scratch space, a profile's declared paths — that mean nothing over
         there; the host gives the process its own memory and scratch space."""
@@ -175,9 +179,12 @@ class RemoteHost:
         writable: list[dict[str, str]] = []
         for path in scope.writable:
             resolved = path.resolve()
-            if self._files_root is None or not resolved.is_relative_to(self._files_root):
+            if self._files_root is not None and resolved.is_relative_to(self._files_root):
+                ref = {wire.KEY_ROOT: wire.ROOT_FILES, wire.KEY_PATH: _relative(resolved, self._files_root)}
+            elif self._shared_root is not None and resolved.is_relative_to(self._shared_root):
+                ref = {wire.KEY_ROOT: wire.ROOT_SHARED, wire.KEY_PATH: _relative(resolved, self._shared_root)}
+            else:
                 continue
-            ref = {wire.KEY_ROOT: wire.ROOT_FILES, wire.KEY_PATH: _relative(resolved, self._files_root)}
             named = [name for name, value in scope.env.items() if Path(value).resolve() == resolved]
             if named:
                 ref[wire.KEY_VARIABLE] = named[0]

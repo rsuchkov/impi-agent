@@ -565,3 +565,19 @@ def test_with_a_browser_an_agent_container_is_told_where_it_is() -> None:
         "http://browser:9222"
     )
     assert "BROWSER_CDP_URL" not in _rendered()
+
+
+def test_a_shared_directory_is_one_volume_mounted_where_the_engine_and_the_agents_naming_it_look() -> None:
+    builds = [AgentBuild(name="assistant", shared_dirs=("crm-code",)), AgentBuild(name="coder", shared_dirs=("crm-code",)), AgentBuild(name="loner")]
+    text = render_compose(Deployment(builds=builds))  # type: ignore[arg-type]
+    for name in ("assistant", "coder"):
+        block = text.split(f"  agent-{name}:")[1].split("\n  agent-")[0].split("\n  impi:")[0]
+        assert "- impi-shared:/app/shared" in block and "RUNTIME_RELAY_SHARED_DIR: /app/shared" in block
+    loner = text.split("  agent-loner:")[1].split("\n  impi:")[0]
+    assert "impi-shared" not in loner and "RUNTIME_RELAY_SHARED_DIR" not in loner
+    engine = text.split("\n  impi:")[1]
+    assert "SHARED_DIRS_ROOT: /app/shared" in engine and "- impi-shared:/app/shared" in engine
+    assert "\n  impi-shared:\n" in text  # declared once
+    # Nobody shares: no volume, no variable, nothing mounted.
+    plain = _rendered()
+    assert "impi-shared" not in plain and "SHARED_DIRS_ROOT" not in plain
