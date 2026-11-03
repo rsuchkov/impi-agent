@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.45.0 — 2026-11-03
+
 - **An agent hands a task to another, in the thread.** The `delegate` tool
   posts the task, as the asking agent, in the turn's place, addressed to the
   other agent (files with it, by `send_file`'s rules); that agent's gateway
