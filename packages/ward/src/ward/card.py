@@ -67,7 +67,7 @@ def verdict_card(
     label = "Secret" if len(references) == 1 else "Secrets"
     return ApprovalCard(
         agent=agent,
-        headline=f"— {words}.",
+        headline=f"{words}.",
         icon="🔐",
         fields=(PreviewRow(label, ", ".join(references)),),
         block_label="Command",

@@ -922,7 +922,7 @@ async def test_an_updated_confirmation_is_the_same_post_rewritten_as_data() -> N
         await chat.update_confirmation(
             post_id,
             ApprovalCard(
-                agent="helper", headline="— Allowed for 15 min.", icon="🔐",
+                agent="helper", headline="Allowed for 15 min.", icon="🔐",
                 fields=(PreviewRow("Secret", "github-token"),),
                 block_label="Command", block="gh release create v1", block_language="shell",
                 verdict="allowed_for", grant_s=900,
@@ -944,7 +944,7 @@ async def test_an_updated_confirmation_is_the_same_post_rewritten_as_data() -> N
             assert page["status"] == STATUS_RUNNING  # nobody is waited on any more
             updated = next(e for e in page["events"] if e["type"] == "confirmation.updated")
             assert updated["postId"] == card["postId"]
-            assert updated["headline"] == "— Allowed for 15 min." and updated["actions"] == []
+            assert updated["headline"] == "Allowed for 15 min." and updated["actions"] == []
             # The verdict as data too: a client draws its own line from it.
             assert (updated["verdict"], updated["grantS"]) == ("allowed_for", 900)
             assert updated["fields"] == [{"label": "Secret", "value": "github-token", "before": "", "passage": False}]
@@ -1335,7 +1335,7 @@ async def test_a_card_from_a_turn_on_another_gateway_is_held_by_the_conversation
             assert status == 200 and answer == {"outcome": "resolved"}
             assert dispatcher.approvals == [("ap-1", "Allow", "u-7", "http")]
             # The verdict comes back as a card with nothing to click: the conversation holds it no more.
-            await chat.update_confirmation(post_id, replace(card, headline="— Allowed once", verdict="allowed_once"), [])
+            await chat.update_confirmation(post_id, replace(card, headline="Allowed once", verdict="allowed_once"), [])
             _, after = await _get(s, 8512, "/v1/agents/helper/conversations/c1")
             assert after["pendingCards"] == []
             status, _ = await _post(s, 8512, "/v1/agents/helper/conversations/c1/actions",

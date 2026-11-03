@@ -219,8 +219,9 @@ class ApprovalCard:
     transition_issue.") and nothing the caller wrote goes in them; ``title`` is
     the one-line account of the call from whoever asks (a tool's preview),
     ``tool`` the id of the tool being confirmed ("" on a card about something
-    else, a credential say) — both their own fields, so a program reading the
-    card does not tell them apart from ``fields`` by an English label; ``fields``
+    else, a credential say) and ``display_name`` the name it declares for
+    people ("" when it declares none) — their own fields, so a program reading
+    the card does not tell them apart from ``fields`` by an English label; ``fields``
     are what the call would change (a ``before`` where it changes something);
     ``block`` is a verbatim piece the
     person must read as written — a command line, the raw arguments — under
@@ -235,6 +236,7 @@ class ApprovalCard:
     icon: str = "⚙️"
     title: str = ""
     tool: str = ""
+    display_name: str = ""
     fields: tuple[PreviewRow, ...] = ()
     block_label: str = ""
     block: str = ""

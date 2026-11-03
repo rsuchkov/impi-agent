@@ -143,13 +143,12 @@ def build_confirmation_blocks(card: ApprovalCard, actions: list[Action]) -> list
     shares (``card_layout``): the heading, the verdict once there is one, the
     facts as plain fields (a code span reads as an error on Slack), each
     passage as a quote with its lines, the verbatim block as fenced sections,
-    the agent and the tool small in a context line with the deadline, then the
-    answers. Values are the caller's text and go through the same containment
+    the tool small in a context line with the deadline, then the answers. Values are the caller's text and go through the same containment
     as the Markdown form, plus the escaping mrkdwn needs."""
     layout = card_layout(card)
     # A header block is plain text: nothing in a title can style it, link from
     # it or mention anyone. Block Kit caps it at 150 characters.
-    heading = f"{layout.icon} {layout.title}" if layout.title else f"{layout.icon} {layout.agent} {layout.headline}"
+    heading = f"{layout.icon} {layout.title}" if layout.title else f"{layout.icon} {layout.heading}"
     blocks: list[dict[str, Any]] = [
         {"type": "header", "text": {"type": "plain_text", "text": _header_text(heading)}}
     ]

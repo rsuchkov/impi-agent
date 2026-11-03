@@ -82,9 +82,9 @@ logger = logging.getLogger(__name__)
 
 # What the card's headline is rewritten to once the question is closed. The
 # card keeps its facts — it is the history of what was decided about what.
-_ANSWERED = "— {words}: {tool}."
-_EXPIRED = "— ⌛ nobody answered in time, so {tool} was refused."
-_ABANDONED = "— ⌛ {tool} was withdrawn before anyone answered."
+_ANSWERED = "{words}: {tool}."
+_EXPIRED = "⌛ nobody answered in time, so {tool} was refused."
+_ABANDONED = "⌛ {tool} was withdrawn before anyone answered."
 # The raw arguments on a card without a preview, at most. A platform refuses a
 # message past a few thousand characters, and a refused card is a refused call;
 # the model's own account of a long argument is not worth that.
@@ -402,7 +402,7 @@ def _arguments(args: dict[str, Any]) -> str:
 def _named(tool: str, display_name: str) -> str:
     """The tool as the card's sentences name it: its display name, quoted, or
     its id."""
-    return f"“{display_name}”" if display_name else tool
+    return f"«{display_name}»" if display_name else tool
 
 
 def _card(
@@ -431,6 +431,7 @@ def _card(
             agent=agent,
             headline=headline,
             tool=tool,
+            display_name=display_name,
             block_label="Arguments" if args else "",
             block=_arguments(args) if args else "",
             block_language="json" if args else "",
@@ -442,6 +443,7 @@ def _card(
         icon="⚠️" if preview.danger else "⚙️",
         title=preview.title,
         tool=tool,
+        display_name=display_name,
         fields=tuple(preview.rows),
         # The preview's own verbatim piece, whole: it is what the person is
         # asked to read, and a cut script is a different script.

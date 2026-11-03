@@ -668,7 +668,7 @@ async def test_the_verdict_rewrites_the_card_with_its_facts_kept(tmp_path: Path)
         assert await pending == 200
         closed = rig.poster.updated[-1]
         assert closed.post_id == asked.post_id and closed.actions == []
-        assert closed.card.headline == "— Allowed for 15 min: dangerous."
+        assert closed.card.headline == "Allowed for 15 min: dangerous."
         assert (closed.card.verdict, closed.card.grant_s) == ("allowed_for", 900)
         assert closed.card.fields == asked.card.fields  # type: ignore[union-attr]
         assert closed.card.expires_at == ""
@@ -687,12 +687,13 @@ async def test_a_tool_with_a_display_name_is_named_by_it_and_keeps_its_id_as_a_r
         assert await _call(rig, "dangerous") == 403
         asked = rig.poster.posts[-1].card
         assert asked is not None
-        assert asked.headline == "wants to run “Add a comment”."
+        assert asked.headline == "wants to run «Add a comment»."
         assert asked.title == "comment on IPA-7" and asked.tool == "dangerous" and asked.fields == ()
         # Drawn, the id becomes a row after the facts — the headline does not say it.
         assert card_rows(asked) == (PreviewRow("Action", "comment on IPA-7"), PreviewRow("Tool", "dangerous"))
         closed = rig.poster.updated[-1].card
-        assert closed.headline == toolgate._EXPIRED.format(tool="“Add a comment”")
+        assert closed.headline == toolgate._EXPIRED.format(tool="«Add a comment»")
+        assert not closed.headline.startswith("—")  # a verdict under a title stands on its own
         assert (await rig.store.list_audit())[0].scope.startswith("dangerous@")
     finally:
         await _close(rig)
@@ -700,7 +701,7 @@ async def test_a_tool_with_a_display_name_is_named_by_it_and_keeps_its_id_as_a_r
 
 def test_a_card_without_a_preview_keeps_the_id_beside_the_arguments() -> None:
     card = toolgate._card("assistant", "add_comment", {"body": "hi"}, display_name="Add a comment")
-    assert card.headline == "wants to run “Add a comment”."
+    assert card.headline == "wants to run «Add a comment»." and card.display_name == "Add a comment"
     assert card.tool == "add_comment" and card.fields == () and card.block_label == "Arguments"
     assert card.block_language == "json"  # the raw arguments are JSON, and the card says so
     assert card_rows(card) == (PreviewRow("Tool", "add_comment"),)
@@ -725,7 +726,7 @@ def test_a_previews_title_cannot_restyle_the_heading(hostile: str) -> None:
     assert lines[0].startswith("⚙️ **") and lines[0].endswith("**")
     assert "**support**" not in lines[0] and "[Allow](" not in lines[0]  # escaped, not rendered
     assert "\\*\\*support\\*\\*" in lines[0] or "\\[Allow\\]" in lines[0]
-    assert lines[-1] == "_assistant · dangerous_"  # who asks and what, as a signature
+    assert lines[-1] == "_dangerous_"  # what asks, as a signature; the agent posts the card itself
 
 
 def test_the_arguments_on_a_card_are_capped() -> None:

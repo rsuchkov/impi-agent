@@ -73,10 +73,11 @@ class CardLayout:
     With a ``title`` from the preview it is the heading and the engine's
     headline shows only once the question is over, as the verdict; without one
     the heading is the agent and the engine's headline, as it always was. The
-    agent's name signs the card small at the bottom when the heading does not
-    carry it; the tool's id signs it always. Every value here is the caller's
-    content made inert — one line, or a passage with its lines — and a renderer
-    adds its own markup escaping and nothing else."""
+    tool signs the card small at the bottom, by the name it declares for
+    people, else by its id; the agent does not — the card is posted as the
+    agent, and a program reading it has the field. Every value here is the
+    caller's content made inert — one line, or a passage with its lines — and
+    a renderer adds its own markup escaping and nothing else."""
 
     icon: str
     agent: str
@@ -89,6 +90,14 @@ class CardLayout:
     block_language: str  # a word a fence takes, or ""
     tool: str
     expires_at: str
+    display_name: str = ""
+
+    @property
+    def heading(self) -> str:
+        """The heading of a card without a title: the agent and the engine's
+        words — the question as a sentence of its own, a verdict set off with
+        a dash."""
+        return f"{self.agent} — {self.headline}" if self.closed else f"{self.agent} {self.headline}"
 
     @property
     def verdict(self) -> str:
@@ -97,12 +106,9 @@ class CardLayout:
 
     @property
     def signature(self) -> tuple[str, ...]:
-        """What signs the card small at the bottom: the agent when the heading
-        does not name it, and the tool's id."""
-        parts = [self.agent] if self.title else []
-        if self.tool:
-            parts.append(self.tool)
-        return tuple(parts)
+        """What signs the card small at the bottom: the tool, by its display
+        name when it has one, else by its id."""
+        return (self.display_name or self.tool,) if self.tool else ()
 
     closed: bool = False
 
@@ -134,6 +140,7 @@ def card_layout(card: ApprovalCard) -> CardLayout:
         block_language=fence_language(card.block_language),
         tool=one_line(card.tool),
         expires_at=one_line(card.expires_at),
+        display_name=one_line(card.display_name),
         closed=bool(card.verdict),
     )
 
@@ -181,7 +188,7 @@ def card_markdown(card: ApprovalCard) -> str:
         if layout.verdict:
             lines.append(layout.verdict)
     else:
-        lines = [f"{layout.icon} **{layout.agent}** {layout.headline}"]
+        lines = [f"{layout.icon} **{layout.agent}** {'— ' if layout.closed else ''}{layout.headline}"]
     lines.append("")
     lines += [f"**{label}:** {code_span(value)}" for label, value in layout.facts]
     for label, text in layout.passages:

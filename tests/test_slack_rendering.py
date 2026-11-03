@@ -395,7 +395,7 @@ def test_a_confirmation_card_becomes_native_blocks_from_the_shared_layout() -> N
     # Answered: the verdict is the heading (the engine rewrote the sentence), no
     # buttons, no deadline — and nothing left to sign with.
     closed = build_confirmation_blocks(
-        ApprovalCard(**{**card.__dict__, "headline": "— Allowed once: github-token.", "verdict": "allowed_once", "expires_at": ""}), []
+        ApprovalCard(**{**card.__dict__, "headline": "Allowed once: github-token.", "verdict": "allowed_once", "expires_at": ""}), []
     )
     assert closed[0]["text"]["text"] == "🔐 assistant — Allowed once: github-token."
     assert [b["type"] for b in closed] == ["header", "section", "section"]
@@ -420,7 +420,7 @@ def test_a_titled_card_leads_with_the_title_and_shows_a_passage_whole() -> None:
     # The passage: whole, its lines kept as a quote, mrkdwn escaped.
     assert blocks[2]["text"]["text"] == "*Comment*\n> Looks good.\n> \n> Regards, &lt;Roman&gt; &amp; team"
     # The tool's id is a signature, not a fact.
-    assert blocks[3]["elements"][0]["text"].startswith("jira-assistant-slack · add_comment · Answer by")
+    assert blocks[3]["elements"][0]["text"].startswith("add_comment · Answer by")  # the tool signs; the agent posts the card itself
 
 
 def test_a_long_passage_or_block_goes_on_in_further_sections_each_fenced() -> None:

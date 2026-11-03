@@ -192,7 +192,7 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   derive the files directory from a conversation id yourself:
   `AttachmentStore` renames an id it cannot use as a directory name.
 - **Name a confirmed tool for a person.** `display_name = "Add a comment"` on
-  the tool class puts that on its card — "wants to run “Add a comment”." — where
+  the tool class puts that on its card — "wants to run «Add a comment»." — where
   the id would read as engine output; the id stays on the card as its `tool`
   field (drawn as a `Tool` row in a chat), for the operator and the audit. A
   tool without one is named by its id.
@@ -246,8 +246,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   with `PreviewRow(..., passage=True)`: it is shown whole, its lines kept, as a
   quote, instead of as a one-line fact cut to fit. Every chat draws the card
   from one layout (`crucible.approvals.card_layout`): the preview's `title` as
-  the heading, the facts, the passages, the block, and the agent's name with
-  the tool's id small at the bottom. A `describe` that raises is logged and
+  the heading, the facts, the passages, the block, and the tool small at the
+  bottom — by its display name when it declares one, else by its id; the
+  agent's name is not there, since the card is posted as the agent. A
+  `describe` that raises is logged and
   the card falls back to the arguments, so a preview can never block the
   decision. The gate
   puts the request on the wire as data — `ChatClient.post_confirmation(ref,

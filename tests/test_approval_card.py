@@ -266,18 +266,26 @@ def test_the_markdown_card_leads_with_the_title_quotes_a_passage_and_signs_with_
     assert "> \\- not a list" in lines
     # The block keeps its lines.
     assert "line one\nline two" in text
-    # The signature: agent, tool, deadline — small, last.
-    assert lines[-1] == "_assistant · add_comment · Answer by 2026-10-04T12:00:00+00:00_"
+    # The signature: the tool and the deadline — small, last. Not the agent:
+    # the card is posted as the agent.
+    assert lines[-1] == "_add_comment · Answer by 2026-10-04T12:00:00+00:00_"
     layout = card_layout(card)
-    assert layout.title == "Add a comment to PROJ-123" and layout.signature == ("assistant", "add_comment")
+    assert layout.title == "Add a comment to PROJ-123" and layout.signature == ("add_comment",)
+    # A tool with a name for people signs with it, as the steps of a turn name it.
+    named = card_layout(ApprovalCard(**{**card.__dict__, "display_name": "Add a comment"}))
+    assert named.signature == ("Add a comment",)
+    assert card_markdown(ApprovalCard(**{**card.__dict__, "display_name": "Add a comment"})).splitlines()[-1].startswith("_Add a comment · ")
 
-    closed = card_markdown(ApprovalCard(**{**card.__dict__, "headline": "— Allowed once: add_comment.", "verdict": "allowed_once", "expires_at": ""}))
-    assert closed.splitlines()[:2] == ["⚙️ **Add a comment to PROJ-123**", "— Allowed once: add_comment."]
-    assert closed.splitlines()[-1] == "_assistant · add_comment_"
-    # Without a title the heading is the agent and the sentence, as it always was.
+    closed = card_markdown(ApprovalCard(**{**card.__dict__, "headline": "Allowed once: add_comment.", "verdict": "allowed_once", "expires_at": ""}))
+    assert closed.splitlines()[:2] == ["⚙️ **Add a comment to PROJ-123**", "Allowed once: add_comment."]
+    assert closed.splitlines()[-1] == "_add_comment_"
+    # Without a title the heading is the agent and the sentence, as it always
+    # was; once answered, the verdict is set off from the agent with a dash.
     plain = card_markdown(ApprovalCard(agent="assistant", headline="is asking for a secret.", icon="🔐"))
     assert plain.splitlines()[0] == "🔐 **assistant** is asking for a secret."
-    assert "_assistant" not in plain  # no signature: the heading names the agent, and there is no tool
+    assert "_assistant" not in plain  # no signature: there is no tool
+    answered = card_markdown(ApprovalCard(agent="assistant", headline="Allowed once: github-token.", icon="🔐", verdict="allowed_once"))
+    assert answered.splitlines()[0] == "🔐 **assistant** — Allowed once: github-token."
 
 
 def test_a_passage_is_cut_with_a_mark_only_past_its_own_limit() -> None:

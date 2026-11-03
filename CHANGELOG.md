@@ -6,6 +6,14 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The confirmation card, tidied.** A verdict under a title stands on its
+  own ("Allowed once: «Change the status».", no dash in front; a card without
+  a title still sets the verdict off from the agent's name with one); a tool
+  named for people is quoted «so»; the small line at the bottom names the
+  tool as the steps of a turn do — by its display name when it declares one,
+  else by its id — and no longer the agent, whose own account posts the card.
+  `ApprovalCard.display_name` carries the name; the http `confirmation`
+  event has it as `displayName`.
 - **Tools the model is not told about until it asks.** `Entitlement(deferred=
   …)` names the tools of a conversation whose declaration is held back: they
   stay the conversation's (the allowlist and the tool server's door are the

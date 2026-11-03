@@ -47,6 +47,7 @@ def wire_card(card: ApprovalCard) -> dict:
         "headline": card.headline,
         "title": card.title,
         "tool": card.tool,
+        "displayName": card.display_name,
         "fields": [
             {"label": r.label, "value": r.value, "before": r.before, "passage": r.passage}
             for r in card.fields
