@@ -49,7 +49,7 @@ class ChatFileService:
         self._places = places
 
     async def send(
-        self, agent: str, runtime_session_id: str, paths: list[str], *, text: str = ""
+        self, agent: str, runtime_session_id: str, paths: list[str], *, text: str = "", hop_depth: int = 0
     ) -> list[str]:
         if not paths:
             raise FileError("no file to send")
@@ -64,7 +64,7 @@ class ChatFileService:
 
         files = [await asyncio.to_thread(self._read, agent, path) for path in paths]
         place = self._places.place(runtime_session_id) if self._places is not None else None
-        await poster.post_files(turn_ref(record, record.last_gateway, place), files, text=text)
+        await poster.post_files(turn_ref(record, record.last_gateway, place), files, text=text, hop_depth=hop_depth)
         logger.info("agent %s sent %d file(s)", agent, len(files))
         return [file.name for file in files]
 

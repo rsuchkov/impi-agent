@@ -213,6 +213,11 @@ class Tool(Protocol):
     # capability it requires. A confirmed tool should also implement
     # ``Describing`` below, so the card shows what the call would do.
     requires_confirmation: ClassVar[bool] = False
+    # Whether a person's yes may be given for a while ("allow for 15 minutes")
+    # rather than for this call alone. False for a tool whose card IS the
+    # review of what leaves — a task handed to another agent, a person's file
+    # sent to a server — where a window would let the next call go unread.
+    grantable: ClassVar[bool] = True
     # Whether what the tool does cannot be undone — a record changed, a message
     # sent to others, a thing created or removed. The author's word, as MCP's
     # ``destructiveHint``, and true unless the author says otherwise: a tool

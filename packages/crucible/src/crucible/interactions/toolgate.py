@@ -157,12 +157,15 @@ class ToolGate:
         runtime_session_id: str,
         preview: CallPreview | None = None,
         display_name: str = "",
+        grantable: bool = True,
     ) -> ConfirmOutcome:
+        """``grantable`` False: the card offers no window and honours none —
+        every call of the tool is read by a person."""
         started = asyncio.get_running_loop().time()
         request_id = f"rq_{tokens.token_hex(6)}"
         scope = tool_scope(tool, runtime_session_id)
 
-        grant = await self._ledger.live_grant(KIND_TOOL, agent, scope, now=_now())
+        grant = await self._ledger.live_grant(KIND_TOOL, agent, scope, now=_now()) if grantable else None
         if grant is not None:
             await self._record(
                 agent, scope, args, DECISION_REUSED_GRANT, started, request_id,
@@ -172,7 +175,7 @@ class ToolGate:
             return ConfirmOutcome.ALLOWED
 
         try:
-            answer = await self._ask(agent, tool, args, runtime_session_id, preview, display_name)
+            answer = await self._ask(agent, tool, args, runtime_session_id, preview, display_name, grantable)
         except asyncio.CancelledError:
             # The caller hung up — the turn was aborted or timed out while the
             # card was up. Nothing may run on this card now, whatever is clicked.
@@ -224,6 +227,7 @@ class ToolGate:
         runtime_session_id: str,
         preview: CallPreview | None,
         display_name: str,
+        grantable: bool = True,
     ) -> Approval | None:
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
         # Asked in every gateway the conversation is live in, each at the
@@ -261,7 +265,7 @@ class ToolGate:
         ).isoformat(timespec="seconds")
         card = _card(agent, tool, args, preview, display_name=display_name, expires_at=expires_at)
         named = _named(tool, display_name)
-        actions = approval_actions(token, offers=windows(ceiling_s=self._max_grant_s))
+        actions = approval_actions(token, offers=windows(ceiling_s=self._max_grant_s) if grantable else ())
         copies: list[tuple[ChatClient, str]] = []  # (poster, post id) of every copy posted
         views: list[tuple[ConversationView, ConversationRef]] = []  # where a platform shows the wait
         # The wait is the turn's, and the turn runs on one gateway: only that

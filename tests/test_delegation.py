@@ -22,8 +22,8 @@ AGENTS = StaticDirectory([
 ])
 
 
-def _service(store, chat, *, files=None, places=None) -> ChatDelegationService:
-    return ChatDelegationService(presence_of(chat), store, AGENTS, files=files, places=places)
+def _service(store, chat, *, file_svc=None, places=None) -> ChatDelegationService:
+    return ChatDelegationService(presence_of(chat), store, AGENTS, file_svc=file_svc, places=places)
 
 
 async def test_the_task_is_posted_in_the_thread_as_the_asker_addressed_to_the_other_agent(tmp_path: Path) -> None:
@@ -48,15 +48,16 @@ async def test_files_travel_with_the_task_in_one_message(tmp_path: Path) -> None
         spec = tmp_path / "spec.md"
         spec.write_text("# spec")
         files = ChatFileService(presence_of(chat), store, {"assistant": (tmp_path,)}, max_bytes=1024)
-        await _service(store, chat, files=files).delegate(
+        await _service(store, chat, file_svc=files).delegate(
             "assistant", record.runtime_session_id, "coder", "Implement this.", [str(spec)],
         )
         (ref, posted, text) = chat.posted_files[0]
         assert text == "@corp-coder Implement this." and [f.name for f in posted] == ["spec.md"]
         assert chat.replies == []  # one message, not a mention and then the files
+        assert chat.posted_file_hops == [DELEGATION_HOP]  # the same hop count as a task without files
         # A file the asker may not send is refused in the model's words.
         with pytest.raises(DelegationError, match="outside the directories"):
-            await _service(store, chat, files=files).delegate(
+            await _service(store, chat, file_svc=files).delegate(
                 "assistant", record.runtime_session_id, "coder", "x", ["/etc/passwd"],
             )
         with pytest.raises(DelegationError, match="turned off"):
@@ -110,7 +111,7 @@ async def test_the_card_names_the_agent_its_model_the_task_whole_and_the_files()
         PreviewRow("Agent", "coder — writes code"),
         PreviewRow("Model", "astra/large"),
         PreviewRow("Task", "Write the migration.\nKeep it reversible.", passage=True),
-        PreviewRow("Files", "spec.md, schema.sql"),
+        PreviewRow("Files", "/tmp/spec.md, /tmp/schema.sql"),
     )
     # Nothing to ask about: no such agent, or oneself.
     assert isinstance(await Delegate().describe(_ctx(_Delegation()), {"agent": "nobody", "task": "x"}), CannotRun)
@@ -130,3 +131,24 @@ async def test_the_tool_hands_the_task_to_the_service_and_reports_its_refusal() 
     with pytest.raises(ToolError, match="not available in this deployment"):
         await Delegate().execute(_ctx(None), {"agent": "coder", "task": "y"})
     assert Delegate.requires_confirmation and Delegate.posts_to_user and not Delegate.destructive
+
+
+async def test_on_a_platform_that_mentions_by_id_the_task_addresses_the_agent_by_its_id(tmp_path: Path) -> None:
+    # A bare @name is text on Slack; the other agent's gateway sees a mention
+    # only in the platform's own form, which the directory's user id gives.
+    class _ById(FakeChat):
+        def format_mention(self, username: str, *, user_id: str = "") -> str:
+            return f"<@{user_id}>" if user_id else f"@{username}"
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat = _ById()
+    try:
+        record, _ = await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD)
+        await _service(store, chat).delegate("assistant", record.runtime_session_id, "coder", "Write it.")
+        assert chat.replies[0][1] == "<@uid-c> Write it."
+    finally:
+        await store.close()
+
+
+def test_the_tool_is_confirmed_every_time_and_never_for_a_window() -> None:
+    assert Delegate.requires_confirmation and not Delegate.grantable

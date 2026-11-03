@@ -6,13 +6,14 @@ from crucible.store.sqlite import SqliteSessionStore
 from impi.registry import RegistryService
 
 
-def _spec(name: str, role: str = "helper") -> AgentSpec:
+def _spec(name: str, role: str = "helper", **over) -> AgentSpec:
     return AgentSpec(
         name=name,
         display_name=name,
         role=role,
         description=f"{name} agent",
         profile_dir=Path("agents") / name,
+        **over,
     )
 
 
@@ -32,6 +33,13 @@ async def test_sync_builds_directory_and_persists(tmp_path: Path) -> None:
         assert registry.agent_user_ids() == frozenset({"uid-a", "uid-d"})
         names = [info.name for info in registry.list_agents()]
         assert names == ["assistant", "developer"]
+        # The model an agent answers with, as a card names it before a task is
+        # handed to it: provider/model when both are known, the model alone else.
+        await registry.sync(
+            [_spec("assistant", provider="openai-codex", model="gpt-6.1-sol"), _spec("developer", role="developer", model="local")],
+            {"assistant": _ident("assistant", "uid-a"), "developer": _ident("developer", "uid-d")},
+        )
+        assert [info.model for info in registry.list_agents()] == ["openai-codex/gpt-6.1-sol", "local"]
 
         persisted = await store.list_agents()
         assert {info.name: info.user_id for info in persisted} == {

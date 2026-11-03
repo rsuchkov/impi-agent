@@ -489,6 +489,20 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   permission ([creating-agents.md](creating-agents.md)), and without it the
   person still gets the sentence, in the open. `ChatAdmin.post_ephemeral` is
   the tools' plain ephemeral post and knows neither code nor link.
+- **One agent hands another a task.** The `delegate` tool
+  (`crucible.builtin_tools`) is advertised where the server can post it: wire
+  `ToolWiring(delegation_on=True)` and
+  `build_server(delegation_svc=ChatDelegationService(presence, sessions, directory, file_svc=…, places=…))`
+  (`crucible.interactions.delegation`) — the wiring raises when the flag and
+  the service disagree, as for confirmations and connections. The service
+  posts the task in the turn's place as the asking agent, addressed to the
+  other by the mention its gateway recognizes, with files through the file
+  service; a tool reads it as `ctx.require_delegation()` and declares
+  `CAP_DELEGATION`, which the ws and http gateways deny (nobody else reads
+  their conversations). Advertise it only where agents answer agents'
+  mentions (`reply_to_agents` on the gateways): the task is a mention, and
+  one nobody answers is a task nobody does. `AgentInfo.model` is what the
+  card shows as the model the task goes to; fill it in your directory.
 - **Turns the engine starts.** A person's message opens a turn through a
   gateway; the engine opens one by itself through a `TurnDispatcher`
   (`crucible.ports.engine_turn`) — the scheduler does for a `turn`-mode task,

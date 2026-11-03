@@ -972,7 +972,7 @@ class FakeFileService:
         self.calls: list[tuple] = []
         self._error = error
 
-    async def send(self, agent, runtime_session_id, paths, *, text=""):
+    async def send(self, agent, runtime_session_id, paths, *, text="", hop_depth=0):
         self.calls.append((agent, runtime_session_id, paths, text))
         if self._error is not None:
             raise self._error
@@ -1808,7 +1808,7 @@ async def test_a_tool_that_finds_the_call_impossible_stops_the_question_before_t
         def __init__(self) -> None:
             self.asked: list[str] = []
 
-        async def confirm(self, agent, tool, args, *, runtime_session_id, preview=None, display_name=""):
+        async def confirm(self, agent, tool, args, *, runtime_session_id, preview=None, display_name="", grantable=True):
             from crucible.approvals.ports import ConfirmOutcome
 
             self.asked.append(tool)

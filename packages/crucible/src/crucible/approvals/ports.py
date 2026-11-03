@@ -56,4 +56,5 @@ class ToolApproving(Protocol):
         runtime_session_id: str,
         preview: CallPreview | None = None,
         display_name: str = "",
+        grantable: bool = True,
     ) -> ConfirmOutcome | NotAsked: ...

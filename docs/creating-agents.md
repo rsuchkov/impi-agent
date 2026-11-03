@@ -205,7 +205,13 @@ Two rules to remember:
   - **`delegate`** hands a task to another agent that is in the conversation:
     the engine posts the task in the thread, as this agent, addressed to the
     other (with files, by the same rules as `send_file`), and the other
-    agent's gateway opens a turn of its own on the mention. Asynchronous: the
+    agent's gateway opens a turn of its own on the mention. Nothing checks
+    that the other agent is in the channel — a task addressed to one that is
+    not is posted and goes unanswered — and the tool is offered only while
+    agents answer agents' mentions (`AGENTS_REPLY_TO_AGENTS`), which is also
+    what makes a plain reply mentioning an agent open its turn without any
+    card ([security.md](security.md#one-agent-and-another)). The card is
+    answered for each task: it offers no window. Asynchronous: the
     call ends when the task is posted, and the answer arrives later as a
     message from that agent — in the prompt its line says `(agent)`, so the
     model knows whose words they are; the task should ask it to mention the
@@ -324,17 +330,19 @@ Two agents that work on one thing — one that knows the people and one that
 writes the code — need a place to hand files to each other that is not the
 chat. `runtime.shared_dirs` names such places: lowercase names, each a
 directory under the engine's `SHARED_DIRS_ROOT` (`{DATA_DIR}/shared` by
-default), made by the engine, writable to every agent that names it at every
-confinement level, and told to the process as `AGENT_SHARED_DIR__<NAME>` (the
+default), made by the engine, writable to every agent that names it at the
+`conversation` and `agent` confinement levels, and told to the process as `AGENT_SHARED_DIR__<NAME>` (the
 name upper-cased, hyphens as underscores): `shared_dirs: [crm-code]` gives the
-process `$AGENT_SHARED_DIR__CRM_CODE`. An agent that names a directory nobody
+process `$AGENT_SHARED_DIR__CRM_CODE`. An agent at `off` is not confined and
+is told nothing: it reaches the root like any path. An agent that names a directory nobody
 else does has a working directory of its own that outlives its conversations.
 With agent containers the root is one volume mounted at `/app/shared` in the
 engine and in every container whose agent names a directory, so a name means
 one place everywhere. What goes there is the operator's to decide, with one
 rule: every agent naming the directory reads all of it, whatever its model
 and wherever that model runs, so nothing goes there that one of them may not
-see. `impi doctor`
+see — and an agent at `off`, or in a container on a kernel without Landlock,
+reaches every directory under the root, not only its own. `impi doctor`
 and the startup log list the directories and who shares each. Tell the agent
 about its directory in `SYSTEM.md` or a skill, as for `$AGENT_FILES_DIR`.
 
@@ -356,7 +364,8 @@ token and caller token in `conf/.env`. Three sources, in order:
   `AGENTS_SKILLS__<AGENT>` replaces skills.
 
 On top of that come the engine's own grants: the tool server's address and
-token, the session id and its proof, `AGENT_NAME`, `AGENT_FILES_DIR`, and the
+token, the session id and its proof, `AGENT_NAME`, `AGENT_FILES_DIR`,
+`AGENT_SHARED_DIR__<NAME>` for each directory the agent shares, and the
 model settings (`LLM_*`) when a custom endpoint is configured. A skill that
 reads a variable of its own from the engine's environment names it in
 `runtime.env`, or the operator names it once in `RUNTIME_ENV`; otherwise the

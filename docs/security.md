@@ -138,7 +138,8 @@ are built on.
 
 Enforced by, by default: **confinement**. The process reads the system, its
 program, its own profile, the skill library and the files it is handed; it
-writes only its own memory, its own files and its own scratch `TMPDIR` and
+writes only its own memory, its own files, the directories it shares
+(`runtime.shared_dirs`) and its own scratch `TMPDIR` and
 `HOME`; it reads the model credential and cannot write it, nor create anything
 beside it (a settings file or an extension that would load into every agent).
 The credential is read-only because `pi` runs a key that begins with `!` on
@@ -164,6 +165,7 @@ The honest summary, for an agent that has a shell:
 | its own profile, memory, files | yes | yes — at `conversation`, its conversation's memory and files | yes, confined as well |
 | another conversation's memory, same agent | yes | no | no |
 | another conversation's attachments, same agent | yes | at `agent` yes; at `conversation` no | the same |
+| a directory the agent shares (`runtime.shared_dirs`) | yes, and every other shared directory under the root | its own, at every level | its own; at `off` the whole volume |
 | another agent's profile and memory | yes | no | no |
 | another agent's broker certificate | yes | no | no |
 | the engine's `.env` (every chat token), with `read` | yes | no | no |
@@ -179,22 +181,34 @@ apart, and their network by port only: both reach every address on the ports
 named. Turn the containers on for a network of their own, or do not give the
 first one a shell.
 
-**When one agent hands another a task.** Two things cross between them, and
-each has a gate. The task itself (`delegate`) is a message in the thread,
-posted only after a person has read the card — the agent it goes to, the
-model that agent answers with, the task whole, the files by name — so what
-leaves one agent for another's model is what a person approved, never what
-the asking model decided on its own; the answer comes back as a message
-marked an agent's. A directory the two share (`runtime.shared_dirs`) has no
-card: every agent naming it reads all of it, whatever its model and wherever
-that model runs, so what may not reach one of them must not be put there.
-The asked agent runs under its own profile — its own tools, its own
-confinement, its own ports — and reaches nothing of the asker's but the
-thread and the shared directory. Does not hold against: a task text that
-carries what it should not and a reviewer who did not read it; files in the
-shared directory nobody looked at; and, on one host, the runtime's shared
-model credential (above) — an agent whose model should stay apart belongs
-in a container of its own.
+**When one agent hands another a task.** Two things cross between them.
+The task handed through `delegate` is a message in the thread, posted only
+after a person has read the card — the agent it goes to, the model that
+agent answers with, the task whole, the files by their paths — and read every
+time: the card offers no "allow for a while" and honours none. The answer
+comes back as a message marked an agent's. A directory the two share
+(`runtime.shared_dirs`) has no card: every agent naming it reads all of it,
+whatever its model and wherever that model runs, so what may not reach one
+of them must not be put there. The asked agent runs under its own profile —
+its own tools, its own confinement, its own ports — and reaches nothing of
+the asker's but the thread and the shared directory; its turn is opened by a
+bot's message, so a card of its own there is addressed to nobody who can
+answer unless `TOOL_APPROVERS` names someone.
+
+Does not hold against: **the mention itself**. With `AGENTS_REPLY_TO_AGENTS`
+on (the default), an agent's gateway opens a turn on any message by one of
+the deployment's agents that mentions it — a plain reply the model wrote, a
+`send_file` caption — with no card: the card is `delegate`'s, not the
+mention's, and a talked-into agent can address another without it. The
+cascade is bounded (`AGENT_MAX_HOPS`), what the asked agent may do is its own
+profile's, and its confirmed tools still ask a person; but what left the
+first agent was not read. Turn `AGENTS_REPLY_TO_AGENTS` off where that is not
+acceptable, and no agent answers another at all. Nor against a task text
+that carries what it should not and a reviewer who did not read it; files
+in the shared directory nobody looked at; an agent at `off`, or one in a
+container without Landlock, which sees every shared directory, not only its
+own; and, on one host, the runtime's shared model credential (above) — an
+agent whose model should stay apart belongs in a container of its own.
 
 ### An MCP server and the engine
 

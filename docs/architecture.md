@@ -100,7 +100,8 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   messages — busy or free for the turn, waiting while a card is up), `StoppableSink` (a person stops the
   turn in flight), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `FileService`
-  (the tool-facing "send this file"), `MessageSink` / `Flow` (inbound entry
+  (the tool-facing "send this file"), `DelegationService` (the tool-facing
+  "hand this task to another agent", `ports/chat/delegation`), `MessageSink` / `Flow` (inbound entry
   point, returning a `TurnOutcome`), `AgentDirectory` (who our agents are), and
   `types` (the neutral vocabulary: `ConversationRef`, `IncomingMessage`,
   `Attachment`, `Action`, `Form`, …).

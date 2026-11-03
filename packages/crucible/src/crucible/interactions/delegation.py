@@ -44,13 +44,13 @@ class ChatDelegationService:
         sessions: SessionStore,
         directory: AgentDirectory,
         *,
-        files: FileService | None = None,
+        file_svc: FileService | None = None,
         places: TurnPlaces | None = None,
     ) -> None:
         self._presence = presence
         self._sessions = sessions
         self._directory = directory
-        self._files = files
+        self._file_svc = file_svc
         self._places = places
 
     async def delegate(
@@ -67,14 +67,15 @@ class ChatDelegationService:
             raise DelegationError("this conversation could not be resolved — nothing was posted")
         place = self._places.place(runtime_session_id) if self._places is not None else None
         ref = turn_ref(record, record.last_gateway, place)
-        text = f"{poster.format_mention(other.username)} {task}".strip()
+        text = f"{poster.format_mention(other.username, user_id=other.user_id)} {task}".strip()
         if paths:
-            if self._files is None:
+            if self._file_svc is None:
                 raise DelegationError("sending files is turned off in this deployment")
             try:
                 # The files and the task in one message, so the other agent
-                # receives them with the mention that opens its turn.
-                await self._files.send(agent, runtime_session_id, list(paths), text=text)
+                # receives them with the mention that opens its turn — and the
+                # same hop count a task without files starts at.
+                await self._file_svc.send(agent, runtime_session_id, list(paths), text=text, hop_depth=DELEGATION_HOP)
             except FileError as exc:
                 raise DelegationError(str(exc)) from exc
             logger.info("agent %s handed a task to %s with %d file(s)", agent, to, len(paths))

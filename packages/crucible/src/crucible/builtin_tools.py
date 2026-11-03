@@ -353,6 +353,7 @@ class Delegate(Tool):
     destructive: ClassVar[bool] = False  # posts a message; changes nothing of its own
     posts_to_user: ClassVar[bool] = True  # the task is posted where everyone reads it
     requires_confirmation: ClassVar[bool] = True  # what leaves this conversation is read by a person first
+    grantable: ClassVar[bool] = False  # each task is read: a window would let the next one go unread
     requires: ClassVar[frozenset[str]] = frozenset({CAP_DELEGATION})
     description: ClassVar[str] = (
         "Hand a task to another agent that is in this conversation (see list_agents): the engine "
@@ -398,7 +399,9 @@ class Delegate(Tool):
         ]
         files = args.get("files")
         if isinstance(files, list) and files:
-            rows.append(PreviewRow("Files", ", ".join(str(f).rsplit("/", 1)[-1] for f in files)))
+            # The paths as given: where a file comes from is part of what
+            # leaves, and a name alone would hide another conversation's file.
+            rows.append(PreviewRow("Files", ", ".join(str(f) for f in files)))
         return CallPreview(f"Hand a task to {other.name}", tuple(rows))
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:

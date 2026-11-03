@@ -798,7 +798,7 @@ async def test_a_gate_that_never_asked_says_why_and_the_model_does_not_retry(tmp
     from crucible.approvals import NotAsked
 
     class Budget:
-        async def confirm(self, agent, tool, args, *, runtime_session_id, preview=None, display_name=""):
+        async def confirm(self, agent, tool, args, *, runtime_session_id, preview=None, display_name="", grantable=True):
             return NotAsked("third write this turn without a question in between")
 
     rig = await _rig(tmp_path, 8559)
@@ -1119,5 +1119,29 @@ async def test_the_turns_gateway_is_the_place_the_registry_names_not_where_the_r
             await _answer_on(slack, rig, ANSWER_ONCE)
             assert await pending == 200
         assert slack.waiting == [("1700.1", True), ("1700.1", False)]
+    finally:
+        await _close(rig)
+
+
+async def test_a_tool_that_is_not_grantable_offers_no_window_and_honours_none(tmp_path: Path) -> None:
+    """A card that is the review of what leaves is answered for this call
+    alone: no "allow for" to pick, and a window granted for the same scope by
+    another route is not reused — every call is read."""
+    rig = await _rig(tmp_path, 8549)
+    try:
+        rig.tool.grantable = False  # pyright: ignore[reportAttributeAccessIssue]
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        card = await _answer(rig, "once")
+        await pending
+        assert not any(a.kind == ACTION_SELECT for a in card.actions)  # nothing to grant for a while
+        assert rig.tool.ran == 1
+        # A live window for the scope (granted while the tool was grantable, say) is not honoured.
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer(rig, "grant:300")
+        await pending
+        again = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer(rig, "once")  # asked again, not let through on the window
+        await again
+        assert rig.tool.ran == 3
     finally:
         await _close(rig)

@@ -658,7 +658,7 @@ def build_app(settings: ImpiSettings) -> App:
         unconfined_by_default=frozenset(engine_names),
         network_ports=settings.confined_network_ports(),
         shared_root=settings.resolved_shared_dirs_root,
-        shared_dir_env=SHARED_DIR_ENV_PREFIX,
+        shared_dir_env_prefix=SHARED_DIR_ENV_PREFIX,
     )
     hosts = build_agent_hosts(settings, specs, attachments.dir_for if attachments else None)
     abi = landlock_abi()
@@ -714,6 +714,10 @@ def build_app(settings: ImpiSettings) -> App:
     # registry beside the engine's own, and are called through them. The
     # servers themselves are connected when the app starts (``run``).
     mcp = McpServers(McpLibrary(settings.resolved_mcp_path), settings.mcp_values(), telemetry=telemetry)
+    # Handing a task to another agent is a confirmed post in the thread that
+    # the other agent's gateway answers: advertised where the gate exists to
+    # confirm it and agents answer agents at all.
+    delegation_on = interactions.tool_gate is not None and settings.agents_reply_to_agents
     tools = ToolWiring(
         settings.tools, registry=engine_tool_registry(mcp.registry_tools()), data_dir=settings.data_dir,
         interactivity_on=settings.integrations.enabled,
@@ -723,9 +727,7 @@ def build_app(settings: ImpiSettings) -> App:
         # asks exists; with interactivity off it is left out of the agent's
         # tool list rather than offered and refused on every call.
         confirmations_on=interactions.tool_gate is not None,
-        # Handing a task to another agent is a confirmed post in the thread:
-        # advertised where the gate exists to confirm it.
-        delegation_on=interactions.tool_gate is not None,
+        delegation_on=delegation_on,
         connections_on=connections is not None,
     )
     profile_builder = ProfileBuilder(tools, engine_owned=frozenset(engine_names))
@@ -844,8 +846,8 @@ def build_app(settings: ImpiSettings) -> App:
     # Handing a task to another agent: a reply in the turn's place, as the
     # asking agent, with files through the same service send_file uses.
     delegation_svc = (
-        ChatDelegationService(presence, sessions, registry, files=file_svc, places=turns)
-        if interactions.tool_gate is not None else None
+        ChatDelegationService(presence, sessions, registry, file_svc=file_svc, places=turns)
+        if delegation_on else None
     )
     # Creating tasks needs only the store, so it is ready before the tool
     # server; the ticker that fires them needs the units and comes after.

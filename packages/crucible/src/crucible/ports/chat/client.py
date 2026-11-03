@@ -60,13 +60,18 @@ class ChatClient(Protocol):
         """Recent channel messages, oldest first (channel-session backfill)."""
         ...
 
-    def format_mention(self, username: str) -> str: ...
+    def format_mention(self, username: str, *, user_id: str = "") -> str:
+        """How this platform addresses a person or an agent in text so that it
+        is a mention — by name, or by ``user_id`` where the platform wants
+        the id (Slack); a client that needs no id ignores it."""
+        ...
 
     async def post_files(
-        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = "", hop_depth: int = 0
     ) -> None:
         """Post files into the conversation as the agent, with ``text`` as their
-        message. One message carries them all where the platform allows it."""
+        message. One message carries them all where the platform allows it. ``hop_depth`` as for ``post_reply``: a
+        message another agent is meant to answer carries the cascade count."""
 
     # -- Interactive widgets ------------------------------------------------
 

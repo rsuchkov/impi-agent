@@ -724,7 +724,7 @@ for _ in range(60):
         if allow is None:
             continue
         text = post["message"] + json.dumps(attachments)
-        if "probe.pdf" not in text or "size_of" not in text:
+        if "probe.pdf" not in text or "probe: Size of a document" not in text:
             sys.stderr.write("card without the file or the tool: " + text[:300] + chr(10)); sys.exit(1)
         call("/posts/" + post["id"] + "/actions/" + allow["id"], b"{}")
         sys.exit(0)

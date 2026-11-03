@@ -315,3 +315,9 @@ async def test_a_private_notice_is_an_ephemeral_post_with_the_link_as_a_button()
     assert len(kw["blocks"]) == 1 and kw["thread_ts"] is None
     await _sc(web).post_private_notice(_ref(root=""), "U9", "Go.", link="https://x.example")
     assert web.last("chat_postEphemeral")["blocks"][1]["elements"][0]["text"]["text"] == "Open"
+
+
+def test_a_mention_is_by_id_where_one_is_known_and_by_name_where_not() -> None:
+    client = _sc(FakeWeb())
+    assert client.format_mention("corp-coder", user_id="U123") == "<@U123>"
+    assert client.format_mention("corp-coder") == "@corp-coder"

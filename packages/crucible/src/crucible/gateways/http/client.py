@@ -106,7 +106,7 @@ class HttpChatClient:
             turn.journal.emit(EV_NOTICE, code=code, text=text, **({"link": link, "label": label} if link else {}))
 
     async def post_files(
-        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = "", hop_depth: int = 0
     ) -> None:
         turn = self._turn(ref, "a file")
         if turn is None:
@@ -136,7 +136,7 @@ class HttpChatClient:
     async def get_recent_posts(self, channel_id: str, limit: int = 20) -> list[PostSnippet]:
         return []
 
-    def format_mention(self, username: str) -> str:
+    def format_mention(self, username: str, *, user_id: str = "") -> str:
         return f"@{username}"
 
     # -- interactive: real here, answered through the hub's actions endpoint -----

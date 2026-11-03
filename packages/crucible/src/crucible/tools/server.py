@@ -384,7 +384,7 @@ class ToolServer:
                     )
                 outcome = await self._tool_gate.confirm(
                     agent, tool.name, args, runtime_session_id=runtime_session_id,
-                    preview=preview, display_name=tool.display_name,
+                    preview=preview, display_name=tool.display_name, grantable=tool.grantable,
                 )
             if isinstance(outcome, NotAsked):
                 call.outcome = "not_asked"

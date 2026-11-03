@@ -67,8 +67,8 @@ rather than a second copy, because the platform's own file id names the file.
 
 Beside its own files, an agent may have directories it shares with other
 agents — `runtime.shared_dirs` in `agent.yaml`, one directory per name under
-`SHARED_DIRS_ROOT`, writable to every agent naming it and told to each
-process as `AGENT_SHARED_DIR__<NAME>`. The place for what two agents work on
+`SHARED_DIRS_ROOT`, writable to every confined agent naming it and told to
+each process as `AGENT_SHARED_DIR__<NAME>` (an agent at `off` is told nothing). The place for what two agents work on
 together — a checkout one edits and the other reviews — and not kept per
 conversation or swept by the retention: it lives as long as the operator
 keeps it. See [creating-agents.md](creating-agents.md#directories-agents-share).

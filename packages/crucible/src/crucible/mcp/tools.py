@@ -152,8 +152,12 @@ class McpTool:
         self.description = definition.description or f"{definition.name} on {self.server.name}"
         self.file_arguments = file_arguments(definition)
         self.parameters = _parameters_for_model(definition.input_schema, self.file_arguments)
-        self.display_name = definition.title or definition.name
+        # The server is part of the name a person reads: "github: Echo" on a
+        # card, in a step — which server's tool this is matters to a yes.
+        self.display_name = f"{self.server.name}: {definition.title or definition.name}"
         self.requires_confirmation = requires_confirmation(self.server, definition)
+        # A call that carries a person's file is read each time: no window.
+        self.grantable = not self.file_arguments
         # The server's word on what the tool does, taken only from a trusted
         # server; an untrusted one's tools are all read as destructive.
         self.destructive = destructive(definition) if self.server.trusted else True
@@ -278,7 +282,7 @@ class McpTool:
             # ask about, and the person is not shown a card to approve it.
             return CannotRun(str(exc))
         return CallPreview(
-            title=f"{self.display_name} ({self.server.name})",
+            title=self.display_name,  # already names the server
             rows=tuple(rows),
             # The warning follows the tool's own word, which believes the
             # server only when the server is trusted.

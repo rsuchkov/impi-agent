@@ -12,18 +12,26 @@ when a release is cut, and `impi update` shows the target version's section.
   opens a turn on the mention, and its answer comes back as a message in the
   same thread, said to be an agent's in the asker's prompt (`(agent)` after
   the name). Asynchronous: the call ends when the task is posted. Confirmed,
-  always — the card names the agent, its model (`AgentInfo.model`, new), the
-  task whole and the files — so an agent that holds what another may not
-  see can still have that other's work, and a person reads what leaves. Chat gateways only; the
+  always and for each task (no "allow for a while") — the card names the
+  agent, its model (`AgentInfo.model`, new), the task whole and the files by
+  their paths — so an agent that holds what another may not see can still
+  have that other's work, and a person reads what leaves; the mention is
+  how any agent's message reaches another, so the card is the tool's, not
+  the mention's (security.md says so). A tool may now say its yes is never
+  for a window (`Tool.grantable = False`; an MCP call carrying a person's
+  file is one), and on Slack an agent is mentioned by its id
+  (`format_mention(username, user_id=)`), which is the only form the
+  platform counts. An MCP tool's name for people says its server
+  (`github: Echo`) on a card and in a step. Chat gateways only; the
   application wires `ChatDelegationService` (`crucible.interactions.delegation`)
   into `build_server(delegation_svc=)` with `ToolWiring(delegation_on=True)`,
   and `ToolContext.delegation_svc` carries it (`CAP_DELEGATION`).
 - **Directories agents share.** `runtime.shared_dirs: [crm-code]` in
   `agent.yaml` names directories an agent shares with every other agent
   naming the same: one per name under `SHARED_DIRS_ROOT` (`{DATA_DIR}/shared`
-  by default), made by the engine, writable to each agent's processes at
-  every confinement level, and told to the process as
-  `AGENT_SHARED_DIR__<NAME>`. With agent containers the root is the
+  by default), made by the engine, writable to each agent's confined
+  processes (at `conversation` and `agent`; one at `off` is told nothing),
+  and told to the process as `AGENT_SHARED_DIR__<NAME>`. With agent containers the root is the
   `impi-shared` volume at `/app/shared` in the engine and in every container
   whose agent names a directory (`RUNTIME_RELAY_SHARED_DIR`; a `shared` root
   on the spawn wire); an agent image older than this refuses such a spawn

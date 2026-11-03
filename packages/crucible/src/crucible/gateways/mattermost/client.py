@@ -106,7 +106,7 @@ class MattermostChatClient:
         await self.post_reply(ref, text)
 
     async def post_files(
-        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = "", hop_depth: int = 0
     ) -> None:
         # Upload first, then one post referencing them all — Mattermost allows up
         # to 5 file ids per post, which is also the engine's per-call limit.
@@ -128,6 +128,7 @@ class MattermostChatClient:
             message=text,
             root_id=ref.thread_root_id or None,
             file_ids=file_ids,
+            props={PROPS_KEY: {"depth": hop_depth}} if hop_depth else None,
         )
 
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:
@@ -230,7 +231,7 @@ class MattermostChatClient:
         self._usernames[user_id] = username
         return username
 
-    def format_mention(self, username: str) -> str:
+    def format_mention(self, username: str, *, user_id: str = "") -> str:
         return f"@{username}"
 
     # -- Interactive widgets (ChatClient) -----------------------------------

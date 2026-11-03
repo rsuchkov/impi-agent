@@ -328,6 +328,9 @@ And from the session check:
   its environment points it at; binds none` — what a confined process reaches. `network: not
   restricted — …` names why: no Landlock, a Landlock before network rules (ABI
   4, Linux 6.7), or `RUNTIME_NETWORK_PORTS` left empty.
+- `shared dirs under <root>: crm-code (assistant, coder)` — the directories
+  agents share (`runtime.shared_dirs`) and who shares each; every agent named
+  reads all of that directory.
 - `confinement: Landlock ABI N; a=conversation, b=agent; unconfined: support`
   — each agent's level. `! confinement: this kernel has no Landlock` — every
   agent runs unconfined; the host's kernel (Linux 5.13+ with Landlock in its

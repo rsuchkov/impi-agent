@@ -93,7 +93,7 @@ class SlackChatClient:
         await self._post_chunks(ref, text)
 
     async def post_files(
-        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = "", hop_depth: int = 0
     ) -> None:
         # files_upload_v2 runs Slack's three-step external upload and posts one
         # message carrying every file, with the caption as its comment.
@@ -211,10 +211,10 @@ class SlackChatClient:
         # history is newest-first; snippets are chronological.
         return await self._to_snippets(list(reversed(resp.get("messages") or [])))
 
-    def format_mention(self, username: str) -> str:
-        # Best-effort: a real Slack mention needs the user id (<@Uxxx>), which this
-        # port doesn't carry. Used only for agent-to-agent addressing.
-        return f"@{username}"
+    def format_mention(self, username: str, *, user_id: str = "") -> str:
+        # A Slack mention is the user id in angle brackets; a bare @name is
+        # text, and the gateway on the other side would not see a mention.
+        return f"<@{user_id}>" if user_id else f"@{username}"
 
     # -- Interactive widgets (ChatClient) -----------------------------------
 

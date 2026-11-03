@@ -52,14 +52,14 @@ def test_names_say_the_server_and_the_tool() -> None:
 def test_a_tool_carries_its_definition_and_knows_when_a_person_must_confirm() -> None:
     server = McpServer("github", url="https://x/mcp", confirm=("delete_*",), safe=("echo",))
     echo, wipe, delete = (McpTool(server, d, _Calls(CallResult("x"))) for d in (ECHO, WIPE, DELETE))
-    assert echo.name == "mcp__github__echo" and echo.display_name == "Echo" and echo.description == "Echoes."
+    assert echo.name == "mcp__github__echo" and echo.display_name == "github: Echo" and echo.description == "Echoes."
     assert echo.parameters == ECHO.input_schema and echo.returns_untrusted is True
     assert echo.requires_confirmation is False  # the operator's safe list
     assert wipe.requires_confirmation is True  # the server says destructive
     assert delete.requires_confirmation is True  # the operator's pattern
-    assert echo.requires == frozenset() and echo.caption({}) == "Echo"
+    assert echo.requires == frozenset() and echo.caption({}) == "github: Echo"
     unnamed = McpTool(server, ToolDefinition("x", "", {"type": "object"}), _Calls(CallResult("x")))
-    assert unnamed.description == "x on github" and unnamed.display_name == "x"
+    assert unnamed.description == "x on github" and unnamed.display_name == "github: x"
 
 
 def test_a_tool_is_confirmed_unless_the_operator_or_a_trusted_server_says_it_is_harmless() -> None:
@@ -194,7 +194,7 @@ async def test_a_call_that_left_and_got_no_answer_is_told_as_such() -> None:
 async def test_the_preview_shows_the_arguments_and_flags_a_destructive_call() -> None:
     server = McpServer("github", url="https://x/mcp")
     preview = await McpTool(server, WIPE, _Calls(CallResult("x"))).describe(_ctx(), {"path": "/", "force": True})
-    assert isinstance(preview, CallPreview) and preview.title == "wipe (github)" and preview.danger is True
+    assert isinstance(preview, CallPreview) and preview.title == "github: wipe" and preview.danger is True
     assert [(r.label, r.value, r.passage) for r in preview.rows] == [("path", "/", False), ("force", "true", False)]
     read_only = ToolDefinition("get", "", {"type": "object"}, annotations={"readOnlyHint": True})
     # The warning follows the server's hint only where the server is trusted: an

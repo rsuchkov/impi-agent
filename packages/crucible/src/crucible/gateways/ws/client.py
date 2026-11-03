@@ -46,7 +46,7 @@ class WsChatClient:
         await self._hub.send(self._agent, ref.conversation_id, "notice", text, code=code, link=link, label=label)
 
     async def post_files(
-        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = "", hop_depth: int = 0
     ) -> None:
         # One frame per file: a service renders each on its own, and a caption
         # rides with the first so it isn't repeated.
@@ -73,7 +73,7 @@ class WsChatClient:
     async def get_recent_posts(self, channel_id: str, limit: int = 20) -> list[PostSnippet]:
         return []
 
-    def format_mention(self, username: str) -> str:
+    def format_mention(self, username: str, *, user_id: str = "") -> str:
         return f"@{username}"
 
     # -- Interactive widgets: not part of the ws protocol (v1) -----------------

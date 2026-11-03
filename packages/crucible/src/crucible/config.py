@@ -928,10 +928,11 @@ class Settings(BaseSettings):
 
     @property
     def resolved_shared_dirs_root(self) -> Path:
-        """Where the directories agents share live: one per name under it."""
-        if self.shared_dirs_root:
-            return Path(self.shared_dirs_root)
-        return Path(self.data_dir) / "shared"
+        """Where the directories agents share live: one per name under it. An
+        absolute path: it is handed to processes whose working directory is
+        not this one, and named to the kernel."""
+        root = Path(self.shared_dirs_root) if self.shared_dirs_root else Path(self.data_dir) / "shared"
+        return root.resolve()
 
     @property
     def resolved_attachments_dir(self) -> Path:

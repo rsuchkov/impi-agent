@@ -50,9 +50,16 @@ class EntitledProfiles:
         self, agent: str, profile: AgentProfile, entitlement: Entitlement, runtime_session_id: str
     ) -> AgentProfile:
         env = self._tools.session_env(agent, runtime_session_id, entitlement.tools)
+        # Only a tool the manifest advertises can be held back — the runtime's
+        # built-ins are not in it and are declared as they are; the driver is
+        # told nothing of a name it would only tell the model a falsehood about.
+        registry = self._tools.registry
+        deferred = (
+            tuple(n for n in entitlement.deferred if registry is not None and registry.get(n) is not None)
+            if entitlement.deferred else None
+        )
         return self._narrow(
-            profile, tools=entitlement.tools, instructions=entitlement.instructions, env=env,
-            deferred=entitlement.deferred,
+            profile, tools=entitlement.tools, instructions=entitlement.instructions, env=env, deferred=deferred,
         )
 
 

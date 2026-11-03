@@ -93,11 +93,16 @@ class CardLayout:
     display_name: str = ""
 
     @property
+    def headline_lead(self) -> str:
+        """What goes before the headline where the agent's name precedes it:
+        a verdict is set off with a dash, a question runs on as a sentence."""
+        return "— " if self.closed else ""
+
+    @property
     def heading(self) -> str:
         """The heading of a card without a title: the agent and the engine's
-        words — the question as a sentence of its own, a verdict set off with
-        a dash."""
-        return f"{self.agent} — {self.headline}" if self.closed else f"{self.agent} {self.headline}"
+        words."""
+        return f"{self.agent} {self.headline_lead}{self.headline}"
 
     @property
     def verdict(self) -> str:
@@ -188,7 +193,7 @@ def card_markdown(card: ApprovalCard) -> str:
         if layout.verdict:
             lines.append(layout.verdict)
     else:
-        lines = [f"{layout.icon} **{layout.agent}** {'— ' if layout.closed else ''}{layout.headline}"]
+        lines = [f"{layout.icon} **{layout.agent}** {layout.headline_lead}{layout.headline}"]
     lines.append("")
     lines += [f"**{label}:** {code_span(value)}" for label, value in layout.facts]
     for label, text in layout.passages:

@@ -107,7 +107,10 @@ the services its container's environment points at by URL — the tool server,
 the secret broker, the browser. An image older than this rule knows no ports
 and leaves the network open until `impi agent sync` rebuilds it; the same is
 true of the loop guard (`runtime.loop_guard`), an extension the image loads —
-an older image has none, and the setting does nothing there until the rebuild.
+an older image has none, and the setting does nothing there until the rebuild;
+and of a shared directory (`runtime.shared_dirs`): an older image refuses the
+spawn (`a process may be given only its files to write, not 'shared'`) until
+the rebuild mounts the volume.
 Paths a profile declares with `runtime.confinement_read` / `confinement_write`
 are paths on the engine's filesystem and do not apply here; give such an agent
 the level it needs.

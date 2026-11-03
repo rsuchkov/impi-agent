@@ -208,7 +208,7 @@ async def test_a_shared_directory_is_writable_at_every_level_and_named_to_the_pr
         "assistant": _spec(tmp_path, "assistant", shared_dirs=("crm-code", "docs")),
         "coder": _spec(tmp_path, "coder", shared_dirs=("crm-code",)),
     }
-    scopes = _scopes(tmp_path, specs, shared_root=tmp_path / "shared", shared_dir_env="AGENT_SHARED_DIR__")
+    scopes = _scopes(tmp_path, specs, shared_root=tmp_path / "shared", shared_dir_env_prefix="AGENT_SHARED_DIR__")
     first = await scopes.scope_for("assistant", "assistant--c1")
     coder = await scopes.scope_for("coder", "coder--c9")
     assert first is not None and coder is not None
@@ -228,7 +228,7 @@ async def test_a_shared_directory_is_writable_at_every_level_and_named_to_the_pr
     before = os.getcwd()
     os.chdir(monkeypatch_cwd)
     try:
-        relative = await _scopes(tmp_path, specs, shared_root=Path("data/shared"), shared_dir_env="AGENT_SHARED_DIR__").scope_for("coder", "coder--c1")
+        relative = await _scopes(tmp_path, specs, shared_root=Path("data/shared"), shared_dir_env_prefix="AGENT_SHARED_DIR__").scope_for("coder", "coder--c1")
     finally:
         os.chdir(before)
     assert relative is not None

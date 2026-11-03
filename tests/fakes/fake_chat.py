@@ -31,6 +31,7 @@ class FakeChat:
         self.dialogs: list[tuple] = []  # (trigger_id, form, submit_url, state)
         self.channel_names: dict[str, str] = {}  # channel_id -> display name
         self.posted_files: list[tuple] = []  # (ref, files, text)
+        self.posted_file_hops: list[int] = []  # hop_depth of each files post, positionally
 
     async def post_reply(self, ref: ConversationRef, text: str, *, hop_depth: int = 0) -> None:
         self.replies.append((ref, text))
@@ -58,13 +59,14 @@ class FakeChat:
     async def get_recent_posts(self, channel_id: str, limit: int = 20) -> list[PostSnippet]:
         return self.recent_posts.get(channel_id, [])[-limit:]
 
-    def format_mention(self, username: str) -> str:
+    def format_mention(self, username: str, *, user_id: str = "") -> str:
         return f"@{username}"
 
     async def post_files(
-        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = ""
+        self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = "", hop_depth: int = 0
     ) -> None:
         self.posted_files.append((ref, files, text))
+        self.posted_file_hops.append(hop_depth)
 
     async def post_actions(
         self,

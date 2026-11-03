@@ -19,7 +19,7 @@ class FileError(Exception):
 
 class FileService(Protocol):
     async def send(
-        self, agent: str, runtime_session_id: str, paths: list[str], *, text: str = ""
+        self, agent: str, runtime_session_id: str, paths: list[str], *, text: str = "", hop_depth: int = 0
     ) -> list[str]:
         """Send these files to whoever the turn is talking to; returns the names
         sent. Raises FileError with a reason the agent can act on."""

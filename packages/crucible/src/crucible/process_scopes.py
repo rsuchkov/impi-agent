@@ -15,8 +15,10 @@ on the level:
   conversation's a day after its last process ended.
 
 The directories an agent shares with others (``AgentSpec.shared_dirs``): one
-per name under the application's root, writable at every level, each named to
-the process in a variable of its own (``shared_dir_env``). The network, when
+per name under the application's root, writable at the ``conversation`` and
+``agent`` levels (a process at ``off`` is not confined and is told nothing),
+each named to the process in a variable of its own (``shared_dir_env``, the
+prefix the application chooses and the directory's name). The network, when
 the application restricts it (``network_ports``): the deployment's ports plus
 the agent's own, at every level. What the runtime
 itself needs (its program, its memory, its tool server's port) the runtime
@@ -49,7 +51,7 @@ async def _no_conversation_files(_agent: str, _session_id: str) -> Path | None:
     return None
 
 
-def shared_dir_variable(prefix: str, name: str) -> str:
+def shared_dir_env(prefix: str, name: str) -> str:
     """The variable that names one shared directory to a process:
     ``<prefix><NAME>``, the name upper-cased with hyphens as underscores."""
     return prefix + name.upper().replace("-", "_")
@@ -69,7 +71,7 @@ class AgentProcessScopes:
         unconfined_by_default: frozenset[str] = frozenset(),
         network_ports: Sequence[int] = (),
         shared_root: Path | None = None,
-        shared_dir_env: str = "",
+        shared_dir_env_prefix: str = "",
     ) -> None:
         # Read on every spawn, so a reloaded profile's level and paths apply
         # to the next process.
@@ -93,12 +95,11 @@ class AgentProcessScopes:
         self._network_ports = tuple(network_ports)
         # Where the directories agents share live, one per name; and the
         # prefix of the variable that names each to the process
-        # (``<prefix><NAME>``, the name upper-cased with hyphens as
-        # underscores). None = no agent shares a directory.
+        # (``shared_dir_env``). None = no agent shares a directory.
         # Resolved: the path is handed to a process whose working directory
         # is not this one, and a rule names it to the kernel the same way.
         self._shared_root = shared_root.resolve() if shared_root is not None else None
-        self._shared_dir_env = shared_dir_env
+        self._shared_dir_env_prefix = shared_dir_env_prefix
         # Scratch directories handed to processes that have not ended, with
         # how many hold each (a conversation's next process may start before
         # the last one is reported gone).
@@ -133,8 +134,8 @@ class AgentProcessScopes:
                 for name in spec.shared_dirs:
                     shared = private_dir(self._shared_root / name)
                     writable.append(shared)
-                    if self._shared_dir_env:
-                        env[shared_dir_variable(self._shared_dir_env, name)] = str(shared)
+                    if self._shared_dir_env_prefix:
+                        env[shared_dir_env(self._shared_dir_env_prefix, name)] = str(shared)
         if self._skills_root is not None:
             readable.append(self._skills_root)
         files_dir = await self._files_dir(agent, session_id, level)

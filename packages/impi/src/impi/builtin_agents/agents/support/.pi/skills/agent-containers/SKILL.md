@@ -84,7 +84,8 @@ Say what it does and does not buy, rather than "it is isolated":
   own.** Without the axis, every agent's identity is in one directory that any
   agent with `bash` can read. This is the change that matters most.
 - **Session files and files are one volume per agent.** No agent can read
-  another's conversation memory. Inside the container each process is confined
+  another's conversation memory — except a directory two agents name in
+  `runtime.shared_dirs`, one volume every agent naming any directory mounts. Inside the container each process is confined
   too, as in the engine: one conversation's process cannot read another's
   memory or (at the default level) files, nor the host's environment.
 - **Each agent is on a network with only the engine on it** — and the broker and
@@ -135,6 +136,9 @@ Say what it does and does not buy, rather than "it is isolated":
   a container of its own; give the agent `runtime.confinement: agent` or `off`.
 - **"the confinement launcher … is missing"** — the agent image predates
   confinement. `impi agent sync` rebuilds it.
+- **"a process may be given only its files to write, not 'shared'"** — the
+  agent names `runtime.shared_dirs` but its image predates shared directories.
+  `impi agent sync` rebuilds it and mounts the volume.
 - **A skill behaves as if something were not configured** — it is reading a
   variable from the engine's environment. A runtime in its own container does
   NOT inherit that; it gets its container's environment plus what the engine

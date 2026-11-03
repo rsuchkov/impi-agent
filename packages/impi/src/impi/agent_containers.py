@@ -423,11 +423,11 @@ def _engine_service(names: Sequence[str], deployment: Deployment) -> str:
         # Out of the engine's data volume, so each agent's own directory can be
         # a volume of its own mounted at the same path on both sides.
         f"      ATTACHMENTS_DIR: {FILES_MOUNT}",
-        *([f"      SHARED_DIRS_ROOT: {SHARED_MOUNT}"] if _shares(deployment) else []),
+        *([f"      SHARED_DIRS_ROOT: {SHARED_MOUNT}"] if _names_shared_dirs(deployment) else []),
         f"    networks: [{', '.join(networks)}]",
     ]
     lines.append("    volumes:")
-    if _shares(deployment):
+    if _names_shared_dirs(deployment):
         lines.append(f"      - {SHARED_VOLUME}:{SHARED_MOUNT}")
     # The parent holds the agents that still run here — the engine's own. The
     # per-agent volumes are nested inside it, which both runtimes resolve by
@@ -473,14 +473,14 @@ def _networks(names: Sequence[str], deployment: Deployment) -> str:
     return "\n".join(lines)
 
 
-def _shares(deployment: Deployment) -> bool:
+def _names_shared_dirs(deployment: Deployment) -> bool:
     """Whether any agent of the deployment names a shared directory."""
     return any(build.shared_dirs for build in deployment.builds)
 
 
 def _volumes(names: Sequence[str], deployment: Deployment) -> str:
     lines = ["volumes:", "  impi-files:"]
-    if _shares(deployment):
+    if _names_shared_dirs(deployment):
         lines.append(f"  {SHARED_VOLUME}:")
     for name in names:
         lines += [

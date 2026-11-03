@@ -240,7 +240,11 @@ def test_a_deferred_tool_stays_allowed_is_named_to_the_bridge_and_the_search_too
         "assistant", base, Entitlement(deferred=("open_form", "ask_user_buttons", "read")), "assistant--dm1",
     )
     assert isinstance(two, PiProfile)
-    assert two.env[DEFERRED_ENV] == "read,ask_user_buttons,open_form" and two.tools.count(TOOL_SEARCH) == 1
+    assert two.env[DEFERRED_ENV] == "ask_user_buttons,open_form" and two.tools.count(TOOL_SEARCH) == 1  # read is a built-in: declared as it is
+    # A built-in alone: nothing to hold back, so nothing is said or added.
+    builtin_only = profiles.build("assistant", base, Entitlement(deferred=("read",)), "assistant--dm1")
+    assert isinstance(builtin_only, PiProfile)
+    assert DEFERRED_ENV not in builtin_only.env and TOOL_SEARCH not in builtin_only.tools and "not declared" not in builtin_only.append_system_prompt
     # An agent that names the search tool itself does not get it twice.
     names_it = dataclasses.replace(base, tools=(*base.tools, TOOL_SEARCH))
     again = profiles.build("assistant", names_it, Entitlement(deferred=("open_form",)), "assistant--dm1")
