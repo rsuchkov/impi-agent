@@ -41,6 +41,7 @@ class RegistryService:
                 description=spec.description,
                 username=identity.username,
                 user_id=identity.user_id,
+                model=f"{spec.provider}/{spec.model}" if spec.provider and spec.model else (spec.model or ""),
             )
         self._agents = agents
         for info in agents.values():

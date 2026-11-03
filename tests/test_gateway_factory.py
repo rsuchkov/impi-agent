@@ -109,3 +109,18 @@ async def test_where_a_direct_message_is_answered_reaches_both_gateways_and_the_
         assert slack.chat._agent_sessions is True  # type: ignore[attr-defined]  # the client marks the session
     finally:
         await gateway.stop()
+
+
+def test_no_other_agent_reads_an_http_or_ws_conversation_so_a_task_cannot_be_handed_on_there() -> None:
+    from crucible.gateways.http import HttpHub, TokenCallers
+    from crucible.gateways.ws import WsHub
+    from crucible.tools.base import CAP_DELEGATION
+
+    ws = WsHub("127.0.0.1", 8498, {"one": ("tok", None)}, directory=Directory())  # type: ignore[arg-type]
+    http = HttpHub("127.0.0.1", 8499, TokenCallers({"portal": ("tok", None)}), directory=Directory())  # type: ignore[arg-type]
+    factory = GatewayFactory(directory=Directory(), loop_guard=LoopGuard(), dispatcher=None, ws_hub=ws, http_hub=http)  # type: ignore[arg-type]
+    for kind in ("ws", "http"):
+        handle = factory.create("assistant", GatewayConfig(kind=kind))
+        assert handle is not None and CAP_DELEGATION in handle.denied_caps, kind
+    chat = factory.create("assistant", GatewayConfig(kind="mattermost", mattermost_url="http://mm", mm_token="t"))
+    assert chat is not None and CAP_DELEGATION not in chat.denied_caps

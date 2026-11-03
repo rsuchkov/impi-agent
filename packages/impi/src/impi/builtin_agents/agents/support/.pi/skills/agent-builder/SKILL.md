@@ -94,6 +94,7 @@ and logs why. Common cases:
 | `ask_user_buttons`, `ask_user_select`, `open_form`, `open_screen` | `INTEGRATIONS_ENABLED=true`, and a gateway someone can click back from (not `http`) |
 | `create_agent`, `install_skill`, `remove_skill` — anything that needs confirming | `INTEGRATIONS_ENABLED=true` (somebody to ask) |
 | `send_file` | `ATTACHMENTS_ENABLED=true` |
+| `delegate` | `INTEGRATIONS_ENABLED=true` (it is confirmed) and a chat gateway (Mattermost, Slack) — the other agent must be in the same conversation (a member of the channel, or mentioned into the thread) |
 | `send_ephemeral` | a gateway that has ephemeral messages |
 | `schedule_task`, `list_tasks`, `cancel_task`, `pause_task` | `SCHEDULER_ENABLED=true` |
 | `mcp__<server>__<tool>`, `mcp__<server>__*` | the server declared with `impi mcp add` and its tools pinned (the **mcp** skill); a confirmed tool — every tool of an untrusted server outside its `safe:` list, a trusted server's destructive ones, anything in `confirm:`, and a tool that takes a person's file, always — also needs `INTEGRATIONS_ENABLED=true` |

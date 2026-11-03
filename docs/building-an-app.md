@@ -605,7 +605,7 @@ credential, is another user's credential.
   refuses pickling), hand `AgentFlow(..., turns=TurnRegistry())`,
   `build_server(..., turns=<the same registry>)` and
   `InteractionWiring(..., turns=<the same registry>)` (and
-  `ChatFileService(places=)`); the flow binds the scope to the conversation's
+  `ChatFileService(places=)` and `ChatDelegationService(places=)`); the flow binds the scope to the conversation's
   session for exactly the turn, and a tool reads
   `ctx.turn` or `ctx.require_secret("cookie")` — a `ToolError` that tells the
   model to stop when there is none. `scope.flag("session_expired")` is how a

@@ -860,6 +860,10 @@ class AgentFlow:
             parts.append(f"{_context_open(tag, _LABEL_CUT_SHORT)}\n{quoted(cut_short)}\n{_context_close(tag)}")
         for m in msgs:
             author = f"@{speaker(m.username)}" if m.username else speaker(m.user_id)
+            if m.is_from_bot:
+                # Another agent's words: the model is told whose they are, so
+                # a handed-on task's answer reads as an agent's, not a person's.
+                author = f"{author} (agent)"
             when = f" · {_format_time(m.timestamp)}" if m.timestamp else ""
             lines = []
             if m.quoted is not None:

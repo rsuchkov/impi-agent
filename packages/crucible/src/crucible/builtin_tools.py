@@ -7,17 +7,23 @@ holds only base/registry/server). Each tool is marked ``@tool``; the composition
 root names this module to ``build_registry`` to offer them, exactly like it
 names its own tool modules. Tools depend only on ports (the interaction service)."""
 
+from collections.abc import Mapping
 from typing import Any, ClassVar
 
+from crucible.ports.chat.delegation import DelegationError
 from crucible.ports.chat.files import FileError
 from crucible.ports.chat.interactions import ASK_CHANNELS, ASK_SELECT, ASK_USERS
 from crucible.ports.chat.types import (
     FIELD_TYPES,
     STATIC_FIELD_TYPES,
+    CallPreview,
+    CannotRun,
     Form,
     FormField,
+    PreviewRow,
 )
 from crucible.tools.base import (
+    CAP_DELEGATION,
     CAP_EPHEMERAL,
     CAP_FILES,
     CAP_FORMS,
@@ -338,6 +344,79 @@ class SendFile(Tool):
         except Exception as exc:
             raise ToolError(f"could not send the file: {exc}") from exc
         return {"sent": sent}
+
+
+@tool
+class Delegate(Tool):
+    name: ClassVar[str] = "delegate"
+    display_name: ClassVar[str] = "Hand a task to another agent"
+    destructive: ClassVar[bool] = False  # posts a message; changes nothing of its own
+    posts_to_user: ClassVar[bool] = True  # the task is posted where everyone reads it
+    requires_confirmation: ClassVar[bool] = True  # what leaves this conversation is read by a person first
+    requires: ClassVar[frozenset[str]] = frozenset({CAP_DELEGATION})
+    description: ClassVar[str] = (
+        "Hand a task to another agent that is in this conversation (see list_agents): the engine "
+        "posts your task in this thread addressed to that agent, and it works on it as a turn of "
+        "its own. The call ends when the task is posted; the other agent's answer arrives later, as "
+        "a message from that agent in this thread — ask it to mention you when it is done, so you "
+        "are woken for it. Write the task so it stands on its own, and put nothing in it the other "
+        "agent must not see: a person reads exactly what goes before it goes, and the task leaves "
+        "this conversation for that agent's model. Give files by absolute path, from your own "
+        "working directory, your attachments directory or /tmp."
+    )
+    parameters: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "agent": {"type": "string", "description": "The other agent's name, as list_agents gives it"},
+            "task": {"type": "string", "description": "The task, as a message to that agent (Markdown)"},
+            "files": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Absolute paths of files to send with the task",
+            },
+        },
+        "required": ["agent", "task"],
+    }
+
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        other = args.get("agent")
+        return f"Handing a task to {other}" if isinstance(other, str) and other else "Handing a task on"
+
+    async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | CannotRun | None:
+        """The card: whom the task goes to and what model answers there, the
+        task as written, the files by name. The person reads what leaves."""
+        other_name = str(args.get("agent") or "")
+        other = next((a for a in ctx.directory.list_agents() if a.name == other_name), None)
+        if other is None:
+            return CannotRun(f"no agent named {other_name!r} runs here; list_agents says who does")
+        if other.name == ctx.agent_name:
+            return CannotRun("that is you; hand the task to another agent")
+        rows = [
+            PreviewRow("Agent", f"{other.name} — {other.description}" if other.description else other.name),
+            PreviewRow("Model", other.model or "not said"),
+            PreviewRow("Task", str(args.get("task") or ""), passage=True),
+        ]
+        files = args.get("files")
+        if isinstance(files, list) and files:
+            rows.append(PreviewRow("Files", ", ".join(str(f).rsplit("/", 1)[-1] for f in files)))
+        return CallPreview(f"Hand a task to {other.name}", tuple(rows))
+
+    async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+        other = _require_str(args, "agent")
+        task = _require_str(args, "task")
+        files = args.get("files") or []
+        if not isinstance(files, list) or not all(isinstance(f, str) for f in files):
+            raise ToolError("files must be a list of absolute paths")
+        try:
+            await ctx.require_delegation().delegate(ctx.agent_name, ctx.runtime_session_id, other, task, files)
+        except DelegationError as exc:
+            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            raise ToolError(f"could not hand the task on: {exc}") from exc
+        return {
+            "handed_to": other,
+            "note": f"posted in this thread; {other}'s answer will arrive as a message from it",
+        }
 
 
 @tool

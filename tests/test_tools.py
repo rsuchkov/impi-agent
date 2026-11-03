@@ -371,7 +371,7 @@ def test_registry_knows_all_default_tools() -> None:
         "list_agents", "create_channel", "invite_to_channel", "get_channel_members",
         "send_message", "read_channel", "create_agent",
         "ask_user_buttons", "ask_user_select", "open_form", "send_ephemeral",
-        "send_file", "open_screen",
+        "send_file", "open_screen", "delegate",
         "list_skills", "install_skill", "assign_skill", "remove_skill",
         "schedule_task", "list_tasks", "cancel_task", "pause_task",
         "connected_accounts", "connected_api_read", "connected_api_write",
@@ -1839,3 +1839,29 @@ async def test_a_tool_that_finds_the_call_impossible_stops_the_question_before_t
         assert [e.outcome for e in telemetry.events if isinstance(e, ToolCalled)] == ["cannot_run", "ok"]
     finally:
         await server.stop()
+
+
+def test_delegation_is_promised_exactly_when_the_server_can_post_it(tmp_path) -> None:
+    from crucible.config import ToolSettings
+    from crucible.tools.base import CAP_DELEGATION
+    from crucible.tools.wiring import ToolWiring
+
+    def wiring(**flags) -> ToolWiring:
+        return ToolWiring(
+            ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
+            registry=engine_tool_registry(),
+            data_dir=str(tmp_path), interactivity_on=False, **flags,
+        )
+
+    class _Delegation:
+        async def delegate(self, agent, runtime_session_id, to, task, paths=()):
+            return None
+
+    build = dict(directory=FakeDirectory(AGENTS), interaction_svc=None, dotenv_path=str(tmp_path / ".env"))
+    promised = wiring(delegation_on=True)
+    assert CAP_DELEGATION in promised.base_caps and CAP_DELEGATION not in wiring().base_caps
+    with pytest.raises(ValueError, match="disagree"):
+        promised.build_server(**build)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="disagree"):
+        wiring().build_server(**build, delegation_svc=_Delegation())  # type: ignore[arg-type]
+    assert promised.build_server(**build, delegation_svc=_Delegation()) is not None  # type: ignore[arg-type]

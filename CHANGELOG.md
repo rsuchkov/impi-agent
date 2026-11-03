@@ -6,6 +6,18 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **An agent hands a task to another, in the thread.** The `delegate` tool
+  posts the task, as the asking agent, in the turn's place, addressed to the
+  other agent (files with it, by `send_file`'s rules); that agent's gateway
+  opens a turn on the mention, and its answer comes back as a message in the
+  same thread, said to be an agent's in the asker's prompt (`(agent)` after
+  the name). Asynchronous: the call ends when the task is posted. Confirmed,
+  always — the card names the agent, its model (`AgentInfo.model`, new), the
+  task whole and the files — so a model that holds people's data can use one
+  that does not and a person reads what leaves. Chat gateways only; the
+  application wires `ChatDelegationService` (`crucible.interactions.delegation`)
+  into `build_server(delegation_svc=)` with `ToolWiring(delegation_on=True)`,
+  and `ToolContext.delegation_svc` carries it (`CAP_DELEGATION`).
 - **The confirmation card, tidied.** A verdict under a title stands on its
   own ("Allowed once: «Change the status».", no dash in front; a card without
   a title still sets the verdict off from the agent's name with one); a tool

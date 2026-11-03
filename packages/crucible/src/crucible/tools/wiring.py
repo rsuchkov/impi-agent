@@ -22,6 +22,7 @@ from crucible.config import ToolSettings
 from crucible.ports.agent import AgentSpec, TurnClock
 from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
+from crucible.ports.chat.delegation import DelegationService
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
@@ -35,6 +36,7 @@ from crucible.tools.base import (
     CAP_CHAT_ADMIN,
     CAP_CONFIRMATION,
     CAP_CONNECTIONS,
+    CAP_DELEGATION,
     CAP_FILES,
     CAP_FORMS,
     CAP_SCHEDULER,
@@ -98,6 +100,7 @@ class ToolWiring:
         self, tools: ToolSettings, *, registry: ToolRegistry | None = None, data_dir: str,
         interactivity_on: bool, files_on: bool = False, scheduler_on: bool = False,
         confirmations_on: bool = False, connections_on: bool = False,
+        delegation_on: bool = False,
     ) -> None:
         self._tools = tools
         # The tools this deployment offers, as the composition root listed them
@@ -137,12 +140,16 @@ class ToolWiring:
         # The same for connected accounts: tools that act as the person are
         # advertised only where build_server is handed the connections.
         self._connections_on = connections_on
+        # And for handing a task to another agent: advertised only where
+        # build_server is handed the service that posts it.
+        self._delegation_on = delegation_on
         self.base_caps = (
             (frozenset({CAP_WIDGETS, CAP_FORMS}) if interactivity_on else frozenset())
             | (frozenset({CAP_FILES}) if files_on else frozenset())
             | (frozenset({CAP_SCHEDULER}) if scheduler_on else frozenset())
             | (frozenset({CAP_CONFIRMATION}) if confirmations_on else frozenset())
             | (frozenset({CAP_CONNECTIONS}) if connections_on else frozenset())
+            | (frozenset({CAP_DELEGATION}) if delegation_on else frozenset())
         )
 
     @property
@@ -297,6 +304,7 @@ class ToolWiring:
         interaction_svc: InteractionService | None,
         file_svc: FileService | None = None,
         task_svc: TaskService | None = None,
+        delegation_svc: DelegationService | None = None,
         dotenv_path: str,
         conversation_resolver: ConversationResolver | None = None,
         received_files_for: Callable[[Path], ReceivedFiles] | None = None,
@@ -328,6 +336,12 @@ class ToolWiring:
                 "tools that act as the person are advertised exactly when the server "
                 "can hand them the person's connections"
             )
+        if self._delegation_on != (delegation_svc is not None):
+            raise ValueError(
+                "ToolWiring(delegation_on=…) and build_server(delegation_svc=…) disagree: "
+                "a tool that hands a task to another agent is advertised exactly when "
+                "the server can post it"
+            )
         return ToolServer(
             self.registry,
             directory=directory,
@@ -343,6 +357,7 @@ class ToolWiring:
             interaction_svc=interaction_svc,
             file_svc=file_svc,
             task_svc=task_svc,
+            delegation_svc=delegation_svc,
             conversation_resolver=conversation_resolver,
             received_files_for=received_files_for,
             connections=connections,

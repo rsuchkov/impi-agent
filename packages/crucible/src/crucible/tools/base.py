@@ -15,6 +15,7 @@ from pydantic_settings import BaseSettings
 
 from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
+from crucible.ports.chat.delegation import DelegationService
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
@@ -33,6 +34,7 @@ CAP_EPHEMERAL = "ephemeral"  # messages visible only to one user (Mattermost + S
 CAP_FILES = "files"  # sending a file into the conversation
 CAP_SCHEDULER = "scheduler"  # scheduling work for later
 CAP_CONNECTIONS = "connections"  # acting as the person at a provider they connected
+CAP_DELEGATION = "delegation"  # handing a task to another agent in the conversation
 # Someone to ask before a tool that declares ``requires_confirmation`` runs: a
 # gate is wired into the tool server. Implied by the flag rather than listed in
 # ``requires`` — a tool that must be confirmed is, by that fact, a tool that
@@ -101,6 +103,8 @@ class ToolContext:
     file_svc: FileService | None = None
     # Scheduling work for later (None = the deployment has the scheduler off).
     task_svc: TaskService | None = None
+    # Handing a task to another agent in the conversation (None = not wired).
+    delegation_svc: DelegationService | None = None
     # The conversation this call runs inside, resolved from runtime_session_id by
     # the server (plain strings — the tool layer stays free of store types).
     # channel_id: where the turn happened; user_id: who last triggered it. Empty
@@ -172,6 +176,13 @@ class ToolContext:
                 "carried none. Tell the user, and do not retry"
             )
         return value
+
+    def require_delegation(self) -> DelegationService:
+        """The delegation service, or a ToolError when this deployment has none
+        (declare CAP_DELEGATION so this can't happen for an advertised tool)."""
+        if self.delegation_svc is None:
+            raise ToolError("handing a task to another agent is not available in this deployment")
+        return self.delegation_svc
 
     def require_interactions(self) -> InteractionService:
         """The widget/form service, or a ToolError if interactivity is off (declare

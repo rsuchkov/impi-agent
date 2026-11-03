@@ -20,6 +20,9 @@ class AgentInfo:
     description: str
     username: str
     user_id: str
+    # The model the agent answers with, as ``provider/model`` ("" when the
+    # application does not say): what a person weighs before handing it a task.
+    model: str = ""
 
 
 class AgentDirectory(Protocol):

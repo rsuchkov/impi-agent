@@ -42,7 +42,7 @@ from crucible.ports.chat.gateway import (
     Gateway,
 )
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
-from crucible.tools.base import CAP_EPHEMERAL, CAP_FORMS, CAP_WIDGETS
+from crucible.tools.base import CAP_DELEGATION, CAP_EPHEMERAL, CAP_FORMS, CAP_WIDGETS
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +221,9 @@ class GatewayFactory:
         return GatewayHandle(
             chat=chat, admin=None, create_gateway=create_gateway,
             prompt_hint="", needs_http_receiver=False,
+            # A service's conversation has one reader: no other agent is there
+            # to hand a task to.
+            denied_caps=frozenset({CAP_DELEGATION}),
         )
 
     def _http(self, agent: str, config: GatewayConfig) -> GatewayHandle | None:
@@ -245,6 +248,7 @@ class GatewayFactory:
             prompt_hint=HTTP_PROMPT_HINT, needs_http_receiver=False,
             # A caller reads a journal and answers what blocks the turn — a
             # confirmation. A button the agent fires and forgets, or a form,
-            # would start a turn nobody tracks; those stay on chat platforms.
-            denied_caps=frozenset({CAP_WIDGETS, CAP_FORMS}),
+            # would start a turn nobody tracks; those stay on chat platforms —
+            # and so does handing a task to another agent, who is not there.
+            denied_caps=frozenset({CAP_WIDGETS, CAP_FORMS, CAP_DELEGATION}),
         )

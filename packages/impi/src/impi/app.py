@@ -63,6 +63,7 @@ from crucible.interactions import (
     ToolTrace,
     TraceScreen,
 )
+from crucible.interactions.delegation import ChatDelegationService
 from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.interactions.tooltrace import sweep_traces
@@ -712,6 +713,9 @@ def build_app(settings: ImpiSettings) -> App:
         # asks exists; with interactivity off it is left out of the agent's
         # tool list rather than offered and refused on every call.
         confirmations_on=interactions.tool_gate is not None,
+        # Handing a task to another agent is a confirmed post in the thread:
+        # advertised where the gate exists to confirm it.
+        delegation_on=interactions.tool_gate is not None,
         connections_on=connections is not None,
     )
     profile_builder = ProfileBuilder(tools, engine_owned=frozenset(engine_names))
@@ -827,6 +831,12 @@ def build_app(settings: ImpiSettings) -> App:
             max_bytes=settings.attachment_max_bytes,
             places=turns,
         )
+    # Handing a task to another agent: a reply in the turn's place, as the
+    # asking agent, with files through the same service send_file uses.
+    delegation_svc = (
+        ChatDelegationService(presence, sessions, registry, files=file_svc, places=turns)
+        if interactions.tool_gate is not None else None
+    )
     # Creating tasks needs only the store, so it is ready before the tool
     # server; the ticker that fires them needs the units and comes after.
     task_admin: TaskAdmin | None = None
@@ -856,6 +866,7 @@ def build_app(settings: ImpiSettings) -> App:
         interaction_svc=interactions.interaction_svc,
         file_svc=file_svc,
         task_svc=task_admin,
+        delegation_svc=delegation_svc,
         dotenv_path=settings.dotenv_path,
         # Tools get the turn's channel and last speaker (an ephemeral reply,
         # say) and its files directory, in one read of the session record.

@@ -304,6 +304,9 @@ async def test_reply_is_stamped_one_hop_past_trigger(tmp_path: Path) -> None:
     )
     await flow.handle(agent_msg, chat)
     assert chat.reply_hops[-1] == 3
+    # The model is told whose words these are: an agent's, not a person's.
+    assert "[@r42-developer (agent)" in runtime.calls[-1][1]
+    assert "(agent)" not in runtime.calls[0][1]
     await store.close()
 
 

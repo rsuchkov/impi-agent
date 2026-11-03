@@ -201,6 +201,18 @@ Two rules to remember:
   - **`send_file`** posts a file back into the conversation. It reads only from
     the agent's own profile directory, its attachment directory and `/tmp`, so
     an agent that generates something must write it in one of those first.
+  - **`delegate`** hands a task to another agent that is in the conversation:
+    the engine posts the task in the thread, as this agent, addressed to the
+    other (with files, by the same rules as `send_file`), and the other
+    agent's gateway opens a turn of its own on the mention. Asynchronous: the
+    call ends when the task is posted, and the answer arrives later as a
+    message from that agent — in the prompt its line says `(agent)`, so the
+    model knows whose words they are; the task should ask it to mention the
+    asker back. Confirmed, always: a person reads exactly what leaves — the
+    agent, its model, the task, the files — before it goes, which is what
+    makes this the way for a model that holds people's data to use one that
+    does not. Chat gateways only: nobody else reads an http or ws
+    conversation. See [security.md](security.md).
 
 ## Asking with controls (widgets and forms)
 

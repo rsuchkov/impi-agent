@@ -27,6 +27,7 @@ from crucible.constant_time import find_by_secret
 from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
+from crucible.ports.chat.delegation import DelegationService
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
@@ -135,6 +136,7 @@ class ToolServer:
         interaction_svc: InteractionService | None = None,
         file_svc: FileService | None = None,
         task_svc: TaskService | None = None,
+        delegation_svc: DelegationService | None = None,
         conversation_resolver: ConversationResolver | None = None,
         received_files_for: Callable[[Path], ReceivedFiles] | None = None,
         connections: ConnectionAccessFactory | None = None,
@@ -171,6 +173,7 @@ class ToolServer:
         self._interaction_svc = interaction_svc
         self._file_svc = file_svc
         self._task_svc = task_svc
+        self._delegation_svc = delegation_svc
         # Which conversation a call runs inside, asked once per call with the
         # calling agent and its proven session (ports/conversation.py): a plain
         # callable, so the tool layer never imports the store.
@@ -333,6 +336,7 @@ class ToolServer:
             interaction_svc=self._interaction_svc,
             file_svc=self._file_svc,
             task_svc=self._task_svc,
+            delegation_svc=self._delegation_svc,
             channel_id=conversation.channel_id if conversation else "",
             user_id=conversation.user_id if conversation else "",
             files_dir=conversation.files_dir if conversation else None,
