@@ -1,9 +1,9 @@
 """Handing a task to another agent where the conversation is.
 
-An agent that wants another's work — a model that knows the people's data
-and may not pass it on, asking a stronger one to write the code — does not
-reach into that agent: it posts the task in the thread, as it would ask a
-colleague, and the other agent's own gateway opens a turn on the mention.
+An agent that wants another's work — one whose model is better at the task,
+or one that is allowed what the asker is not — does not reach into that
+agent: it posts the task in the thread, as it would ask a colleague, and the
+other agent's own gateway opens a turn on the mention.
 The answer comes back into the same thread, for everyone there to read, and
 reaches the asker as a message from an agent. Asynchronous by design: the
 tool call ends when the task is posted, the turn goes on, and the reply is a

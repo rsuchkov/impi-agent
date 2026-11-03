@@ -56,7 +56,7 @@ runtime:
   # confinement_write: [/srv/reports]   # optional; paths beyond its own
   # network_ports: [8080]      # optional; TCP ports beside RUNTIME_NETWORK_PORTS it may connect to
   # shared_dirs: [crm-code]    # optional; directories shared with every agent naming the same —
-                               #   the process gets $AGENT_SHARED_DIR__CRM_CODE; never put people's data there
+                               #   the process gets $AGENT_SHARED_DIR__CRM_CODE; every agent naming it reads all of it
 ```
 
 Keep `.pi/SYSTEM.md` short and concrete: who the agent is, its scope, and its

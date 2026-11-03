@@ -217,6 +217,23 @@ async def test_a_shared_directory_is_writable_at_every_level_and_named_to_the_pr
     assert stat.S_IMODE(crm.stat().st_mode) == 0o700
     assert first.env["AGENT_SHARED_DIR__CRM_CODE"] == str(crm) and first.env["AGENT_SHARED_DIR__DOCS"] == str(tmp_path / "shared" / "docs")
     assert "AGENT_SHARED_DIR__DOCS" not in coder.env and tmp_path / "shared" / "docs" not in coder.writable
+    # A relative root (the default, under a relative data dir) is handed to the
+    # process and to the kernel as an absolute path: the process's working
+    # directory is not the engine's, and a rule on a path that is not there is
+    # skipped — the live probe found the agent writing beside its profile.
+    monkeypatch_cwd = tmp_path / "cwd"
+    monkeypatch_cwd.mkdir()
+    import os
+
+    before = os.getcwd()
+    os.chdir(monkeypatch_cwd)
+    try:
+        relative = await _scopes(tmp_path, specs, shared_root=Path("data/shared"), shared_dir_env="AGENT_SHARED_DIR__").scope_for("coder", "coder--c1")
+    finally:
+        os.chdir(before)
+    assert relative is not None
+    assert relative.env["AGENT_SHARED_DIR__CRM_CODE"] == str(monkeypatch_cwd / "data" / "shared" / "crm-code")
+    assert monkeypatch_cwd / "data" / "shared" / "crm-code" in relative.writable
     # Without a root nothing is shared, whatever a profile names.
     alone = await _scopes(tmp_path, specs).scope_for("assistant", "assistant--c1")
     assert alone is not None and crm not in alone.writable and not any(k.startswith("AGENT_SHARED_DIR__") for k in alone.env)

@@ -210,10 +210,10 @@ Two rules to remember:
     message from that agent — in the prompt its line says `(agent)`, so the
     model knows whose words they are; the task should ask it to mention the
     asker back. Confirmed, always: a person reads exactly what leaves — the
-    agent, its model, the task, the files — before it goes, which is what
-    makes this the way for a model that holds people's data to use one that
-    does not. Chat gateways only: nobody else reads an http or ws
-    conversation. See [security.md](security.md).
+    agent, its model, the task, the files — before it goes, so an agent
+    that holds what another may not see can still have that other's work.
+    Chat gateways only: nobody else reads an http or ws conversation. See
+    [security.md](security.md#one-agent-and-another).
 
 ## Asking with controls (widgets and forms)
 
@@ -331,9 +331,10 @@ process `$AGENT_SHARED_DIR__CRM_CODE`. An agent that names a directory nobody
 else does has a working directory of its own that outlives its conversations.
 With agent containers the root is one volume mounted at `/app/shared` in the
 engine and in every container whose agent names a directory, so a name means
-one place everywhere. What goes there is the operator's to decide — a
-sanitized checkout for a coder, never a dump with people's data in it: every
-agent naming the directory reads all of it, whatever its model. `impi doctor`
+one place everywhere. What goes there is the operator's to decide, with one
+rule: every agent naming the directory reads all of it, whatever its model
+and wherever that model runs, so nothing goes there that one of them may not
+see. `impi doctor`
 and the startup log list the directories and who shares each. Tell the agent
 about its directory in `SYSTEM.md` or a skill, as for `$AGENT_FILES_DIR`.
 

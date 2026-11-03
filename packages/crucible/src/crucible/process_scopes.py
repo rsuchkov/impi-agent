@@ -95,7 +95,9 @@ class AgentProcessScopes:
         # prefix of the variable that names each to the process
         # (``<prefix><NAME>``, the name upper-cased with hyphens as
         # underscores). None = no agent shares a directory.
-        self._shared_root = shared_root
+        # Resolved: the path is handed to a process whose working directory
+        # is not this one, and a rule names it to the kernel the same way.
+        self._shared_root = shared_root.resolve() if shared_root is not None else None
         self._shared_dir_env = shared_dir_env
         # Scratch directories handed to processes that have not ended, with
         # how many hold each (a conversation's next process may start before

@@ -13,8 +13,8 @@ when a release is cut, and `impi update` shows the target version's section.
   same thread, said to be an agent's in the asker's prompt (`(agent)` after
   the name). Asynchronous: the call ends when the task is posted. Confirmed,
   always — the card names the agent, its model (`AgentInfo.model`, new), the
-  task whole and the files — so a model that holds people's data can use one
-  that does not and a person reads what leaves. Chat gateways only; the
+  task whole and the files — so an agent that holds what another may not
+  see can still have that other's work, and a person reads what leaves. Chat gateways only; the
   application wires `ChatDelegationService` (`crucible.interactions.delegation`)
   into `build_server(delegation_svc=)` with `ToolWiring(delegation_on=True)`,
   and `ToolContext.delegation_svc` carries it (`CAP_DELEGATION`).
@@ -28,9 +28,9 @@ when a release is cut, and `impi update` shows the target version's section.
   whose agent names a directory (`RUNTIME_RELAY_SHARED_DIR`; a `shared` root
   on the spawn wire); an agent image older than this refuses such a spawn
   until `impi agent sync` rebuilds it. The startup log and `impi doctor`
-  list the directories and who shares each. Where a coder and the agent that
-  asked it hand files to each other outside the chat — and where nothing
-  with people's data belongs.
+  list the directories and who shares each. Where two agents hand files to
+  each other outside the chat — and where nothing one of them may not see
+  belongs.
 - **The confirmation card, tidied.** A verdict under a title stands on its
   own ("Allowed once: «Change the status».", no dash in front; a card without
   a title still sets the verdict off from the agent's name with one); a tool

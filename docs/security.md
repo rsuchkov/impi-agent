@@ -179,6 +179,23 @@ apart, and their network by port only: both reach every address on the ports
 named. Turn the containers on for a network of their own, or do not give the
 first one a shell.
 
+**When one agent hands another a task.** Two things cross between them, and
+each has a gate. The task itself (`delegate`) is a message in the thread,
+posted only after a person has read the card — the agent it goes to, the
+model that agent answers with, the task whole, the files by name — so what
+leaves one agent for another's model is what a person approved, never what
+the asking model decided on its own; the answer comes back as a message
+marked an agent's. A directory the two share (`runtime.shared_dirs`) has no
+card: every agent naming it reads all of it, whatever its model and wherever
+that model runs, so what may not reach one of them must not be put there.
+The asked agent runs under its own profile — its own tools, its own
+confinement, its own ports — and reaches nothing of the asker's but the
+thread and the shared directory. Does not hold against: a task text that
+carries what it should not and a reviewer who did not read it; files in the
+shared directory nobody looked at; and, on one host, the runtime's shared
+model credential (above) — an agent whose model should stay apart belongs
+in a container of its own.
+
 ### An MCP server and the engine
 
 What crosses: the arguments of a call the model made, the headers the server's
