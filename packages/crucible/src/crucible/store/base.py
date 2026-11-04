@@ -633,6 +633,10 @@ class ConnectionRecord:
     # refreshes and a move, new at a reconnect. "" for a record written
     # before it was kept.
     connected_at: str = ""
+    # What else the provider said of the account that the application keeps
+    # (``ProviderAccount.extra``), as JSON; "" for none. Not sealed: it is
+    # the account's shape, like its email, not a credential.
+    account_extra: str = ""
 
 
 @dataclass(frozen=True)

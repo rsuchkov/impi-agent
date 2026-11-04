@@ -6,7 +6,21 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The progress line says the answer is being written.** Once the last tool
+  call has finished, the line under the steps read "Running N tools… ·
+  <the finished call's caption>" until the reply came — on a slow model the
+  longest part of the turn, looking like a hang. It now says
+  `⚙️ N tools done · writing the answer…` (a remark the model made since
+  kept after it), on every gateway that draws the counter; `TurnCalls.running`
+  says whether a call still goes.
+- **What else the provider says of a person is kept.** A connection kept the
+  account's id, username, name and email and dropped the rest of the userinfo
+  answer. `CONNECTION_ACCOUNT_EXTRA__<NAME>` (`OAuth2Config.account_extra`)
+  names the fields to keep — a groups claim, a department — and they come as
+  the provider sent them in `ProviderAccount.extra`: to the account rule and
+  the owner rule at the connect, from `account()` and `connected()` after,
+  and in the record (`account_extra`, JSON; a column added on open). As of
+  the connect; a reconnect refreshes them.
 
 ## v0.45.0 — 2026-11-03
 

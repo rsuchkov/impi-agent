@@ -27,6 +27,7 @@ how it is authenticated, and which account may be bound to whom
 
 import asyncio
 import contextlib
+import json
 import logging
 import math
 import secrets
@@ -34,6 +35,7 @@ import weakref
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from crucible.connections.audit import (
     EVENT_CONNECT,
@@ -113,7 +115,20 @@ def _account(record: ConnectionRecord) -> ProviderAccount:
     return ProviderAccount(
         id=record.account_id, username=record.account_username,
         name=record.account_name, email=record.account_email,
+        extra=_extra_of(record.account_extra),
     )
+
+
+def _extra_of(raw: str) -> dict[str, Any]:
+    """The kept fields back from the record; a record that holds none, or
+    one a newer engine wrote in a shape this one cannot read, is none."""
+    if not raw:
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except ValueError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 async def _revoke(oauth: OAuthProvider, token: str) -> bool:
@@ -496,6 +511,7 @@ class OAuthConnections:
             account_name=account.name, account_email=account.email,
             scope=tokens.scope, connect_id=secrets.token_hex(16),
             connected_at=_iso(self._clock()),
+            account_extra=json.dumps(dict(account.extra), ensure_ascii=False) if account.extra else "",
         )
 
     async def _revoke_tokens(self, oauth: OAuthProvider, tokens: OAuthTokens) -> bool:

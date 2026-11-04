@@ -20,7 +20,7 @@ winning — the same rule as the rest of the settings.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from crucible.connections.oauth2 import OAuth2Config, gitlab
 
@@ -62,6 +62,9 @@ class ConnectionProvider:
     api_url: str = ""
     match_email: bool = True
     agents: tuple[str, ...] | None = None  # None = every agent
+    # Fields of the provider's userinfo answer kept beside the account's four
+    # (``ProviderAccount.extra``): a groups claim, a department.
+    account_extra: tuple[str, ...] = ()
 
     def allows(self, agent: str) -> bool:
         return self.agents is None or agent in self.agents
@@ -72,11 +75,11 @@ class ConnectionProvider:
                 self.base_url, client_id=self.client_id, client_secret=self.client_secret,
                 redirect_uri=redirect_uri, **({"scope": self.scope} if self.scope else {}),
             )
-            return config
+            return replace(config, account_extra=self.account_extra) if self.account_extra else config
         return OAuth2Config(
             authorize_url=self.authorize_url, token_url=self.token_url, userinfo_url=self.userinfo_url,
             revoke_url=self.revoke_url, client_id=self.client_id, client_secret=self.client_secret,
-            redirect_uri=redirect_uri, scope=self.scope,
+            redirect_uri=redirect_uri, scope=self.scope, account_extra=self.account_extra,
         )
 
 
@@ -131,6 +134,8 @@ def connection_providers(values: Mapping[str, str]) -> dict[str, ConnectionProvi
             base_url=base_url, scope=get("SCOPE"),
             api_url=get("API_URL") or (f"{base_url}/api/v4" if kind == "gitlab" else ""),
             match_email=_bool(_key("MATCH_EMAIL", suffix), match) if match else True,
-            agents=agents, **endpoints,
+            agents=agents,
+            account_extra=tuple(dict.fromkeys(f.strip() for f in get("ACCOUNT_EXTRA").split(",") if f.strip())),
+            **endpoints,
         )
     return found

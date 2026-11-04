@@ -8,9 +8,9 @@ Values a tool must never repeat — an access token — travel as ``AccessToken`
 which shows nothing of itself in a log line, a traceback or a pickle.
 """
 
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import NoReturn, Protocol
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from typing import Any, NoReturn, Protocol
 
 from crucible.ports.turn import TurnScope
 
@@ -59,12 +59,17 @@ class AccessToken:
 
 @dataclass(frozen=True)
 class ProviderAccount:
-    """Who the person is at the provider."""
+    """Who the person is at the provider. ``extra`` is what else the provider
+    said of them that the application asked to keep (``account_extra`` in the
+    provider's configuration) — a list of groups, a department — by the
+    provider's own field names and in its own shapes; as of the connect, so
+    a reconnect is what refreshes it."""
 
     id: str
     username: str
     name: str = ""
     email: str = ""
+    extra: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

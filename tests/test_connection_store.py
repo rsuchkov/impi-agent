@@ -22,6 +22,7 @@ def _record(**over) -> ConnectionRecord:
         owner="mattermost:u1", provider="gitlab", access_sealed="A1", refresh_sealed="R1",
         expires_at=T2, account_id="7", account_username="alice", account_name="Alice",
         account_email="alice@example.com", scope="read_api", connect_id="g1", connected_at=T0,
+        account_extra='{"groups": ["acc_a"]}',
     )
     return replace(base, **over)
 
@@ -203,7 +204,7 @@ async def test_a_connections_table_from_before_connected_at_gains_the_column_on_
     store = SqliteSessionStore(path)
     try:
         old = await store.get_connection("mattermost:u1", "gitlab")
-        assert old is not None and old.connected_at == ""
+        assert old is not None and old.connected_at == "" and old.account_extra == ""
         await store.save_connection(_record(provider="jira", connect_id="g9"))
         assert await store.get_connection("mattermost:u1", "jira") == _record(provider="jira", connect_id="g9")
     finally:

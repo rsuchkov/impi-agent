@@ -146,6 +146,22 @@ async def test_a_provider_with_other_field_names_maps_them() -> None:
     assert await provider.identify("at") == ProviderAccount("JIRAUSER1", "alice", "Alice", "a@example.com")
 
 
+async def test_the_fields_the_application_asked_for_are_kept_beside_the_four_as_they_came() -> None:
+    # A groups claim, a department: by the provider's names, in the provider's
+    # shapes (a list stays a list); a field the answer lacks is simply absent.
+    config = OAuth2Config(
+        authorize_url="a", token_url="t", userinfo_url="https://p/me", client_id="c", client_secret="s",
+        redirect_uri="r", account_extra=("groups", "department", "missing"),
+    )
+    body = {"id": 7, "username": "alice", "name": "Alice", "email": "a@example.com", "groups": ["acc_a", "acc_b"], "department": "ops", "ignored": 1}
+    provider = OAuth2Provider(config, http=httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, content=json.dumps(body))
+    )))
+    account = await provider.identify("at")
+    assert account.extra == {"groups": ["acc_a", "acc_b"], "department": "ops"}
+    assert account == ProviderAccount("7", "alice", "Alice", "a@example.com", extra={"groups": ["acc_a", "acc_b"], "department": "ops"})
+
+
 # -- what a tool is handed ------------------------------------------------------------
 
 

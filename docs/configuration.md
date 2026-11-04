@@ -353,6 +353,7 @@ over `.env`, like every other key.
 | `CONNECTION_API_URL__<NAME>` | gitlab: `<base>/api/v4` | where the tools call; a path never leaves it |
 | `CONNECTION_MATCH_EMAIL__<NAME>` | `true` | the account's email must be the chat profile's |
 | `CONNECTION_AGENTS__<NAME>` | unset = every agent | CSV of agents that may use it; empty = none |
+| `CONNECTION_ACCOUNT_EXTRA__<NAME>` | `""` | CSV of fields of the provider's userinfo answer kept beside the account's id, username, name and email (`groups`, say), as the provider sends them; the application's account rule and owner rule see them as `account.extra`, and so does `connected_accounts`. As of the connect: a reconnect refreshes them |
 
 ## MCP servers
 

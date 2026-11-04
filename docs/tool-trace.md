@@ -37,6 +37,10 @@ stays under the step, goes into the record and the row of the list, and the
 http journal carries it as a `progress` event and `GET /v1/traces` as the
 call's `remark`. The reply is what the model says after its last call; a
 turn that says nothing after its last call answers with its last remark.
+Once the last call has finished and the answer is still to come — on a slow
+model the longest part of the turn — the line says so: `⚙️ 3 tools done ·
+writing the answer…`, a remark made since after it; the finished call's
+caption is not left there, where it would read as a tool that is slow.
 
 When the turn ends, the progress message is **deleted** and the reply stands
 alone — that is the default, `TOOL_TRACE_AFTER=nothing`. With

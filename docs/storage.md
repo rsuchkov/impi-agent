@@ -150,7 +150,7 @@ One per subject, named the way the SQLite tables are:
 | `approval_grants` | windows a human left open |
 | `approval_audit` | the ledger of what was asked and how it came out |
 | `tool_traces` | one turn's tool calls — arguments and outcomes, never results — for the trace button (`TOOL_TRACE_AFTER=button`) and the http gateway's `GET /v1/traces/{token}`; `owner` is the http caller (realm/user) the record is read by, empty for a chat widget's |
-| `connections` | people's accounts connected at an OAuth provider: the tokens sealed (unreadable without the sealing key), whose and which account, and when it was connected, readable; one per person and provider |
+| `connections` | people's accounts connected at an OAuth provider: the tokens sealed (unreadable without the sealing key), whose and which account, when it was connected and what else the provider said of it (`account_extra`, JSON) readable; one per person and provider |
 | `connection_links` | connects started and not yet finished — single use, gone after ten minutes (a TTL index) |
 | `leases` | what runs in one process at a time: a gateway's connection (`gateway:<kind>:<agent>`), a replica's liveness (`replica:<id>`, the holder its address) |
 | `conversation_owners` | which replica serves which conversation; an owner whose `replica:` lease lapsed is replaced |

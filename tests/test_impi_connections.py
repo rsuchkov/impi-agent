@@ -52,6 +52,13 @@ def _settings(tmp_path: Path, **values) -> ImpiSettings:
 # --- settings --------------------------------------------------------------------
 
 
+def test_a_gitlab_provider_keeps_the_fields_it_is_asked_to_as_well() -> None:
+    values = {"CONNECTION_CLIENT_ID__GITLAB": "c", "CONNECTION_CLIENT_SECRET__GITLAB": "s",
+              "CONNECTION_BASE_URL__GITLAB": "https://git.example", "CONNECTION_ACCOUNT_EXTRA__GITLAB": "is_admin"}
+    config = connection_providers(values)["gitlab"].oauth2_config("r")
+    assert config.account_extra == ("is_admin",) and config.userinfo_url == "https://git.example/api/v4/user"
+
+
 def test_a_gitlab_provider_needs_only_its_client_and_address() -> None:
     gitlab = connection_providers(GITLAB)["gitlab"]
 
@@ -75,8 +82,11 @@ def test_a_name_is_the_suffix_and_each_field_is_read_under_it() -> None:
         "CONNECTION_SCOPE__SELF_HOSTED": "read",
         "CONNECTION_MATCH_EMAIL__SELF_HOSTED": "off",
         "CONNECTION_AGENTS__SELF_HOSTED": "assistant, helper,",
+        "CONNECTION_ACCOUNT_EXTRA__SELF_HOSTED": "groups, department,groups",
     }
     provider = connection_providers(values)["self-hosted"]
+    assert provider.account_extra == ("groups", "department")  # each once
+    assert provider.oauth2_config("r").account_extra == ("groups", "department")
 
     assert provider.kind == "oauth2" and provider.api_url == "https://api.example.com"
     assert provider.match_email is False and provider.agents == ("assistant", "helper")

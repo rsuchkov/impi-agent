@@ -120,6 +120,7 @@ class Refuse:
 
     async def refusal(self, owner, provider, account, facts) -> str | None:
         self.facts = facts
+        self.seen = account
         return self.reason
 
 
@@ -646,3 +647,26 @@ async def test_a_connection_remembers_when_it_was_made_through_refreshes_until_a
     assert old is not None
     await store.save_connection(replace(old, connected_at=""))
     assert await service.connected_at(OWNER, "gitlab") is None
+
+
+async def test_what_else_the_provider_said_is_kept_with_the_connection_and_seen_by_the_rule() -> None:
+    """The kept fields travel with the account: into the record, back from
+    `account()` and `connected()`, through a refresh unchanged, and to the
+    application's rule at the connect."""
+    provider, clock, store = FakeProvider(), Clock(), MemoryConnectionStore()
+    grouped = ProviderAccount(id="7", username="alice", name="Alice", email="alice@example.com", extra={"groups": ["acc_a"]})
+    refuse = Refuse(None)
+    service = _service(provider, clock=clock, store=store, policy=refuse)
+    state, code = provider.consent(await service.begin(OWNER, "gitlab"), account=grouped)
+    connected = await service.finish(state, code, owner=OWNER)
+    assert connected.account.extra == {"groups": ["acc_a"]}
+    assert refuse.seen.extra == {"groups": ["acc_a"]}  # the rule decides with it
+    assert (await service.account(OWNER, "gitlab")).extra == {"groups": ["acc_a"]}  # type: ignore[union-attr]
+    clock.advance(3600 - 30)
+    assert (await service.grant(OWNER, "gitlab")).account.extra == {"groups": ["acc_a"]}  # a refresh keeps it
+    # A record from before the fields were kept, or one written in a shape this
+    # engine cannot read, answers none.
+    record = await store.get_connection(OWNER, "gitlab")
+    assert record is not None
+    await store.save_connection(replace(record, account_extra="not json"))
+    assert (await service.account(OWNER, "gitlab")).extra == {}  # type: ignore[union-attr]

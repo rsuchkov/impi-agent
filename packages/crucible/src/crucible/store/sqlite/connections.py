@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS connections (
   connect_id       TEXT NOT NULL,
   version          INTEGER NOT NULL DEFAULT 0,
   connected_at     TEXT NOT NULL DEFAULT '',
+  account_extra    TEXT NOT NULL DEFAULT '',
   lease_until      TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (owner, provider)
 );
@@ -85,8 +86,9 @@ class ConnectionStoreMixin(SqliteBase):
         # A table made by an older version lacks the columns added since;
         # CREATE TABLE IF NOT EXISTS leaves it as it was.
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(connections)")}
-        if "connected_at" not in columns:
-            self._conn.execute("ALTER TABLE connections ADD COLUMN connected_at TEXT NOT NULL DEFAULT ''")
+        for column in ("connected_at", "account_extra"):
+            if column not in columns:
+                self._conn.execute(f"ALTER TABLE connections ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
 
     # -- connections ------------------------------------------------------------
 

@@ -104,6 +104,20 @@ def test_the_counter_counts_and_the_button_summarises() -> None:
     assert _text(render_counter(3)) == "⚙️ Running 3 tools…"
 
 
+def test_once_the_last_call_has_finished_the_counter_says_the_answer_is_being_written() -> None:
+    """A finished list and silence read as a hang; the line says the calls
+    are done and the model is writing. A finished call's caption is not kept
+    on the line — it would read as a tool that is slow — but a remark the
+    model made since is."""
+    from crucible.interactions.tooltrace import WRITING_THE_ANSWER
+
+    assert _text(render_counter(2, running=False)) == f"⚙️ 2 tools done · {WRITING_THE_ANSWER}"
+    assert _text(render_counter(1, "Now summing it up", running=False)) == f"⚙️ 1 tool done · {WRITING_THE_ANSWER} · Now summing it up"
+    # A call still waiting on the person says so whether or not others run.
+    waiting = Call(index=0, call_id="c", tool="deploy", caption="Deploying")
+    assert "waiting for you: Deploying" in _text(render_counter(1, awaiting=waiting, running=False))
+
+
 def test_the_counter_carries_the_latest_word_on_one_bounded_line() -> None:
     assert _text(render_counter(2, "Reading IPA-12436")) == "⚙️ Running 2 tools… · Reading IPA-12436"
     # A remark is the model's text: no line breaks, no more than REMARK_MAX.
@@ -419,6 +433,11 @@ async def test_captions_and_remarks_show_on_the_counter_and_captions_stay_in_the
     trace.on_event(ToolStarted(call_id="c1", tool="bash", args={"command": "ls"}))  # no caption
     await asyncio.sleep(1.1)
     assert chat.updated[-1][1][0].text == "⚙️ Running 2 tools… · Found it, now the comments"
+    # The last call finishes: the line stops naming it and says the answer is on its way.
+    trace.on_event(ToolFinished(call_id="c0", tool="read_issue"))
+    trace.on_event(ToolFinished(call_id="c1", tool="bash"))
+    await asyncio.sleep(1.1)
+    assert chat.updated[-1][1][0].text == "⚙️ 2 tools done · writing the answer…"
     await trace.end()
 
     assert [c.caption for c in trace.calls] == ["Reading X-1", ""]
@@ -440,7 +459,9 @@ def test_the_calls_of_a_turn_are_collected_from_the_events_as_they_come() -> Non
     assert calls.on_event(ToolStarted("c1", "search", {"q": "x" * 9000}, caption="Searching for x")) is True
     assert calls.latest == "Searching for x"
     assert calls.on_event(ToolStarted("c2", "read", {"path": "a.txt"})) is True
+    assert calls.running is True
     assert calls.on_event(ToolFinished("c1", "search", is_error=True, duration_s=1.5)) is True
+    assert calls.running is True  # c2 still goes
     assert calls.on_event(ToolFinished("zzz", "read")) is False  # a call nobody started
     assert calls.on_event(object()) is False
     first, second = calls.calls
@@ -449,6 +470,8 @@ def test_the_calls_of_a_turn_are_collected_from_the_events_as_they_come() -> Non
     assert len(calls) == 2 and calls.failed == 1
     assert calls.on_event(TextProgress("   ")) is True and calls.remark == ""  # blank: no remark
     assert calls.latest == ""  # the newest call has no caption and no remark: only the count
+    assert calls.on_event(ToolFinished("c2", "read")) is True
+    assert calls.running is False  # nothing left running: the model is writing
 
 
 async def test_the_widget_tracer_takes_the_gateway_the_flow_knows(tmp_path) -> None:

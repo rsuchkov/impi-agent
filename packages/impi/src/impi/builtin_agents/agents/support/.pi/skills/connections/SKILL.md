@@ -57,6 +57,7 @@ redirect URI to register) and `!` lines for what is wrong.
 | Page: "expired or was already used" | the link is single-use and lives ten minutes | Connect again |
 | Page: "your chat account shows no email to compare it with" | `CONNECTION_MATCH_EMAIL__<NAME>` on, and the chat hides emails (Mattermost privacy settings, Slack without `users:read.email`) | show emails, or set it to `false` and accept that anyone may bind any account they can log into |
 | Page: "its email is not the one your chat account has" | they logged in as another account at the provider | log in as their own |
+| The application's rule wants a field the account record lacks (a groups claim) | the field is not among the four kept by default | `CONNECTION_ACCOUNT_EXTRA__<NAME>=groups` names the userinfo fields to keep; people connect again to have them |
 | Agent says the tool is missing | not in `runtime.tools`, the tool server off, or no provider configured (the tools are advertised only then) | engine-diagnostics §3 |
 | Tool: "works only in a direct message" | the agent was asked in a channel, or a thread in one (a thread inside the DM is fine) | by design, for now |
 | Tool: "there is no person here whose connected accounts a tool could use" | a scheduled turn (it acts for nobody), or an agent on the ws/http gateway (`impi health`: `… is not offered to …`) | by design: those turns have no person the engine can name |

@@ -132,6 +132,20 @@ the chat says of the person (an email), and refuse a sign-in by somebody else.
 `connected_at` is `None` for a connection made before the engine kept the
 moment; such a person connects once more.
 
+## What the provider says of the person, beyond who they are
+
+A connection keeps four things of the account — id, username, name, email —
+and whatever else the provider's userinfo answer carries that the
+deployment asks for: `CONNECTION_ACCOUNT_EXTRA__<NAME>=groups,department`
+names the fields, by the provider's own names, and they come back as the
+provider sent them (a list stays a list) in `ProviderAccount.extra` — to the
+application's account rule and owner rule at the connect (`refusal`,
+`owner_of`), and from `account()` and `connected()` after. An identity
+provider's groups claim is the case: who may do what, decided by the groups
+the person was given there. The engine reads the userinfo answer, not the
+ID token, so a claim must be in userinfo to be kept. The fields are as of
+the connect; a reconnect refreshes them, a refresh of the token does not.
+
 ## The tools
 
 | Tool | Does | Asks first |

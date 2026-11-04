@@ -103,6 +103,13 @@ class TurnCalls:
         return self._calls[self._awaiting] if self._awaiting is not None else None
 
     @property
+    def running(self) -> bool:
+        """Whether a call is still going. False once the last one has finished:
+        the model is then reading the results and writing, which a view says
+        instead of leaving the last call's word on the screen."""
+        return bool(self._open)
+
+    @property
     def calls(self) -> list[Call]:
         return list(self._calls)
 

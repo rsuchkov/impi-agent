@@ -46,6 +46,9 @@ class OAuth2Config:
     # (client_secret_post) or as HTTP Basic (client_secret_basic).
     client_auth: Literal["post", "basic"] = "post"
     account_fields: Mapping[str, str] = field(default_factory=lambda: dict(_ACCOUNT_FIELDS))
+    # Fields of the userinfo answer kept beside the four, by the provider's
+    # names (``groups``, say) — in ``ProviderAccount.extra`` as they came.
+    account_extra: tuple[str, ...] = ()
     extra_authorize_params: Mapping[str, str] = field(default_factory=dict)
     # How long an access token lives when the answer does not say; None = it
     # does not expire.
@@ -125,6 +128,7 @@ class OAuth2Provider:
                 username=str(data.get(names["username"]) or ""),
                 name=str(data.get(names["name"]) or ""),
                 email=str(data.get(names["email"]) or ""),
+                extra={name: data[name] for name in self._config.account_extra if name in data},
             )
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
             raise ProviderUnavailable("userinfo answer does not parse") from exc
