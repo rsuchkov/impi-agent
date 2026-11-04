@@ -472,6 +472,11 @@ def test_the_calls_of_a_turn_are_collected_from_the_events_as_they_come() -> Non
     assert calls.latest == ""  # the newest call has no caption and no remark: only the count
     assert calls.on_event(ToolFinished("c2", "read")) is True
     assert calls.running is False  # nothing left running: the model is writing
+    calls.on_event(ToolStarted("c3", "search", {"q": "y"}, caption="Searching for y"))
+    calls.on_event(ToolFinished("c3", "search"))
+    assert calls.latest == ""  # a finished call's caption is no longer what the turn is on
+    assert calls.on_event(TextProgress("Now the answer")) is True
+    assert calls.latest == "Now the answer"  # the remark since the last call is
 
 
 async def test_the_widget_tracer_takes_the_gateway_the_flow_knows(tmp_path) -> None:

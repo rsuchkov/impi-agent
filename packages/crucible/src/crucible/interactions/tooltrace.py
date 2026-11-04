@@ -164,9 +164,8 @@ def render_counter(
     a call's caption or the model's last remark on the way — or, while a call
     waits on the person's answer, that call, since a turn waiting for them
     should not read as a tool that is slow. Once no call runs (``running``
-    False) the line says the calls are done and the answer is being written;
-    a remark the model made since is kept after that, a finished call's
-    caption is not — it would read as a tool that is slow. ``latest`` is made
+    False) the line says the calls are done and the answer is being written,
+    ``latest`` — the remark since, by ``TurnCalls`` — after that. ``latest`` is made
     one line of bounded length here — the remark is the model's text.
     ``steps`` go under the line (``steps_of``): a platform with a plan of its
     own draws them as one."""
@@ -393,11 +392,8 @@ class TurnTrace:
             self._dirty = False
             self._wake.clear()
             waiting = self._calls.awaiting
-            # Once the last call has finished, the latest word is the remark
-            # since it (if any), never the finished call's caption.
-            latest = self._calls.latest if self._calls.running else self._calls.remark
             await self._draw(render_counter(
-                len(self._calls), latest, awaiting=waiting, steps=steps_of(self._calls.calls, waiting),
+                len(self._calls), self._calls.latest, awaiting=waiting, steps=steps_of(self._calls.calls, waiting),
                 running=self._calls.running,
             ))
             if self._closed:

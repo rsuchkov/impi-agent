@@ -62,8 +62,9 @@ class ProviderAccount:
     """Who the person is at the provider. ``extra`` is what else the provider
     said of them that the application asked to keep (``account_extra`` in the
     provider's configuration) — a list of groups, a department — by the
-    provider's own field names and in its own shapes; as of the connect, so
-    a reconnect is what refreshes it."""
+    provider's own field names, as JSON values (what a userinfo answer
+    carries: strings, numbers, lists, objects); as of the connect, so a
+    reconnect is what refreshes it."""
 
     id: str
     username: str

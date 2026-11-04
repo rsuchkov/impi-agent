@@ -152,8 +152,12 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   beside the reply after a click, a slash command or a scheduled run. Ask the
   operator to open it and paste the row that failed: it
   names the tool, its caption when the tool wrote one ("Reading PROJ-123"),
-  its arguments and how long it ran; while the turn runs, the counter shows
-  the latest caption or the model's remark after the count — not a bug. It
+  its arguments and how long it ran; while a call runs, the counter shows
+  the latest caption or the model's remark after the count, and once the
+  last call has finished it reads `⚙️ N tools done · writing the answer…`
+  (a remark the model made since after it): the model is composing the
+  reply, the longest part of a turn on a slow model — not a tool that
+  hangs. It
   never shows a result,
   by design (`$IMPI_ROOT/docs/tool-trace.md`), so "what did the tool return"
   still has to come from the log.

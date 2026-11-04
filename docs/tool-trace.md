@@ -15,6 +15,9 @@ command, a scheduled run) keeps it beside the reply:
 ⚙️ Running 2 tools… · waiting for you: Commenting on PROJ-123   ← a confirmation card is up
 ✅ Searching for release notes
 ⏳ Commenting on PROJ-123 — waiting for you · Found the notes, now the ticket itself
+⚙️ 2 tools done · writing the answer…                           ← the last call finished; the reply is being composed
+✅ Searching for release notes
+✅ Commenting on PROJ-123
 ```
 
 Under the line, the steps so far, each in its state, and under each the

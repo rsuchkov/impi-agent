@@ -311,7 +311,7 @@ deployment configured; the engine makes no model calls itself.
 | a scheduled task's prompt | the provider, at each run | the inventory | until the task is removed |
 | who said what to whom (conversation ↔ session, last user) | nowhere | the inventory | until the session is deleted |
 | the broker's ledger (which agent asked for which secret, the command, the decision) | nowhere | the broker's own database | until removed by hand; never holds a value |
-| people's connected accounts: tokens (sealed), and the account's id, username, name and email | the provider, on each call a tool makes as them | the inventory | until they disconnect, reconnect, or a 401 ends it |
+| people's connected accounts: tokens (sealed), and the account's id, username, name, email and the userinfo fields `CONNECTION_ACCOUNT_EXTRA__<NAME>` names (a groups claim), readable | the provider, on each call a tool makes as them | the inventory | until they disconnect, reconnect, or a 401 ends it |
 | the engine's log | stdout, whatever captures it | the container runtime's log | the runtime's rotation policy |
 
 Two things to know about the session files: they are plain JSONL on the data
@@ -334,7 +334,7 @@ engine use it at every start.
 | the operator's broker certificate | `~/.impi/operator`, mounted into nothing an agent runs in | the operator |
 | the store's unseal key and the broker's credential | `~/.impi/ward-recovery.txt` on the host, mode 600, mounted into nothing | the operator |
 | the tool token and session proof | the runtime's environment, minted at spawn | the process; an unconfined neighbour with a shell |
-| people's connected accounts (access and refresh tokens) | the inventory, sealed with `CONNECTIONS_KEYS` (Fernet) | the engine; the database alone reads whose and which account, not the tokens. The key is in `conf/.env`, so an unconfined agent with `read` has both — the tokens never enter an agent's process otherwise ([connections.md](connections.md)) |
+| people's connected accounts (access and refresh tokens) | the inventory, sealed with `CONNECTIONS_KEYS` (Fernet) | the engine; the database alone reads whose and which account and the userinfo fields kept beside it, not the tokens. The key is in `conf/.env`, so an unconfined agent with `read` has both — the tokens never enter an agent's process otherwise ([connections.md](connections.md)) |
 | the OAuth applications' secrets (`CONNECTION_CLIENT_SECRET__*`) | `conf/.env`, in the clear | the engine; an unconfined agent with `read` |
 
 The engine's own configuration is the soft spot of an unconfined agent: one
@@ -443,7 +443,11 @@ Things the design does not solve, stated so nobody relies on them by accident.
   channel or a merged thread is not designed yet. They are not offered at all
   on the ws and http gateways, whose user ids are whatever the calling program
   says, nor in a scheduled turn. A connection outlives its owner's chat
-  account until they disconnect or the provider revokes it.
+  account until they disconnect or the provider revokes it, and what the
+  provider said of the person at the connect (`account.extra`, a groups
+  claim) stays as said until they connect again: a group taken away at the
+  provider is still in the record, so a rule that reads it decides on the
+  connect's groups, not today's.
 - **Prompt injection is bounded, not eliminated.** The allowlist, the gate and
   the broker decide what a talked-into agent can do; nothing decides whether
   it was talked into it.

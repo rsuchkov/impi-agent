@@ -78,8 +78,9 @@ class TurnCalls:
     person watching reads *between* calls: it is ``remark`` until the next
     call starts, and then that call's — what the model said before calling.
     ``latest`` is the latest word on what the turn is on: the remark since
-    the last call, else the newest call's caption, else the remark that led
-    to it. ``awaiting`` is the call put to the person (a card is up), until
+    the last call, else — while a call runs — the newest call's caption, else
+    the remark that led to it; once nothing runs, a finished call's caption
+    is no longer what the turn is on, and only the remark since is. ``awaiting`` is the call put to the person (a card is up), until
     it finishes. ``on_event`` says whether the event changed any of this, so
     a view redraws on a call and not on a remark before any."""
 
@@ -93,7 +94,7 @@ class TurnCalls:
     def latest(self) -> str:
         if self.remark:
             return self.remark
-        if not self._calls:
+        if not self._calls or not self._open:
             return ""
         newest = self._calls[-1]
         return newest.caption or newest.remark

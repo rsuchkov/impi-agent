@@ -670,3 +670,5 @@ async def test_what_else_the_provider_said_is_kept_with_the_connection_and_seen_
     assert record is not None
     await store.save_connection(replace(record, account_extra="not json"))
     assert (await service.account(OWNER, "gitlab")).extra == {}  # type: ignore[union-attr]
+    await store.save_connection(replace(record, account_extra="[1]"))
+    assert (await service.account(OWNER, "gitlab")).extra == {}  # type: ignore[union-attr]

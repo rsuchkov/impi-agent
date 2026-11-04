@@ -19,7 +19,7 @@ when a release is cut, and `impi update` shows the target version's section.
   names the fields to keep — a groups claim, a department — and they come as
   the provider sent them in `ProviderAccount.extra`: to the account rule and
   the owner rule at the connect, from `account()` and `connected()` after,
-  and in the record (`account_extra`, JSON; a column added on open). As of
+  and in the record (`account_extra`, JSON; a SQLite column added on open). As of
   the connect; a reconnect refreshes them.
 
 ## v0.45.0 — 2026-11-03

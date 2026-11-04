@@ -846,7 +846,9 @@ credential, is another user's credential.
   `finish(state, code, owner=…, facts=…)` from there — `CallbackServer(…,
   start_again=…)` is a ready page, told what its "try again" should say), and
   an `AccountPolicy` whose `refusal(owner, provider, account, facts)` says why
-  an account may not be bound to that person, or None (`account.extra` holds the userinfo fields the provider was asked to keep, `OAuth2Config.account_extra` — a groups claim); `facts` is what your
+  an account may not be bound to that person, or None (`account.extra`
+  holds the userinfo fields the provider was asked to keep,
+  `OAuth2Config.account_extra` — a groups claim); `facts` is what your
   route knew about the person when it finished the connect (an email, a
   realm), passed as plain strings rather than through a context variable
   around the call. When whom a connection belongs to is known only once the

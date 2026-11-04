@@ -13,6 +13,7 @@ operator names instead of an agent:
     CONNECTION_API_URL__GITLAB=…            where tools call; gitlab: <base>/api/v4
     CONNECTION_MATCH_EMAIL__GITLAB=true     the account's email must be the chat user's
     CONNECTION_AGENTS__GITLAB=assistant,…   which agents may use it; unset = all
+    CONNECTION_ACCOUNT_EXTRA__GITLAB=groups,…   userinfo fields kept beside the account's four
 
 A name is the key's suffix lower-cased, ``_`` read as ``-``: ``GITLAB`` is
 ``gitlab``. Read from the environment and the .env file, the environment
