@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.46.0 — 2026-11-04
+
 - **The progress line says the answer is being written.** Once the last tool
   call has finished, the line under the steps read "Running N tools… ·
   <the finished call's caption>" until the reply came — on a slow model the
