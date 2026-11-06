@@ -870,7 +870,7 @@ class AgentFlow:
                 label = _LABEL_POINTED_AT.format(author=f"@{speaker(m.quoted.author)}")
                 lines.append(f"{_context_open(tag, label)}\n{quoted(m.quoted.text)}\n{_context_close(tag)}")
             if m.event is not None:
-                label = _LABEL_EVENT.format(source=speaker(m.event.source))
+                label = m.event.label or _LABEL_EVENT.format(source=speaker(m.event.source))
                 lines.append(f"{_context_open(tag, label)}\n{quoted(m.event.text)}\n{_context_close(tag)}")
             lines.append(f"[{author}{when}]: {quoted(m.text, inline=True)}")
             lines += [_attachment_line(a) for a in m.attachments]

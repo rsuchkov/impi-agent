@@ -29,6 +29,11 @@ from typing import Any, NoReturn, Protocol
 # that would act as a person (their connected accounts, say) must not. An
 # application that hands the turn a scope of its own has decided that itself.
 ENGINE_TURN_ATTRIBUTE = "engine_turn"
+# The gateway the person behind this turn reached the engine through, when it
+# is not the gateway the turn's own message came through — a turn one agent
+# opened for another on a person's behalf. What decides whose connected
+# accounts the turn may act with; absent, the message's gateway does.
+PERSON_GATEWAY_ATTRIBUTE = "person_gateway"
 
 
 class TurnSecrets:
@@ -103,6 +108,11 @@ class TurnPlaces(Protocol):
     """Where the turn on a session answers right now, or None between turns."""
 
     def place(self, runtime_session_id: str) -> TurnPlace | None: ...
+
+
+class SessionTurns(TurnScopes, TurnPlaces, Protocol):
+    """The turn on a session as whoever acts on its behalf needs it: its scope
+    and where it answers. The registry is one."""
 
 
 # What a turn is told while it runs — an event for whoever shows the turn

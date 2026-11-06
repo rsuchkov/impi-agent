@@ -6,7 +6,31 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **An agent asks the agents it trusts without a card, as the person.** The
+  task of v0.47.0 crosses a boundary — an agent that must see no more than the
+  task. A specialist of the same person's is the other case, and
+  `runtime.trusted_agents` in the asker's `agent.yaml` names them, each with
+  what it is handed of the person's: `secrets` (turn secrets by name, none by
+  default), `connections` (the person's connected accounts, off by default),
+  `context` (`task`, or `conversation` for the conversation so far, as the
+  platform keeps it). Two tools come with it: `ask_agent` hands a task to a
+  trusted agent with no card and answers with its id at once, so several can be
+  asked in a row; `await_agents` waits for them and reads each answer, the
+  asker's turn paused as for a card. The trusted agent's turn runs through the
+  `trusted-delegation` door as the person, with the named secrets (in memory,
+  never stored), the asker's attributes and — when handed — the person's
+  accounts (`PERSON_GATEWAY_ATTRIBUTE` in `crucible.ports.turn` names their
+  gateway for the application's owner rule); its confirmed tools ask, with the
+  card in the asker's conversation under its name ("jira: Create issue"),
+  answered by the same person; its steps show in the asker's progress under
+  its name; and it ends with the asker's turn (`asker_turn_ended`). A trusted
+  agent may keep one session per asking conversation
+  (`runtime.delegation_session: per_conversation`; `per_task` stays the
+  default). For an application: `AgentSpec.trusted_agents`/`TrustedAgent`,
+  `DelegationService.ask`/`await_answers`, `TrustedLink`/`TrustedLinks`,
+  `GATEWAY_TRUSTED_DELEGATION`, `TrustedDelegationChatClient`, `TrustedTurns`,
+  `TrustedTurnTracer`, `TRUSTED_TURN_DENIED`, `EventReport.label`,
+  `SessionTurns`; `DelegationRecord` gains `trusted` and `to_conversation_id`.
 
 ## v0.47.0 — 2026-11-06
 

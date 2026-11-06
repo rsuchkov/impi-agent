@@ -56,6 +56,9 @@ runtime:
   # confinement: agent        # optional; conversation (default) | agent | off
   # confinement_write: [/srv/reports]   # optional; paths beyond its own
   # network_ports: [8080]      # optional; TCP ports beside RUNTIME_NETWORK_PORTS it may connect to
+  # trusted_agents: {jira: {secrets: [jira_token], connections: true, context: conversation}}
+  #                            # optional; agents asked with no card, as the person, with what each is handed
+  # delegation_session: per_task  # optional; per_conversation = one session per asking conversation for tasks handed to it
   # shared_dirs: [crm-code]    # optional; directories shared with every agent naming the same —
                                #   the process gets $AGENT_SHARED_DIR__CRM_CODE; every agent naming it reads all of it
 ```
@@ -98,6 +101,7 @@ and logs why. Common cases:
 | `ask_user_buttons`, `ask_user_select`, `open_form`, `open_screen` | `INTEGRATIONS_ENABLED=true`, and a gateway someone can click back from (not `http`) |
 | `create_agent`, `install_skill`, `remove_skill` — anything that needs confirming | `INTEGRATIONS_ENABLED=true` (somebody to ask) |
 | `send_file` | `ATTACHMENTS_ENABLED=true` |
+| `ask_agent`, `await_agents` | the asker's `runtime.trusted_agents` names the agent (with `secrets`, `connections`, `context` for what is handed over); no card — the trusted agent runs as the same person, its own confirmed tools ask in the asker's conversation; the task ends with the asker's turn, so the model must `await_agents` before it answers |
 | `delegate`, `delegation_status`, `cancel_delegation` | `INTEGRATIONS_ENABLED=true` (the task is confirmed) and a gateway where a card can be answered (Mattermost, Slack, http; not ws). The other agent needs no bot and no place in the conversation — the engine opens its turn on the task alone; `headless: true` in its `agent.yaml` makes an agent reached by tasks only (no token). Its turn has no widgets, ephemeral posts, channel-admin tools, confirmed tools, files out or connected accounts; `runtime.tools_by_gateway: {delegation: [...]}` narrows the rest |
 | `send_ephemeral` | a gateway that has ephemeral messages |
 | `schedule_task`, `list_tasks`, `cancel_task`, `pause_task` | `SCHEDULER_ENABLED=true` |

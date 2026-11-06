@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS delegations (
   finished_at     TEXT NOT NULL DEFAULT '',
   answer          TEXT NOT NULL DEFAULT '',
   notice          TEXT NOT NULL DEFAULT '',
-  delivered_at    TEXT NOT NULL DEFAULT ''
+  delivered_at    TEXT NOT NULL DEFAULT '',
+  to_conversation_id TEXT NOT NULL DEFAULT '',
+  trusted         INTEGER NOT NULL DEFAULT 0
 );
 -- A restart asks for every task still running; nothing else scans the table.
 CREATE INDEX IF NOT EXISTS idx_delegations_status ON delegations (status);
@@ -45,7 +47,9 @@ _PLACEHOLDERS = ", ".join("?" * len(_FIELDS))
 
 
 def _record(row: tuple) -> DelegationRecord:
-    return DelegationRecord(**dict(zip(_FIELDS, row, strict=True)))
+    values = dict(zip(_FIELDS, row, strict=True))
+    values["trusted"] = bool(values["trusted"])
+    return DelegationRecord(**values)
 
 
 class DelegationStoreMixin(SqliteBase):

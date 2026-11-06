@@ -106,6 +106,8 @@ runtime:
   confinement_write: [ ... ]  # OPTIONAL — paths beyond its own it may write (also _read)
   network_ports: [ ... ]   # OPTIONAL — TCP ports beside RUNTIME_NETWORK_PORTS its process may connect to
   shared_dirs: [ ... ]     # OPTIONAL — directories shared with every agent naming the same ($AGENT_SHARED_DIR__<NAME>)
+  trusted_agents: { ... }  # OPTIONAL — agents this one asks with no card, as the person: {name: {secrets, connections, context}}
+  delegation_session: per_task  # OPTIONAL — per_conversation keeps one session per asking conversation for tasks handed to it
   loop_guard: true         # OPTIONAL — a guard against a turn running in circles; true or {repeat, same_result, calls}
 ```
 

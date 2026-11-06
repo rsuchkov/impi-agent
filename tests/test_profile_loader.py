@@ -455,6 +455,37 @@ def test_runtime_network_ports_are_read_each_once_and_must_be_ports(tmp_path: Pa
             FsProfileStore(tmp_path, library=None).get("assistant")
 
 
+def test_trusted_agents_are_named_with_what_each_is_handed(tmp_path: Path) -> None:
+    from crucible.ports.agent.spec import TrustedAgent
+
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime(
+        "  trusted_agents:\n    jira:\n      secrets: [jira_token, jira_token]\n      connections: true\n      context: conversation\n    notes: {}\n"
+    ))
+    spec = FsProfileStore(tmp_path, library=None).get("assistant")
+    assert spec.trusted_agents == (
+        TrustedAgent("jira", secrets=("jira_token",), connections=True, context="conversation"),
+        TrustedAgent("notes"),  # everything default: no secrets, no accounts, the task alone
+    )
+    assert spec.trust_in("jira") is not None and spec.trust_in("coder") is None
+    manifest = tmp_path / "agents" / "assistant" / "agent.yaml"
+    manifest.write_text(_yaml_with_runtime("  trusted_agents: [jira, notes]\n"), encoding="utf-8")
+    assert [t.name for t in FsProfileStore(tmp_path, library=None).get("assistant").trusted_agents] == ["jira", "notes"]
+    for body, problem in [
+        ("  trusted_agents: jira\n", "must be a list of agent names or a mapping"),
+        ("  trusted_agents:\n    jira:\n      secrets: token\n", "secrets must be a list"),
+        ("  trusted_agents:\n    jira:\n      connections: yes please\n", "connections must be true or false"),
+        ("  trusted_agents:\n    jira:\n      context: thread\n", "context must be one of task, conversation"),
+        ("  trusted_agents:\n    jira:\n      files: true\n", "unknown keys: files"),
+        ("  delegation_session: forever\n", "delegation_session must be one of per_task, per_conversation"),
+    ]:
+        manifest.write_text(_yaml_with_runtime(body), encoding="utf-8")
+        with pytest.raises(ProfileError, match=problem):
+            FsProfileStore(tmp_path, library=None).get("assistant")
+    manifest.write_text(_yaml_with_runtime("  delegation_session: per_conversation\n"), encoding="utf-8")
+    assert FsProfileStore(tmp_path, library=None).get("assistant").delegation_session == "per_conversation"
+    assert FsProfileStore(tmp_path, library=None).get("assistant").trusted_agents == ()
+
+
 def test_a_headless_agent_says_so_in_one_word(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", "name: assistant\nrole: r\nheadless: true\n")
     assert FsProfileStore(tmp_path, library=None).get("assistant").headless is True

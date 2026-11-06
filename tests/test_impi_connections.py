@@ -17,7 +17,11 @@ from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.gateways import GatewayConfig
 from crucible.interactions.screens import ScreenState
 from crucible.ports.chat.types import UserProfile
-from crucible.ports.turn import ENGINE_TURN_ATTRIBUTE, TurnScope
+from crucible.ports.turn import (
+    ENGINE_TURN_ATTRIBUTE,
+    PERSON_GATEWAY_ATTRIBUTE,
+    TurnScope,
+)
 from crucible.skills import SkillLibrary
 from impi import cli
 from impi.config import ImpiSettings
@@ -255,6 +259,13 @@ async def test_a_built_service_acts_for_the_chat_user_of_the_agent_asking(
 
     assert connections.owner_for("assistant", "u1") == "mattermost:u1"
     assert connections.owner_for("idle", "u1") is None
+    # A turn one agent opened for another, as the person: their accounts are
+    # the ones under the gateway they came through — and none at all when the
+    # trust did not hand them over.
+    handed = TurnScope(turn_id="t", attributes={PERSON_GATEWAY_ATTRIBUTE: "slack"})
+    assert connections.owner_for("helper", "U1", "trusted-delegation", handed) == "slack:U1"
+    assert connections.owner_for("helper", "U1", "trusted-delegation", TurnScope(turn_id="t")) is None
+    assert connections.owner_for("helper", "U1", "delegation", TurnScope(turn_id="t")) is None
     assert connections.providers_for("assistant") == ("gitlab",) and connections.providers_for("helper") == ()
     access = connections.tool_access()
     granted = access("assistant", "u1", "mattermost", None)

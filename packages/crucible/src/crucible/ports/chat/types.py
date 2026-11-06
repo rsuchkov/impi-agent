@@ -369,6 +369,10 @@ class EventReport:
 
     source: str
     text: str
+    # How the block is headed, when "event reported by <source>" is not the
+    # right words for it — a conversation handed on for context, say. "" = the
+    # flow's own words.
+    label: str = ""
 
 
 @dataclass(frozen=True)

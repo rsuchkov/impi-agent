@@ -324,7 +324,10 @@ And from the session check:
   such a turn has no person and no conversation of anybody's, so widgets,
   confirmed tools, `send_file`, connected accounts and `delegate` itself are
   refused there by design.
-- Tasks handed between agents — `X cannot take a task here` (the other agent
+- Tasks handed between agents — `X is not an agent you trust; hand the task on
+  with delegate` (`ask_agent` to an agent the asker's `runtime.trusted_agents`
+  does not name), `asker turn ended` in `delegation_status` (the asker answered or
+  was stopped before `await_agents`; the trusted task was called off), `X cannot take a task here` (the other agent
   runs nowhere the engine can open a turn: no profile, or a ws-only one), `no
   task '<id>' was handed on from this conversation` (the id is another
   conversation's or another agent's), `<file> changed after the card was

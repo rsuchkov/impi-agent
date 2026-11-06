@@ -55,6 +55,10 @@ runtime:
   confinement_write: [state]          # optional; more it may write (relative = in the profile)
   network_ports: [8080]   # optional; TCP ports beside RUNTIME_NETWORK_PORTS its process may connect to
   shared_dirs: [crm-code] # optional; directories shared with every agent naming the same (see below)
+  trusted_agents:         # optional; agents this one asks with no card, as the person (see "Handing a task on")
+    jira: {secrets: [jira_token], connections: true, context: conversation}
+  delegation_session: per_task   # optional; per_task | per_conversation — how this agent keeps the turns on
+                                 # tasks handed to it (one session per task, or per asking conversation)
   packages:               # OPTIONAL, and only with agent containers (see below)
     apt: [ffmpeg]
 headless: false           # optional; true = nobody talks to it: no gateway, no token, reached
@@ -270,6 +274,59 @@ holds what another may not see still have that other's work. Works wherever
 a card can be answered — the chat gateways and the http panel; not on `ws`,
 where nothing answers a card. See
 [security.md](security.md#one-agent-and-another).
+
+### Asking an agent you trust
+
+The task above crosses a boundary: an agent that must see no more than the
+task. A **specialist of the same person's** is the other case — the same
+model and deployment, acting for the same person, that only knows more of
+one area (Jira, say) and holds its tools. For that one the card on every
+hand-off decides nothing, and the asker needs the answer in its own turn.
+The asker's profile says whom it trusts, and what each trusted agent is
+handed of the person's:
+
+```yaml
+runtime:
+  trusted_agents:
+    jira:
+      secrets: [jira_token]   # turn secrets handed over, by name; default none
+      connections: true       # the person's connected accounts; default false
+      context: conversation   # task (default) | conversation: the conversation so far goes too
+    notes: {}                 # trusted, handed nothing of the person's
+```
+
+Trust is the asker's to declare — it is the asker that hands over what is
+the person's — and the agents named must exist. The asker then has two more
+tools: **`ask_agent`** (agent, task, files) hands a task to a trusted agent
+with **no card** and returns a task id at once, so the asker can ask several
+agents in a row; **`await_agents`** (task ids) waits until they have ended
+and returns each one's status, answer and notice — the asker's turn waits on
+them the way it waits on a card, its own timeout paused. The trusted agent's
+turn runs through its own door, `trusted-delegation`, **as the person**: with
+the named secrets of the asker's turn (the same values, in memory, never
+stored), the person's connected accounts when `connections` is on (the
+engine's connection rule reads the person's own gateway from the turn), and
+the asker's turn attributes. Its **confirmed tools work**: a card it raises is
+posted in the asker's conversation — the same thread or journal the person is
+watching, by the asker's own bot, with the agent's name ahead of the title
+("jira: Create issue") — and the same person answers it; the asker's progress
+shows the trusted agent's steps under its name (`jira · Reading PROJ-7`) and
+says "waiting for you" while its card is up. What it still may not do:
+widgets, forms, ephemeral posts, channel administration, `send_file`,
+scheduling, handing on again. With `context: conversation`, the asker's
+conversation so far goes with the task as a context block — the thread or the
+channel's recent messages, as the platform keeps them; a direct message's
+history is the asker's memory alone and nothing goes. **A trusted task ends
+with the asker's turn**: if the asker answers without awaiting, or is stopped,
+the tasks still running are called off (`asker_turn_ended`), since what they
+were handed was that turn's. `delegate` to a trusted agent still works as to
+any other — with a card, as a turn of its own, nothing of the person's.
+
+A trusted agent that is asked again and again in one conversation can keep
+**one session per asking conversation** instead of one per task:
+`runtime.delegation_session: per_conversation` in its own `agent.yaml` (the
+default is `per_task`). It then remembers the project and the fields from the
+last task; a different asking conversation is a different session still.
 
 ## Asking with controls (widgets and forms)
 

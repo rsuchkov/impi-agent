@@ -10,10 +10,14 @@ to show it to: the turn answers to no person, and a tool of its that needs
 one is refused where it asks. One client per task; the one an agent's sink
 holds for the door itself (``keeps=False``) is reached only by what resolves a
 chat by the conversation's gateway, and keeps nothing — the task's own client
-is the one read.
+is the one read. The trusted door's client (``TrustedDelegationChatClient``)
+differs in one thing: a card or a notice goes to the asker's conversation,
+where the person is.
 """
 
-from crucible.ports.chat.client import NobodyToAnswer
+from dataclasses import replace
+
+from crucible.ports.chat.client import ChatClient, NobodyToAnswer
 from crucible.ports.chat.types import (
     Action,
     ApprovalCard,
@@ -24,6 +28,7 @@ from crucible.ports.chat.types import (
     PostSnippet,
     UserProfile,
 )
+from crucible.ports.delegation import TrustedLink, TrustedLinks
 
 # How much of the asked agent's answer is kept and handed back.
 ANSWER_MAX = 20_000
@@ -113,3 +118,63 @@ class DelegationChatClient:
 
     async def open_dialog(self, trigger_id: str, form: Form, *, submit_url: str, state: str) -> None:
         raise NobodyToAnswer("a task's turn answers to no person who could fill a form")
+
+
+class TrustedDelegationChatClient(DelegationChatClient):
+    """The trusted door's client: what the turn says is kept for the asker's
+    turn as before, and what it puts to a person — a card, a notice — goes to
+    the asker's conversation, through the asker's own client, under the asked
+    agent's name (``links`` says whose task a conversation is)."""
+
+    def __init__(self, links: TrustedLinks, *, keeps: bool = True) -> None:
+        super().__init__(keeps=keeps)
+        self._links = links
+        # Which client a card was posted through, by its post id: a rewrite or a
+        # retraction goes the same way.
+        self._posted: dict[str, tuple[ChatClient, str]] = {}
+
+    def _link(self, ref: ConversationRef, what: str) -> TrustedLink:
+        link = self._links.link_for(ref.conversation_id)
+        if link is None:
+            raise NobodyToAnswer(f"a task's turn answers to no person who could {what}")
+        return link
+
+    async def post_notice(self, ref: ConversationRef, text: str, *, code: str = "") -> None:
+        await super().post_notice(ref, text, code=code)
+        link = self._links.link_for(ref.conversation_id)
+        if link is not None:
+            await link.poster.post_notice(link.ref, f"{link.to}: {text}", code=code)
+
+    async def post_confirmation(
+        self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        link = self._link(ref, "confirm")
+        post_id = await link.poster.post_confirmation(link.ref, _named_for(card, link.to), actions, callback_url=callback_url)
+        if post_id:
+            self._posted[post_id] = (link.poster, link.to)
+        return post_id
+
+    async def update_confirmation(
+        self, post_id: str, card: ApprovalCard, actions: list[Action] | None = None, *, callback_url: str = "",
+    ) -> None:
+        posted = self._posted.get(post_id)
+        if posted is not None:
+            poster, to = posted
+            await poster.update_confirmation(post_id, _named_for(card, to), actions, callback_url=callback_url)
+
+    async def retract(self, post_id: str, text: str) -> None:
+        posted = self._posted.pop(post_id, None)
+        if posted is not None:
+            await posted[0].retract(post_id, text)
+
+    async def delete_post(self, post_id: str) -> None:
+        posted = self._posted.pop(post_id, None)
+        if posted is not None:
+            await posted[0].delete_post(post_id)
+
+
+def _named_for(card: ApprovalCard, agent: str) -> ApprovalCard:
+    """The card as the asker's conversation shows it: the asked agent's name
+    ahead of the title, so a person reads whose tool asks — the card's own
+    ``agent`` already says so where the card has no title."""
+    return replace(card, title=f"{agent}: {card.title}") if card.title else card

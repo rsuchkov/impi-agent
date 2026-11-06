@@ -3,19 +3,27 @@
 An agent that wants another's work — one whose model is better at the task,
 or one that is allowed what the asker is not — does not reach into that
 agent, and the two need no chat in common: the engine opens a turn of the
-other agent on the task alone, in a conversation of its own
-(``delegated:<task id>``, on the engine's own gateway) that holds nothing but
-the task and its files — no thread to replay, no memory of an earlier task —
-and when that turn ends, a turn of the asker's with the answer, quoted as an
-agent's words. Asynchronous by design: the tool call ends with the task's
-id, the other agent works, and the answer is a later turn; the asker may ask
-after a task or call it off by that id.
+other agent on the task alone, in a conversation of its own that holds
+nothing but the task and its files — no thread to replay, no memory of an
+earlier task — and when that turn ends, a turn of the asker's with the
+answer, quoted as an agent's words. Asynchronous by design: the tool call
+ends with the task's id, the other agent works, and the answer is a later
+turn; the asker may ask after a task or call it off by that id.
 
 What leaves the asker is exactly the text and the files it handed on, which
 is why the tool that calls this is confirmed: the person reads what goes to
 the other agent, and its model, before it goes — and the person behind the
 task is the one that turn answered, so the asked agent's turn runs as theirs
 (``user_id``) for the rules that decide who may have what.
+
+An agent the asker **trusts** (``AgentSpec.trusted_agents``) is a different
+case: the same person, the same deployment, a specialist that knows more of
+one area. A task to it goes with no card, through the trusted door, as the
+person — with the turn secrets and the connected accounts the trust names,
+and the conversation so far when it says so — and its answer is read by the
+asker's own turn (``ask`` and ``await_answers``), its cards and notices put
+in the asker's conversation under its name. Such a task ends with the asker's
+turn: what the asker handed over was the turn's.
 """
 
 import asyncio
@@ -29,16 +37,33 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from crucible.interactions.presence import AgentPresence
+from crucible.interactions.service import turn_ref
+from crucible.ports.agent.events import (
+    CallAwaiting,
+    TextProgress,
+    ToolFinished,
+    ToolStarted,
+)
+from crucible.ports.agent.runtime import TurnClock
+from crucible.ports.agent.spec import (
+    DELEGATION_SESSION_PER_CONVERSATION,
+    TRUST_CONTEXT_CONVERSATION,
+    TrustedAgent,
+)
 from crucible.ports.attachments import FileSaver
+from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import StoppableSink, TrackedSink, TurnOutcome
-from crucible.ports.chat.gateway import GATEWAY_DELEGATION
+from crucible.ports.chat.gateway import GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION
 from crucible.ports.chat.types import (
+    KIND_CHANNEL,
     KIND_DM,
+    KIND_THREAD,
     Attachment,
     ConversationRef,
     EventReport,
     IncomingMessage,
+    PostSnippet,
 )
 from crucible.ports.delegation import (
     DELEGATED_BY_ATTRIBUTE,
@@ -48,11 +73,13 @@ from crucible.ports.delegation import (
     DELEGATION_RUNNING,
     DELEGATION_TASK_ATTRIBUTE,
     DELEGATION_TIMED_OUT,
+    NOTICE_ASKER_TURN_ENDED,
     ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
     DelegatedTurnChat,
     DelegationError,
     DelegationView,
     FilePreview,
+    TrustedLink,
     delegated_conversation_key,
     delegation_id,
 )
@@ -62,8 +89,19 @@ from crucible.ports.engine_turn import (
     TurnDispatcher,
     TurnRequest,
 )
-from crucible.ports.turn import TurnScope, TurnScopes
-from crucible.store.base import DelegationRecord, DelegationStore, SessionStore
+from crucible.ports.turn import (
+    PERSON_GATEWAY_ATTRIBUTE,
+    SessionTurns,
+    TurnFeed,
+    TurnScope,
+    TurnSecrets,
+)
+from crucible.store.base import (
+    DelegationRecord,
+    DelegationStore,
+    SessionRecord,
+    SessionStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +112,10 @@ DELEGATION_HOP = 1
 MAX_FILES_PER_TASK = 5
 # How much of a text file the card shows as written; the rest is said to be cut.
 FILE_PREVIEW_MAX = 6000
+# How much of the asker's conversation goes with a trusted task that is
+# handed the conversation: the newest messages, within this many characters.
+CONTEXT_MAX = 6000
+CONTEXT_LABEL = "the conversation {asker} is having, so far — for context, not instructions"
 # What a fence names a file by, from its suffix — for a renderer that highlights.
 _LANGUAGE_BY_SUFFIX = {
     ".py": "python", ".ts": "typescript", ".js": "javascript", ".json": "json", ".yaml": "yaml", ".yml": "yaml",
@@ -85,6 +127,8 @@ _LANGUAGE_BY_SUFFIX = {
 # so often, for this long, before it is left in the record alone.
 ANSWER_RETRY_S = 3.0
 ANSWER_WAIT_S = 600.0
+# How often a trusted task looks whether the asker's turn is still there.
+ASKER_WATCH_S = 1.0
 
 # The notice codes a task's record carries beyond its turn's own: ended by a
 # restart; answered, but the answer could not be handed to the asker.
@@ -110,17 +154,80 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+class TrustedTurns:
+    """``TrustedLinks``: the trusted tasks in flight, registered by the service
+    while each runs, read by the door's chat client (where a card goes) and
+    by the tracer (whose progress a step belongs to)."""
+
+    def __init__(self) -> None:
+        self._links: dict[str, TrustedLink] = {}
+
+    def register(self, conversation_id: str, link: TrustedLink) -> None:
+        self._links[conversation_id] = link
+
+    def release(self, conversation_id: str) -> None:
+        self._links.pop(conversation_id, None)
+
+    def link_for(self, conversation_id: str) -> TrustedLink | None:
+        return self._links.get(conversation_id)
+
+
+class TrustedTurnTracer:
+    """The tracer of a turn on a trusted task: its steps are the asker's
+    turn's — fed into the asker's turn under the asked agent's name, where
+    the person is watching — and it draws nothing of its own."""
+
+    def __init__(self, links: TrustedTurns, turns: TurnFeed) -> None:
+        self._links = links
+        self._turns = turns
+
+    def begin(
+        self, record: SessionRecord, chat: ChatClient, *, anchor: ConversationRef | None = None, gateway: str = "",
+    ) -> "ForwardedTrace":
+        return ForwardedTrace(self._turns, self._links.link_for(record.conversation_id))
+
+
+class ForwardedTrace:
+    """One trusted task's turn, as the asker's turn sees it: a call started
+    or finished, a remark, a call waiting on the person — each under the
+    asked agent's name."""
+
+    def __init__(self, turns: TurnFeed, link: TrustedLink | None) -> None:
+        self._turns = turns
+        self._link = link
+
+    def on_event(self, event: object) -> None:
+        if self._link is None:
+            return
+        if isinstance(event, ToolStarted):
+            event = replace(event, caption=f"{self._link.to} · {event.caption or event.tool}")
+        elif isinstance(event, TextProgress):
+            event = replace(event, text=f"{self._link.to}: {event.text}")
+        elif not isinstance(event, ToolFinished | CallAwaiting):
+            return
+        self._turns.feed(self._link.asker_session_id, event)
+
+    async def end(self, *, interrupted: bool = False) -> None:
+        return
+
+
 class EngineDelegationService:
     """``DelegationService`` over the agents' sinks and the engine's turn
     dispatcher: the task is a message of the engine's into a conversation of
-    the asked agent's that exists for this task alone, its outcome is written
-    down, and the answer is a turn of the asker's. ``delegated_chat`` makes
-    the chat client that turn posts into, one per task — the gateway's
+    the asked agent's, its outcome is written down, and the answer is a turn
+    of the asker's (``delegate``) or read by the asker's own turn (``ask``,
+    for an agent it trusts). ``delegated_chat`` and ``trusted_chat`` make the
+    chat client a task's turn posts into, one per task — the gateway's
     (``gateways.delegation``), as every chat client is. ``file_roots`` are
     the directories each agent may hand files from (as for ``send_file``) and
     ``saver`` where a copy of each goes — the task's own conversation, which
     the asked agent's process may read and the asker cannot touch afterwards;
-    both None when the deployment hands no files."""
+    both None when the deployment hands no files. ``trust_for(asker, to)``
+    says what the asker hands ``to`` of the person's, None for an agent it
+    does not trust; ``links`` is where the trusted tasks in flight are
+    registered; ``clock`` pauses the asker's turn while it waits for answers;
+    ``session_for(agent)`` says how an agent keeps its turns on tasks
+    (``DELEGATION_SESSIONS``)."""
 
     def __init__(
         self,
@@ -134,7 +241,12 @@ class EngineDelegationService:
         file_roots: Mapping[str, tuple[Path, ...]] | None = None,
         saver: FileSaver | None = None,
         max_file_bytes: int = 0,
-        turns: TurnScopes | None = None,
+        turns: SessionTurns | None = None,
+        trust_for: Callable[[str, str], TrustedAgent | None] | None = None,
+        trusted_chat: Callable[[], DelegatedTurnChat] | None = None,
+        links: TrustedTurns | None = None,
+        clock: TurnClock | None = None,
+        session_for: Callable[[str], str] | None = None,
     ) -> None:
         self._presence = presence
         self._sessions = sessions
@@ -146,7 +258,18 @@ class EngineDelegationService:
         self._saver = saver
         self._max_file_bytes = max_file_bytes
         self._turns = turns
+        self._trust_for = trust_for
+        self._trusted_chat = trusted_chat
+        self._links = links if links is not None else TrustedTurns()
+        self._clock = clock
+        self._session_for = session_for
         self._running: set[asyncio.Task] = set()
+        # The ends of the trusted tasks in flight, for the turns that await them.
+        self._ends: dict[str, asyncio.Future[None]] = {}
+
+    @property
+    def links(self) -> TrustedTurns:
+        return self._links
 
     # -- the port --------------------------------------------------------------
 
@@ -154,22 +277,13 @@ class EngineDelegationService:
         self, agent: str, runtime_session_id: str, to: str, task: str, paths: Sequence[str] = (),
         *, digests: Mapping[str, str] | None = None,
     ) -> str:
-        other = next((a for a in self._directory.list_agents() if a.name == to), None)
-        if other is None:
-            raise DelegationError(f"no agent named {to!r} runs here")
-        if other.name == agent:
-            raise DelegationError("that is you; hand the task to another agent")
-        record = await self._sessions.get_by_runtime_session(runtime_session_id)
-        if record is None:
-            raise DelegationError("this conversation could not be resolved — nothing was handed on")
-        target = self._presence.sink(to)
-        if target is None or not isinstance(target.sink, TrackedSink):
-            raise DelegationError(f"{to} cannot take a task here")
+        record, sink = await self._resolve(agent, runtime_session_id, to)
         sources = self._attachments(agent, paths)
         scope = self._turns.current(runtime_session_id) if self._turns is not None else None
         attributes = dict(scope.attributes) if scope is not None else {}
         task_id = delegation_id()
-        attachments, digested = await self._snapshot(to, task_id, sources, digests or {})
+        key = self._conversation_key(to, task_id, record)
+        attachments, digested = await self._snapshot(to, key, task_id, sources, digests or {})
         entry = DelegationRecord(
             id=task_id, agent=agent, to=to,
             channel_id=record.channel_id, conversation_id=record.conversation_id, kind=record.kind,
@@ -180,12 +294,85 @@ class EngineDelegationService:
             user_id=record.last_user_id, status=DELEGATION_RUNNING, started_at=_now(),
             files=json.dumps(digested) if digested else "",
             attributes=json.dumps(attributes, ensure_ascii=False) if attributes else "",
+            to_conversation_id=key,
         )
         await self._store.save_delegation(entry)
-        self._spawn(self._run(entry, target.sink, attachments))
+        message = _message(entry, attachments, gateway=GATEWAY_DELEGATION, scope=TurnScope(
+            turn_id=task_id, attributes={**attributes, **_task_attributes(entry)},
+        ))
+        self._spawn(self._run(entry, sink, message, self._delegated_chat(), watch=None))
         logger.info("agent %s handed task %s to %s%s", agent, task_id, to,
                     f" with {len(attachments)} file(s)" if attachments else "")
         return task_id
+
+    async def ask(
+        self, agent: str, runtime_session_id: str, to: str, task: str, paths: Sequence[str] = (),
+    ) -> str:
+        trust = self._trust_for(agent, to) if self._trust_for is not None else None
+        if trust is None:
+            raise DelegationError(f"{to} is not an agent you trust; hand the task on with delegate, which asks first")
+        if self._trusted_chat is None or self._turns is None:
+            raise DelegationError("asking a trusted agent is not available in this deployment")
+        record, sink = await self._resolve(agent, runtime_session_id, to)
+        sources = self._attachments(agent, paths)
+        scope = self._turns.current(runtime_session_id)
+        attributes = dict(scope.attributes) if scope is not None else {}
+        poster = self._presence.poster(agent, record.last_gateway)
+        if poster is None:
+            raise DelegationError("this conversation could not be resolved — nothing was handed on")
+        ref = turn_ref(record, record.last_gateway, self._turns.place(runtime_session_id))
+        task_id = delegation_id()
+        key = self._conversation_key(to, task_id, record)
+        attachments, digested = await self._snapshot(to, key, task_id, sources, {})
+        entry = DelegationRecord(
+            id=task_id, agent=agent, to=to,
+            channel_id=record.channel_id, conversation_id=record.conversation_id, kind=record.kind,
+            gateway=record.last_gateway, task=task, user_id=record.last_user_id,
+            status=DELEGATION_RUNNING, started_at=_now(),
+            files=json.dumps(digested) if digested else "",
+            attributes=json.dumps(attributes, ensure_ascii=False) if attributes else "",
+            to_conversation_id=key, trusted=True,
+        )
+        await self._store.save_delegation(entry)
+        # What the trust hands over of the person's: the named secrets, as the
+        # asker's turn holds them right now — in memory, for this turn — and the
+        # person's own gateway when their connected accounts go too.
+        handed = {**attributes, **_task_attributes(entry)}
+        if trust.connections and record.last_gateway:
+            handed[PERSON_GATEWAY_ATTRIBUTE] = record.last_gateway
+        secrets = TurnSecrets({
+            name: value for name in trust.secrets
+            if scope is not None and (value := scope.secrets.get(name)) is not None
+        })
+        event = None
+        if trust.context == TRUST_CONTEXT_CONVERSATION:
+            transcript = await _transcript(poster, record, ref)
+            if transcript:
+                event = EventReport(source=agent, text=transcript, label=CONTEXT_LABEL.format(asker=agent))
+        message = _message(
+            entry, attachments, gateway=GATEWAY_TRUSTED_DELEGATION,
+            scope=TurnScope(turn_id=task_id, attributes=handed, secrets=secrets), event=event,
+        )
+        self._links.register(key, TrustedLink(asker=agent, asker_session_id=runtime_session_id, to=to, poster=poster, ref=ref))
+        self._ends[task_id] = asyncio.get_running_loop().create_future()
+        self._spawn(self._run(entry, sink, message, self._trusted_chat(), watch=runtime_session_id))
+        logger.info("agent %s asked %s (trusted) with task %s%s", agent, to, task_id,
+                    f" and {len(attachments)} file(s)" if attachments else "")
+        return task_id
+
+    async def await_answers(
+        self, agent: str, runtime_session_id: str, task_ids: Sequence[str],
+    ) -> Sequence[DelegationView]:
+        entries = [await self._own(agent, runtime_session_id, task_id) for task_id in task_ids]
+        pending = [self._ends[e.id] for e in entries if e.status == DELEGATION_RUNNING and e.id in self._ends]
+        if pending:
+            # The asker's turn waits on another agent, not on its own model.
+            if self._clock is not None:
+                async with self._clock.human_wait(runtime_session_id):
+                    await asyncio.gather(*pending)
+            else:
+                await asyncio.gather(*pending)
+        return [await self.status(agent, runtime_session_id, e.id) for e in entries]
 
     async def preview_files(self, agent: str, paths: Sequence[str]) -> Sequence[FilePreview]:
         return [await asyncio.to_thread(_preview, attachment) for attachment in self._attachments(agent, paths)]
@@ -203,25 +390,24 @@ class EngineDelegationService:
         # the turn's own end comes second finds it gone and does nothing more.
         if not await self._store.end_delegation(replace(entry, status=DELEGATION_CANCELLED, finished_at=_now())):
             return False
-        target = self._presence.sink(entry.to)
-        if target is not None and isinstance(target.sink, StoppableSink):
-            stopped = await target.sink.stop(delegated_conversation_key(task_id))
-            logger.info("task %s cancelled by %s (%s)", task_id, agent,
-                        "its turn was interrupted" if stopped else "its turn had not started")
+        await self._stop_turn(entry)
+        logger.info("task %s cancelled by %s", task_id, agent)
         return True
 
     # -- the engine's --------------------------------------------------------------
 
     async def recover(self) -> None:
         """What a restart finds still running was lost with the process that ran
-        it: each is ended as failed, and its asker told so."""
+        it: each is ended as failed, and its asker told — a trusted task's
+        asker's turn is gone with the process too, so nobody is told of it."""
         for entry in await self._store.running_delegations():
             ended = replace(entry, status=DELEGATION_FAILED, finished_at=_now(), notice=NOTICE_ENGINE_RESTARTED)
             if not await self._store.end_delegation(ended):
                 continue  # another replica got there first
             logger.warning("task %s (%s -> %s) was running when the engine stopped; ended as failed",
                            entry.id, entry.agent, entry.to)
-            self._spawn(self._answer(ended))
+            if not entry.trusted:
+                self._spawn(self._answer(ended))
 
     async def aclose(self) -> None:
         for task in list(self._running):
@@ -236,6 +422,30 @@ class EngineDelegationService:
         self._running.add(task)
         task.add_done_callback(self._running.discard)
 
+    async def _resolve(self, agent: str, runtime_session_id: str, to: str) -> tuple[SessionRecord, TrackedSink]:
+        other = next((a for a in self._directory.list_agents() if a.name == to), None)
+        if other is None:
+            raise DelegationError(f"no agent named {to!r} runs here")
+        if other.name == agent:
+            raise DelegationError("that is you; hand the task to another agent")
+        record = await self._sessions.get_by_runtime_session(runtime_session_id)
+        if record is None:
+            raise DelegationError("this conversation could not be resolved — nothing was handed on")
+        target = self._presence.sink(to)
+        if target is None or not isinstance(target.sink, TrackedSink):
+            raise DelegationError(f"{to} cannot take a task here")
+        return record, target.sink
+
+    def _conversation_key(self, to: str, task_id: str, asker: SessionRecord) -> str:
+        """Where the asked agent's turn runs: a conversation per task, or — when
+        the asked agent keeps one per asking conversation — one for every task
+        this conversation hands it."""
+        session = self._session_for(to) if self._session_for is not None else ""
+        if session == DELEGATION_SESSION_PER_CONVERSATION:
+            digest = hashlib.sha256(f"{asker.agent}\0{asker.conversation_id}".encode()).hexdigest()[:16]
+            return delegated_conversation_key(f"{asker.agent}-{digest}")
+        return delegated_conversation_key(task_id)
+
     async def _own(self, agent: str, runtime_session_id: str, task_id: str) -> DelegationRecord:
         entry = await self._store.get_delegation(task_id)
         record = await self._sessions.get_by_runtime_session(runtime_session_id)
@@ -247,7 +457,7 @@ class EngineDelegationService:
         return entry
 
     async def _snapshot(
-        self, to: str, task_id: str, sources: Sequence[Attachment], digests: Mapping[str, str],
+        self, to: str, key: str, task_id: str, sources: Sequence[Attachment], digests: Mapping[str, str],
     ) -> tuple[tuple[Attachment, ...], list[dict[str, str]]]:
         """The files as they are now, copied into the task's conversation: what
         the asked agent is handed is this copy, not the asker's file — which
@@ -265,7 +475,7 @@ class EngineDelegationService:
             shown = digests.get(source.path)
             if shown and shown != digest:
                 raise DelegationError(f"{source.name} changed after the card was shown; ask again")
-            saved = await self._saver.save(to, delegated_conversation_key(task_id), source.name, data, key=f"{task_id}-{index}")
+            saved = await self._saver.save(to, key, source.name, data, key=f"{task_id}-{index}")
             copies.append(Attachment(name=source.name, path=saved.path, mime=source.mime, size=len(data)))
             digested.append({"name": source.name, "sha256": digest})
         return tuple(copies), digested
@@ -294,39 +504,32 @@ class EngineDelegationService:
             attachments.append(Attachment(name=resolved.name, path=str(resolved), mime=mime or "", size=size))
         return tuple(attachments)
 
-    async def _run(self, entry: DelegationRecord, sink: TrackedSink, attachments: tuple[Attachment, ...]) -> None:
-        key = delegated_conversation_key(entry.id)
-        attributes = _attributes_of(entry)
-        message = IncomingMessage(
-            ref=ConversationRef(channel_id=key, conversation_id=key, message_id=entry.id, thread_root_id=""),
-            text=entry.task,
-            user_id=entry.user_id,
-            username=entry.agent,
-            timestamp=datetime.now(timezone.utc),
-            kind=KIND_DM,
-            is_dm=True,
-            mentioned=True,
-            is_from_bot=True,
-            gateway=GATEWAY_DELEGATION,
-            hop_depth=DELEGATION_HOP,
-            attachments=attachments,
-            synthetic=True,
-            turn=TurnScope(turn_id=entry.id, attributes={
-                **attributes,
-                DELEGATED_BY_ATTRIBUTE: entry.agent,
-                DELEGATION_TASK_ATTRIBUTE: entry.id,
-                ON_BEHALF_OF_GATEWAY_ATTRIBUTE: entry.gateway,
-            }),
-            engine_started=True,
-        )
-        chat = self._delegated_chat()
+    async def _stop_turn(self, entry: DelegationRecord) -> None:
+        target = self._presence.sink(entry.to)
+        if target is not None and isinstance(target.sink, StoppableSink):
+            stopped = await target.sink.stop(entry.to_conversation_id)
+            logger.info("task %s: the asked agent's turn %s", entry.id,
+                        "was interrupted" if stopped else "had not started")
+
+    async def _run(
+        self, entry: DelegationRecord, sink: TrackedSink, message: IncomingMessage, chat: DelegatedTurnChat,
+        *, watch: str | None,
+    ) -> None:
+        """One task's turn: handed to the asked agent's sink, its outcome written
+        down once; a trusted task also ends when the asker's turn it was asked
+        from is gone, and is read by that turn rather than handed back as one."""
+        outcome: TurnOutcome
         try:
-            outcome = await sink.submit_tracked(message, chat)
+            running = asyncio.ensure_future(sink.submit_tracked(message, chat))
+            outcome = await (self._watched(entry, running, watch) if watch is not None else running)
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("task %s: the asked agent's turn raised", entry.id)
             outcome = TurnOutcome.ERROR
+        finally:
+            if entry.trusted:
+                self._links.release(entry.to_conversation_id)
         ended = replace(
             entry,
             status=_STATUS_BY_OUTCOME.get(outcome, DELEGATION_FAILED),
@@ -334,10 +537,36 @@ class EngineDelegationService:
             answer=chat.answer,
             notice=chat.notice_code,
         )
-        if not await self._store.end_delegation(ended):
-            return  # called off while it ran: whatever came of it is nobody's
-        logger.info("task %s: %s %s (%s)", entry.id, entry.to, ended.status, outcome.name.lower())
-        await self._answer(ended)
+        written = await self._store.end_delegation(ended)
+        if written:
+            logger.info("task %s: %s %s (%s)", entry.id, entry.to, ended.status, outcome.name.lower())
+        end = self._ends.pop(entry.id, None)
+        if end is not None and not end.done():
+            end.set_result(None)
+        if written and not entry.trusted:
+            await self._answer(ended)
+
+    async def _watched(
+        self, entry: DelegationRecord, running: "asyncio.Future[TurnOutcome]", asker_session_id: str,
+    ) -> TurnOutcome:
+        """The turn's outcome — unless the asker's turn ends first: then the
+        task is called off, since what it was handed was that turn's."""
+        assert self._turns is not None
+        while not running.done():
+            await asyncio.wait({running}, timeout=ASKER_WATCH_S)
+            if running.done():
+                break
+            if self._turns.current(asker_session_id) is None:
+                logger.info("task %s: the asker's turn ended before %s answered; the task is called off", entry.id, entry.to)
+                await self._store.end_delegation(
+                    replace(entry, status=DELEGATION_CANCELLED, finished_at=_now(), notice=NOTICE_ASKER_TURN_ENDED)
+                )
+                await self._stop_turn(entry)
+                try:
+                    return await running
+                except Exception:  # noqa: BLE001 - the turn was told to stop; how it ended is nobody's
+                    return TurnOutcome.STOPPED
+        return await running
 
     async def _answer(self, ended: DelegationRecord) -> None:
         """The asker's turn on how the task ended: the answer as an agent's
@@ -379,6 +608,65 @@ class EngineDelegationService:
             return
 
 
+def _message(
+    entry: DelegationRecord, attachments: tuple[Attachment, ...], *, gateway: str, scope: TurnScope,
+    event: EventReport | None = None,
+) -> IncomingMessage:
+    """The message that opens the asked agent's turn: the task as an agent's
+    words, as the person, in the task's conversation, through the door named."""
+    key = entry.to_conversation_id
+    return IncomingMessage(
+        ref=ConversationRef(channel_id=key, conversation_id=key, message_id=entry.id, thread_root_id=""),
+        text=entry.task,
+        user_id=entry.user_id,
+        username=entry.agent,
+        timestamp=datetime.now(timezone.utc),
+        kind=KIND_DM,
+        is_dm=True,
+        mentioned=True,
+        is_from_bot=True,
+        gateway=gateway,
+        hop_depth=DELEGATION_HOP,
+        attachments=attachments,
+        synthetic=True,
+        turn=scope,
+        engine_started=True,
+        event=event,
+    )
+
+
+async def _transcript(poster: ChatClient, record: SessionRecord, ref: ConversationRef) -> str:
+    """The asker's conversation as the platform keeps it — a thread, a
+    channel's recent messages; nothing for a direct message, whose history is
+    the asker's memory alone. The newest messages, within ``CONTEXT_MAX``."""
+    snippets: list[PostSnippet] = []
+    try:
+        if record.kind == KIND_THREAD or ref.thread_root_id:
+            snippets = await poster.get_thread_posts(ref)
+        elif record.kind == KIND_CHANNEL:
+            snippets = await poster.get_recent_posts(record.channel_id)
+    except Exception:  # noqa: BLE001 - context is a courtesy; the task goes without it
+        logger.warning("task for %s: the asker's conversation could not be read for context", record.agent, exc_info=True)
+        return ""
+    lines = [f"[@{s.username or s.user_id}]: {s.text}" for s in snippets if s.text]
+    kept: list[str] = []
+    budget = CONTEXT_MAX
+    for line in reversed(lines):
+        budget -= len(line) + 1
+        if budget < 0:
+            break
+        kept.append(line)
+    return "\n".join(reversed(kept))
+
+
+def _task_attributes(entry: DelegationRecord) -> dict[str, str]:
+    return {
+        DELEGATED_BY_ATTRIBUTE: entry.agent,
+        DELEGATION_TASK_ATTRIBUTE: entry.id,
+        ON_BEHALF_OF_GATEWAY_ATTRIBUTE: entry.gateway,
+    }
+
+
 def _preview(attachment: Attachment) -> FilePreview:
     """A file as the card shows it: text when it decodes as UTF-8 and holds no
     NUL (what a text file is, whatever its suffix says), else its name and
@@ -412,4 +700,7 @@ def _attributes_of(entry: DelegationRecord) -> dict[str, str]:
 __all__ = [
     "DELEGATION_HOP",
     "EngineDelegationService",
+    "ForwardedTrace",
+    "TrustedTurnTracer",
+    "TrustedTurns",
 ]

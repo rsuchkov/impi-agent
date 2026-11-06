@@ -3,6 +3,7 @@ on the task alone, its answer back as a turn of the asker's; the tools ask,
 ask after and call off."""
 
 import asyncio
+import contextlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -10,25 +11,50 @@ from pathlib import Path
 import pytest
 
 from crucible.attachments import AttachmentStore
-from crucible.builtin_tools import CancelDelegation, Delegate, DelegationStatus
-from crucible.gateways.delegation import ANSWER_MAX, DelegationChatClient
+from crucible.builtin_tools import (
+    AskAgent,
+    AwaitAgents,
+    CancelDelegation,
+    Delegate,
+    DelegationStatus,
+)
+from crucible.gateways.delegation import (
+    ANSWER_MAX,
+    DelegationChatClient,
+    TrustedDelegationChatClient,
+)
 from crucible.interactions import AgentSink, MappingPresence
 from crucible.interactions.delegation import (
     DELEGATION_HOP,
     NOTICE_ENGINE_RESTARTED,
     NOTICE_UNDELIVERED,
     EngineDelegationService,
+    TrustedTurns,
+    TrustedTurnTracer,
 )
+from crucible.ports.agent.events import (
+    CallAwaiting,
+    TextProgress,
+    ToolFinished,
+    ToolStarted,
+)
+from crucible.ports.agent.spec import TrustedAgent
 from crucible.ports.chat.client import NobodyToAnswer
 from crucible.ports.chat.directory import AgentInfo, StaticDirectory
 from crucible.ports.chat.flow import TurnOutcome
-from crucible.ports.chat.gateway import GATEWAY_DELEGATION, GATEWAY_SLACK
+from crucible.ports.chat.gateway import (
+    GATEWAY_DELEGATION,
+    GATEWAY_SLACK,
+    GATEWAY_TRUSTED_DELEGATION,
+)
 from crucible.ports.chat.types import (
     KIND_DM,
     KIND_THREAD,
+    ApprovalCard,
     CannotRun,
     ConversationRef,
     OutgoingFile,
+    PostSnippet,
     PreviewRow,
 )
 from crucible.ports.delegation import (
@@ -39,18 +65,26 @@ from crucible.ports.delegation import (
     DELEGATION_RUNNING,
     DELEGATION_TASK_ATTRIBUTE,
     DELEGATION_TIMED_OUT,
+    NOTICE_ASKER_TURN_ENDED,
     ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
     DelegationError,
     DelegationView,
     FilePreview,
+    TrustedLink,
     delegated_conversation_key,
 )
 from crucible.ports.engine_turn import ConversationBusy, DispatchError, TurnRequest
-from crucible.ports.turn import TurnScope
-from crucible.store.base import DelegationRecord
+from crucible.ports.turn import (
+    PERSON_GATEWAY_ATTRIBUTE,
+    TurnPlace,
+    TurnScope,
+    TurnSecrets,
+)
+from crucible.store.base import DelegationRecord, SessionRecord
 from crucible.store.sqlite import SqliteSessionStore
 from crucible.tools.base import ToolContext, ToolError
 from crucible.turns import TurnRegistry
+from tests.fakes.fake_chat import FakeChat
 
 AGENTS = StaticDirectory([
     AgentInfo("assistant", "assistant", "knows the people", "corp-assistant", "uid-a", model="corp/private-llm"),
@@ -544,3 +578,258 @@ async def test_asking_after_and_calling_off_go_by_the_task_id() -> None:
     assert CancelDelegation().caption({"task_id": "t1"}) == "Calling task t1 off"
     for tool in (DelegationStatus, CancelDelegation):
         assert not tool.requires_confirmation and not tool.destructive and tool.requires == Delegate.requires
+
+
+# --- a trusted agent: no card, as the person, the answer read by the asker's turn ----------------
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.paused: list[str] = []
+
+    def human_wait(self, session_id: str):
+        return self._pause(session_id)
+
+    @contextlib.asynccontextmanager
+    async def _pause(self, session_id: str):
+        self.paused.append(f"+{session_id}")
+        try:
+            yield
+        finally:
+            self.paused.append(f"-{session_id}")
+
+
+def _trusting(sink, store, turns, *, trust: TrustedAgent | None, asker_chat: FakeChat, clock=None, session=""):
+    links = TrustedTurns()
+    presence = MappingPresence({
+        "coder": AgentSink(sink=sink, gateways={
+            GATEWAY_DELEGATION: DelegationChatClient(keeps=False),
+            GATEWAY_TRUSTED_DELEGATION: TrustedDelegationChatClient(links, keeps=False),
+        }, default=GATEWAY_DELEGATION),
+        "assistant": AgentSink(sink=ScriptedSink(), gateways={GATEWAY_SLACK: asker_chat}, default=GATEWAY_SLACK),
+    })
+    svc = EngineDelegationService(
+        presence, store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient, turns=turns,
+        trust_for=lambda asker, to: trust if (asker, to) == ("assistant", "coder") else None,
+        trusted_chat=lambda: TrustedDelegationChatClient(links), links=links, clock=clock,
+        session_for=lambda agent: session,
+    )
+    return svc, links, presence
+
+
+async def test_a_trusted_agent_is_asked_with_no_card_as_the_person_with_what_the_trust_hands_over(store) -> None:
+    release = asyncio.Event()
+
+    async def script(msg, chat) -> TurnOutcome:
+        await release.wait()
+        await chat.post_reply(msg.ref, "PROJ-7 is in review.")
+        return TurnOutcome.REPLIED
+
+    sink = ScriptedSink(script)
+    turns = TurnRegistry()
+    asker_chat = FakeChat()
+    clock = _Clock()
+    trust = TrustedAgent("coder", secrets=("jira_token",), connections=True)
+    svc, links, _ = _trusting(sink, store, turns, trust=trust, asker_chat=asker_chat, clock=clock)
+    record, _ = await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD, user_id="u-alice", gateway=GATEWAY_SLACK)
+    rsid = record.runtime_session_id
+    scope = TurnScope(turn_id="t1", attributes={"realm": "acme"}, secrets=TurnSecrets({"jira_token": "s3cret", "other": "no"}))
+    async with turns.bind(rsid, scope, place=TurnPlace(GATEWAY_SLACK, "root1")):
+        task_id = await svc.ask("assistant", rsid, "coder", "What is PROJ-7's status?")
+        assert links.link_for(delegated_conversation_key(task_id)) is not None  # in flight: cards know where to go
+        await sink.started.wait()
+        (message, chat), = sink.submitted
+        assert message.gateway == GATEWAY_TRUSTED_DELEGATION and isinstance(chat, TrustedDelegationChatClient)
+        assert (message.user_id, message.username, message.is_from_bot) == ("u-alice", "assistant", True)
+        assert message.turn is not None
+        assert message.turn.secrets.names() == {"jira_token"} and message.turn.secrets.get("jira_token") == "s3cret"
+        assert message.turn.attributes[PERSON_GATEWAY_ATTRIBUTE] == GATEWAY_SLACK  # their accounts go too
+        assert message.turn.attributes["realm"] == "acme" and message.turn.attributes[DELEGATED_BY_ATTRIBUTE] == "assistant"
+        assert message.event is None  # the task alone: context is the default
+        waiting = asyncio.ensure_future(svc.await_answers("assistant", rsid, [task_id]))
+        await asyncio.sleep(0.01)
+        assert clock.paused == [f"+{rsid}"]  # the asker's turn waits on another agent, not on its model
+        release.set()
+        views = await waiting
+    assert clock.paused == [f"+{rsid}", f"-{rsid}"]
+    assert [(v.status, v.answer) for v in views] == [(DELEGATION_ANSWERED, "PROJ-7 is in review.")]
+    kept = await store.get_delegation(task_id)
+    assert kept is not None and kept.trusted and kept.delivered_at == ""  # read by the asker's turn, not handed back
+    assert links.link_for(delegated_conversation_key(task_id)) is None
+    assert asker_chat.replies == []  # nothing posted in the asker's conversation
+
+
+async def test_what_the_trust_does_not_name_stays_behind(store) -> None:
+    sink = ScriptedSink()
+    turns = TurnRegistry()
+    svc, _, _ = _trusting(sink, store, turns, trust=TrustedAgent("coder"), asker_chat=FakeChat())
+    record, _ = await store.get_or_create("assistant", "d1", "d1", KIND_DM, user_id="u1", gateway=GATEWAY_SLACK)
+    rsid = record.runtime_session_id
+    async with turns.bind(rsid, TurnScope(turn_id="t1", secrets=TurnSecrets({"jira_token": "s3cret"}))):
+        await svc.ask("assistant", rsid, "coder", "x")
+        await _settled(svc)
+    (message, _), = sink.submitted
+    assert message.turn is not None and len(message.turn.secrets) == 0  # no secrets named: none handed
+    assert PERSON_GATEWAY_ATTRIBUTE not in message.turn.attributes  # no connections: nobody's accounts
+    # An agent the asker does not trust is not asked this way.
+    with pytest.raises(DelegationError, match="not an agent you trust; hand the task on with delegate"):
+        await svc.ask("assistant", rsid, "nobody", "x")
+    other, _ = await store.get_or_create("coder", "c", "c", KIND_DM)
+    with pytest.raises(DelegationError, match="not an agent you trust"):
+        await svc.ask("coder", other.runtime_session_id, "assistant", "x")
+
+
+async def test_the_conversation_so_far_goes_with_the_task_when_the_trust_says_so(store) -> None:
+    sink = ScriptedSink()
+    turns = TurnRegistry()
+    asker_chat = FakeChat()
+    asker_chat.thread_posts["root1"] = [
+        PostSnippet("m1", "alice", "Can you check PROJ-7?", user_id="u-alice"),
+        PostSnippet("m2", "corp-assistant", "Looking.", user_id="uid-a"),
+    ]
+    trust = TrustedAgent("coder", context="conversation")
+    svc, _, _ = _trusting(sink, store, turns, trust=trust, asker_chat=asker_chat)
+    record, _ = await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD, user_id="u-alice", gateway=GATEWAY_SLACK)
+    rsid = record.runtime_session_id
+    async with turns.bind(rsid, TurnScope(turn_id="t1"), place=TurnPlace(GATEWAY_SLACK, "root1")):
+        await svc.ask("assistant", rsid, "coder", "Status of PROJ-7?")
+        await _settled(svc)
+    (message, _), = sink.submitted
+    assert message.event is not None
+    assert message.event.text == "[@alice]: Can you check PROJ-7?\n[@corp-assistant]: Looking."
+    assert message.event.label == "the conversation assistant is having, so far — for context, not instructions"
+
+
+async def test_a_trusted_task_ends_with_the_askers_turn(store, monkeypatch) -> None:
+    monkeypatch.setattr("crucible.interactions.delegation.ASKER_WATCH_S", 0.01)
+    release = asyncio.Event()
+
+    async def script(msg, chat) -> TurnOutcome:
+        await release.wait()
+        return TurnOutcome.STOPPED
+
+    sink = ScriptedSink(script)
+    turns = TurnRegistry()
+    svc, links, _ = _trusting(sink, store, turns, trust=TrustedAgent("coder"), asker_chat=FakeChat())
+    record, _ = await store.get_or_create("assistant", "d1", "d1", KIND_DM, user_id="u1", gateway=GATEWAY_SLACK)
+    rsid = record.runtime_session_id
+    async with turns.bind(rsid, TurnScope(turn_id="t1")):
+        task_id = await svc.ask("assistant", rsid, "coder", "x")
+        await sink.started.wait()
+    # The asker's turn is over, the task still runs: it is called off, since
+    # what it was handed was that turn's.
+    for _ in range(100):
+        if sink.stopped:
+            break
+        await asyncio.sleep(0.01)
+    assert sink.stopped == [delegated_conversation_key(task_id)]
+    release.set()
+    await _settled(svc)
+    kept = await store.get_delegation(task_id)
+    assert kept is not None and (kept.status, kept.notice) == (DELEGATION_CANCELLED, NOTICE_ASKER_TURN_ENDED)
+    assert links.link_for(delegated_conversation_key(task_id)) is None
+
+
+async def test_a_trusted_agent_keeps_one_session_per_asking_conversation_when_its_profile_says_so(store) -> None:
+    sink = ScriptedSink()
+    turns = TurnRegistry()
+    svc, _, _ = _trusting(sink, store, turns, trust=TrustedAgent("coder"), asker_chat=FakeChat(), session="per_conversation")
+    record, _ = await store.get_or_create("assistant", "d1", "d1", KIND_DM, user_id="u1", gateway=GATEWAY_SLACK)
+    other, _ = await store.get_or_create("assistant", "d2", "d2", KIND_DM, user_id="u1", gateway=GATEWAY_SLACK)
+    async with turns.bind(record.runtime_session_id, TurnScope(turn_id="t1")), turns.bind(other.runtime_session_id, TurnScope(turn_id="t2")):
+        first = await svc.ask("assistant", record.runtime_session_id, "coder", "one")
+        second = await svc.ask("assistant", record.runtime_session_id, "coder", "two")
+        elsewhere = await svc.ask("assistant", other.runtime_session_id, "coder", "three")
+        await _settled(svc)
+    keys = [m.conversation_id for m, _ in sink.submitted]
+    assert keys[0] == keys[1] and keys[0] != keys[2]  # one conversation per asking conversation
+    assert keys[0].startswith("delegated:assistant-") and first != second != elsewhere
+    kept = await store.get_delegation(first)
+    assert kept is not None and kept.to_conversation_id == keys[0]
+
+
+async def test_the_trusted_doors_client_puts_cards_and_notices_in_the_askers_conversation() -> None:
+    links = TrustedTurns()
+    asker_chat = FakeChat()
+    ref = ConversationRef(channel_id="ch1", conversation_id="root1", message_id="root1", thread_root_id="root1")
+    links.register("delegated:abc", TrustedLink(asker="assistant", asker_session_id="assistant--x", to="jira", poster=asker_chat, ref=ref))
+    door = TrustedDelegationChatClient(links, keeps=False)
+    task_ref = ConversationRef(channel_id="delegated:abc", conversation_id="delegated:abc", message_id="abc", thread_root_id="")
+    card = ApprovalCard(agent="jira", headline="wants to run «Create issue».", title="Create issue", tool="jira_create")
+    post_id = await door.post_confirmation(task_ref, card, [], callback_url="cb")
+    (posted_ref, posted_card, _), = asker_chat.posted_confirmations
+    assert posted_ref == ref and posted_card.title == "jira: Create issue" and posted_card.agent == "jira"
+    await door.update_confirmation(post_id, replace(card, headline="Allowed once"), [])
+    assert asker_chat.updated_confirmations[0][1].title == "jira: Create issue"
+    await door.retract(post_id, "expired")
+    assert asker_chat.retracted == [(post_id, "expired")]
+    await door.post_notice(task_ref, "the turn timed out", code="timeout")
+    assert asker_chat.notices[-1] == (ref, "jira: the turn timed out") and asker_chat.notice_codes[-1] == "timeout"
+    # A card without a title keeps the agent's name in its heading, as the card already has it.
+    plain = ApprovalCard(agent="jira", headline="wants to run x.", tool="x")
+    await door.post_confirmation(task_ref, plain, [], callback_url="cb")
+    assert asker_chat.posted_confirmations[-1][1].title == ""
+    # No task in flight for the conversation: nobody to ask.
+    with pytest.raises(NobodyToAnswer):
+        await door.post_confirmation(ConversationRef("delegated:zzz", "delegated:zzz", "z", ""), card, [], callback_url="cb")
+    # The per-task client keeps the replies for the answer, as the plain door's does.
+    kept = TrustedDelegationChatClient(links)
+    await kept.post_reply(task_ref, "done")
+    assert kept.answer == "done"
+
+
+async def test_a_trusted_tasks_steps_show_in_the_askers_turn_under_the_agents_name() -> None:
+    links = TrustedTurns()
+    turns = TurnRegistry()
+    seen: list[object] = []
+    links.register("delegated:abc", TrustedLink(asker="assistant", asker_session_id="assistant--x", to="jira", poster=FakeChat(), ref=ConversationRef("c", "c", "m", "")))
+    tracer = TrustedTurnTracer(links, turns)
+    record = SessionRecord("jira", "delegated:abc", "delegated:abc", KIND_DM, "jira--abc", "t", "t")
+    async with turns.bind("assistant--x", TurnScope(turn_id="t1"), events=seen.append):
+        trace = tracer.begin(record, FakeChat(), gateway=GATEWAY_TRUSTED_DELEGATION)
+        trace.on_event(ToolStarted("c1", "jira_search", {"q": "x"}, caption="Searching PROJ"))
+        trace.on_event(TextProgress("Found two."))
+        trace.on_event(CallAwaiting("jira_create"))
+        trace.on_event(ToolFinished("c1", "jira_search"))
+        trace.on_event(object())  # not a step: dropped
+        await trace.end()
+    assert [type(e).__name__ for e in seen] == ["ToolStarted", "TextProgress", "CallAwaiting", "ToolFinished"]
+    assert seen[0].caption == "jira · Searching PROJ" and seen[1].text == "jira: Found two."  # type: ignore[attr-defined]
+    # A conversation no trusted task is in flight for shows nothing anywhere.
+    silent = tracer.begin(SessionRecord("jira", "delegated:none", "delegated:none", KIND_DM, "jira--n", "t", "t"), FakeChat())
+    silent.on_event(ToolStarted("c2", "x", {}))
+    assert len(seen) == 4
+
+
+async def test_the_ask_and_await_tools_go_through_the_service() -> None:
+    class _Trusting(_Delegation):
+        async def ask(self, agent, runtime_session_id, to, task, paths=()):
+            self.calls.append(("ask", agent, runtime_session_id, to, task, list(paths)))
+            if self._error is not None:
+                raise self._error
+            return "trusted01"
+
+        async def await_answers(self, agent, runtime_session_id, task_ids):
+            self.calls.append(("await", agent, runtime_session_id, list(task_ids)))
+            if self._error is not None:
+                raise self._error
+            return [DelegationView(task_id=t, to="jira", status=DELEGATION_ANSWERED, started_at="s", answer="ok") for t in task_ids]
+
+    svc = _Trusting()
+    asked = await AskAgent().execute(_ctx(svc), {"agent": "jira", "task": "Status of PROJ-7?", "files": ["/tmp/a.md"]})
+    assert asked["task_id"] == "trusted01" and asked["asked"] == "jira" and "await_agents" in asked["note"]
+    waited = await AwaitAgents().execute(_ctx(svc), {"task_ids": ["trusted01", "trusted02"]})
+    assert waited == {"answers": [
+        {"task_id": "trusted01", "agent": "jira", "status": DELEGATION_ANSWERED, "answer": "ok"},
+        {"task_id": "trusted02", "agent": "jira", "status": DELEGATION_ANSWERED, "answer": "ok"},
+    ]}
+    assert svc.calls == [
+        ("ask", "assistant", "assistant--conv", "jira", "Status of PROJ-7?", ["/tmp/a.md"]),
+        ("await", "assistant", "assistant--conv", ["trusted01", "trusted02"]),
+    ]
+    with pytest.raises(ToolError, match="not an agent you trust"):
+        await AskAgent().execute(_ctx(_Trusting(DelegationError("x is not an agent you trust"))), {"agent": "x", "task": "y"})
+    with pytest.raises(ToolError, match="task_ids must be a list"):
+        await AwaitAgents().execute(_ctx(svc), {"task_ids": []})
+    assert not AskAgent.requires_confirmation and AskAgent.requires == Delegate.requires == AwaitAgents.requires
+    assert AskAgent().caption({"agent": "jira"}) == "Asking jira" and AwaitAgents().caption({"task_ids": ["a", "b"]}) == "Waiting for 2 agent task(s)"

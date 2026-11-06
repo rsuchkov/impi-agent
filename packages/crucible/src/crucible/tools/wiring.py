@@ -24,7 +24,7 @@ from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
-from crucible.ports.chat.gateway import GATEWAY_DELEGATION
+from crucible.ports.chat.gateway import GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver
@@ -108,6 +108,11 @@ DELEGATED_TURN_DENIED = frozenset({
     CAP_WIDGETS, CAP_FORMS, CAP_EPHEMERAL, CAP_CHAT_ADMIN, CAP_FILES, CAP_SCHEDULER,
     CAP_CONNECTIONS, CAP_CONFIRMATION, CAP_DELEGATION,
 })
+# A task from an agent that trusts the asked one runs as the person, with the
+# person there to confirm (the card goes to the asker's conversation) and the
+# person's connected accounts when the trust says so: those two stay. Nothing
+# else does — the turn still has no conversation of anybody's to post into.
+TRUSTED_TURN_DENIED = DELEGATED_TURN_DENIED - {CAP_CONFIRMATION, CAP_CONNECTIONS}
 
 
 class ToolWiring:
@@ -209,6 +214,8 @@ class ToolWiring:
             # The engine's own door: what a task's turn may not have is the
             # door's rule, not the caller's to know.
             denied_caps = denied_caps | DELEGATED_TURN_DENIED
+        elif gateway == GATEWAY_TRUSTED_DELEGATION:
+            denied_caps = denied_caps | TRUSTED_TURN_DENIED
         caps = (
             self.base_caps
             | (frozenset({CAP_CHAT_ADMIN}) if admin is not None else frozenset())
@@ -220,6 +227,8 @@ class ToolWiring:
         # may have, whatever the agent's platforms give its other conversations.
         self.gateway_caps[spec.name].setdefault(GATEWAY_DELEGATION, self.base_caps - DELEGATED_TURN_DENIED)
         self.gateway_admins[spec.name].setdefault(GATEWAY_DELEGATION, None)
+        self.gateway_caps[spec.name].setdefault(GATEWAY_TRUSTED_DELEGATION, self.base_caps - TRUSTED_TURN_DENIED)
+        self.gateway_admins[spec.name].setdefault(GATEWAY_TRUSTED_DELEGATION, None)
         # The agent's own set is what any of its gateways can serve.
         self.caps[spec.name] = self.caps.get(spec.name, frozenset()) | caps
         advertised, dropped = _gate_tools(self.registry, spec.tools, self.caps[spec.name], self.withdrawn)

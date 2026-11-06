@@ -371,7 +371,7 @@ def test_registry_knows_all_default_tools() -> None:
         "list_agents", "create_channel", "invite_to_channel", "get_channel_members",
         "send_message", "read_channel", "create_agent",
         "ask_user_buttons", "ask_user_select", "open_form", "send_ephemeral",
-        "send_file", "open_screen", "delegate", "delegation_status", "cancel_delegation",
+        "send_file", "open_screen", "delegate", "delegation_status", "cancel_delegation", "ask_agent", "await_agents",
         "list_skills", "install_skill", "assign_skill", "remove_skill",
         "schedule_task", "list_tasks", "cancel_task", "pause_task",
         "connected_accounts", "connected_api_read", "connected_api_write",
@@ -1870,7 +1870,10 @@ def test_delegation_is_promised_exactly_when_the_server_can_post_it(tmp_path) ->
 def test_every_enrolled_agent_has_the_engines_own_door_with_a_tasks_turns_capabilities(tmp_path) -> None:
     from crucible.config import ToolSettings
     from crucible.ports.agent import AgentSpec
-    from crucible.ports.chat.gateway import GATEWAY_DELEGATION
+    from crucible.ports.chat.gateway import (
+        GATEWAY_DELEGATION,
+        GATEWAY_TRUSTED_DELEGATION,
+    )
     from crucible.tools.base import (
         CAP_CONFIRMATION,
         CAP_DELEGATION,
@@ -1897,7 +1900,9 @@ def test_every_enrolled_agent_has_the_engines_own_door_with_a_tasks_turns_capabi
     # A headless agent enrols through the door alone, with the same capabilities.
     coder = AgentSpec(name="coder", display_name="c", role="r", description="", profile_dir=tmp_path, tools=("delegate",), headless=True)
     wiring.enroll(coder, None, gateway=GATEWAY_DELEGATION)  # the door's denials are the door's own
-    assert wiring.gateway_caps["coder"] == {GATEWAY_DELEGATION: frozenset()}
+    # Beside it, the trusted door: a person is there to confirm (the card goes
+    # to the asker's conversation); their accounts too, where the deployment connects any.
+    assert wiring.gateway_caps["coder"] == {GATEWAY_DELEGATION: frozenset(), GATEWAY_TRUSTED_DELEGATION: frozenset({CAP_CONFIRMATION})}
     assert wiring.allowlists["coder"] == frozenset()  # delegate needs a person to confirm it; there is none
 
 

@@ -28,6 +28,33 @@ def check_thinking_level(value: str) -> str:
     return level
 
 
+# What a trusted agent is handed of the asker's conversation: the task alone,
+# or the conversation so far as well (where the platform keeps it).
+TRUST_CONTEXT_TASK = "task"
+TRUST_CONTEXT_CONVERSATION = "conversation"
+TRUST_CONTEXTS = (TRUST_CONTEXT_TASK, TRUST_CONTEXT_CONVERSATION)
+# How an agent keeps the turns on tasks handed to it: a session per task, or one
+# per asking conversation (the same project, the same fields, remembered).
+DELEGATION_SESSION_PER_TASK = "per_task"
+DELEGATION_SESSION_PER_CONVERSATION = "per_conversation"
+DELEGATION_SESSIONS = (DELEGATION_SESSION_PER_TASK, DELEGATION_SESSION_PER_CONVERSATION)
+
+
+@dataclass(frozen=True)
+class TrustedAgent:
+    """An agent this one hands tasks to without a card, as the person it acts
+    for — the same person, the same deployment: a specialist of its own that
+    only knows more of one area. ``secrets`` names the turn secrets handed
+    over (none by default), ``connections`` whether the person's connected
+    accounts are, ``context`` whether the conversation so far goes with the
+    task."""
+
+    name: str
+    secrets: tuple[str, ...] = ()
+    connections: bool = False
+    context: str = TRUST_CONTEXT_TASK
+
+
 @dataclass(frozen=True)
 class AgentSpec:
     name: str
@@ -99,6 +126,16 @@ class AgentSpec:
     # another agent hands it a task (``ports.delegation``). The application
     # runs it without a platform account; the directory lists it without one.
     headless: bool = False
+    # Agents this one hands tasks to without a card, as the person, with what
+    # each entry says of the person's (``ask_agent``); every other agent is
+    # handed a task with a card and nothing of the person's (``delegate``).
+    trusted_agents: tuple[TrustedAgent, ...] = ()
+    # How this agent keeps the turns on tasks handed to it (``DELEGATION_SESSIONS``).
+    delegation_session: str = DELEGATION_SESSION_PER_TASK
+
+    def trust_in(self, name: str) -> TrustedAgent | None:
+        """What this agent hands ``name`` of the person's, or None: not trusted."""
+        return next((t for t in self.trusted_agents if t.name == name), None)
 
     def tools_on(self, gateway: str) -> tuple[str, ...] | None:
         """The tools a conversation on ``gateway`` may use: the gateway's own

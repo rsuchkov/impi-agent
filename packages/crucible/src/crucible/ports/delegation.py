@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.types import ConversationRef
 
 # What the asked agent's turn carries in its scope's attributes, for the
 # rules that decide who may have what (``ports.admission``,
@@ -52,6 +53,9 @@ DELEGATION_CANCELLED = "cancelled"  # the asker called it off
 DELEGATION_STATUSES = (
     DELEGATION_RUNNING, DELEGATION_ANSWERED, DELEGATION_FAILED, DELEGATION_TIMED_OUT, DELEGATION_CANCELLED,
 )
+# The notice a trusted task carries when the asker's turn ended before it did:
+# what the asker handed over was the turn's, and went with it.
+NOTICE_ASKER_TURN_ENDED = "asker_turn_ended"
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,26 @@ class FilePreview:
     digest: str = ""
 
 
+@dataclass(frozen=True)
+class TrustedLink:
+    """A trusted task in flight, as the door's chat client and the tracer see
+    it: whose turn asked (the asker and its runtime session), whom it went to,
+    and where in the asker's conversation the task's cards and notices go —
+    the asker's own client and the place its turn answers."""
+
+    asker: str
+    asker_session_id: str
+    to: str
+    poster: ChatClient
+    ref: ConversationRef
+
+
+class TrustedLinks(Protocol):
+    """The trusted tasks in flight, by the conversation key their turn runs in."""
+
+    def link_for(self, conversation_id: str) -> TrustedLink | None: ...
+
+
 class DelegatedTurnChat(ChatClient, Protocol):
     """The chat client the turn on a task posts into: nobody's platform, so what
     the turn says is kept here for the asker — the replies as ``answer``, the
@@ -112,6 +136,25 @@ class DelegationService(Protocol):
         when one is no longer what the card showed. ``DelegationError`` when
         it cannot start — no such agent, one that cannot take a task here, a
         file that may not be sent or that changed since."""
+        ...
+
+    async def ask(
+        self, agent: str, runtime_session_id: str, to: str, task: str, paths: Sequence[str] = (),
+    ) -> str:
+        """Start the task for ``to``, an agent ``agent`` trusts, from ``agent``'s
+        turn, with no card: the task's id. The task's turn runs as the person
+        with what the trust hands over, its cards come to the asker's
+        conversation, and its answer is read with ``await_answers``; it ends
+        with the asker's turn. ``DelegationError`` when ``to`` is not trusted or
+        the task cannot start."""
+        ...
+
+    async def await_answers(
+        self, agent: str, runtime_session_id: str, task_ids: Sequence[str],
+    ) -> Sequence[DelegationView]:
+        """Wait until every task named has ended, and how each did — for the
+        tasks ``ask`` started from this conversation. ``DelegationError`` for one
+        that is not this conversation's."""
         ...
 
     async def preview_files(self, agent: str, paths: Sequence[str]) -> Sequence[FilePreview]:

@@ -152,7 +152,7 @@ One per subject, named the way the SQLite tables are:
 | `tool_traces` | one turn's tool calls — arguments and outcomes, never results — for the trace button (`TOOL_TRACE_AFTER=button`) and the http gateway's `GET /v1/traces/{token}`; `owner` is the http caller (realm/user) the record is read by, empty for a chat widget's |
 | `connections` | people's accounts connected at an OAuth provider: the tokens sealed (unreadable without the sealing key), whose and which account, when it was connected and what else the provider said of it (`account_extra`, JSON) readable; one per person and provider |
 | `connection_links` | connects started and not yet finished — single use, gone after ten minutes (a TTL index) |
-| `delegations` | tasks agents handed one another: whose turn asked and from which conversation, whom it went to, the task, the person behind it, how it ended and what came back (`answer`, up to 20 000 characters) |
+| `delegations` | tasks agents handed one another: whose turn asked and from which conversation, whom it went to, the task, the person behind it, how it ended and what came back (`answer`, up to 20 000 characters); `trusted` says it went with no card to an agent the asker trusts |
 | `leases` | what runs in one process at a time: a gateway's connection (`gateway:<kind>:<agent>`), a replica's liveness (`replica:<id>`, the holder its address) |
 | `conversation_owners` | which replica serves which conversation; an owner whose `replica:` lease lapsed is replaced |
 

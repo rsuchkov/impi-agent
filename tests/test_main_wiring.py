@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from crucible.flows.coalescer import MessageCoalescer
+from crucible.flows.tracers import TracerByGateway
 from crucible.gateways import LeasedGateway
 from crucible.gateways.mattermost import MattermostChatClient, MattermostGateway
 from crucible.process_scopes import AgentProcessScopes
@@ -98,13 +99,21 @@ def test_build_app_skips_agents_without_tokens(tmp_path: Path, monkeypatch) -> N
 
 
 def test_build_app_runs_a_headless_agent_with_no_gateway_and_gives_every_agent_the_engines_door(tmp_path: Path, monkeypatch) -> None:
-    from crucible.gateways.delegation import DelegationChatClient
+    from crucible.gateways.delegation import (
+        DelegationChatClient,
+        TrustedDelegationChatClient,
+    )
     from crucible.ports.chat.gateway import GATEWAY_DELEGATION
 
     settings = _settings(tmp_path)
     coder_dir = Path(settings.agents_path) / "agents" / "coder"
     coder_dir.mkdir(parents=True)
-    (coder_dir / "agent.yaml").write_text(AGENT_YAML.replace("assistant", "coder") + "headless: true\n", encoding="utf-8")
+    (coder_dir / "agent.yaml").write_text(
+        AGENT_YAML.replace("assistant", "coder") + "  delegation_session: per_conversation\nheadless: true\n", encoding="utf-8",
+    )
+    (Path(settings.agents_path) / "agents" / "assistant" / "agent.yaml").write_text(
+        AGENT_YAML + "  trusted_agents: [coder]\n", encoding="utf-8",
+    )
     # No token for coder is needed — and one that is set changes nothing: it is reached by a task.
     monkeypatch.setenv("AGENTS_MM_TOKEN__CODER", "unused-token")
     app = build_app(settings)
@@ -118,7 +127,13 @@ def test_build_app_runs_a_headless_agent_with_no_gateway_and_gives_every_agent_t
         # posts to its platform by mistake.
         assistant = app.sinks_by_agent["assistant"]
         assert assistant.default == "mattermost" and isinstance(assistant.gateways[GATEWAY_DELEGATION], DelegationChatClient)
+        assert isinstance(assistant.gateways["trusted-delegation"], TrustedDelegationChatClient)
         assert app.delegation is not None
+        # Whom an agent trusts is read from its profile as it is now.
+        trust_for, session_for = app.delegation._trust_for, app.delegation._session_for  # noqa: SLF001
+        assert trust_for is not None and session_for is not None
+        assert trust_for("assistant", "coder") is not None and trust_for("assistant", "support") is None
+        assert session_for("coder") == "per_conversation"
         assert app.tools is not None and GATEWAY_DELEGATION in app.tools.gateway_caps["coder"]
     finally:
         assert isinstance(app.sessions, SqliteSessionStore)
@@ -403,7 +418,8 @@ async def test_the_tool_trace_is_wired_in_by_default_and_its_screen_is_unlisted(
     app = build_app(_settings(tmp_path))
     try:
         assert isinstance(app.tracer, ToolTrace)
-        assert app.units[0].flow._tracer is app.tracer
+        tracer = app.units[0].flow._tracer
+        assert isinstance(tracer, TracerByGateway) and tracer._default is app.tracer  # the widget, behind the doors' own
         # Clicks route to the screen; nobody is offered it as a panel.
         assert app.screens.get(TRACE_SCREEN) is not None
         assert TRACE_SCREEN not in app.screens.names()
@@ -417,7 +433,8 @@ async def test_the_tool_trace_can_be_switched_off(tmp_path: Path) -> None:
     app = build_app(_settings(tmp_path).model_copy(update={"tool_trace_enabled": False}))
     try:
         assert app.tracer is None
-        assert app.units[0].flow._tracer is None
+        tracer = app.units[0].flow._tracer
+        assert isinstance(tracer, TracerByGateway) and tracer._default is None
         # The screen stays: a button posted before the switch must still open.
         assert app.screens.get(TRACE_SCREEN) is not None
     finally:
@@ -512,7 +529,7 @@ async def test_build_app_puts_an_agent_on_the_http_hub(tmp_path: Path, monkeypat
         from crucible.flows.tracers import TracerByGateway
 
         tracer = unit.flow._tracer
-        assert isinstance(tracer, TracerByGateway) and tracer._by_gateway == {"http": app.http_hub.turns}  # the journal
+        assert isinstance(tracer, TracerByGateway) and tracer._by_gateway["http"] is app.http_hub.turns  # the journal
         assert app.http_hub.turns._cards is app.sessions  # held cards go in the store: every replica shows them
         assert app.http_hub.turns._traces is app.sessions  # and a turn's calls, read back by token after the journal
         assert unit.flow._turns is not None  # a caller's TurnScope has somewhere to go
@@ -977,7 +994,7 @@ async def test_build_app_reaches_one_agent_through_two_gateways(tmp_path: Path) 
         # Both gateways feed the same coalescer; a reply goes back through the
         # chat client of the gateway the message came through.
         sink = app.sinks_by_agent["assistant"]
-        assert set(sink.gateways) == {"mattermost", "slack", "delegation"} and sink.default == "mattermost"
+        assert set(sink.gateways) == {"mattermost", "slack", "delegation", "trusted-delegation"} and sink.default == "mattermost"
         assert mm._sink is slack._sink
         assert sink.chat_for("slack") is slack._chat
         assert sink.chat_for("nowhere") is sink.chat  # unknown: the default's
@@ -986,9 +1003,9 @@ async def test_build_app_reaches_one_agent_through_two_gateways(tmp_path: Path) 
         assert isinstance(profile, PiProfile) and profile.append_system_prompt == PROMPT_HINT
         # Each gateway's capabilities are kept by its name.
         assert app.tools is not None
-        assert set(app.tools.gateway_caps["assistant"]) == {"mattermost", "slack", "delegation"}
+        assert set(app.tools.gateway_caps["assistant"]) == {"mattermost", "slack", "delegation", "trusted-delegation"}
         assert CAP_CHAT_ADMIN in app.tools.gateway_caps["assistant"]["mattermost"]
-        assert set(app.tools.gateway_admins["assistant"]) == {"mattermost", "slack", "delegation"}
+        assert set(app.tools.gateway_admins["assistant"]) == {"mattermost", "slack", "delegation", "trusted-delegation"}
         assert list(app.tools.tokens.values()).count("assistant") == 1  # one token, however many gateways
     finally:
         await _closed(app)

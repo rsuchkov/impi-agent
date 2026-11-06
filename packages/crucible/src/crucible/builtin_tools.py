@@ -489,6 +489,99 @@ class DelegationStatus(Tool):
 
 
 @tool
+class AskAgent(Tool):
+    name: ClassVar[str] = "ask_agent"
+    display_name: ClassVar[str] = "Ask a trusted agent"
+    destructive: ClassVar[bool] = False  # starts another agent's turn; changes nothing of its own
+    requires: ClassVar[frozenset[str]] = frozenset({CAP_DELEGATION})
+    description: ClassVar[str] = (
+        "Hand a task to an agent this deployment lets you trust (your profile names them): the engine "
+        "opens a turn of that agent on your task, as the same person you act for and with what you were "
+        "told to hand over, with no card — its own confirmed tools still ask the person, here in this "
+        "conversation. The call returns at once with a task id; ask several agents in a row if you "
+        "like, then call await_agents with the ids before you answer: the tasks end with your turn. "
+        "Give files by absolute path, from your own working directory, your attachments directory or "
+        "/tmp. An agent you do not trust is handed a task with delegate, which asks first."
+    )
+    parameters: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "agent": {"type": "string", "description": "The trusted agent's name, as list_agents gives it"},
+            "task": {"type": "string", "description": "The task, as a message to that agent (Markdown)"},
+            "files": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Absolute paths of files to send with the task",
+            },
+        },
+        "required": ["agent", "task"],
+    }
+
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        other = args.get("agent")
+        return f"Asking {other}" if isinstance(other, str) and other else "Asking an agent"
+
+    async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+        other = _require_str(args, "agent")
+        task = _require_str(args, "task")
+        files = args.get("files") or []
+        if not isinstance(files, list) or not all(isinstance(f, str) for f in files):
+            raise ToolError("files must be a list of absolute paths")
+        try:
+            task_id = await ctx.require_delegation().ask(ctx.agent_name, ctx.runtime_session_id, other, task, files)
+        except DelegationError as exc:
+            raise ToolError(str(exc)) from exc
+        return {
+            "task_id": task_id,
+            "asked": other,
+            "note": f"{other} works on it now; call await_agents with this id to read its answer before you reply",
+        }
+
+
+@tool
+class AwaitAgents(Tool):
+    name: ClassVar[str] = "await_agents"
+    display_name: ClassVar[str] = "Wait for the agents asked"
+    destructive: ClassVar[bool] = False  # waits and reads; changes nothing
+    requires: ClassVar[frozenset[str]] = frozenset({CAP_DELEGATION})
+    description: ClassVar[str] = (
+        "Wait until the tasks you handed to trusted agents with ask_agent have ended, and read their "
+        "answers: one entry per task id, with its status (answered, failed, timed_out, cancelled), the "
+        "agent's answer and the notice its turn ended with. Call it once for all the ids you hold."
+    )
+    parameters: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "task_ids": {"type": "array", "items": {"type": "string"}, "description": "The ids ask_agent returned"},
+        },
+        "required": ["task_ids"],
+    }
+
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        ids = args.get("task_ids")
+        return f"Waiting for {len(ids)} agent task(s)" if isinstance(ids, list) and ids else None
+
+    async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+        ids = args.get("task_ids")
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+            raise ToolError("task_ids must be a list of the ids ask_agent returned")
+        try:
+            views = await ctx.require_delegation().await_answers(ctx.agent_name, ctx.runtime_session_id, ids)
+        except DelegationError as exc:
+            raise ToolError(str(exc)) from exc
+        return {
+            "answers": [
+                {
+                    "task_id": v.task_id, "agent": v.to, "status": v.status,
+                    **({"answer": v.answer} if v.answer else {}),
+                    **({"notice": v.notice} if v.notice else {}),
+                }
+                for v in views
+            ]
+        }
+
+
+@tool
 class CancelDelegation(Tool):
     name: ClassVar[str] = "cancel_delegation"
     display_name: ClassVar[str] = "Call a task handed on off"

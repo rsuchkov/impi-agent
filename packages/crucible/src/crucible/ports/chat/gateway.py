@@ -28,6 +28,10 @@ GATEWAY_KINDS = (GATEWAY_MATTERMOST, GATEWAY_SLACK, GATEWAY_WS, GATEWAY_HTTP)
 # it — but a conversation can be live in it, and a message can say it came
 # through it, like through any gateway.
 GATEWAY_DELEGATION = "delegation"
+# The same door for an agent the asker trusts (``AgentSpec.trusted_agents``): a
+# turn there runs as the person, with the asker's secrets and connections it was
+# told to hand over, and its cards go to the asker's conversation.
+GATEWAY_TRUSTED_DELEGATION = "trusted-delegation"
 
 # Where a chat gateway answers a top-level direct message: at the top of the DM,
 # or in a thread under the person's message. The conversation is the DM either way.

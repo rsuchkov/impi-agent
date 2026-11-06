@@ -34,13 +34,18 @@ from crucible.connections.service import connection_access
 from crucible.gateways import GatewayConfig
 from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.ports.chat.client import ChatClient
+from crucible.ports.chat.gateway import GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION
 from crucible.ports.connections import (
     ConnectionAccess,
     ConnectionAccessFactory,
     TokenGrant,
 )
 from crucible.ports.telemetry import Telemetry
-from crucible.ports.turn import ENGINE_TURN_ATTRIBUTE, TurnScope
+from crucible.ports.turn import (
+    ENGINE_TURN_ATTRIBUTE,
+    PERSON_GATEWAY_ATTRIBUTE,
+    TurnScope,
+)
 from crucible.store.base import Store
 from impi.config import ImpiSettings
 from impi.connections_config import ASSERTED_IDENTITY_GATEWAYS, ConnectionProvider
@@ -159,8 +164,14 @@ class Connections:
         asserts, or a scheduled turn, which acts for no person. ``gateway`` is
         the conversation's; the agent's own stands in when the conversation
         names none (a record from before gateways were recorded, a screen)."""
+        if turn is not None and turn.attributes.get(PERSON_GATEWAY_ATTRIBUTE):
+            # A turn one agent opened for another, as the person: the person's
+            # own gateway is the one their accounts are kept under.
+            gateway = turn.attributes[PERSON_GATEWAY_ATTRIBUTE]
         gateway = gateway or self.gateways.get(agent, "")
-        if gateway in ASSERTED_IDENTITY_GATEWAYS:
+        if gateway in ASSERTED_IDENTITY_GATEWAYS or gateway in (GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION):
+            # Nobody's: a caller's asserted id, or a task's turn whose trust
+            # did not hand the person's accounts over.
             return None
         if turn is not None and turn.attributes.get(ENGINE_TURN_ATTRIBUTE):
             return None

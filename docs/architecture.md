@@ -122,9 +122,15 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   statuses, `DelegatedTurnChat` (the chat client a task's turn posts into — the
   gateway's `DelegationChatClient` implements it) and the attribute names a
   task's turn carries (`delegated_by`, `delegation_task`,
-  `on_behalf_of_gateway`). The engine's own gateway, `GATEWAY_DELEGATION`, is
-  the door such a turn runs through; `interactions/delegation` is the service
-  over the sinks, the store (`DelegationRecord`) and the turn dispatcher.
+  `on_behalf_of_gateway`), and `TrustedLink`/`TrustedLinks` (a trusted task in
+  flight: whose turn asked and where its cards go). The engine's own gateways,
+  `GATEWAY_DELEGATION` and `GATEWAY_TRUSTED_DELEGATION`, are the doors such a
+  turn runs through — the second as the person, with what the asker's trust
+  (`AgentSpec.trusted_agents`) hands over; `ports/turn`'s
+  `PERSON_GATEWAY_ATTRIBUTE` names the person's own gateway on such a turn.
+  `interactions/delegation` is the service over the sinks, the store
+  (`DelegationRecord`) and the turn dispatcher, with `TrustedTurns` and the
+  `TrustedTurnTracer` that feeds a trusted task's steps into the asker's turn.
 - **Entitlement** (`ports/entitlement`): `Entitlement` (what one conversation
   may do, out of its agent's profile: a subset of its tool names, built-ins
   included, trusted instructions for its system prompt, and the names whose

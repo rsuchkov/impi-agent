@@ -731,7 +731,10 @@ class DelegationRecord:
 
     ``agent`` is the asker; ``channel_id``, ``conversation_id``, ``kind`` and
     ``gateway`` are the asker's conversation as the engine keys it and the
-    gateway its turn ran on — where the answer goes back. ``user_id`` is the
+    gateway its turn ran on — where the answer goes back; ``to_conversation_id``
+    is the key of the conversation the asked agent's turn runs in. ``trusted``
+    says the task went with no card, as the person, to an agent the asker
+    trusts, its answer read by the asker's turn. ``user_id`` is the
     person behind the task: whose message the asker's turn answered, and so
     who read the card. ``attributes`` carries the asker's turn attributes as
     JSON (plain facts, never secrets) for the turns the task opens. ``files``
@@ -756,6 +759,8 @@ class DelegationRecord:
     answer: str = ""
     notice: str = ""
     delivered_at: str = ""
+    to_conversation_id: str = ""
+    trusted: bool = False
 
 
 class DelegationStore(Protocol):

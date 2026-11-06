@@ -28,9 +28,11 @@ async def test_a_task_is_written_replaced_and_read_by_its_id(store: Store) -> No
     await store.save_delegation(_record("t1"))
     assert await store.get_delegation("t1") == _record("t1")  # every field, the count as a number
     ended = _record("t1", status=DELEGATION_ANSWERED, finished_at="2026-11-06T10:01:00+00:00",
-                    answer="Done.", notice="", delivered_at="2026-11-06T10:01:02+00:00")
+                    answer="Done.", notice="", delivered_at="2026-11-06T10:01:02+00:00",
+                    to_conversation_id="delegated:t1", trusted=True)
     await store.save_delegation(ended)  # a second save of the id replaces
-    assert await store.get_delegation("t1") == ended
+    read = await store.get_delegation("t1")
+    assert read is not None and read == ended and read.trusted is True  # a flag, not a number, whatever the backend keeps
 
 
 async def test_a_task_leaves_running_exactly_once(store: Store) -> None:

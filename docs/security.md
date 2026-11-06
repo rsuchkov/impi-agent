@@ -212,6 +212,23 @@ of anyone's but the tasks it is handed. A directory the two share
 whatever its model and wherever that model runs, so what may not reach one
 of them must not be put there.
 
+**When the asker trusts the agent** (`runtime.trusted_agents`, `ask_agent`).
+The boundary is a different one: the same person, the same deployment, an
+agent that knows more of one area. Nothing crosses that was not already the
+person's to give — and only what the trust names: the turn secrets listed
+(the same values the asker's turn holds, in memory, never stored, gone with
+the asker's turn), the person's connected accounts when `connections` is on,
+the conversation so far when `context` says so. No card on the hand-off; the
+trusted agent's confirmed tools still ask, and the card goes to the
+asker's conversation, answered by the same person who could answer the
+asker's. The trusted agent runs under its own profile — its own tools,
+confinement, ports, key — through a door with the person's confirmation and
+accounts and nothing else of a conversation's. Trust is the operator's word in
+the asker's profile: an agent it names reads everything the trust hands over,
+on whatever model it answers with, so name a trusted agent's secrets and
+accounts as narrowly as its work allows, and trust no agent whose model the
+person's data may not reach.
+
 Does not hold against: **a mention**. With `AGENTS_REPLY_TO_AGENTS` on (the
 default), an agent's gateway still opens a turn on any message by one of the
 deployment's agents that mentions it — a plain reply the model wrote, a

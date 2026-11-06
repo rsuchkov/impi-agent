@@ -46,7 +46,10 @@ from crucible.gateways import (
     GatewayHandle,
     LeasedGateway,
 )
-from crucible.gateways.delegation import DelegationChatClient
+from crucible.gateways.delegation import (
+    DelegationChatClient,
+    TrustedDelegationChatClient,
+)
 from crucible.gateways.http import (
     HttpHub,
     HttpTurns,
@@ -64,7 +67,11 @@ from crucible.interactions import (
     ToolTrace,
     TraceScreen,
 )
-from crucible.interactions.delegation import EngineDelegationService
+from crucible.interactions.delegation import (
+    EngineDelegationService,
+    TrustedTurns,
+    TrustedTurnTracer,
+)
 from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.interactions.tooltrace import sweep_traces
@@ -78,6 +85,7 @@ from crucible.ports.agent import (
     ChainedCaptions,
     RuntimeControl,
 )
+from crucible.ports.agent.spec import TrustedAgent
 from crucible.ports.attachments import FileKeeper, ReceivedFiles
 from crucible.ports.chat.flow import Flow
 from crucible.ports.chat.gateway import (
@@ -85,6 +93,7 @@ from crucible.ports.chat.gateway import (
     GATEWAY_HTTP,
     GATEWAY_MATTERMOST,
     GATEWAY_SLACK,
+    GATEWAY_TRUSTED_DELEGATION,
     GATEWAY_WS,
     AgentIdentity,
 )
@@ -384,6 +393,7 @@ def _build_unit(
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
+    trusted: TrustedTurns,
 ) -> AgentUnit:
     profile = profiles.build(spec)
     # An agent whose profile gives a gateway fewer tools runs each conversation
@@ -421,7 +431,11 @@ def _build_unit(
     kinds = list(handles)
     sinks_by_agent[spec.name] = AgentSink(
         sink=coalescer,
-        gateways={**{kind: handle.chat for kind, handle in handles.items()}, GATEWAY_DELEGATION: DelegationChatClient(keeps=False)},
+        gateways={
+            **{kind: handle.chat for kind, handle in handles.items()},
+            GATEWAY_DELEGATION: DelegationChatClient(keeps=False),
+            GATEWAY_TRUSTED_DELEGATION: TrustedDelegationChatClient(trusted, keeps=False),
+        },
         default=kinds[0] if kinds else GATEWAY_DELEGATION,
     )
     return AgentUnit(
@@ -456,6 +470,7 @@ def _build_units(
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
+    trusted: TrustedTurns,
 ) -> list[AgentUnit]:
     units: list[AgentUnit] = []
     for spec in specs:
@@ -485,6 +500,7 @@ def _build_units(
             # Its one door is the engine's own: the capabilities a task's turn
             # may have, and nothing a platform would add.
             tools.enroll(spec, None, gateway=GATEWAY_DELEGATION)
+            tools.enroll(spec, None, gateway=GATEWAY_TRUSTED_DELEGATION)
         if spec.name in engine_names:
             # Engine-owned agents (support) get the agents directory path (their
             # editable workspace) and the engine source root (read-only) so their
@@ -501,16 +517,20 @@ def _build_units(
             # An http caller's tool activity goes to the caller's journal, a
             # chat turn's to a widget under the reply — chosen per turn by the
             # gateway the message came through.
-            tracer=(
-                TracerByGateway({GATEWAY_HTTP: http_turns}, default=tracer)
-                if http_turns is not None and GATEWAY_HTTP in handles
-                else tracer
+            # A turn on a task a trusting agent asked for shows its steps in
+            # the asker's turn, under the asked agent's name.
+            tracer=TracerByGateway(
+                {
+                    **({GATEWAY_HTTP: http_turns} if http_turns is not None and GATEWAY_HTTP in handles else {}),
+                    GATEWAY_TRUSTED_DELEGATION: TrustedTurnTracer(trusted, turns),
+                },
+                default=tracer,
             ),
             turns=turns,
             captions=captions,
             posting_tools=_posting_tools(tools), tools=tools,
             file_keeper=file_keeper, received_files_of=received_files_of, telemetry=telemetry,
-            replica=replica, replicas=replicas, forwarder=forwarder,
+            replica=replica, replicas=replicas, forwarder=forwarder, trusted=trusted,
         )
         for kind in handles:
             if kind in CONNECTION_GATEWAYS:
@@ -838,8 +858,11 @@ def build_app(settings: ImpiSettings) -> App:
         if settings.integrations.enabled and settings.tool_trace_enabled
         else None
     )
+    # The trusted tasks in flight: the door's client posts their cards where the
+    # asker is, the tracer shows their steps in the asker's turn.
+    trusted = TrustedTurns()
     units = _build_units(
-        specs, configs, engine_names,
+        specs, configs, engine_names, trusted=trusted,
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools, file_keeper=attachments,
         received_files_of=attachments.received_files_of if attachments is not None else None,
@@ -879,10 +902,23 @@ def build_app(settings: ImpiSettings) -> App:
     dispatcher = SinkTurnDispatcher(sinks_by_agent, http=http_hub, sessions=sessions)
     # Handing a task to another agent: a turn of that agent on the task alone,
     # its answer back as a turn of the asker's, the record in the store.
+    units_by_name = {unit.spec.name: unit for unit in units}
+
+    def _trust_for(asker: str, to: str) -> TrustedAgent | None:
+        # The asker's profile as it is now (a reload replaces it in place).
+        unit = units_by_name.get(asker)
+        return unit.spec.trust_in(to) if unit is not None else None
+
+    def _session_for(agent: str) -> str:
+        unit = units_by_name.get(agent)
+        return unit.spec.delegation_session if unit is not None else ""
+
     delegation_svc = (
         EngineDelegationService(
             presence, sessions, registry, sessions, dispatcher, DelegationChatClient,
             file_roots=file_roots, saver=attachments, max_file_bytes=settings.attachment_max_bytes, turns=turns,
+            trust_for=_trust_for, trusted_chat=lambda: TrustedDelegationChatClient(trusted), links=trusted,
+            clock=runtime, session_for=_session_for,
         )
         if delegation_on else None
     )
@@ -933,7 +969,6 @@ def build_app(settings: ImpiSettings) -> App:
     # live {agent: AgentSink} map and its prompt runner the units' profiles.
     scheduler: Scheduler | None = None
     if settings.scheduler.enabled:
-        units_by_name = {unit.spec.name: unit for unit in units}
 
         def _profile_of(agent: str) -> AgentProfile | None:
             unit = units_by_name.get(agent)

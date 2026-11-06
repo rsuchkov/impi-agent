@@ -529,7 +529,19 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   the service as `ctx.require_delegation()` and declares `CAP_DELEGATION`.
   `AgentInfo.model` is what the card shows as the model the task goes to;
   fill it in your directory, and list a headless agent with an empty
-  `username`/`user_id`.
+  `username`/`user_id`. For agents an asker **trusts** (`AgentSpec.trusted_agents`,
+  `ask_agent`/`await_agents`): hand the service `trust_for=(asker, to) ->
+  TrustedAgent | None` (read from the asker's live profile), `links=TrustedTurns()`,
+  `trusted_chat=lambda: TrustedDelegationChatClient(links)`, `clock=` the runtime
+  (the asker's turn pauses while it awaits) and `session_for=(agent) -> its
+  delegation_session`; give every `AgentSink` a
+  `TrustedDelegationChatClient(links, keeps=False)` under
+  `GATEWAY_TRUSTED_DELEGATION` (its cards go to the asker's conversation through
+  the asker's own client, `TrustedLink`), put `TrustedTurnTracer(links, turns)`
+  in the agent's `TracerByGateway` for that door (its steps feed the asker's
+  turn), and let your connection owner rule read `PERSON_GATEWAY_ATTRIBUTE`
+  (`crucible.ports.turn`) from the turn: the person's own gateway when a
+  trusted task hands their accounts over, nobody's on either door otherwise.
 - **Turns the engine starts.** A person's message opens a turn through a
   gateway; the engine opens one by itself through a `TurnDispatcher`
   (`crucible.ports.engine_turn`) — the scheduler does for a `turn`-mode task,

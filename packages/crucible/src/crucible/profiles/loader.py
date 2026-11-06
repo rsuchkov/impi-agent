@@ -22,7 +22,18 @@ from crucible.ports.agent import (
 from crucible.ports.agent.confinement import ConfinementLevel, check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
-from crucible.ports.chat.gateway import GATEWAY_DELEGATION, GATEWAY_KINDS
+from crucible.ports.agent.spec import (
+    DELEGATION_SESSION_PER_TASK,
+    DELEGATION_SESSIONS,
+    TRUST_CONTEXT_TASK,
+    TRUST_CONTEXTS,
+    TrustedAgent,
+)
+from crucible.ports.chat.gateway import (
+    GATEWAY_DELEGATION,
+    GATEWAY_KINDS,
+    GATEWAY_TRUSTED_DELEGATION,
+)
 from crucible.profiles.errors import ProfileError
 from crucible.tool_manifests import MCP_SERVER_TOOLS
 
@@ -182,6 +193,12 @@ class FsProfileStore:
         headless = data.get("headless", False)
         if not isinstance(headless, bool):
             raise ProfileError(f"{manifest}: headless must be true or false")
+        trusted_agents = _trusted_agents(runtime, manifest)
+        delegation_session = str(runtime.get("delegation_session") or DELEGATION_SESSION_PER_TASK)
+        if delegation_session not in DELEGATION_SESSIONS:
+            raise ProfileError(
+                f"{manifest}: runtime.delegation_session must be one of {', '.join(DELEGATION_SESSIONS)}"
+            )
         tools = runtime.get("tools") or []
         if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools):
             raise ProfileError(f"{manifest}: runtime.tools must be a list of strings")
@@ -293,6 +310,8 @@ class FsProfileStore:
             shared_dirs=shared_dirs,
             fallback_models=fallback_models,
             headless=headless,
+            trusted_agents=trusted_agents,
+            delegation_session=delegation_session,
         )
 
     def _fallback_models(self, name: str, runtime: dict, manifest: Path) -> tuple[str, ...]:
@@ -359,6 +378,48 @@ def _shared_dirs(runtime: dict, manifest: Path) -> tuple[str, ...]:
     return tuple(dict.fromkeys(raw))
 
 
+def _trusted_agents(runtime: dict, manifest: Path) -> tuple[TrustedAgent, ...]:
+    """``runtime.trusted_agents``: a list of agent names (everything default),
+    or a mapping of name to ``{secrets: [names], connections: bool, context:
+    task|conversation}``, each name once."""
+    raw = runtime.get("trusted_agents")
+    if raw is None:
+        return ()
+    shape = f"{manifest}: runtime.trusted_agents must be a list of agent names or a mapping of name to {{secrets, connections, context}}"
+    entries: list[tuple[str, dict]] = []
+    if isinstance(raw, list):
+        if not all(isinstance(n, str) and n.strip() for n in raw):
+            raise ProfileError(shape)
+        entries = [(n.strip(), {}) for n in raw]
+    elif isinstance(raw, dict):
+        for name, body in raw.items():
+            if not isinstance(name, str) or not name.strip() or not isinstance(body, dict | type(None)):
+                raise ProfileError(shape)
+            entries.append((name.strip(), body or {}))
+    else:
+        raise ProfileError(shape)
+    out: dict[str, TrustedAgent] = {}
+    for name, body in entries:
+        unknown = set(body) - {"secrets", "connections", "context"}
+        if unknown:
+            raise ProfileError(f"{manifest}: runtime.trusted_agents.{name} has unknown keys: {', '.join(sorted(unknown))}")
+        secrets = body.get("secrets") or []
+        if not isinstance(secrets, list) or not all(isinstance(s, str) and s.strip() for s in secrets):
+            raise ProfileError(f"{manifest}: runtime.trusted_agents.{name}.secrets must be a list of secret names")
+        connections = body.get("connections", False)
+        if not isinstance(connections, bool):
+            raise ProfileError(f"{manifest}: runtime.trusted_agents.{name}.connections must be true or false")
+        context = str(body.get("context") or TRUST_CONTEXT_TASK)
+        if context not in TRUST_CONTEXTS:
+            raise ProfileError(
+                f"{manifest}: runtime.trusted_agents.{name}.context must be one of {', '.join(TRUST_CONTEXTS)}"
+            )
+        out[name] = TrustedAgent(
+            name=name, secrets=tuple(dict.fromkeys(s.strip() for s in secrets)), connections=connections, context=context,
+        )
+    return tuple(out.values())
+
+
 def _network_ports(runtime: dict, manifest: Path) -> tuple[int, ...]:
     """``runtime.network_ports``: a list of TCP ports, each once."""
     raw = runtime.get("network_ports") or []
@@ -392,10 +453,10 @@ def _tools_by_gateway(
         raise ProfileError(f"{manifest}: runtime.tools_by_gateway must be a mapping of gateway to a list of tools")
     out: list[tuple[str, tuple[str, ...]]] = []
     for gateway, names in raw.items():
-        if gateway not in (*GATEWAY_KINDS, GATEWAY_DELEGATION):
+        if gateway not in (*GATEWAY_KINDS, GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION):
             raise ProfileError(
                 f"{manifest}: runtime.tools_by_gateway names {gateway!r}; a gateway is one of "
-                f"{', '.join((*GATEWAY_KINDS, GATEWAY_DELEGATION))}"
+                f"{', '.join((*GATEWAY_KINDS, GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION))}"
             )
         if isinstance(names, dict):
             if set(names) != {"except"} or not isinstance(names["except"], list) or not all(isinstance(n, str) for n in names["except"]):
