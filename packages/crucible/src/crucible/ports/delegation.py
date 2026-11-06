@@ -99,13 +99,17 @@ class TrustedLink:
     """A trusted task in flight, as the door's chat client and the tracer see
     it: whose turn asked (the asker and its runtime session), whom it went to,
     and where in the asker's conversation the task's cards and notices go —
-    the asker's own client and the place its turn answers."""
+    the asker's own client and the place its turn answers. ``elsewhere`` is
+    the conversation on the other gateways it is live in, each as the asker's
+    client there and its address: a card is copied to each, as the asker's
+    own card is, and nothing else goes there."""
 
     asker: str
     asker_session_id: str
     to: str
     poster: ChatClient
     ref: ConversationRef
+    elsewhere: tuple[tuple[ChatClient, ConversationRef], ...] = ()
 
 
 class TrustedLinks(Protocol):

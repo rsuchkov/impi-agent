@@ -32,6 +32,7 @@ from crucible.interactions.delegation import (
     TrustedLinkRegistry,
     TrustedTurnTracer,
 )
+from crucible.ports.agent.errors import TURN_END_NOTICES
 from crucible.ports.agent.events import (
     CallAwaiting,
     TextProgress,
@@ -39,11 +40,13 @@ from crucible.ports.agent.events import (
     ToolStarted,
 )
 from crucible.ports.agent.spec import TrustedAgent
-from crucible.ports.chat.client import NobodyToAnswer
+from crucible.ports.chat.client import ConversationView, NobodyToAnswer
 from crucible.ports.chat.directory import AgentInfo, StaticDirectory
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.gateway import (
     GATEWAY_DELEGATION,
+    GATEWAY_HTTP,
+    GATEWAY_MATTERMOST,
     GATEWAY_SLACK,
     GATEWAY_TRUSTED_DELEGATION,
 )
@@ -80,7 +83,7 @@ from crucible.ports.turn import (
     TurnScope,
     TurnSecrets,
 )
-from crucible.store.base import DelegationRecord, SessionRecord
+from crucible.store.base import DelegationRecord, GatewayAddress, SessionRecord
 from crucible.store.sqlite import SqliteSessionStore
 from crucible.tools.base import ToolContext, ToolError
 from crucible.turns import TurnRegistry
@@ -500,6 +503,17 @@ async def test_the_task_turns_chat_collects_the_answer_and_has_nobody_to_ask() -
     await chat.post_notice(ref, "truncated", code="truncated")
     assert chat.answer == "First part.\n\nThe patch:\n\nFiles the agent produced (kept in its own conversation): patch.diff"
     assert chat.notice_code == "truncated"
+    # How the turn ended is what is kept: a tool's note about the turn, said after, does not replace it —
+    await chat.post_notice(ref, "Your session expired.", code="session_expired")
+    assert chat.notice_code == "truncated"
+    # — and is kept where the turn ended with no notice of its own.
+    noted = DelegationChatClient()
+    await noted.post_notice(ref, "Your session expired.", code="session_expired")
+    await noted.post_notice(ref, "It took too long.", code="timeout")
+    assert noted.notice_code == "timeout"
+    quiet = DelegationChatClient()
+    await quiet.post_notice(ref, "Your session expired.", code="session_expired")
+    assert quiet.notice_code == "session_expired"
     assert await chat.get_thread_posts(ref) == [] and await chat.get_recent_posts("c") == []
     assert chat.format_mention("coder", user_id="u") == "@coder"
     with pytest.raises(NobodyToAnswer, match="no person who could confirm"):
@@ -852,8 +866,18 @@ async def test_the_trusted_doors_client_puts_cards_and_notices_in_the_askers_con
     assert asker_chat.updated_confirmations[0][1].title == "jira: Create issue"
     await door.retract(post_id, "expired")
     assert asker_chat.retracted == [(post_id, "expired")]
-    await door.post_notice(task_ref, "the turn timed out", code="timeout")
-    assert asker_chat.notices[-1] == (ref, "jira: the turn timed out") and asker_chat.notice_codes[-1] == "timeout"
+    # What is said to the person reaches them: a turn that was not admitted, a tool's note about the turn.
+    await door.post_notice(task_ref, "Sign in to Jira again.", code="not_admitted")
+    await door.post_notice(task_ref, "Your session expired.", code="session_expired")
+    assert asker_chat.notices == [(ref, "jira: Sign in to Jira again."), (ref, "jira: Your session expired.")]
+    assert asker_chat.notice_codes == ["not_admitted", "session_expired"]
+    # How the task's turn ended is the asker's to read and to word: the person is not told by the door.
+    for code in sorted(TURN_END_NOTICES):
+        await door.post_notice(task_ref, "the turn ended", code=code)
+    assert len(asker_chat.notices) == 2
+    ended = TrustedDelegationChatClient(links)
+    await ended.post_notice(task_ref, "The agent finished without a reply.", code="empty_answer")
+    assert ended.notice_code == "empty_answer" and len(asker_chat.notices) == 2
     # A card without a title keeps the agent's name in its heading, as the card already has it.
     plain = ApprovalCard(agent="jira", headline="wants to run x.", tool="x")
     await door.post_confirmation(task_ref, plain, [], callback_url="cb")
@@ -865,6 +889,146 @@ async def test_the_trusted_doors_client_puts_cards_and_notices_in_the_askers_con
     kept = TrustedDelegationChatClient(links)
     await kept.post_reply(task_ref, "done")
     assert kept.answer == "done"
+
+
+class _FailingChat(FakeChat):
+    async def post_confirmation(self, ref, card, actions, *, callback_url) -> str:
+        raise OSError("gateway down")
+
+    async def update_confirmation(self, post_id, card, actions=None, *, callback_url="") -> None:
+        raise OSError("gateway down")
+
+
+class _ViewingChat(FakeChat):
+    """A client whose platform shows the conversation's state (``ConversationView``)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.busy: list[bool] = []
+        self.waiting: list[tuple[ConversationRef, bool]] = []
+
+    async def set_busy(self, ref: ConversationRef, busy: bool) -> None:
+        self.busy.append(busy)
+
+    async def set_waiting(self, ref: ConversationRef, waiting: bool) -> None:
+        self.waiting.append((ref, waiting))
+
+
+async def test_a_trusted_agents_card_is_asked_on_every_gateway_the_askers_conversation_is_live_in() -> None:
+    links = TrustedLinkRegistry()
+    panel, slack = FakeChat(), FakeChat()
+    await slack.post_confirmation(ConversationRef("x", "x", "x", ""), ApprovalCard(agent="a", headline="h", tool="t"), [], callback_url="")
+    panel_ref = ConversationRef(channel_id="issue-7", conversation_id="issue-7", message_id="m1", thread_root_id="")
+    slack_ref = ConversationRef(channel_id="C1", conversation_id="100.1", message_id="100.1", thread_root_id="100.1")
+    links.register("delegated:abc", TrustedLink(
+        asker="assistant", asker_session_id="assistant--x", to="jira", poster=panel, ref=panel_ref,
+        elsewhere=((slack, slack_ref),),
+    ))
+    door = TrustedDelegationChatClient(links, keeps=False)
+    task_ref = ConversationRef(channel_id="delegated:abc", conversation_id="delegated:abc", message_id="abc", thread_root_id="")
+    card = ApprovalCard(agent="jira", headline="wants to run «Create issue».", title="Create issue", tool="jira_create")
+    post_id = await door.post_confirmation(task_ref, card, [], callback_url="cb")
+    assert post_id == "confirm-1"  # the card is known by its first copy
+    assert panel.posted_confirmations[-1][0] == panel_ref and slack.posted_confirmations[-1][0] == slack_ref
+    assert {c.posted_confirmations[-1][1].title for c in (panel, slack)} == {"jira: Create issue"}
+    # The first answer closes every copy, each by its own id on its own gateway.
+    await door.update_confirmation(post_id, replace(card, headline="Allowed once"), [])
+    assert [(u[0], u[1].headline) for u in panel.updated_confirmations] == [("confirm-1", "Allowed once")]
+    assert [(u[0], u[1].headline) for u in slack.updated_confirmations] == [("confirm-2", "Allowed once")]
+    await door.retract(post_id, "expired")
+    assert panel.retracted == [("confirm-1", "expired")] and slack.retracted == [("confirm-2", "expired")]
+    again = await door.post_confirmation(task_ref, card, [], callback_url="cb")
+    await door.delete_post(again)
+    assert panel.deleted == ["confirm-2"] and slack.deleted == ["confirm-3"]
+    # A gateway that cannot be posted to costs the others nothing: the card is known by the copy that stands,
+    # and a rewrite that fails there still reaches the rest.
+    down = _FailingChat()
+    links.register("delegated:abc", TrustedLink(
+        asker="assistant", asker_session_id="assistant--x", to="jira", poster=down, ref=panel_ref,
+        elsewhere=((slack, slack_ref), (down, panel_ref)),
+    ))
+    standing = await door.post_confirmation(task_ref, card, [], callback_url="cb")
+    assert standing == "confirm-4" and slack.posted_confirmations[-1][0] == slack_ref
+    await door.update_confirmation(standing, replace(card, headline="Denied"), [])
+    assert slack.updated_confirmations[-1][:1] == ("confirm-4",)
+    # Nowhere it could be posted: the question is not asked, and the gate hears why.
+    links.register("delegated:abc", TrustedLink(asker="assistant", asker_session_id="assistant--x", to="jira", poster=down, ref=panel_ref))
+    with pytest.raises(OSError, match="gateway down"):
+        await door.post_confirmation(task_ref, card, [], callback_url="cb")
+
+
+async def test_while_a_trusted_agents_card_waits_the_askers_conversation_is_shown_waiting() -> None:
+    links = TrustedLinkRegistry()
+    slack, elsewhere = _ViewingChat(), _ViewingChat()
+    ref = ConversationRef(channel_id="D1", conversation_id="100.1", message_id="100.1", thread_root_id="100.1")
+    links.register("delegated:abc", TrustedLink(
+        asker="assistant", asker_session_id="assistant--x", to="jira", poster=slack, ref=ref,
+        elsewhere=((elsewhere, ConversationRef("issue-7", "issue-7", "m1", "")),),
+    ))
+    door = TrustedDelegationChatClient(links, keeps=False)
+    assert isinstance(door, ConversationView)  # the gate tells a view; the door is one, for the asker's
+    task_ref = ConversationRef(channel_id="delegated:abc", conversation_id="delegated:abc", message_id="abc", thread_root_id="")
+    await door.set_waiting(task_ref, True)
+    assert slack.waiting == [(ref, True)]
+    # The task may be over before the wait is taken back — called off with the asker's turn: it still is, where it was shown.
+    links.release("delegated:abc")
+    await door.set_waiting(task_ref, False)
+    assert slack.waiting == [(ref, True), (ref, False)]
+    await door.set_waiting(task_ref, False)  # taken back once
+    assert len(slack.waiting) == 2
+    # The asker's turn says itself that its conversation is busy; a copy's gateway runs no turn and is told nothing.
+    await door.set_busy(task_ref, True)
+    await door.set_busy(task_ref, False)
+    assert slack.busy == [] and elsewhere.waiting == [] and elsewhere.busy == []
+    # An asker on a platform with no such view, and a conversation of no task in flight: nothing to tell.
+    links.register("delegated:plain", TrustedLink(asker="assistant", asker_session_id="assistant--x", to="jira", poster=FakeChat(), ref=ref))
+    plain_ref = ConversationRef("delegated:plain", "delegated:plain", "p", "")
+    await door.set_waiting(plain_ref, True)
+    await door.set_waiting(plain_ref, False)
+    await door.set_waiting(ConversationRef("delegated:zzz", "delegated:zzz", "z", ""), True)
+    assert len(slack.waiting) == 2
+
+
+async def test_the_task_knows_the_askers_conversation_on_every_gateway_it_is_live_in(store) -> None:
+    release = asyncio.Event()
+
+    async def script(msg, chat) -> TurnOutcome:
+        await release.wait()
+        return TurnOutcome.REPLIED
+
+    sink = ScriptedSink(script)
+    turns = TurnRegistry()
+    links = TrustedLinkRegistry()
+    slack, panel = FakeChat(), FakeChat()
+    presence = MappingPresence({
+        "coder": AgentSink(sink=sink, gateways={
+            GATEWAY_TRUSTED_DELEGATION: TrustedDelegationChatClient(links, keeps=False),
+        }, default=GATEWAY_TRUSTED_DELEGATION),
+        # The asker speaks on Mattermost too, where this conversation is not: no copy goes there.
+        "assistant": AgentSink(
+            sink=ScriptedSink(), gateways={GATEWAY_SLACK: slack, GATEWAY_HTTP: panel, GATEWAY_MATTERMOST: FakeChat()},
+            default=GATEWAY_SLACK,
+        ),
+    })
+    svc = EngineDelegationService(
+        presence, store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient, turns=turns,
+        trust_for=lambda asker, to: TrustedAgent("coder"),
+        trusted_chat=lambda: TrustedDelegationChatClient(links), links=links,
+    )
+    record, _ = await store.get_or_create("assistant", "issue-7", "issue-7", KIND_DM, user_id="u-alice", gateway=GATEWAY_HTTP)
+    await store.set_gateway_address("assistant", "issue-7", GATEWAY_HTTP, GatewayAddress("issue-7", "issue-7", KIND_DM))
+    await store.set_gateway_address("assistant", "issue-7", GATEWAY_SLACK, GatewayAddress("C1", "100.1", KIND_THREAD))
+    rsid = record.runtime_session_id
+    async with turns.bind(rsid, TurnScope(turn_id="t1"), place=TurnPlace(GATEWAY_HTTP)):
+        task_id = await svc.ask("assistant", rsid, "coder", "Create the issue.")
+        link = links.link_for(delegated_conversation_key(task_id))
+        assert link is not None
+        assert link.poster is panel and (link.ref.channel_id, link.ref.conversation_id) == ("issue-7", "issue-7")
+        (other, where), = link.elsewhere
+        assert other is slack and (where.channel_id, where.conversation_id, where.thread_root_id) == ("C1", "100.1", "100.1")
+        release.set()
+        await svc.await_answers("assistant", rsid, [task_id])
+    await _settled(svc)
 
 
 async def test_a_trusted_tasks_steps_show_in_the_askers_turn_under_the_agents_name() -> None:

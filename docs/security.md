@@ -221,8 +221,8 @@ person's to give — and only what the trust names: the turn secrets listed
 the asker's turn), the person's connected accounts when `connections` is on,
 the conversation so far when `context` says so. No card on the hand-off; the
 trusted agent's confirmed tools still ask, and the card goes to the
-asker's conversation, answered by the same person who could answer the
-asker's. The trusted agent runs under its own profile — its own tools,
+asker's conversation — every gateway it is live in, as the asker's own cards
+do — answered by the same person who could answer the asker's. The trusted agent runs under its own profile — its own tools,
 confinement, ports, key — through a door with the person's confirmation and
 accounts and nothing else of a conversation's. Trust is the operator's word in
 the asker's profile: an agent it names reads everything the trust hands over,

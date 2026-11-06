@@ -929,6 +929,37 @@ async def test_on_a_tasks_turn_the_approver_is_the_person_on_the_gateway_they_ca
         await _close(rig)
 
 
+async def test_on_a_trusted_tasks_turn_the_card_and_the_wait_are_the_askers_conversations(tmp_path: Path) -> None:
+    """The gate asks through the door, as through any gateway's client, and
+    tells it the turn waits; the door puts both where the person is — the
+    card on every gateway the asker's conversation is live in, the wait on
+    the one the asker's turn runs on."""
+    from crucible.gateways.delegation import TrustedDelegationChatClient
+    from crucible.interactions.delegation import TrustedLinkRegistry
+    from crucible.ports.delegation import TrustedLink
+
+    links = TrustedLinkRegistry()
+    slack, panel = ViewingPoster(), ViewingPoster()
+    slack_ref = ConversationRef(channel_id="D1", conversation_id="100.1", message_id="100.1", thread_root_id="100.1")
+    panel_ref = ConversationRef(channel_id="issue-7", conversation_id="issue-7", message_id="m1", thread_root_id="")
+    links.register("dm1", TrustedLink(
+        asker="assistant", asker_session_id="assistant--asker", to="jira", poster=slack, ref=slack_ref,  # type: ignore[arg-type]
+        elsewhere=((panel, panel_ref),),  # type: ignore[arg-type]
+    ))
+    rig = await _rig(tmp_path, 8569, by_gateway={"trusted-delegation": TrustedDelegationChatClient(links, keeps=False)})
+    try:
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, gateway="trusted-delegation")
+        pending = asyncio.create_task(_call(rig, "dangerous"))
+        await _answer_on(panel, rig, ANSWER_ONCE)  # answered on the copy
+        assert await pending == 200
+        assert [p.ref for p in slack.posts] == [slack_ref] and [p.ref for p in panel.posts] == [panel_ref]
+        assert len(slack.updated) == 1 and len(panel.updated) == 1  # the answer closes both
+        assert slack.waiting == [("100.1", True), ("100.1", False)] and panel.waiting == []
+        assert rig.poster.posts == []
+    finally:
+        await _close(rig)
+
+
 async def test_a_cards_token_names_the_replica_that_asked(tmp_path: Path) -> None:
     rig = await _rig(tmp_path, 8563, replica_id="a1")
     try:

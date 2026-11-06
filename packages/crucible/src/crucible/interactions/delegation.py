@@ -103,6 +103,7 @@ from crucible.store.base import (
     DelegationStore,
     SessionRecord,
     SessionStore,
+    gateway_addresses,
 )
 
 logger = logging.getLogger(__name__)
@@ -335,7 +336,15 @@ class EngineDelegationService:
         poster = self._presence.poster(agent, record.last_gateway)
         if poster is None:
             raise DelegationError("this conversation could not be resolved — nothing was handed on")
-        ref = turn_ref(record, record.last_gateway, self._turns.place(runtime_session_id))
+        place = self._turns.place(runtime_session_id)
+        ref = turn_ref(record, record.last_gateway, place)
+        # The asker's conversation on its other gateways: a card of the asked
+        # agent's is asked there too, as a card of the asker's own would be.
+        elsewhere = tuple(
+            (other, turn_ref(record, gateway, place))
+            for gateway in sorted(gateway_addresses(record))
+            if gateway != record.last_gateway and (other := self._presence.poster(agent, gateway)) is not None
+        )
         task_id = delegation_id()
         key = self._conversation_key(to, task_id, record)
         self._require_free(to, key)
@@ -369,7 +378,9 @@ class EngineDelegationService:
             entry, attachments, gateway=GATEWAY_TRUSTED_DELEGATION,
             scope=TurnScope(turn_id=task_id, attributes=handed, secrets=secrets), event=event,
         )
-        self._links.register(key, TrustedLink(asker=agent, asker_session_id=runtime_session_id, to=to, poster=poster, ref=ref))
+        self._links.register(key, TrustedLink(
+            asker=agent, asker_session_id=runtime_session_id, to=to, poster=poster, ref=ref, elsewhere=elsewhere,
+        ))
         self._ends[task_id] = asyncio.get_running_loop().create_future()
         # The asker's turn as it is now: the task ends with this turn, not with
         # whatever turn the same conversation runs next.

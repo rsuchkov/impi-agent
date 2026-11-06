@@ -549,8 +549,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   (the asker's turn pauses while it awaits) and `session_for=(agent) -> its
   delegation_session`; give every `AgentSink` a
   `TrustedDelegationChatClient(links, keeps=False)` under
-  `GATEWAY_TRUSTED_DELEGATION` (its cards go to the asker's conversation through
-  the asker's own client, `TrustedLink`), put `TrustedTurnTracer(links, turns)`
+  `GATEWAY_TRUSTED_DELEGATION` (its cards go to the asker's conversation — every
+  gateway it is live in — through the asker's own clients, `TrustedLink`; the
+  wait on a card is shown on the asker's conversation; a notice goes there
+  unless its code is one of `TURN_END_NOTICES`), put `TrustedTurnTracer(links, turns)`
   in the agent's `TracerByGateway` for that door (its steps feed the asker's
   turn), and let your connection owner rule read
   `ACCOUNTS_HANDED_ATTRIBUTE` with `ON_BEHALF_OF_GATEWAY_ATTRIBUTE`

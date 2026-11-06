@@ -320,10 +320,18 @@ stored), the person's connected accounts when `connections` is on (the
 engine's connection rule reads the person's own gateway from the turn), and
 the asker's turn attributes. Its **confirmed tools work**: a card it raises is
 posted in the asker's conversation — the same thread or journal the person is
-watching, by the asker's own bot, with the agent's name ahead of the title
-("jira: Create issue") — and the same person answers it; the asker's progress
-shows the trusted agent's steps under its name (`jira · Reading PROJ-7`) and
-says "waiting for you" while its card is up. What it still may not do:
+watching, and every other gateway that conversation is live in, as a card of
+the asker's own is — by the asker's own bot, with the agent's name ahead of
+the title ("jira: Create issue"); the same person answers it, on whichever
+copy, and the answer closes them all. The asker's progress shows the trusted
+agent's steps under its name (`jira · Reading PROJ-7`) and says "waiting for
+you" while its card is up, and a platform that shows the conversation's state
+(Slack's agent session) shows it waiting. What is said to the person in the
+trusted agent's turn reaches them there too, under its name — the turn was
+not admitted, a tool's note about the turn ("jira: Your session expired") —
+but not how that turn ended (`empty_answer`, `truncated`, `timeout`, …): that
+is the `notice` `await_agents` returns, for the asker to put in words. What
+it still may not do:
 widgets, forms, ephemeral posts, channel administration, `send_file`,
 scheduling, handing on again. With `context: conversation`, the asker's
 conversation so far goes with the task as a context block — the thread or the

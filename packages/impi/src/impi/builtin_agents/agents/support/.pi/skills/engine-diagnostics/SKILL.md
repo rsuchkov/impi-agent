@@ -332,7 +332,11 @@ And from the session check:
 - Tasks handed between agents — `X is not an agent you trust; hand the task on
   with delegate` (`ask_agent` to an agent the asker's `runtime.trusted_agents`
   does not name), `asker_turn_ended` in `delegation_status` (the asker answered or
-  was stopped before `await_agents`; the trusted task was called off), `X cannot take a task here` (the other agent
+  was stopped before `await_agents`; the trusted task was called off), a trusted agent's turn that ended
+  `empty_answer`, `truncated`, `timeout` or failed posts **no notice** to the person — the code is the `notice`
+  `await_agents` returns and the asker words it; a notice that does appear as "jira: …" is one said to the person
+  (the turn was not admitted, a tool's note about the turn); its card is copied to every gateway the asker's
+  conversation is live in, `X cannot take a task here` (the other agent
   runs nowhere the engine can open a turn: no profile, or a ws-only one), `no
   task '<id>' was handed on from this conversation` (the id is another
   conversation's or another agent's), `<file> changed after the card was

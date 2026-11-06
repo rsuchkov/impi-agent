@@ -20,7 +20,9 @@ from crucible.containment import one_line, quoted, speaker
 from crucible.content_types import format_size, sniff_image
 from crucible.ports.admission import NotAdmitted, TurnAdmission
 from crucible.ports.agent import (
+    NOTICE_EMPTY_ANSWER,
     NOTICE_STOPPED,
+    NOTICE_TRUNCATED,
     STOPPED_MESSAGE,
     AgentBusy,
     AgentError,
@@ -82,8 +84,6 @@ TRUNCATED_EMPTY_MESSAGE = (
     "The model hit its length limit before it had answered, so there is nothing to show "
     "— ask again, perhaps for a shorter answer."
 )
-NOTICE_EMPTY_ANSWER = "empty_answer"
-NOTICE_TRUNCATED = "truncated"
 _MAX_BACKFILL_CHARS = 6000
 _CHANNEL_BACKFILL_LIMIT = 20
 # The prompt's own structure is a handful of lines beginning with `[`: a block

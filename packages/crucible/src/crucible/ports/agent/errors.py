@@ -135,6 +135,18 @@ NOTICE_AGENT_ERROR = "agent_error"
 # Not a failure: a person stopped the turn. Listed with the codes a client acts
 # on because that is what it is for the client — the turn ended early, by request.
 NOTICE_STOPPED = "stopped"
+# Not failures either: the turn ran and ended with nothing said, or with an
+# answer the model's length limit cut.
+NOTICE_EMPTY_ANSWER = "empty_answer"
+NOTICE_TRUNCATED = "truncated"
+# Every code above: the notices that say how a turn ended — the engine's own,
+# a closed set. A notice with any other code is something else said in the
+# conversation: a turn that was not admitted, a tool's note about the turn.
+TURN_END_NOTICES = frozenset({
+    NOTICE_RUNTIME_UNAVAILABLE, NOTICE_BUSY, NOTICE_QUOTA, NOTICE_CREDENTIALS, NOTICE_CONTEXT, NOTICE_TIMEOUT,
+    NOTICE_STALLED, NOTICE_OVER_BUDGET, NOTICE_MODEL_UNAVAILABLE, NOTICE_AGENT_ERROR, NOTICE_STOPPED,
+    NOTICE_EMPTY_ANSWER, NOTICE_TRUNCATED,
+})
 
 
 def notice_for(error: Exception) -> tuple[str, str]:

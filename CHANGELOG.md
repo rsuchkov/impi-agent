@@ -6,7 +6,28 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a trusted agent's card is asked on every gateway the asker's
+  conversation is live in.** It was posted only where the asker's turn
+  answers, so a conversation in two gateways (a panel's task and its chat
+  thread) had the asker's own cards in both and the trusted agent's in one.
+  `TrustedLink.elsewhere` names the conversation on its other gateways; the
+  door's client copies the card to each, and the first answer closes all.
+- **Fixed: the asker's conversation is shown waiting while a trusted agent's
+  card is up.** The gate told the wait to the task's own conversation, which
+  no platform shows; `TrustedDelegationChatClient` is now a
+  `ConversationView` that passes it to the asker's — Slack's agent session
+  says `suspended`, as for a card of the asker's own.
+- **A trusted agent's turn-end notice is no longer posted to the person.**
+  How the task's turn ended (`empty_answer`, `truncated`, `timeout`, a
+  failure — `TURN_END_NOTICES` in `crucible.ports.agent.errors`) is the
+  `notice` `await_agents` returns, for the asker to word; what is said to the
+  person — a turn that was not admitted, a tool's note about the turn — still
+  reaches them under the agent's name. A task's `notice` keeps how the turn
+  ended when a tool's note follows it. `NOTICE_EMPTY_ANSWER` and
+  `NOTICE_TRUNCATED` are defined beside the other codes, in the port.
+  **Breaks:** the person no longer sees "<agent>: …" for how a trusted
+  agent's turn ended; an application relying on that notice words it from the
+  asker's turn, which reads the code from `await_agents`.
 
 ## v0.48.1 — 2026-11-06
 

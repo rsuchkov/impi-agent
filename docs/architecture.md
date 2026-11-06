@@ -123,11 +123,18 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   gateway's `DelegationChatClient` implements it) and the attribute names a
   task's turn carries (`delegated_by`, `delegation_task`,
   `on_behalf_of_gateway`), and `TrustedLink`/`TrustedLinks` (a trusted task in
-  flight: whose turn asked and where its cards go). The engine's own gateways,
+  flight: whose turn asked, where that turn answers, and the asker's
+  conversation on its other gateways — where a card is copied). The engine's own gateways,
   `GATEWAY_DELEGATION` and `GATEWAY_TRUSTED_DELEGATION`, are the doors such a
   turn runs through — the second as the person, with what the asker's trust
-  (`AgentSpec.trusted_agents`) hands over; `ports/turn`'s
-  `PERSON_GATEWAY_ATTRIBUTE` names the person's own gateway on such a turn.
+  (`AgentSpec.trusted_agents`) hands over; `ACCOUNTS_HANDED_ATTRIBUTE` says
+  the person's accounts go with the task, and `on_behalf_of_gateway` names the
+  gateway the person came through. The door's client puts what is the
+  person's to see in the asker's conversation: a card on every gateway it is
+  live in, the wait on the one the asker's turn runs on (it is a
+  `ConversationView` for that), a notice unless it says how the task's turn
+  ended (`TURN_END_NOTICES` in `ports/agent/errors` — the engine's closed set
+  of such codes), which the asker reads from the task instead.
   `interactions/delegation` is the service over the sinks, the store
   (`DelegationRecord`) and the turn dispatcher, with `TrustedLinkRegistry` and the
   `TrustedTurnTracer` that feeds a trusted task's steps into the asker's turn.
