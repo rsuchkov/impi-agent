@@ -371,7 +371,7 @@ def test_registry_knows_all_default_tools() -> None:
         "list_agents", "create_channel", "invite_to_channel", "get_channel_members",
         "send_message", "read_channel", "create_agent",
         "ask_user_buttons", "ask_user_select", "open_form", "send_ephemeral",
-        "send_file", "open_screen", "delegate",
+        "send_file", "open_screen", "delegate", "delegation_status", "cancel_delegation",
         "list_skills", "install_skill", "assign_skill", "remove_skill",
         "schedule_task", "list_tasks", "cancel_task", "pause_task",
         "connected_accounts", "connected_api_read", "connected_api_write",
@@ -1865,3 +1865,37 @@ def test_delegation_is_promised_exactly_when_the_server_can_post_it(tmp_path) ->
     with pytest.raises(ValueError, match="disagree"):
         wiring().build_server(**build, delegation_svc=_Delegation())  # type: ignore[arg-type]
     assert promised.build_server(**build, delegation_svc=_Delegation()) is not None  # type: ignore[arg-type]
+
+
+def test_every_enrolled_agent_has_the_engines_own_door_with_a_tasks_turns_capabilities(tmp_path) -> None:
+    from crucible.config import ToolSettings
+    from crucible.ports.agent import AgentSpec
+    from crucible.ports.chat.gateway import GATEWAY_DELEGATION
+    from crucible.tools.base import (
+        CAP_CONFIRMATION,
+        CAP_DELEGATION,
+        CAP_FILES,
+        CAP_WIDGETS,
+    )
+    from crucible.tools.wiring import DELEGATED_TURN_DENIED, ToolWiring
+
+    wiring = ToolWiring(
+        ToolSettings(enabled=True, server_host="127.0.0.1", server_port=8422, max_grant_s=900),
+        registry=engine_tool_registry(), data_dir=str(tmp_path),
+        interactivity_on=True, files_on=True, confirmations_on=True, delegation_on=True,
+    )
+    spec = AgentSpec(name="assistant", display_name="a", role="r", description="", profile_dir=tmp_path, tools=("delegate", "send_file"))
+    wiring.enroll(spec, None, extra_caps=frozenset(), gateway="slack")
+    by_gateway = wiring.gateway_caps["assistant"]
+    assert {CAP_WIDGETS, CAP_FILES, CAP_CONFIRMATION, CAP_DELEGATION} <= by_gateway["slack"]
+    # The task's turn: none of what needs a person or a conversation of somebody's.
+    assert by_gateway[GATEWAY_DELEGATION] == wiring.base_caps - DELEGATED_TURN_DENIED
+    assert not by_gateway[GATEWAY_DELEGATION] & {CAP_WIDGETS, CAP_FILES, CAP_CONFIRMATION, CAP_DELEGATION}
+    assert wiring.gateway_admins["assistant"][GATEWAY_DELEGATION] is None
+    # The agent's own allowlist is what any of its gateways can serve: the door takes nothing away.
+    assert wiring.allowlists["assistant"] == {"delegate", "send_file"}
+    # A headless agent enrols through the door alone, with the same capabilities.
+    coder = AgentSpec(name="coder", display_name="c", role="r", description="", profile_dir=tmp_path, tools=("delegate",), headless=True)
+    wiring.enroll(coder, None, denied_caps=DELEGATED_TURN_DENIED, gateway=GATEWAY_DELEGATION)
+    assert wiring.gateway_caps["coder"] == {GATEWAY_DELEGATION: wiring.base_caps - DELEGATED_TURN_DENIED}
+    assert wiring.allowlists["coder"] == frozenset()  # delegate needs a person to confirm it; there is none

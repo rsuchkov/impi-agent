@@ -46,6 +46,7 @@ from crucible.gateways import (
     GatewayHandle,
     LeasedGateway,
 )
+from crucible.gateways.delegation import DelegationChatClient
 from crucible.gateways.http import (
     HttpHub,
     HttpTurns,
@@ -63,7 +64,7 @@ from crucible.interactions import (
     ToolTrace,
     TraceScreen,
 )
-from crucible.interactions.delegation import ChatDelegationService
+from crucible.interactions.delegation import EngineDelegationService
 from crucible.interactions.files import ChatFileService, default_roots
 from crucible.interactions.screens import ScreenRegistry
 from crucible.interactions.tooltrace import sweep_traces
@@ -80,6 +81,7 @@ from crucible.ports.agent import (
 from crucible.ports.attachments import FileKeeper, ReceivedFiles
 from crucible.ports.chat.flow import Flow
 from crucible.ports.chat.gateway import (
+    GATEWAY_DELEGATION,
     GATEWAY_HTTP,
     GATEWAY_MATTERMOST,
     GATEWAY_SLACK,
@@ -114,6 +116,7 @@ from crucible.skills import SkillLibrary
 from crucible.store import open_store
 from crucible.store.base import SessionStore, Store
 from crucible.tools import SessionProofBook, ToolServer, ToolWiring
+from crucible.tools.wiring import DELEGATED_TURN_DENIED
 from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
@@ -280,6 +283,8 @@ class App:
     attachments: AttachmentStore | None = None
     # The deployment's MCP servers, connected at start and closed at stop.
     mcp_servers: McpServers | None = None
+    # Tasks agents hand one another: recovered at start, let go at stop.
+    delegation: EngineDelegationService | None = None
 
 
 def _engine_version() -> str:
@@ -400,10 +405,14 @@ def _build_unit(
     coalescer = MessageCoalescer(served, on_arrival=interactions.on_arrival_for(spec.name), agent=spec.name)
     # Record the agent's live presence in the app-owned registry; interactions read
     # it lazily through MappingPresence. One sink, a chat client per gateway, the
-    # first gateway the default.
+    # first gateway the default — and the engine's own door beside them, so a
+    # turn on a task another agent handed on posts to its own conversation and
+    # not to the agent's default platform (a headless agent has only this one).
     kinds = list(handles)
     sinks_by_agent[spec.name] = AgentSink(
-        sink=coalescer, gateways={kind: handle.chat for kind, handle in handles.items()}, default=kinds[0],
+        sink=coalescer,
+        gateways={**{kind: handle.chat for kind, handle in handles.items()}, GATEWAY_DELEGATION: DelegationChatClient()},
+        default=kinds[0] if kinds else GATEWAY_DELEGATION,
     )
     return AgentUnit(
         spec=spec, flow=flow,
@@ -441,12 +450,16 @@ def _build_units(
     units: list[AgentUnit] = []
     for spec in specs:
         handles: dict[str, GatewayHandle] = {}
-        for config in configs.get(spec.name) or []:
+        if spec.headless:
+            # Nobody talks to it: no platform account, so no gateway, whatever
+            # tokens the deployment holds. It is reached by a task alone.
+            logger.info("agent %s is headless: reached only by a task another agent hands it", spec.name)
+        for config in configs.get(spec.name) or [] if not spec.headless else []:
             handle = gateway_factory.create(spec.name, config)
             if handle is None:
                 continue  # unknown gateway kind (factory logged why)
             handles[config.kind] = handle
-        if not handles:
+        if not handles and not spec.headless:
             continue  # no token for any of its gateways (resolver logged why)
         # Every gateway's formatting rules, once each — the agent writes for
         # all of them at once.
@@ -458,6 +471,10 @@ def _build_units(
             tools.enroll(
                 spec, handle.admin, extra_caps=handle.caps, denied_caps=handle.denied_caps, gateway=kind,
             )
+        if not handles:
+            # Its one door is the engine's own: the capabilities a task's turn
+            # may have, and nothing a platform would add.
+            tools.enroll(spec, None, denied_caps=DELEGATED_TURN_DENIED, gateway=GATEWAY_DELEGATION)
         if spec.name in engine_names:
             # Engine-owned agents (support) get the agents directory path (their
             # editable workspace) and the engine source root (read-only) so their
@@ -589,7 +606,8 @@ def build_app(settings: ImpiSettings) -> App:
     # Which agents this engine actually runs — a profile with no token is not one
     # of them. It answers /command/default, so a deployment can register a slash
     # command without naming an agent in its URL.
-    runnable = tuple(name for name, cfgs in configs.items() if cfgs)
+    headless = {spec.name for spec in specs if spec.headless}
+    runnable = tuple(name for name, cfgs in configs.items() if cfgs or name in headless)
     # Requests waiting on a human — a credential, a tool call. Built here
     # because the click that answers one arrives through the interaction
     # receiver, while the things that raise one are assembled further down.
@@ -714,10 +732,10 @@ def build_app(settings: ImpiSettings) -> App:
     # registry beside the engine's own, and are called through them. The
     # servers themselves are connected when the app starts (``run``).
     mcp = McpServers(McpLibrary(settings.resolved_mcp_path), settings.mcp_values(), telemetry=telemetry)
-    # Handing a task to another agent is a confirmed post in the thread that
-    # the other agent's gateway answers: advertised where the gate exists to
-    # confirm it and agents answer agents at all.
-    delegation_on = interactions.tool_gate is not None and settings.agents_reply_to_agents
+    # Handing a task to another agent is a confirmed call: advertised where the
+    # gate exists to confirm it. The engine opens the other agent's turn itself,
+    # so whether agents answer one another's mentions does not come into it.
+    delegation_on = interactions.tool_gate is not None
     tools = ToolWiring(
         settings.tools, registry=engine_tool_registry(mcp.registry_tools()), data_dir=settings.data_dir,
         interactivity_on=settings.integrations.enabled,
@@ -828,25 +846,32 @@ def build_app(settings: ImpiSettings) -> App:
     # Which directories each agent may send files from: its own profile (the
     # runtime's working directory), its own attachments, and the system temp dir.
     file_svc = None
+    # The directories each agent may hand a file from — to the conversation
+    # (send_file) or to another agent with a task (delegate): the same rule.
+    file_roots = None
     if attachments is not None:
+        file_roots = {
+            spec.name: default_roots(
+                spec.profile_dir,
+                attachments.dir_for(spec.name),
+                include_temp=not settings.agent_hosts_enabled,
+            )
+            for spec in specs
+        }
         file_svc = ChatFileService(
-            presence,
-            sessions,
-            {
-                spec.name: default_roots(
-                    spec.profile_dir,
-                    attachments.dir_for(spec.name),
-                    include_temp=not settings.agent_hosts_enabled,
-                )
-                for spec in specs
-            },
-            max_bytes=settings.attachment_max_bytes,
-            places=turns,
+            presence, sessions, file_roots, max_bytes=settings.attachment_max_bytes, places=turns,
         )
-    # Handing a task to another agent: a reply in the turn's place, as the
-    # asking agent, with files through the same service send_file uses.
+    # Engine-started turns — a task come due, an answer to a task handed on —
+    # go to the agent's sink the way a slash command does; the dispatcher reads
+    # the live {agent: AgentSink} map, so it is built before the units fill it.
+    dispatcher = SinkTurnDispatcher(sinks_by_agent, http=http_hub, sessions=sessions)
+    # Handing a task to another agent: a turn of that agent on the task alone,
+    # its answer back as a turn of the asker's, the record in the store.
     delegation_svc = (
-        ChatDelegationService(presence, sessions, registry, file_svc=file_svc, places=turns)
+        EngineDelegationService(
+            presence, sessions, registry, sessions, dispatcher, DelegationChatClient,
+            file_roots=file_roots, max_file_bytes=settings.attachment_max_bytes, turns=turns,
+        )
         if delegation_on else None
     )
     # Creating tasks needs only the store, so it is ready before the tool
@@ -906,7 +931,7 @@ def build_app(settings: ImpiSettings) -> App:
 
         scheduler = Scheduler(
             sessions, telemetry=telemetry,
-            dispatcher=SinkTurnDispatcher(sinks_by_agent, http=http_hub, sessions=sessions),
+            dispatcher=dispatcher,
             prompts=RuntimePromptRunner(runtime, _profile_of),
             notifier=PresenceNotifier(presence),
             tick_s=settings.scheduler.tick_s,
@@ -964,6 +989,7 @@ def build_app(settings: ImpiSettings) -> App:
         telemetry=telemetry,
         control=runtime,
         attachments=attachments,
+        delegation=delegation_svc,
     )
 
 
@@ -1077,6 +1103,10 @@ async def run(settings: ImpiSettings) -> None:
                     identities[unit.spec.name] = identity
                     app.agent_user_ids[unit.spec.name] = identity.user_id
         await app.registry.sync([unit.spec for unit in app.units], identities)
+        if app.delegation is not None:
+            # A task that was running when the last process stopped is ended
+            # and its asker told — once the agents are here to be told.
+            await app.delegation.recover()
         # SIGHUP → hot-reload agent profiles (`make reload`). Deliberate and
         # human-triggered: the operator reviews/updates the agents directory first,
         # then signals. Installed after login so `identities` is populated.
@@ -1134,6 +1164,8 @@ async def run(settings: ImpiSettings) -> None:
             # Before the gateways: a run still in flight needs somewhere to post
             # its outcome, and wants its row closed rather than reclaimed later.
             await app.scheduler.stop()
+        if app.delegation is not None:
+            await app.delegation.aclose()
         if app.ws_hub is not None:
             await app.ws_hub.stop()
         if app.http_hub is not None:

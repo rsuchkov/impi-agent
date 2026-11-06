@@ -10,7 +10,6 @@ names its own tool modules. Tools depend only on ports (the interaction service)
 from collections.abc import Mapping
 from typing import Any, ClassVar
 
-from crucible.ports.chat.delegation import DelegationError
 from crucible.ports.chat.files import FileError
 from crucible.ports.chat.interactions import ASK_CHANNELS, ASK_SELECT, ASK_USERS
 from crucible.ports.chat.types import (
@@ -22,6 +21,7 @@ from crucible.ports.chat.types import (
     FormField,
     PreviewRow,
 )
+from crucible.ports.delegation import DelegationError
 from crucible.tools.base import (
     CAP_DELEGATION,
     CAP_EPHEMERAL,
@@ -350,20 +350,20 @@ class SendFile(Tool):
 class Delegate(Tool):
     name: ClassVar[str] = "delegate"
     display_name: ClassVar[str] = "Hand a task to another agent"
-    destructive: ClassVar[bool] = False  # posts a message; changes nothing of its own
-    posts_to_user: ClassVar[bool] = True  # the task is posted where everyone reads it
+    destructive: ClassVar[bool] = False  # starts another agent's turn; changes nothing of its own
     requires_confirmation: ClassVar[bool] = True  # what leaves this conversation is read by a person first
     grantable: ClassVar[bool] = False  # each task is read: a window would let the next one go unread
     requires: ClassVar[frozenset[str]] = frozenset({CAP_DELEGATION})
     description: ClassVar[str] = (
-        "Hand a task to another agent that is in this conversation (see list_agents): the engine "
-        "posts your task in this thread addressed to that agent, and it works on it as a turn of "
-        "its own. The call ends when the task is posted; the other agent's answer arrives later, as "
-        "a message from that agent in this thread — ask it to mention you when it is done, so you "
-        "are woken for it. Write the task so it stands on its own, and put nothing in it the other "
-        "agent must not see: a person reads exactly what goes before it goes, and the task leaves "
-        "this conversation for that agent's model. Give files by absolute path, from your own "
-        "working directory, your attachments directory or /tmp."
+        "Hand a task to another agent of this deployment (see list_agents): the engine opens a turn "
+        "of that agent on your task alone — it sees the task and the files you give, nothing of this "
+        "conversation — and when it is done, a turn of yours with its answer, quoted as that agent's "
+        "words, named by the task id this call returns. The call ends at once; do not wait for the "
+        "answer in this turn. Write the task so it stands on its own, and put nothing in it the other "
+        "agent must not see: a person reads exactly what goes before it goes, and the task leaves this "
+        "conversation for that agent's model. Give files by absolute path, from your own working "
+        "directory, your attachments directory or /tmp. delegation_status asks after a task; "
+        "cancel_delegation calls one off."
     )
     parameters: ClassVar[dict[str, Any]] = {
         "type": "object",
@@ -411,14 +411,87 @@ class Delegate(Tool):
         if not isinstance(files, list) or not all(isinstance(f, str) for f in files):
             raise ToolError("files must be a list of absolute paths")
         try:
-            await ctx.require_delegation().delegate(ctx.agent_name, ctx.runtime_session_id, other, task, files)
+            task_id = await ctx.require_delegation().delegate(
+                ctx.agent_name, ctx.runtime_session_id, other, task, files
+            )
         except DelegationError as exc:
             raise ToolError(str(exc)) from exc
         except Exception as exc:
             raise ToolError(f"could not hand the task on: {exc}") from exc
         return {
+            "task_id": task_id,
             "handed_to": other,
-            "note": f"posted in this thread; {other}'s answer will arrive as a message from it",
+            "note": f"{other} works on it now; its answer arrives as a later turn of yours, naming task {task_id}",
+        }
+
+
+@tool
+class DelegationStatus(Tool):
+    name: ClassVar[str] = "delegation_status"
+    display_name: ClassVar[str] = "Ask after a task handed on"
+    destructive: ClassVar[bool] = False  # reads the task's record; changes nothing
+    requires: ClassVar[frozenset[str]] = frozenset({CAP_DELEGATION})
+    description: ClassVar[str] = (
+        "Where a task you handed on with delegate stands, by its task id: running, answered, failed, "
+        "timed_out or cancelled — and, once it ended, the other agent's answer and the notice its turn "
+        "ended with. The answer also arrives as a turn of yours; ask here when it has not, or to "
+        "see it again."
+    )
+    parameters: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {"task_id": {"type": "string", "description": "The id delegate returned"}},
+        "required": ["task_id"],
+    }
+
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        task_id = args.get("task_id")
+        return f"Asking after task {task_id}" if isinstance(task_id, str) and task_id else None
+
+    async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+        task_id = _require_str(args, "task_id")
+        try:
+            view = await ctx.require_delegation().status(ctx.agent_name, ctx.runtime_session_id, task_id)
+        except DelegationError as exc:
+            raise ToolError(str(exc)) from exc
+        return {
+            "task_id": view.task_id, "agent": view.to, "status": view.status,
+            "started_at": view.started_at,
+            **({"finished_at": view.finished_at} if view.finished_at else {}),
+            **({"answer": view.answer} if view.answer else {}),
+            **({"notice": view.notice} if view.notice else {}),
+        }
+
+
+@tool
+class CancelDelegation(Tool):
+    name: ClassVar[str] = "cancel_delegation"
+    display_name: ClassVar[str] = "Call a task handed on off"
+    destructive: ClassVar[bool] = False  # ends a turn of the engine's own making; nothing outside changes
+    requires: ClassVar[frozenset[str]] = frozenset({CAP_DELEGATION})
+    description: ClassVar[str] = (
+        "Call off a task you handed on with delegate, by its task id: the other agent's turn is "
+        "stopped and no answer comes. Says whether it was still running."
+    )
+    parameters: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {"task_id": {"type": "string", "description": "The id delegate returned"}},
+        "required": ["task_id"],
+    }
+
+    def caption(self, args: Mapping[str, Any]) -> str | None:
+        task_id = args.get("task_id")
+        return f"Calling task {task_id} off" if isinstance(task_id, str) and task_id else None
+
+    async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+        task_id = _require_str(args, "task_id")
+        try:
+            cancelled = await ctx.require_delegation().cancel(ctx.agent_name, ctx.runtime_session_id, task_id)
+        except DelegationError as exc:
+            raise ToolError(str(exc)) from exc
+        return {
+            "task_id": task_id,
+            "cancelled": cancelled,
+            "note": "its turn is stopped; no answer will come" if cancelled else "it had already ended",
         }
 
 

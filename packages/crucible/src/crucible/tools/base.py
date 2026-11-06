@@ -15,12 +15,12 @@ from pydantic_settings import BaseSettings
 
 from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
-from crucible.ports.chat.delegation import DelegationService
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.chat.types import CallPreview, CannotRun
 from crucible.ports.connections import ConnectionAccess
+from crucible.ports.delegation import DelegationService
 from crucible.ports.tasks import TaskService
 from crucible.ports.turn import TurnScope
 

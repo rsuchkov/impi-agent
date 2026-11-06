@@ -26,6 +26,7 @@ from crucible.store.base import (
 from crucible.store.sqlite.approvals import ApprovalStoreMixin
 from crucible.store.sqlite.cards import HeldCardStoreMixin
 from crucible.store.sqlite.connections import ConnectionStoreMixin
+from crucible.store.sqlite.delegations import DelegationStoreMixin
 from crucible.store.sqlite.leases import LeaseStoreMixin
 from crucible.store.sqlite.replicas import ReplicaStoreMixin
 from crucible.store.sqlite.tasks import TaskStoreMixin
@@ -102,7 +103,7 @@ _COLUMNS = (
 
 class SqliteSessionStore(
     TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, ConnectionStoreMixin, LeaseStoreMixin,
-    ReplicaStoreMixin, HeldCardStoreMixin,
+    ReplicaStoreMixin, HeldCardStoreMixin, DelegationStoreMixin,
 ):
     def __init__(self, db_path: str | Path) -> None:
         path = Path(db_path)
@@ -131,6 +132,7 @@ class SqliteSessionStore(
             self._create_lease_table()  # what must run in exactly one process
             self._create_replica_table()  # which replica serves which conversation
             self._create_held_card_table()  # cards conversations hold outside a turn
+            self._create_delegation_table()  # tasks agents handed one another
             self._create_app_tables()  # whatever the application keeps here too
             self._migrate()
             self._conn.commit()

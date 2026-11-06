@@ -97,6 +97,33 @@ def test_build_app_skips_agents_without_tokens(tmp_path: Path, monkeypatch) -> N
     app2.sessions.close_sync()
 
 
+def test_build_app_runs_a_headless_agent_with_no_gateway_and_gives_every_agent_the_engines_door(tmp_path: Path) -> None:
+    from crucible.gateways.delegation import DelegationChatClient
+    from crucible.ports.chat.gateway import GATEWAY_DELEGATION
+
+    settings = _settings(tmp_path)
+    coder_dir = Path(settings.agents_path) / "agents" / "coder"
+    coder_dir.mkdir(parents=True)
+    (coder_dir / "agent.yaml").write_text(AGENT_YAML.replace("assistant", "coder") + "headless: true\n", encoding="utf-8")
+    # No token for coder anywhere — and none is needed: it is reached by a task.
+    app = build_app(settings)
+    try:
+        assert [u.spec.name for u in app.units] == ["assistant", "coder"]
+        coder = next(u for u in app.units if u.spec.name == "coder")
+        assert coder.gateways == {}  # nobody talks to it
+        assert app.sinks_by_agent["coder"].default == GATEWAY_DELEGATION
+        assert isinstance(app.sinks_by_agent["coder"].chat, DelegationChatClient)
+        # An agent with a platform has the door beside it, so a task's turn never
+        # posts to its platform by mistake.
+        assistant = app.sinks_by_agent["assistant"]
+        assert assistant.default == "mattermost" and isinstance(assistant.gateways[GATEWAY_DELEGATION], DelegationChatClient)
+        assert app.delegation is not None
+        assert app.tools is not None and GATEWAY_DELEGATION in app.tools.gateway_caps["coder"]
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()
+
+
 def test_gate_tools_drops_tools_missing_a_capability() -> None:
     from crucible.tools.base import CAP_CHAT_ADMIN, CAP_FORMS, CAP_WIDGETS
     from crucible.tools.wiring import _gate_tools
@@ -923,7 +950,7 @@ async def test_build_app_reaches_one_agent_through_two_gateways(tmp_path: Path) 
         # Both gateways feed the same coalescer; a reply goes back through the
         # chat client of the gateway the message came through.
         sink = app.sinks_by_agent["assistant"]
-        assert set(sink.gateways) == {"mattermost", "slack"} and sink.default == "mattermost"
+        assert set(sink.gateways) == {"mattermost", "slack", "delegation"} and sink.default == "mattermost"
         assert mm._sink is slack._sink
         assert sink.chat_for("slack") is slack._chat
         assert sink.chat_for("nowhere") is sink.chat  # unknown: the default's
@@ -932,9 +959,9 @@ async def test_build_app_reaches_one_agent_through_two_gateways(tmp_path: Path) 
         assert isinstance(profile, PiProfile) and profile.append_system_prompt == PROMPT_HINT
         # Each gateway's capabilities are kept by its name.
         assert app.tools is not None
-        assert set(app.tools.gateway_caps["assistant"]) == {"mattermost", "slack"}
+        assert set(app.tools.gateway_caps["assistant"]) == {"mattermost", "slack", "delegation"}
         assert CAP_CHAT_ADMIN in app.tools.gateway_caps["assistant"]["mattermost"]
-        assert set(app.tools.gateway_admins["assistant"]) == {"mattermost", "slack"}
+        assert set(app.tools.gateway_admins["assistant"]) == {"mattermost", "slack", "delegation"}
         assert list(app.tools.tokens.values()).count("assistant") == 1  # one token, however many gateways
     finally:
         await _closed(app)

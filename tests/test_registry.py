@@ -50,6 +50,21 @@ async def test_sync_builds_directory_and_persists(tmp_path: Path) -> None:
         await store.close()
 
 
+async def test_a_headless_agent_is_listed_without_a_platform_identity(tmp_path: Path) -> None:
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    registry = RegistryService(store)
+    try:
+        await registry.sync(
+            [_spec("assistant"), _spec("coder", role="coder", headless=True, model="large")],
+            {"assistant": _ident("assistant", "uid-a")},
+        )
+        coder = next(info for info in registry.list_agents() if info.name == "coder")
+        assert (coder.username, coder.user_id, coder.model) == ("", "", "large")
+        assert registry.agent_user_ids() == frozenset({"uid-a"})  # no empty id that every nobody would match
+    finally:
+        await store.close()
+
+
 async def test_sync_skips_agents_without_resolved_ids(tmp_path: Path) -> None:
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     registry = RegistryService(store)

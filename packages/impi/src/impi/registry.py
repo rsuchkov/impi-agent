@@ -28,19 +28,20 @@ class RegistryService:
 
         No platform-specific field is read here — swap the gateway and this
         service is untouched. Agents without an identity (no token, failed
-        login) are skipped.
+        login) are skipped — but a headless one, which has no platform account
+        by design, is listed without one: it is reached by a task, not a mention.
         """
         agents: dict[str, AgentInfo] = {}
         for spec in specs:
             identity = identities.get(spec.name)
-            if identity is None:
+            if identity is None and not spec.headless:
                 continue
             agents[spec.name] = AgentInfo(
                 name=spec.name,
                 role=spec.role,
                 description=spec.description,
-                username=identity.username,
-                user_id=identity.user_id,
+                username=identity.username if identity is not None else "",
+                user_id=identity.user_id if identity is not None else "",
                 model=f"{spec.provider}/{spec.model}" if spec.provider and spec.model else (spec.model or ""),
             )
         self._agents = agents
@@ -51,7 +52,7 @@ class RegistryService:
     # -- AgentDirectory port --------------------------------------------------
 
     def agent_user_ids(self) -> frozenset[str]:
-        return frozenset(info.user_id for info in self._agents.values())
+        return frozenset(info.user_id for info in self._agents.values() if info.user_id)
 
     def list_agents(self) -> list[AgentInfo]:
         return sorted(self._agents.values(), key=lambda info: info.name)

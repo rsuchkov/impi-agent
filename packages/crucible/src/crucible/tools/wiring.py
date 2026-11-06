@@ -22,12 +22,13 @@ from crucible.config import ToolSettings
 from crucible.ports.agent import AgentSpec, TurnClock
 from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
-from crucible.ports.chat.delegation import DelegationService
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.files import FileService
+from crucible.ports.chat.gateway import GATEWAY_DELEGATION
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver
+from crucible.ports.delegation import DelegationService
 from crucible.ports.tasks import TaskService
 from crucible.ports.telemetry import Telemetry
 from crucible.ports.turn import TurnScopes
@@ -37,6 +38,7 @@ from crucible.tools.base import (
     CAP_CONFIRMATION,
     CAP_CONNECTIONS,
     CAP_DELEGATION,
+    CAP_EPHEMERAL,
     CAP_FILES,
     CAP_FORMS,
     CAP_SCHEDULER,
@@ -93,6 +95,19 @@ def _declared(registry: ToolRegistry, tools: tuple[str, ...]) -> tuple[str, ...]
         elif entry not in names:
             names.append(entry)
     return tuple(names)
+
+
+# What a turn opened for a task another agent handed on may not do, whoever
+# the agent is: it runs for no person who could click, confirm, be told
+# privately or be acted for, and in a conversation that is nobody's to send
+# a file into, schedule in, or hand on from again — the person who read the
+# card is behind the asker's conversation, not this one. What is left is the
+# agent's own tools that need none of that; ``runtime.tools_by_gateway`` with
+# ``delegation`` narrows further.
+DELEGATED_TURN_DENIED = frozenset({
+    CAP_WIDGETS, CAP_FORMS, CAP_EPHEMERAL, CAP_CHAT_ADMIN, CAP_FILES, CAP_SCHEDULER,
+    CAP_CONNECTIONS, CAP_CONFIRMATION, CAP_DELEGATION,
+})
 
 
 class ToolWiring:
@@ -196,6 +211,11 @@ class ToolWiring:
             | extra_caps
         ) - denied_caps
         self.gateway_caps.setdefault(spec.name, {})[gateway] = caps
+        # Every agent can be handed a task, through the engine's own door: the
+        # conversation such a turn runs in has the capabilities a task's turn
+        # may have, whatever the agent's platforms give its other conversations.
+        self.gateway_caps[spec.name].setdefault(GATEWAY_DELEGATION, self.base_caps - DELEGATED_TURN_DENIED)
+        self.gateway_admins[spec.name].setdefault(GATEWAY_DELEGATION, None)
         # The agent's own set is what any of its gateways can serve.
         self.caps[spec.name] = self.caps.get(spec.name, frozenset()) | caps
         advertised, dropped = _gate_tools(self.registry, spec.tools, self.caps[spec.name], self.withdrawn)

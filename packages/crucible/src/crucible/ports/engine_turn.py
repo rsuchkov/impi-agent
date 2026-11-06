@@ -22,6 +22,11 @@ class DispatchError(Exception):
     conversation cannot be addressed. Distinct from a turn that ran and failed."""
 
 
+class ConversationBusy(DispatchError):
+    """The conversation has a turn running and the dispatcher queues none
+    behind it; the same request may be made again once that turn has ended."""
+
+
 @dataclass(frozen=True)
 class TurnRequest:
     """One engine-started turn, addressed the way a click or a command is.
@@ -32,10 +37,11 @@ class TurnRequest:
     ``message_id`` is the run's own id, so the flow's replay dedup never
     mistakes two runs for one; ``username`` is who the prompt appears to come
     from, and is never empty — the prompt envelope would render an anonymous
-    ``[]:`` line. ``event`` is what the turn is about, quoted as data; ``text``
-    then says it in one phrase. ``turn`` is the scope the turn runs under
-    (attributes for the tools, secrets the application holds); None lets the
-    dispatcher give it one that says nobody is behind this turn."""
+    ``[]:`` line; ``is_from_bot`` says that name is an agent's, so the prompt
+    marks it as one. ``event`` is what the turn is about, quoted as data;
+    ``text`` then says it in one phrase. ``turn`` is the scope the turn runs
+    under (attributes for the tools, secrets the application holds); None lets
+    the dispatcher give it one that says nobody is behind this turn."""
 
     agent: str
     channel_id: str
@@ -45,6 +51,7 @@ class TurnRequest:
     message_id: str
     user_id: str = ""
     username: str = "scheduler"
+    is_from_bot: bool = False
     event: EventReport | None = None
     turn: TurnScope | None = None
 
@@ -78,6 +85,7 @@ def requested_message(
         text=request.text,
         user_id=request.user_id,
         username=request.username,
+        is_from_bot=request.is_from_bot,
         kind=request.kind,
         mentioned=True,
         synthetic=True,

@@ -333,7 +333,10 @@ def _cmd_agent_list(args: argparse.Namespace) -> int:
         runnable = {cfg.kind for cfg in resolve_gateways(settings, spec.name)}
         gateways = ",".join(kinds)
         has_token = all(kind in runnable for kind in kinds)
-        status = _sgr("32", "token ok") if has_token else _sgr("33", "no token")
+        if spec.headless:
+            gateways, status = "-", _sgr("32", "headless: reached by delegation")
+        else:
+            status = _sgr("32", "token ok") if has_token else _sgr("33", "no token")
         print(f"{_bold(spec.name):<32} {spec.role:<24} {gateways:<12} {status}")
     return 0
 

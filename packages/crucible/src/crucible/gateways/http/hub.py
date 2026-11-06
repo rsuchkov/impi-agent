@@ -52,7 +52,12 @@ from crucible.ports.chat.types import (
     IncomingMessage,
 )
 from crucible.ports.conversation import EngineTurnsSince
-from crucible.ports.engine_turn import DispatchError, TurnRequest, requested_message
+from crucible.ports.engine_turn import (
+    ConversationBusy,
+    DispatchError,
+    TurnRequest,
+    requested_message,
+)
 from crucible.ports.traces import decode_calls
 from crucible.ports.turn import TurnScope
 
@@ -207,7 +212,7 @@ class HttpHub:
                 started_by=STARTED_BY_ENGINE,
             )
         except TurnInProgress as exc:
-            raise DispatchError("the conversation already has a turn running") from exc
+            raise ConversationBusy("the conversation already has a turn running") from exc
         if not created:
             raise DispatchError(f"a turn for message {request.message_id!r} was already started")
         message = requested_message(

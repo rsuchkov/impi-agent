@@ -721,6 +721,60 @@ class ConnectionLinkStore(Protocol):
         ...
 
 
+# -- tasks one agent hands another -------------------------------------------
+
+
+@dataclass(frozen=True)
+class DelegationRecord:
+    """One task an agent handed another (``ports.delegation``): whose turn
+    asked, from which conversation, whom it went to, and how it ended.
+
+    ``agent`` is the asker; ``channel_id``, ``conversation_id``, ``kind`` and
+    ``gateway`` are the asker's conversation as the engine keys it and the
+    gateway its turn ran on — where the answer goes back. ``user_id`` is the
+    person behind the task: whose message the asker's turn answered, and so
+    who read the card. ``attributes`` carries the asker's turn attributes as
+    JSON (plain facts, never secrets) for the turns the task opens. ``files``
+    is the names of the files handed on, as JSON. ``hop_depth`` counts the
+    tasks handed on before this one. ``answer`` is what the asked agent said,
+    bounded; ``notice`` the code its turn ended with; ``delivered_at`` when
+    the asker's turn on the answer was opened ("" while it is not)."""
+
+    id: str
+    agent: str
+    to: str
+    channel_id: str
+    conversation_id: str
+    kind: str
+    gateway: str
+    task: str
+    user_id: str
+    status: str
+    started_at: str
+    files: str = ""
+    attributes: str = ""
+    hop_depth: int = 1
+    finished_at: str = ""
+    answer: str = ""
+    notice: str = ""
+    delivered_at: str = ""
+
+
+class DelegationStore(Protocol):
+    """The tasks agents handed one another: written when one starts, rewritten
+    as it ends and as its answer is delivered, read by the id the asker holds."""
+
+    async def save_delegation(self, record: DelegationRecord) -> None:
+        """Write the record as it is; a second save of the same id replaces it."""
+        ...
+
+    async def get_delegation(self, task_id: str) -> DelegationRecord | None: ...
+
+    async def running_delegations(self) -> list[DelegationRecord]:
+        """Every task still ``running`` — what a restart finds unfinished."""
+        ...
+
+
 class AgentStore(Protocol):
     """Persistence for the agent registry (synced from profiles at boot)."""
 
@@ -805,6 +859,7 @@ class Store(
     TraceStore,
     ConnectionStore,
     ConnectionLinkStore,
+    DelegationStore,
     LeaseStore,
     ReplicaStore,
     Protocol,

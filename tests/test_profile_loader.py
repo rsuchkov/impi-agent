@@ -455,6 +455,24 @@ def test_runtime_network_ports_are_read_each_once_and_must_be_ports(tmp_path: Pa
             FsProfileStore(tmp_path, library=None).get("assistant")
 
 
+def test_a_headless_agent_says_so_in_one_word(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", "name: assistant\nrole: r\nheadless: true\n")
+    assert FsProfileStore(tmp_path, library=None).get("assistant").headless is True
+    manifest = tmp_path / "agents" / "assistant" / "agent.yaml"
+    manifest.write_text("name: assistant\nrole: r\n", encoding="utf-8")
+    assert FsProfileStore(tmp_path, library=None).get("assistant").headless is False  # the default: somebody talks to it
+    manifest.write_text("name: assistant\nrole: r\nheadless: yes please\n", encoding="utf-8")
+    with pytest.raises(ProfileError, match="headless must be true or false"):
+        FsProfileStore(tmp_path, library=None).get("assistant")
+
+
+def test_tools_by_gateway_may_narrow_the_turns_on_a_task_another_agent_handed_on(tmp_path: Path) -> None:
+    _write_agent(tmp_path, "assistant", (
+        "name: assistant\nrole: r\nruntime:\n  tools: [read, bash]\n  tools_by_gateway:\n    delegation: [read]\n"
+    ))
+    assert FsProfileStore(tmp_path, library=None).get("assistant").tools_on("delegation") == ("read",)
+
+
 def test_runtime_shared_dirs_are_names_each_once(tmp_path: Path) -> None:
     _write_agent(tmp_path, "assistant", _yaml_with_runtime("  shared_dirs: [crm-code, docs, crm-code]\n"))
     assert FsProfileStore(tmp_path, library=None).get("assistant").shared_dirs == ("crm-code", "docs")

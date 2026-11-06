@@ -22,7 +22,7 @@ from crucible.ports.agent import (
 from crucible.ports.agent.confinement import ConfinementLevel, check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
-from crucible.ports.chat.gateway import GATEWAY_KINDS
+from crucible.ports.chat.gateway import GATEWAY_DELEGATION, GATEWAY_KINDS
 from crucible.profiles.errors import ProfileError
 from crucible.tool_manifests import MCP_SERVER_TOOLS
 
@@ -179,6 +179,9 @@ class FsProfileStore:
         runtime = data.get("runtime") or {}
         if not isinstance(runtime, dict):
             raise ProfileError(f"{manifest}: 'runtime' must be a mapping")
+        headless = data.get("headless", False)
+        if not isinstance(headless, bool):
+            raise ProfileError(f"{manifest}: headless must be true or false")
         tools = runtime.get("tools") or []
         if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools):
             raise ProfileError(f"{manifest}: runtime.tools must be a list of strings")
@@ -289,6 +292,7 @@ class FsProfileStore:
             network_ports=network_ports,
             shared_dirs=shared_dirs,
             fallback_models=fallback_models,
+            headless=headless,
         )
 
     def _fallback_models(self, name: str, runtime: dict, manifest: Path) -> tuple[str, ...]:
@@ -388,9 +392,10 @@ def _tools_by_gateway(
         raise ProfileError(f"{manifest}: runtime.tools_by_gateway must be a mapping of gateway to a list of tools")
     out: list[tuple[str, tuple[str, ...]]] = []
     for gateway, names in raw.items():
-        if gateway not in GATEWAY_KINDS:
+        if gateway not in (*GATEWAY_KINDS, GATEWAY_DELEGATION):
             raise ProfileError(
-                f"{manifest}: runtime.tools_by_gateway names {gateway!r}; a gateway is one of {', '.join(GATEWAY_KINDS)}"
+                f"{manifest}: runtime.tools_by_gateway names {gateway!r}; a gateway is one of "
+                f"{', '.join((*GATEWAY_KINDS, GATEWAY_DELEGATION))}"
             )
         if isinstance(names, dict):
             if set(names) != {"except"} or not isinstance(names["except"], list) or not all(isinstance(n, str) for n in names["except"]):

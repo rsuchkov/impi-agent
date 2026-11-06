@@ -95,6 +95,10 @@ class AgentSpec:
     # guard does is the runtime's (its extension reads the value); the engine
     # only hands it on.
     loop_guard: bool | Mapping[str, int] | None = None
+    # An agent nobody talks to: no gateway of its own, reached only when
+    # another agent hands it a task (``ports.delegation``). The application
+    # runs it without a platform account; the directory lists it without one.
+    headless: bool = False
 
     def tools_on(self, gateway: str) -> tuple[str, ...] | None:
         """The tools a conversation on ``gateway`` may use: the gateway's own

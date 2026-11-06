@@ -23,6 +23,11 @@ GATEWAY_SLACK = "slack"
 GATEWAY_WS = "ws"
 GATEWAY_HTTP = "http"
 GATEWAY_KINDS = (GATEWAY_MATTERMOST, GATEWAY_SLACK, GATEWAY_WS, GATEWAY_HTTP)
+# The engine's own door: a turn one agent opens for another on a task
+# (``ports.delegation``). Not a kind an operator configures — every agent has
+# it — but a conversation can be live in it, and a message can say it came
+# through it, like through any gateway.
+GATEWAY_DELEGATION = "delegation"
 
 # Where a chat gateway answers a top-level direct message: at the top of the DM,
 # or in a thread under the person's message. The conversation is the DM either way.
