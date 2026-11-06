@@ -498,8 +498,9 @@ class AskAgent(Tool):
         "Hand a task to an agent this deployment lets you trust (your profile names them): the engine "
         "opens a turn of that agent on your task, as the same person you act for and with what you were "
         "told to hand over, with no card — its own confirmed tools still ask the person, here in this "
-        "conversation. The call returns at once with a task id; ask several agents in a row if you "
-        "like, then call await_agents with the ids before you answer: the tasks end with your turn. "
+        "conversation. With wait: true the call waits and returns the agent's answer; without it the "
+        "call returns at once with a task id, so you can ask several agents in a row and then call "
+        "await_agents with the ids before you answer — the tasks end with your turn either way. "
         "Give files by absolute path, from your own working directory, your attachments directory or "
         "/tmp. An agent you do not trust is handed a task with delegate, which asks first."
     )
@@ -513,6 +514,7 @@ class AskAgent(Tool):
                 "items": {"type": "string"},
                 "description": "Absolute paths of files to send with the task",
             },
+            "wait": {"type": "boolean", "description": "Wait for the answer and return it (default: return the task id at once)"},
         },
         "required": ["agent", "task"],
     }
@@ -527,14 +529,25 @@ class AskAgent(Tool):
         files = args.get("files") or []
         if not isinstance(files, list) or not all(isinstance(f, str) for f in files):
             raise ToolError("files must be a list of absolute paths")
+        wait = args.get("wait", False)
+        if not isinstance(wait, bool):
+            raise ToolError("wait must be true or false")
+        service = ctx.require_delegation()
         try:
-            task_id = await ctx.require_delegation().ask(ctx.agent_name, ctx.runtime_session_id, other, task, files)
+            task_id = await service.ask(ctx.agent_name, ctx.runtime_session_id, other, task, files)
+            if not wait:
+                return {
+                    "task_id": task_id,
+                    "asked": other,
+                    "note": f"{other} works on it now; call await_agents with this id to read its answer before you reply",
+                }
+            (view,) = await service.await_answers(ctx.agent_name, ctx.runtime_session_id, [task_id])
         except DelegationError as exc:
             raise ToolError(str(exc)) from exc
         return {
-            "task_id": task_id,
-            "asked": other,
-            "note": f"{other} works on it now; call await_agents with this id to read its answer before you reply",
+            "task_id": task_id, "asked": other, "status": view.status,
+            **({"answer": view.answer} if view.answer else {}),
+            **({"notice": view.notice} if view.notice else {}),
         }
 
 

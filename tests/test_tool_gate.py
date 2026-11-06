@@ -209,6 +209,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         telemetry=over.pop("telemetry", None),
         places=over.pop("places", None),
         events=over.pop("events", None),
+        turns=over.pop("turns", None),
     )
     dangerous, plain = Dangerous(), Harmless()
     clock = FakeClock()
@@ -893,6 +894,37 @@ async def test_the_asker_is_named_as_a_person_so_a_click_from_another_gateway_co
         assert rig.approvals.resolve(token, ANSWER_ONCE, "U0123") is ApprovalOutcome.NOT_ALLOWED  # a raw id
         assert rig.approvals.resolve(token, ANSWER_ONCE, "roman") is ApprovalOutcome.RESOLVED  # the person
         assert await pending == 200
+    finally:
+        await _close(rig)
+
+
+async def test_on_a_tasks_turn_the_approver_is_the_person_on_the_gateway_they_came_through(tmp_path: Path) -> None:
+    """A turn one agent opened for another runs behind the engine's own door;
+    the person behind it is known by the gateway they reached the asker
+    through, which the turn's scope names — not by the door."""
+    from crucible.approvals import ApprovalOutcome
+    from crucible.ports.delegation import ON_BEHALF_OF_GATEWAY_ATTRIBUTE
+    from crucible.ports.turn import TurnScope
+    from crucible.turns import TurnRegistry
+
+    class _People:
+        def key(self, gateway: str, user_id: str) -> str:
+            return {("slack", "U0123"): "roman"}.get((gateway, user_id), f"{gateway}:{user_id}")
+
+    turns = TurnRegistry()
+    rig = await _rig(tmp_path, 8566, people=_People(), turns=turns)
+    try:
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, user_id="U0123", gateway="trusted-delegation")
+        async with turns.bind(rig.session, TurnScope(turn_id="t", attributes={ON_BEHALF_OF_GATEWAY_ATTRIBUTE: "slack"})):
+            pending = asyncio.create_task(_call(rig, "dangerous"))
+            for _ in range(400):
+                if rig.poster.posts:
+                    break
+                await asyncio.sleep(0.005)
+            token = str(rig.poster.posts[0].actions[0].context[APPROVAL_KEY])
+            assert rig.approvals.resolve(token, ANSWER_ONCE, "trusted-delegation:U0123") is ApprovalOutcome.NOT_ALLOWED  # the door is nobody
+            assert rig.approvals.resolve(token, ANSWER_ONCE, "roman") is ApprovalOutcome.RESOLVED  # the person, as Slack knows them
+            assert await pending == 200
     finally:
         await _close(rig)
 

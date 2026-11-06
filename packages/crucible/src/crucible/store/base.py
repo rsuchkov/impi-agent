@@ -732,7 +732,8 @@ class DelegationRecord:
     ``agent`` is the asker; ``channel_id``, ``conversation_id``, ``kind`` and
     ``gateway`` are the asker's conversation as the engine keys it and the
     gateway its turn ran on — where the answer goes back; ``to_conversation_id``
-    is the key of the conversation the asked agent's turn runs in. ``trusted``
+    is the key of the conversation the asked agent's turn runs in, ``replica``
+    the replica running it. ``trusted``
     says the task went with no card, as the person, to an agent the asker
     trusts, its answer read by the asker's turn. ``user_id`` is the
     person behind the task: whose message the asker's turn answered, and so
@@ -761,6 +762,9 @@ class DelegationRecord:
     delivered_at: str = ""
     to_conversation_id: str = ""
     trusted: bool = False
+    # The replica whose process runs the task's turn ("" when the engine is one
+    # process): a restart elsewhere leaves it alone while that replica lives.
+    replica: str = ""
 
 
 class DelegationStore(Protocol):

@@ -132,9 +132,9 @@ class TurnFeed(Protocol):
     def feed(self, runtime_session_id: str, event: object) -> None: ...
 
 
-class BoundTurns(TurnPlaces, TurnFeed, Protocol):
+class BoundTurns(TurnScopes, TurnPlaces, TurnFeed, Protocol):
     """The turns bound right now, as whoever posts for one holds them: where
-    each answers, and a way to tell it what happened."""
+    each answers, its scope, and a way to tell it what happened."""
 
 
 class TurnBinding(Protocol):

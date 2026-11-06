@@ -428,6 +428,58 @@ async def test_a_restart_ends_what_it_finds_running_and_tells_the_asker(store) -
     assert done is not None and done.status == DELEGATION_ANSWERED  # not touched
 
 
+class _Replicas:
+    def __init__(self, alive: set[str]) -> None:
+        self.alive = alive
+
+    async def replica_url(self, replica: str) -> str | None:
+        return "http://r" if replica in self.alive else None
+
+    async def claim_conversation(self, *args, **kwargs):  # the port's other method, unused here
+        raise AssertionError
+
+
+async def test_among_replicas_a_restart_ends_only_the_tasks_of_replicas_that_are_gone(store) -> None:
+    running = DelegationRecord(
+        id="mine", agent="assistant", to="coder", channel_id="d1", conversation_id="d1", kind=KIND_DM,
+        gateway=GATEWAY_SLACK, task="t", user_id="u1", status=DELEGATION_RUNNING, started_at="2026-11-06T10:00:00+00:00", replica="r1",
+    )
+    await store.save_delegation(running)
+    await store.save_delegation(replace(running, id="theirs-alive", replica="r2"))
+    await store.save_delegation(replace(running, id="theirs-dead", replica="r3"))
+    await store.save_delegation(replace(running, id="nobodys", replica=""))  # from before replicas were recorded
+    dispatcher = FakeTurnDispatcher()
+    svc = EngineDelegationService(
+        _presence(ScriptedSink()), store, AGENTS, store, dispatcher, DelegationChatClient,
+        replica="r1", replicas=_Replicas(alive={"r1", "r2"}),
+    )
+    await svc.recover()
+    await _settled(svc)
+    statuses = {name: (await store.get_delegation(name)).status for name in ("mine", "theirs-alive", "theirs-dead", "nobodys")}  # type: ignore[union-attr]
+    assert statuses == {
+        "mine": DELEGATION_FAILED,  # this replica's own earlier life
+        "theirs-alive": DELEGATION_RUNNING,  # another replica runs it still
+        "theirs-dead": DELEGATION_FAILED,  # its replica's lease lapsed
+        "nobodys": DELEGATION_FAILED,
+    }
+    assert sorted(r.text.split(" task ")[1].split(" ")[0] for r in dispatcher.requests) == ["mine", "nobodys", "theirs-dead"]
+    # A task started here names this replica.
+    record, _ = await store.get_or_create("assistant", "d9", "d9", KIND_DM)
+    task_id = await svc.delegate("assistant", record.runtime_session_id, "coder", "x")
+    await _settled(svc)
+    assert (await store.get_delegation(task_id)).replica == "r1"  # type: ignore[union-attr]
+    # The loop looks again later: a replica that died meanwhile is found.
+    svc.links  # noqa: B018 - the registry is there whether or not a task is trusted
+    svc._replicas.alive.discard("r2")  # type: ignore[union-attr]  # noqa: SLF001
+    loop = asyncio.ensure_future(svc.run_recovery(0.01))
+    for _ in range(100):
+        if (await store.get_delegation("theirs-alive")).status == DELEGATION_FAILED:  # type: ignore[union-attr]
+            break
+        await asyncio.sleep(0.01)
+    loop.cancel()
+    assert (await store.get_delegation("theirs-alive")).status == DELEGATION_FAILED  # type: ignore[union-attr]
+
+
 async def test_closing_the_service_lets_its_background_work_go(store) -> None:
     async def script(msg, chat) -> TurnOutcome:
         await asyncio.sleep(60)
@@ -855,15 +907,19 @@ async def test_the_ask_and_await_tools_go_through_the_service() -> None:
     svc = _Trusting()
     asked = await AskAgent().execute(_ctx(svc), {"agent": "jira", "task": "Status of PROJ-7?", "files": ["/tmp/a.md"]})
     assert asked["task_id"] == "trusted01" and asked["asked"] == "jira" and "await_agents" in asked["note"]
+    # With wait the call waits and answers itself: one call, not two.
+    waited_now = await AskAgent().execute(_ctx(svc), {"agent": "jira", "task": "And PROJ-8?", "wait": True})
+    assert waited_now == {"task_id": "trusted01", "asked": "jira", "status": DELEGATION_ANSWERED, "answer": "ok"}
+    assert svc.calls[-1] == ("await", "assistant", "assistant--conv", ["trusted01"])
+    with pytest.raises(ToolError, match="wait must be true or false"):
+        await AskAgent().execute(_ctx(svc), {"agent": "jira", "task": "x", "wait": "yes"})
     waited = await AwaitAgents().execute(_ctx(svc), {"task_ids": ["trusted01", "trusted02"]})
     assert waited == {"answers": [
         {"task_id": "trusted01", "agent": "jira", "status": DELEGATION_ANSWERED, "answer": "ok"},
         {"task_id": "trusted02", "agent": "jira", "status": DELEGATION_ANSWERED, "answer": "ok"},
     ]}
-    assert svc.calls == [
-        ("ask", "assistant", "assistant--conv", "jira", "Status of PROJ-7?", ["/tmp/a.md"]),
-        ("await", "assistant", "assistant--conv", ["trusted01", "trusted02"]),
-    ]
+    assert svc.calls[:1] == [("ask", "assistant", "assistant--conv", "jira", "Status of PROJ-7?", ["/tmp/a.md"])]
+    assert svc.calls[-1] == ("await", "assistant", "assistant--conv", ["trusted01", "trusted02"])
     with pytest.raises(ToolError, match="not an agent you trust"):
         await AskAgent().execute(_ctx(_Trusting(DelegationError("x is not an agent you trust"))), {"agent": "x", "task": "y"})
     with pytest.raises(ToolError, match="task_ids must be a list"):

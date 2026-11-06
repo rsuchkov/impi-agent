@@ -308,10 +308,11 @@ Trust is the asker's to declare — it is the asker that hands over what is
 the person's; an agent named that does not run here is refused when asked.
 The tools need what `delegate` needs — `INTEGRATIONS_ENABLED=true`, and a
 gateway other than `ws`. The asker then has two more
-tools: **`ask_agent`** (agent, task, files) hands a task to a trusted agent
-with **no card** and returns a task id at once, so the asker can ask several
-agents in a row; **`await_agents`** (task ids) waits until they have ended
-and returns each one's status, answer and notice — the asker's turn waits on
+tools: **`ask_agent`** (agent, task, files, wait) hands a task to a trusted
+agent with **no card**; with `wait: true` it waits and returns the answer in
+the same call, without it returns a task id at once, so the asker can ask
+several agents in a row; **`await_agents`** (task ids) waits until they have
+ended and returns each one's status, answer and notice — the asker's turn waits on
 them the way it waits on a card, its own timeout paused. The trusted agent's
 turn runs through its own door, `trusted-delegation`, **as the person**: with
 the named secrets of the asker's turn (the same values, in memory, never

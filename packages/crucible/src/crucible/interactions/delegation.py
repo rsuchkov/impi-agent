@@ -91,6 +91,7 @@ from crucible.ports.engine_turn import (
     TurnDispatcher,
     TurnRequest,
 )
+from crucible.ports.replica import Replicas
 from crucible.ports.turn import (
     SessionTurns,
     TurnFeed,
@@ -228,7 +229,8 @@ class EngineDelegationService:
     does not trust; ``links`` is where the trusted tasks in flight are
     registered; ``clock`` pauses the asker's turn while it waits for answers;
     ``session_for(agent)`` says how an agent keeps its turns on tasks
-    (``DELEGATION_SESSIONS``)."""
+    (``DELEGATION_SESSIONS``); ``replica`` is this process among the replicas
+    sharing the store and ``replicas`` says which of them live."""
 
     def __init__(
         self,
@@ -248,6 +250,8 @@ class EngineDelegationService:
         links: TrustedLinkRegistry | None = None,
         clock: TurnClock | None = None,
         session_for: Callable[[str], str] | None = None,
+        replica: str = "",
+        replicas: Replicas | None = None,
     ) -> None:
         self._presence = presence
         self._sessions = sessions
@@ -264,6 +268,11 @@ class EngineDelegationService:
         self._links = links if links is not None else TrustedLinkRegistry()
         self._clock = clock
         self._session_for = session_for
+        # This process among the replicas sharing the store, when there are
+        # others: a task's record names the replica running it, and a restart
+        # ends only the tasks of replicas that are gone.
+        self._replica = replica
+        self._replicas = replicas
         self._running: set[asyncio.Task] = set()
         # The ends of the trusted tasks in flight, for the turns that await them.
         self._ends: dict[str, asyncio.Future[None]] = {}
@@ -300,7 +309,7 @@ class EngineDelegationService:
             user_id=record.last_user_id, status=DELEGATION_RUNNING, started_at=_now(),
             files=json.dumps(digested) if digested else "",
             attributes=json.dumps(attributes, ensure_ascii=False) if attributes else "",
-            to_conversation_id=key,
+            to_conversation_id=key, replica=self._replica,
         )
         await self._store.save_delegation(entry)
         message = _message(entry, attachments, gateway=GATEWAY_DELEGATION, scope=TurnScope(
@@ -338,7 +347,7 @@ class EngineDelegationService:
             status=DELEGATION_RUNNING, started_at=_now(),
             files=json.dumps(digested) if digested else "",
             attributes=json.dumps(attributes, ensure_ascii=False) if attributes else "",
-            to_conversation_id=key, trusted=True,
+            to_conversation_id=key, trusted=True, replica=self._replica,
         )
         await self._store.save_delegation(entry)
         # What the trust hands over of the person's: the named secrets, as the
@@ -409,8 +418,12 @@ class EngineDelegationService:
     async def recover(self) -> None:
         """What a restart finds still running was lost with the process that ran
         it: each is ended as failed, and its asker told — a trusted task's
-        asker's turn is gone with the process too, so nobody is told of it."""
+        asker's turn is gone with the process too, so nobody is told of it.
+        Among replicas, only a task whose replica is gone (its lease lapsed) is
+        lost; one running on a replica that lives is left to it."""
         for entry in await self._store.running_delegations():
+            if not await self._lost(entry):
+                continue
             ended = replace(entry, status=DELEGATION_FAILED, finished_at=_now(), notice=NOTICE_ENGINE_RESTARTED)
             if not await self._store.end_delegation(ended):
                 continue  # another replica got there first
@@ -418,6 +431,26 @@ class EngineDelegationService:
                            entry.id, entry.agent, entry.to)
             if not entry.trusted:
                 self._spawn(self._answer(ended))
+
+    async def run_recovery(self, interval_s: float) -> None:
+        """``recover`` again every ``interval_s``: a replica that dies while
+        the others run leaves its tasks running in the store until its lease
+        lapses, which no start of another replica may have seen."""
+        while True:
+            await asyncio.sleep(interval_s)
+            try:
+                await self.recover()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - the next pass tries again
+                logger.warning("the recovery of lost tasks failed; trying again later", exc_info=True)
+
+    async def _lost(self, entry: DelegationRecord) -> bool:
+        """Whether a running task's process is gone: one process, or a task of
+        this replica's own earlier life, or one whose replica holds no lease."""
+        if not entry.replica or entry.replica == self._replica or self._replicas is None:
+            return True
+        return await self._replicas.replica_url(entry.replica) is None
 
     async def aclose(self) -> None:
         for task in list(self._running):

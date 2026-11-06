@@ -6,7 +6,23 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a restart among replicas no longer ends other replicas' running
+  tasks.** A task's record names the replica running it
+  (`DelegationRecord.replica`); `recover()` ends only the tasks of replicas
+  whose lease lapsed, and `run_recovery(interval)` looks again as often as
+  leases last, so a replica that dies mid-task is noticed. One process (no
+  replicas) behaves as before.
+- **Fixed: the card of a trusted agent's tool is answered by the person on
+  their own gateway.** The gate keyed the approver of a task's turn by the
+  engine's door; an application whose `PersonKey` joins ids by gateway (a
+  chat id to a directory key) did not recognise the person. The gate now reads
+  `on_behalf_of_gateway` from the turn's scope (`ToolGate(turns=)`).
+- **`ask_agent` can wait.** `ask_agent(..., wait: true)` waits for the trusted
+  agent and returns its answer in the same call — one model call where one
+  agent is asked and awaited at once; without `wait` it returns the task id as
+  before, for several agents in a row.
+- Fixed: the docs named `TrustedTurns`, a class renamed to `TrustedLinkRegistry`
+  before v0.48.0 shipped.
 
 ## v0.48.0 — 2026-11-06
 
@@ -48,7 +64,7 @@ _Nothing yet._
   (`runtime.delegation_session: per_conversation`; `per_task` stays the
   default). For an application: `AgentSpec.trusted_agents`/`TrustedAgent`,
   `DelegationService.ask`/`await_answers`, `TrustedLink`/`TrustedLinks`,
-  `GATEWAY_TRUSTED_DELEGATION`, `TrustedDelegationChatClient`, `TrustedTurns`,
+  `GATEWAY_TRUSTED_DELEGATION`, `TrustedDelegationChatClient`, `TrustedLinkRegistry`,
   `TrustedTurnTracer`, `TRUSTED_TURN_DENIED`, `EventReport.label`,
   `SessionTurns`; `DelegationRecord` gains `trusted` and `to_conversation_id`.
 

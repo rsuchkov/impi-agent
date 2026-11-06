@@ -42,6 +42,7 @@ from crucible.flows.coalescer import MessageCoalescer
 from crucible.flows.owned import OwnedFlow
 from crucible.flows.tracers import TracerByGateway
 from crucible.gateways import (
+    LEASE_TTL_S,
     GatewayConfig,
     GatewayFactory,
     GatewayHandle,
@@ -928,6 +929,9 @@ def build_app(settings: ImpiSettings) -> App:
             file_roots=file_roots, saver=attachments, max_file_bytes=settings.attachment_max_bytes, turns=turns,
             trust_for=_trust_for, trusted_chat=lambda: TrustedDelegationChatClient(trusted), links=trusted,
             clock=runtime, session_for=_session_for,
+            # Among replicas a task's record names the one running it, and a
+            # restart here ends only the tasks of replicas whose lease lapsed.
+            replica=replica.id if replica is not None else "", replicas=sessions if replica is not None else None,
         )
         if delegation_on else None
     )
@@ -1195,6 +1199,11 @@ async def run(settings: ImpiSettings) -> None:
             loops.append(_supervise("runtime login refresh", app.auth_refresher.run))
         if app.heartbeat is not None:
             loops.append(_supervise("replica heartbeat", app.heartbeat.run))
+            if app.delegation is not None:
+                # A replica that dies mid-task leaves it running in the store
+                # until its lease lapses: looked for as often as leases last.
+                delegation = app.delegation
+                loops.append(_supervise("lost tasks", lambda: delegation.run_recovery(LEASE_TTL_S)))
         if app.attachments is not None and settings.attachment_retention_days > 0:
             attachments, sessions = app.attachments, app.sessions
             loops.append(_supervise("attachment sweep", lambda: run_attachment_sweeps(

@@ -531,13 +531,20 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   gateway, and derives the door's own denials — `DELEGATED_TURN_DENIED` — when
   the gateway named is `GATEWAY_DELEGATION`; a headless agent —
   `AgentSpec.headless` — enrols with the two doors alone). Call
-  `recover()` once the agents are up and `aclose()` at shutdown. A tool reads
+  `recover()` once the agents are up and `aclose()` at shutdown; among
+  replicas, hand it `replica=` (this process's id) and `replicas=` (the
+  store), so a task's record names the replica running it and `recover()`
+  ends only the tasks of replicas whose lease lapsed — and run
+  `run_recovery(LEASE_TTL_S)` beside the heartbeat, since a replica that dies
+  mid-task is noticed only when its lease is gone. The gate takes `turns=` too:
+  on a task's turn the approver is the person on the gateway they came through
+  (`on_behalf_of_gateway`), not the door. A tool reads
   the service as `ctx.require_delegation()` and declares `CAP_DELEGATION`.
   `AgentInfo.model` is what the card shows as the model the task goes to;
   fill it in your directory, and list a headless agent with an empty
   `username`/`user_id`. For agents an asker **trusts** (`AgentSpec.trusted_agents`,
   `ask_agent`/`await_agents`): hand the service `trust_for=(asker, to) ->
-  TrustedAgent | None` (read from the asker's live profile), `links=TrustedTurns()`,
+  TrustedAgent | None` (read from the asker's live profile), `links=TrustedLinkRegistry()`,
   `trusted_chat=lambda: TrustedDelegationChatClient(links)`, `clock=` the runtime
   (the asker's turn pauses while it awaits) and `session_for=(agent) -> its
   delegation_session`; give every `AgentSink` a

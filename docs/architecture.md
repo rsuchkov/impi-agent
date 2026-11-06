@@ -129,7 +129,7 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   (`AgentSpec.trusted_agents`) hands over; `ports/turn`'s
   `PERSON_GATEWAY_ATTRIBUTE` names the person's own gateway on such a turn.
   `interactions/delegation` is the service over the sinks, the store
-  (`DelegationRecord`) and the turn dispatcher, with `TrustedTurns` and the
+  (`DelegationRecord`) and the turn dispatcher, with `TrustedLinkRegistry` and the
   `TrustedTurnTracer` that feeds a trusted task's steps into the asker's turn.
 - **Entitlement** (`ports/entitlement`): `Entitlement` (what one conversation
   may do, out of its agent's profile: a subset of its tool names, built-ins

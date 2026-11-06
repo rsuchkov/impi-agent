@@ -59,9 +59,10 @@ from crucible.ports.chat.types import (
     CallPreview,
     ConversationRef,
 )
+from crucible.ports.delegation import ON_BEHALF_OF_GATEWAY_ATTRIBUTE
 from crucible.ports.replica import tag_token
 from crucible.ports.telemetry import CardAnswered, Telemetry
-from crucible.ports.turn import TurnFeed, TurnPlaces
+from crucible.ports.turn import TurnFeed, TurnPlaces, TurnScopes
 from crucible.store.base import (
     DECISION_ABANDONED,
     DECISION_APPROVED_GRANT,
@@ -125,14 +126,18 @@ class ToolGate:
         telemetry: Telemetry | None = None,
         places: TurnPlaces | None = None,
         events: TurnFeed | None = None,
+        turns: TurnScopes | None = None,
     ) -> None:
         self._presence = presence
         self._telemetry = telemetry
         self._sessions = sessions
         # Where the turn answers, so the card goes there (None: the address);
-        # and the turn itself, told that its call now waits on the person.
+        # the turn itself, told that its call now waits on the person; and the
+        # turn's scope, which on a task another agent handed on names the
+        # gateway the person behind it is known by.
         self._places = places
         self._events = events
+        self._turns = turns
         self._ledger = ledger
         self._approvals = approvals
         self._callback_url = callback_url
@@ -252,8 +257,12 @@ class ToolGate:
         # The record's last user is whoever's message this turn answers (the
         # newest of a merged burst; a scheduled turn's creator). A record that
         # never had a user leaves the set empty: anyone in the conversation.
+        # On a turn one agent opened for another, the person is known by the
+        # gateway they reached the asker through, not by the engine's door.
+        scope = self._turns.current(runtime_session_id) if self._turns is not None else None
+        person_gateway = (scope.attributes.get(ON_BEHALF_OF_GATEWAY_ATTRIBUTE, "") if scope is not None else "") or record.last_gateway
         who = self._approvers or (
-            frozenset({self._people.key(record.last_gateway, record.last_user_id)})
+            frozenset({self._people.key(person_gateway, record.last_user_id)})
             if record.last_user_id
             else frozenset()
         )

@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS delegations (
   notice          TEXT NOT NULL DEFAULT '',
   delivered_at    TEXT NOT NULL DEFAULT '',
   to_conversation_id TEXT NOT NULL DEFAULT '',
-  trusted         INTEGER NOT NULL DEFAULT 0
+  trusted         INTEGER NOT NULL DEFAULT 0,
+  replica         TEXT NOT NULL DEFAULT ''
 );
 -- A restart asks for every task still running; nothing else scans the table.
 CREATE INDEX IF NOT EXISTS idx_delegations_status ON delegations (status);
@@ -64,6 +65,8 @@ class DelegationStoreMixin(SqliteBase):
             self._conn.execute("ALTER TABLE delegations ADD COLUMN to_conversation_id TEXT NOT NULL DEFAULT ''")
         if "trusted" not in columns:
             self._conn.execute("ALTER TABLE delegations ADD COLUMN trusted INTEGER NOT NULL DEFAULT 0")
+        if "replica" not in columns:
+            self._conn.execute("ALTER TABLE delegations ADD COLUMN replica TEXT NOT NULL DEFAULT ''")
 
     # -- sync core -------------------------------------------------------------
 

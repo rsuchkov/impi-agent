@@ -29,7 +29,7 @@ async def test_a_task_is_written_replaced_and_read_by_its_id(store: Store) -> No
     assert await store.get_delegation("t1") == _record("t1")  # every field, the count as a number
     ended = _record("t1", status=DELEGATION_ANSWERED, finished_at="2026-11-06T10:01:00+00:00",
                     answer="Done.", notice="", delivered_at="2026-11-06T10:01:02+00:00",
-                    to_conversation_id="delegated:t1", trusted=True)
+                    to_conversation_id="delegated:t1", trusted=True, replica="r1")
     await store.save_delegation(ended)  # a second save of the id replaces
     read = await store.get_delegation("t1")
     assert read is not None and read == ended and read.trusted is True  # a flag, not a number, whatever the backend keeps
@@ -66,7 +66,7 @@ async def test_a_table_from_before_the_trust_columns_is_widened_on_open(tmp_path
     store = SqliteSessionStore(path)
     try:
         old = await store.get_delegation("old1")
-        assert old is not None and old.to_conversation_id == "" and old.trusted is False
+        assert old is not None and old.to_conversation_id == "" and old.trusted is False and old.replica == ""
         await store.save_delegation(_record("new1", trusted=True, to_conversation_id="delegated:new1"))  # the new columns are there
         assert await store.get_delegation("new1") == _record("new1", trusted=True, to_conversation_id="delegated:new1")
     finally:

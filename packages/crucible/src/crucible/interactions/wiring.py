@@ -131,7 +131,7 @@ class InteractionWiring:
                 replica_id=replica_id,
                 people=people,
                 telemetry=telemetry,
-                places=turns, events=turns,
+                places=turns, events=turns, turns=turns,
             )
         # The HTTP receiver is only for gateways that deliver callbacks over HTTP
         # (Mattermost); socket gateways (Slack) drive the same dispatcher over their
