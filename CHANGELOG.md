@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.48.1 — 2026-11-06
+
 - **Fixed: a restart among replicas no longer ends other replicas' running
   tasks.** A task's record names the replica running it
   (`DelegationRecord.replica`); `recover()` ends only the tasks of replicas
