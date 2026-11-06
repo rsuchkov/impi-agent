@@ -29,11 +29,6 @@ from typing import Any, NoReturn, Protocol
 # that would act as a person (their connected accounts, say) must not. An
 # application that hands the turn a scope of its own has decided that itself.
 ENGINE_TURN_ATTRIBUTE = "engine_turn"
-# The gateway the person behind this turn reached the engine through, when it
-# is not the gateway the turn's own message came through — a turn one agent
-# opened for another on a person's behalf. What decides whose connected
-# accounts the turn may act with; absent, the message's gateway does.
-PERSON_GATEWAY_ATTRIBUTE = "person_gateway"
 
 
 class TurnSecrets:
@@ -116,8 +111,11 @@ class SessionTurns(TurnScopes, TurnPlaces, Protocol):
     with no scope (every chat gateway's), so ``current`` alone cannot say.
     The registry is one."""
 
-    def has_turn(self, runtime_session_id: str) -> bool:
-        """Whether a turn is bound to the session right now."""
+    def turn_token(self, runtime_session_id: str) -> object | None:
+        """The turn bound to the session right now, as an opaque token that
+        names that turn and no later one on the same session — what a watcher
+        compares to know whether the turn it saw is still the turn there.
+        None between turns."""
         ...
 
 

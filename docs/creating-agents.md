@@ -149,7 +149,8 @@ no tools at all**.
 
 An agent on several gateways may be allowed less on one of them:
 `runtime.tools_by_gateway` maps a gateway kind (`mattermost`, `slack`, `ws`,
-`http`, or `delegation` for the turns on a task another agent handed on) to
+`http`, or `delegation` and `trusted-delegation` for the turns on a task another
+agent handed on or asked of it) to
 the names of `tools` a conversation there may use — a subset,
 checked when the profile loads — or to `{except: [names]}`, every entry of
 `tools` but those (each named as `tools` writes it, `mcp__<server>__*`
@@ -228,7 +229,8 @@ allowed what it is not — calls `delegate` with the other agent's name (as
 absolute path under the rules of `send_file`. The engine then opens a turn of
 that agent **on the task alone**: a conversation of its own
 (`delegated:<task id>`), a fresh session for every task, nothing of the
-asker's thread in it and no memory of an earlier task — the other agent reads
+asker's thread in it and no memory of an earlier task (unless its own
+`runtime.delegation_session` is `per_conversation`, below) — the other agent reads
 the task, the files and nothing else. The files are copies, taken the moment
 the person allowed and placed in that conversation, where the other agent's
 process may read them and the asker cannot reach them: what the card showed is
@@ -246,7 +248,8 @@ minutes, then leaves it in the task's record (`undelivered` in the log and in
 `delegation_status`) — `delegation_status <id>` says where a task stands and
 gives the answer again; `cancel_delegation <id>` stops the other agent's turn,
 and no answer comes. A task still running when the engine stopped is ended as
-failed when it starts again (`engine restarted`), and the asker is told.
+failed when it starts again (`engine restarted`), and the asker is told (a
+trusted task's asker is not: its turn is gone with the process).
 
 The turn on a task runs **as the person behind it** — the one whose message
 the asker's turn answered, who read the card — with the asker's turn
@@ -268,7 +271,7 @@ agents a shared directory (`runtime.shared_dirs`).
 A **headless** agent (`headless: true` in `agent.yaml`) is one nobody talks
 to: it has no gateway and needs no platform token — the engine runs it, lists
 it in `list_agents` without a platform identity, and reaches it only through
-`delegate`. The shape for a specialist on another model: a reviewer, a coder,
+`delegate` or `ask_agent`. The shape for a specialist on another model: a reviewer, a coder,
 a translator, that does one thing for the agents people do talk to.
 
 Confirmed, always and for every task: the card names the agent, its model
@@ -302,7 +305,9 @@ runtime:
 ```
 
 Trust is the asker's to declare — it is the asker that hands over what is
-the person's — and the agents named must exist. The asker then has two more
+the person's; an agent named that does not run here is refused when asked.
+The tools need what `delegate` needs — `INTEGRATIONS_ENABLED=true`, and a
+gateway other than `ws`. The asker then has two more
 tools: **`ask_agent`** (agent, task, files) hands a task to a trusted agent
 with **no card** and returns a task id at once, so the asker can ask several
 agents in a row; **`await_agents`** (task ids) waits until they have ended
@@ -322,13 +327,16 @@ widgets, forms, ephemeral posts, channel administration, `send_file`,
 scheduling, handing on again. With `context: conversation`, the asker's
 conversation so far goes with the task as a context block — the thread or the
 channel's recent messages, as the platform keeps them; a direct message's
-history is the asker's memory alone and nothing goes. **A trusted task ends
+history is the asker's memory alone and nothing goes — nor on `http` or `ws`,
+which keep no thread the engine can read; a direct message answered in a thread
+hands that thread. **A trusted task ends
 with the asker's turn**: if the asker answers without awaiting, or is stopped,
 the tasks still running are called off (`asker_turn_ended`), since what they
 were handed was that turn's. `delegate` to a trusted agent still works as to
 any other — with a card, as a turn of its own, nothing of the person's.
 
-A trusted agent that is asked again and again in one conversation can keep
+An agent asked again and again from one conversation — with `ask_agent` or
+`delegate` — can keep
 **one session per asking conversation** instead of one per task:
 `runtime.delegation_session: per_conversation` in its own `agent.yaml` (the
 default is `per_task`). It then remembers the project and the fields from the
@@ -445,16 +453,18 @@ the runtime's own dollar estimate (a price table, not a bill):
 - **`tokens_per_turn`** is the runtime's to hold while the turn runs: as each
   of the model's messages ends its tokens are counted, at the budget the model
   is told once to stop calling tools and say what is done and what is left
-  (the same note a long turn gets at `wrap_up_after`), and a quarter past it
+  (a note like the one a long turn gets at `wrap_up_after`), and a quarter past it
   the turn is stopped — the person sees "This turn used more than its token
-  budget and was stopped" (`token_budget`), and the next turn is told what
-  this one did before it was cut. A tool in flight is not interrupted mid-call.
+  budget and was stopped" (`over_budget`), and the next turn is told what
+  this one did before it was cut. The count is checked between the model's
+  messages: a tool in flight is not interrupted mid-call, and a turn that ends
+  in one message is never stopped.
 - **`tokens_per_day`**, **`usd_per_day`** bound the agent's calendar day, UTC,
   over everyone it answers; **`tokens_per_day_per_person`**,
   **`usd_per_day_per_person`** bound each person's day with it. These are held
   *before* a turn: the engine keeps a ledger of what every turn cost (the
   `usage` table, written as a turn ends — see [storage.md](storage.md)), reads
-  the day's sum when a message arrives, and past a limit lets no turn run — the
+  the day's sum when a message arrives, and at or past a limit lets no turn run — the
   person is told, alone where the platform can, "This agent's budget for today
   is spent (N of M tokens); it answers again after 00:00 UTC" or "Your budget
   with this agent for today is spent…" (`budget_spent`); nothing is rendered,

@@ -66,7 +66,7 @@ and the `agent.yaml` key behind it:
   `not_admitted`, seen by that person alone) — the application's admission
   rule did not let the turn run; not the engine's doing, and not a failure. A
   scheduled run of such an agent ends as `not_admitted` for the same reason.
-- "This turn used more than its token budget and was stopped" (`token_budget`)
+- "This turn used more than its token budget and was stopped" (`over_budget`)
   — `runtime.budget.tokens_per_turn`: the model was told to round off at the
   budget and went a quarter past it; the log says `pi turn spent N tokens
   against a budget of M; aborting`. Raise the budget, or ask in smaller steps.

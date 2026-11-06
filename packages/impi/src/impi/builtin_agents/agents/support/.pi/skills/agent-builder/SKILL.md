@@ -46,10 +46,10 @@ runtime:
   # idle_timeout: 120        # optional; seconds without a word from the model before the turn is stopped as stalled
   # wrap_up_after: 0         # optional; active seconds after which the model is told once to round off (below timeout)
   # loop_guard: true         # optional; refuse a call repeated 4 times, warn on the same answer 4 times, 40 calls a turn
+  #                          #   (or {repeat: 4, same_result: 4, calls: 40}; 0 turns a rule off). Off by default
   # budget: {tokens_per_turn: 20000, tokens_per_day: 500000, usd_per_day_per_person: 1}
   #                          # optional; what the agent may spend at the model — a turn is told to round off and then
   #                          #   stopped at tokens_per_turn, a day's rules (UTC) let no turn run once spent (budget_spent)
-  #                          #   (or {repeat: 4, same_result: 4, calls: 40}; 0 turns a rule off). Off by default
   # thinking: medium         # optional; off | minimal | low | medium | high | xhigh | max — lower it when answers get truncated
   tools: [read, bash]        # the ONE allowlist (see "Tool gating")
   # tools_by_gateway:        # optional; an agent on several gateways allowed less on one:
@@ -104,7 +104,7 @@ and logs why. Common cases:
 | `ask_user_buttons`, `ask_user_select`, `open_form`, `open_screen` | `INTEGRATIONS_ENABLED=true`, and a gateway someone can click back from (not `http`) |
 | `create_agent`, `install_skill`, `remove_skill` — anything that needs confirming | `INTEGRATIONS_ENABLED=true` (somebody to ask) |
 | `send_file` | `ATTACHMENTS_ENABLED=true` |
-| `ask_agent`, `await_agents` | the asker's `runtime.trusted_agents` names the agent (with `secrets`, `connections`, `context` for what is handed over); no card — the trusted agent runs as the same person, its own confirmed tools ask in the asker's conversation; the task ends with the asker's turn, so the model must `await_agents` before it answers |
+| `ask_agent`, `await_agents` | the asker's `runtime.trusted_agents` names the agent (with `secrets`, `connections`, `context` for what is handed over), `INTEGRATIONS_ENABLED=true` and a gateway other than `ws`, as for `delegate`; no card — the trusted agent runs as the same person, its own confirmed tools ask in the asker's conversation; the task ends with the asker's turn, so the model must `await_agents` before it answers |
 | `delegate`, `delegation_status`, `cancel_delegation` | `INTEGRATIONS_ENABLED=true` (the task is confirmed) and a gateway where a card can be answered (Mattermost, Slack, http; not ws). The other agent needs no bot and no place in the conversation — the engine opens its turn on the task alone; `headless: true` in its `agent.yaml` makes an agent reached by tasks only (no token). Its turn has no widgets, ephemeral posts, channel-admin tools, confirmed tools, files out or connected accounts; `runtime.tools_by_gateway: {delegation: [...]}` narrows the rest |
 | `send_ephemeral` | a gateway that has ephemeral messages |
 | `schedule_task`, `list_tasks`, `cancel_task`, `pause_task` | `SCHEDULER_ENABLED=true` |

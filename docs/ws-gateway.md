@@ -83,7 +83,7 @@ Markdown as-is; rendering is the service's business.
 A `notice` is the engine speaking, not the agent — a turn that failed or
 produced nothing. Its `text` is a sentence for a person; its `code`, when
 present, is for a program: `timeout`, `busy`, `quota`, `credentials`, `context`,
-`model_unavailable`, `runtime_unavailable`, `agent_error`, `empty_answer`, `token_budget` (the turn spent more than its token budget and was stopped; what it did stands), `budget_spent` (the agent's or this person's budget for the day is spent: nothing ran, again after 00:00 UTC), `stalled` (the model
+`model_unavailable`, `runtime_unavailable`, `agent_error`, `empty_answer`, `over_budget` (the turn spent more than its token budget and was stopped; what it did stands), `budget_spent` (the agent's or this person's budget for the day is spent: nothing ran, again after 00:00 UTC), `stalled` (the model
 stopped responding mid-turn), `truncated` (the answer hit the model's length limit), `stopped` (a person ended the turn — a `cancel` frame, a `/stop` in chat; not a failure), `not_admitted` (the application did not let the turn run — a sign-in is wanted; the frame then may carry `link`, a URL for this service's person alone, and `label`, the word for its button). Show
 the text, or word the code yourself; ignore codes you do not know.
 

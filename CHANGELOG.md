@@ -9,14 +9,19 @@ when a release is cut, and `impi update` shows the target version's section.
 - **An agent has a budget at the model.** `runtime.budget` in `agent.yaml`:
   `tokens_per_turn` is held by the runtime while the turn runs — the model is
   told once to round off at the budget (`BUDGET_NOTE`) and the turn is stopped
-  a quarter past it (`token_budget`, `AgentOverBudget`); `tokens_per_day`,
+  a quarter past it (`over_budget`, `AgentOverBudget`); `tokens_per_day`,
   `usd_per_day`, `tokens_per_day_per_person` and `usd_per_day_per_person` are
   held before a turn, against a ledger of what every turn cost (the `usage`
   table or collection, `UsageStore`, written by the flow as a turn ends):
-  past a limit the turn is not admitted and the person is told their budget
+  at or past a limit the turn is not admitted and the person is told their budget
   with the agent, or the agent's, is spent until 00:00 UTC (`budget_spent`;
   `BudgetAdmission` in `crucible.budget`, asked before the application's own
   rule, `NotAdmitted.code` carrying the word). Telemetry says `BudgetHit`.
+- **Fixed: a headless agent's gateways are not resolved.** At v0.47.0 every
+  start of an agent with `headless: true` logged a missing-token warning for
+  the deployment's gateway; now no token is looked for, in the engine and in
+  `impi agent list` alike. The `usage` ledger is pruned at startup
+  (`USAGE_RETENTION_DAYS`, 90 by default).
 - **An agent asks the agents it trusts without a card, as the person.** The
   task of v0.47.0 crosses a boundary — an agent that must see no more than the
   task. A specialist of the same person's is the other case, and
@@ -30,8 +35,8 @@ when a release is cut, and `impi update` shows the target version's section.
   asker's turn paused as for a card. The trusted agent's turn runs through the
   `trusted-delegation` door as the person, with the named secrets (in memory,
   never stored), the asker's attributes and — when handed — the person's
-  accounts (`PERSON_GATEWAY_ATTRIBUTE` in `crucible.ports.turn` names their
-  gateway for the application's owner rule); its confirmed tools ask, with the
+  accounts (`ACCOUNTS_HANDED_ATTRIBUTE` beside `on_behalf_of_gateway` tells
+  the application's owner rule); its confirmed tools ask, with the
   card in the asker's conversation under its name ("jira: Create issue"),
   answered by the same person; its steps show in the asker's progress under
   its name; and it ends with the asker's turn (`asker_turn_ended`). A trusted

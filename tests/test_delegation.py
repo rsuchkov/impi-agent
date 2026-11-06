@@ -29,7 +29,7 @@ from crucible.interactions.delegation import (
     NOTICE_ENGINE_RESTARTED,
     NOTICE_UNDELIVERED,
     EngineDelegationService,
-    TrustedTurns,
+    TrustedLinkRegistry,
     TrustedTurnTracer,
 )
 from crucible.ports.agent.events import (
@@ -58,6 +58,7 @@ from crucible.ports.chat.types import (
     PreviewRow,
 )
 from crucible.ports.delegation import (
+    ACCOUNTS_HANDED_ATTRIBUTE,
     DELEGATED_BY_ATTRIBUTE,
     DELEGATION_ANSWERED,
     DELEGATION_CANCELLED,
@@ -75,7 +76,6 @@ from crucible.ports.delegation import (
 )
 from crucible.ports.engine_turn import ConversationBusy, DispatchError, TurnRequest
 from crucible.ports.turn import (
-    PERSON_GATEWAY_ATTRIBUTE,
     TurnPlace,
     TurnScope,
     TurnSecrets,
@@ -412,12 +412,16 @@ async def test_a_restart_ends_what_it_finds_running_and_tells_the_asker(store) -
     )
     await store.save_delegation(running)
     await store.save_delegation(replace(running, id="done1", status=DELEGATION_ANSWERED, answer="fine"))
+    await store.save_delegation(replace(running, id="trusted1", trusted=True))
     dispatcher = FakeTurnDispatcher()
     svc = EngineDelegationService(_presence(ScriptedSink()), store, AGENTS, store, dispatcher, DelegationChatClient)
     await svc.recover()
     await _settled(svc)
     kept = await store.get_delegation("lost1")
     assert kept is not None and (kept.status, kept.notice) == (DELEGATION_FAILED, NOTICE_ENGINE_RESTARTED) and kept.finished_at
+    # A trusted task is ended too, and nobody is told: its asker's turn went with the process.
+    trusted = await store.get_delegation("trusted1")
+    assert trusted is not None and trusted.status == DELEGATION_FAILED
     request, = dispatcher.requests
     assert request.text == "coder failed at task lost1 (engine restarted)" and request.conversation_id == "d1"
     done = await store.get_delegation("done1")
@@ -600,7 +604,7 @@ class _Clock:
 
 
 def _trusting(sink, store, turns, *, trust: TrustedAgent | None, asker_chat: FakeChat, clock=None, session=""):
-    links = TrustedTurns()
+    links = TrustedLinkRegistry()
     presence = MappingPresence({
         "coder": AgentSink(sink=sink, gateways={
             GATEWAY_DELEGATION: DelegationChatClient(keeps=False),
@@ -643,7 +647,7 @@ async def test_a_trusted_agent_is_asked_with_no_card_as_the_person_with_what_the
         assert (message.user_id, message.username, message.is_from_bot) == ("u-alice", "assistant", True)
         assert message.turn is not None
         assert message.turn.secrets.names() == {"jira_token"} and message.turn.secrets.get("jira_token") == "s3cret"
-        assert message.turn.attributes[PERSON_GATEWAY_ATTRIBUTE] == GATEWAY_SLACK  # their accounts go too
+        assert message.turn.attributes[ACCOUNTS_HANDED_ATTRIBUTE] == "1"  # their accounts go too
         assert message.turn.attributes["realm"] == "acme" and message.turn.attributes[DELEGATED_BY_ATTRIBUTE] == "assistant"
         assert message.event is None  # the task alone: context is the default
         waiting = asyncio.ensure_future(svc.await_answers("assistant", rsid, [task_id]))
@@ -670,7 +674,7 @@ async def test_what_the_trust_does_not_name_stays_behind(store) -> None:
         await _settled(svc)
     (message, _), = sink.submitted
     assert message.turn is not None and len(message.turn.secrets) == 0  # no secrets named: none handed
-    assert PERSON_GATEWAY_ATTRIBUTE not in message.turn.attributes  # no connections: nobody's accounts
+    assert ACCOUNTS_HANDED_ATTRIBUTE not in message.turn.attributes  # no connections: nobody's accounts
     # An agent the asker does not trust is not asked this way.
     with pytest.raises(DelegationError, match="not an agent you trust; hand the task on with delegate"):
         await svc.ask("assistant", rsid, "nobody", "x")
@@ -719,8 +723,10 @@ async def test_a_trusted_task_ends_with_the_askers_turn(store, monkeypatch) -> N
         await sink.started.wait()
         await asyncio.sleep(0.05)
         assert sink.stopped == []  # the asker's turn is live: the task runs on
-    # The asker's turn is over, the task still runs: it is called off, since
-    # what it was handed was that turn's.
+    # The asker's turn is over — and the conversation's next turn, somebody
+    # else's perhaps, is not the one the task was handed from.
+    async with turns.bind(rsid, None, place=TurnPlace(GATEWAY_SLACK, "")):
+        await asyncio.sleep(0.05)
     for _ in range(100):
         if sink.stopped:
             break
@@ -751,8 +757,36 @@ async def test_a_trusted_agent_keeps_one_session_per_asking_conversation_when_it
     assert kept is not None and kept.to_conversation_id == keys[0]
 
 
+async def test_an_agent_keeping_one_conversation_takes_one_task_from_it_at_a_time(store) -> None:
+    release = asyncio.Event()
+
+    async def script(msg, chat) -> TurnOutcome:
+        await release.wait()
+        return TurnOutcome.REPLIED
+
+    sink = ScriptedSink(script)
+    turns = TurnRegistry()
+    svc, _, _ = _trusting(sink, store, turns, trust=TrustedAgent("coder"), asker_chat=FakeChat(), session="per_conversation")
+    record, _ = await store.get_or_create("assistant", "d1", "d1", KIND_DM, user_id="u1", gateway=GATEWAY_SLACK)
+    rsid = record.runtime_session_id
+    async with turns.bind(rsid, TurnScope(turn_id="t1")):
+        first = await svc.ask("assistant", rsid, "coder", "one")
+        await sink.started.wait()
+        # A second message into the running conversation would be folded into
+        # the first task's turn, or answered into its client: refused instead.
+        with pytest.raises(DelegationError, match="coder is still on a task from this conversation; await or cancel it first"):
+            await svc.ask("assistant", rsid, "coder", "two")
+        with pytest.raises(DelegationError, match="still on a task"):
+            await svc.delegate("assistant", rsid, "coder", "two")
+        release.set()
+        await svc.await_answers("assistant", rsid, [first])
+        second = await svc.ask("assistant", rsid, "coder", "two")  # free again
+        await _settled(svc)
+    assert first != second and len(sink.submitted) == 2
+
+
 async def test_the_trusted_doors_client_puts_cards_and_notices_in_the_askers_conversation() -> None:
-    links = TrustedTurns()
+    links = TrustedLinkRegistry()
     asker_chat = FakeChat()
     ref = ConversationRef(channel_id="ch1", conversation_id="root1", message_id="root1", thread_root_id="root1")
     links.register("delegated:abc", TrustedLink(asker="assistant", asker_session_id="assistant--x", to="jira", poster=asker_chat, ref=ref))
@@ -782,7 +816,7 @@ async def test_the_trusted_doors_client_puts_cards_and_notices_in_the_askers_con
 
 
 async def test_a_trusted_tasks_steps_show_in_the_askers_turn_under_the_agents_name() -> None:
-    links = TrustedTurns()
+    links = TrustedLinkRegistry()
     turns = TurnRegistry()
     seen: list[object] = []
     links.register("delegated:abc", TrustedLink(asker="assistant", asker_session_id="assistant--x", to="jira", poster=FakeChat(), ref=ConversationRef("c", "c", "m", "")))

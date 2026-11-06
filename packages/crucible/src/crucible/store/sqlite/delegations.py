@@ -57,6 +57,13 @@ class DelegationStoreMixin(SqliteBase):
 
     def _create_delegation_table(self) -> None:
         self._conn.executescript(_DELEGATIONS_SCHEMA)
+        # A table made by an older version lacks the columns added since;
+        # CREATE TABLE IF NOT EXISTS leaves it as it was.
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(delegations)")}
+        if "to_conversation_id" not in columns:
+            self._conn.execute("ALTER TABLE delegations ADD COLUMN to_conversation_id TEXT NOT NULL DEFAULT ''")
+        if "trusted" not in columns:
+            self._conn.execute("ALTER TABLE delegations ADD COLUMN trusted INTEGER NOT NULL DEFAULT 0")
 
     # -- sync core -------------------------------------------------------------
 

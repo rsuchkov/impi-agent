@@ -9,7 +9,7 @@ import pytest
 
 from crucible.budget import NOTICE_BUDGET_SPENT, BudgetAdmission, day_start
 from crucible.ports.admission import NOTICE_NOT_ADMITTED, NotAdmitted
-from crucible.ports.agent.errors import NOTICE_TOKEN_BUDGET, AgentOverBudget, notice_for
+from crucible.ports.agent.errors import NOTICE_OVER_BUDGET, AgentOverBudget, notice_for
 from crucible.ports.agent.spec import Budget
 from crucible.ports.chat.types import KIND_DM, ConversationRef, IncomingMessage
 from crucible.ports.telemetry import BudgetHit
@@ -119,4 +119,4 @@ async def test_the_applications_rule_is_asked_after_the_budget_admits(tmp_path: 
 
 def test_a_turn_over_its_token_budget_has_a_notice_of_its_own() -> None:
     code, text = notice_for(AgentOverBudget("the turn spent 1300 tokens against a budget of 1000"))
-    assert code == NOTICE_TOKEN_BUDGET and "token budget" in text and "1300" not in text
+    assert code == NOTICE_OVER_BUDGET and "token budget" in text and "1300" not in text

@@ -30,8 +30,10 @@ class TurnRegistry:
         bound = self._by_session.get(runtime_session_id)
         return bound[1] if bound else None
 
-    def has_turn(self, runtime_session_id: str) -> bool:
-        return runtime_session_id in self._by_session
+    def turn_token(self, runtime_session_id: str) -> object | None:
+        # The binding itself: a fresh tuple per bind, so two turns on one
+        # session never compare equal, whatever their scopes.
+        return self._by_session.get(runtime_session_id)
 
     def feed(self, runtime_session_id: str, event: object) -> None:
         bound = self._by_session.get(runtime_session_id)

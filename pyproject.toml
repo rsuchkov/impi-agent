@@ -514,11 +514,15 @@ type = "forbidden"
 source_modules = ["crucible.budget"]
 forbidden_modules = [
     "crucible.approvals",
+    "crucible.attachments",
+    "crucible.config",
     "crucible.flows",
     "crucible.gateways",
     "crucible.interactions",
     "crucible.profiles",
-    "crucible.runtimes.pi",
+    "crucible.runtimes",
+    "crucible.scheduler",
+    "crucible.skills",
     "crucible.tools",
     "mattermostautodriver",
     "slack_bolt",

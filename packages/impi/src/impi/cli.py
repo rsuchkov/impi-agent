@@ -328,14 +328,15 @@ def _cmd_agent_list(args: argparse.Namespace) -> int:
         _fail(str(exc))
         return 2
     for spec in store.list():
-        kinds = settings.gateways_for(spec.name)
-        # Runnable on a gateway when its token(s) are set; the resolver logs the rest.
-        runnable = {cfg.kind for cfg in resolve_gateways(settings, spec.name)}
-        gateways = ",".join(kinds)
-        has_token = all(kind in runnable for kind in kinds)
         if spec.headless:
+            # No gateway, no token to look for: reached by a task alone.
             gateways, status = "-", _sgr("32", "headless: reached by delegation")
         else:
+            kinds = settings.gateways_for(spec.name)
+            # Runnable on a gateway when its token(s) are set; the resolver logs the rest.
+            runnable = {cfg.kind for cfg in resolve_gateways(settings, spec.name)}
+            gateways = ",".join(kinds)
+            has_token = all(kind in runnable for kind in kinds)
             status = _sgr("32", "token ok") if has_token else _sgr("33", "no token")
         if settings.model_env_for(spec.name):
             status += "  " + _sgr("36", "own model endpoint")

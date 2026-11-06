@@ -110,7 +110,7 @@ class ConnectionChanged:
 
 @dataclass(frozen=True)
 class BudgetHit:
-    """A turn was not admitted, or stopped, for a budget (``AgentSpec.budget``)."""
+    """A turn was not admitted for the agent's daily budget (``AgentSpec.budget``)."""
 
     agent: str
     user_id: str  # whose turn ("" when nobody's)

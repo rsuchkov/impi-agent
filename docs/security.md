@@ -206,7 +206,8 @@ scheduling or handing on again (`DELEGATED_TURN_DENIED`;
 `runtime.tools_by_gateway: {delegation: [...]}` narrows further). The asked
 agent runs under its own profile — its own tools, its own confinement, its
 own ports, its own model key where it has one (`AGENTS_LLM_API_KEY__<AGENT>`) — and
-reaches nothing of the asker's but the task; a headless agent reaches nothing
+reaches nothing of the asker's but the task (and, when it keeps one session per asking
+conversation, its own earlier tasks from it); a headless agent reaches nothing
 of anyone's but the tasks it is handed. A directory the two share
 (`runtime.shared_dirs`) has no card: every agent naming it reads all of it,
 whatever its model and wherever that model runs, so what may not reach one

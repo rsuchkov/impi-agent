@@ -384,6 +384,7 @@ whose turn it is ([connections.md](connections.md)).
 | `TOOL_TRACE_ENABLED` | `true` | the progress message while a turn runs tools (its steps so far; never results) — in the thread, or in a thread under the message the turn answered — and the http journal's record of the calls; see [tool-trace.md](tool-trace.md); needs interactivity |
 | `TOOL_TRACE_AFTER` | `nothing` | what becomes of the progress message when the turn ends: `nothing` — deleted, the reply stands alone; `button` — it settles into the button that opens the list of calls |
 | `TOOL_TRACE_RETENTION_DAYS` | `14` | drop traces older than this at startup; `0` keeps them all |
+| `USAGE_RETENTION_DAYS` | `90` | drop rows of the `usage` ledger (what turns cost, for `runtime.budget`) older than this at startup; `0` keeps them all |
 
 Commands (slash commands) reach the same receiver at
 `POST {INTEGRATIONS_PUBLIC_URL}/{INTEGRATIONS_SECRET}/command/<agent>` — register that URL with the

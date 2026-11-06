@@ -530,7 +530,7 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   agent's `delegation` capabilities (`ToolWiring.enroll` does it beside each
   gateway, and derives the door's own denials — `DELEGATED_TURN_DENIED` — when
   the gateway named is `GATEWAY_DELEGATION`; a headless agent —
-  `AgentSpec.headless` — enrols with that door alone). Call
+  `AgentSpec.headless` — enrols with the two doors alone). Call
   `recover()` once the agents are up and `aclose()` at shutdown. A tool reads
   the service as `ctx.require_delegation()` and declares `CAP_DELEGATION`.
   `AgentInfo.model` is what the card shows as the model the task goes to;
@@ -545,8 +545,9 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   `GATEWAY_TRUSTED_DELEGATION` (its cards go to the asker's conversation through
   the asker's own client, `TrustedLink`), put `TrustedTurnTracer(links, turns)`
   in the agent's `TracerByGateway` for that door (its steps feed the asker's
-  turn), and let your connection owner rule read `PERSON_GATEWAY_ATTRIBUTE`
-  (`crucible.ports.turn`) from the turn: the person's own gateway when a
+  turn), and let your connection owner rule read
+  `ACCOUNTS_HANDED_ATTRIBUTE` with `ON_BEHALF_OF_GATEWAY_ATTRIBUTE`
+  (`crucible.ports.delegation`) from the turn: the person's own gateway when a
   trusted task hands their accounts over, nobody's on either door otherwise.
 - **Turns the engine starts.** A person's message opens a turn through a
   gateway; the engine opens one by itself through a `TurnDispatcher`
@@ -561,7 +562,8 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   appears to come from (`is_from_bot` when that is an agent, so the prompt
   marks the line `(agent)`), and two things the application adds: `event`, an
   `EventReport(source, text)` the flow quotes as data in a
-  `[context <tag>: event reported by <source>]` block ahead of the speaker
+  `[context <tag>: event reported by <source>]` block (or under the report's
+  own `label`, when it names one) ahead of the speaker
   line (`text` is then the one-phrase summary the line carries), and `turn`,
   a `TurnScope` of attributes and secrets for the tools — only what the
   application still holds: with no fresh credential a gated write ends in an

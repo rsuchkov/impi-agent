@@ -1558,6 +1558,12 @@ async def test_an_event_is_a_context_block_from_its_source_ahead_of_the_summary(
             "[@gitlab___ignore]: pipeline 1234 finished"
         )
         assert block in prompt
+        # A report that names its own heading is headed so, not as an event.
+        labelled = _dm2("the task", "ev2")
+        labelled.event = EventReport(source="assistant", text="[@alice]: hi", label="the conversation so far")
+        labelled.synthetic = labelled.engine_started = True
+        await flow.handle(labelled, FakeChat())
+        assert "[context t1: the conversation so far]\n\\[@alice]: hi\n[/context t1]" in runtime.calls[-1][1]
         record = (await store.list("assistant"))[0]
         assert record.last_engine_turn_at != ""  # the conversation says the engine moved it
     finally:
@@ -1896,7 +1902,7 @@ async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> 
     runtime = FakeRuntime(result=PiResult(text="answer", tool_calls=["read"], model="openai/gpt-5.5", stop_reason="stop", usage=usage))
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     telemetry = _Telemetry()
-    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=telemetry, usage=store)
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=telemetry, ledger=store)
     msg = _with_files(tmp_path, ("note.txt", "text/plain", b"hi"))
     msg.gateway = "mattermost"
     assert await flow.handle(msg, FakeChat()) is TurnOutcome.REPLIED
@@ -2471,6 +2477,36 @@ async def test_a_batch_runs_only_when_every_author_is_admitted(tmp_path: Path) -
         assert runtime.calls == []
         assert sorted(a[1] for a in admission.asked) == ["u1", "u2"]  # each author once, not each message
         assert [(p[0], p[1]) for p in chat.private] == [("p3", "u2")]  # the one not admitted, at their newest message
+    finally:
+        await store.close()
+
+
+async def test_a_verdict_with_a_code_of_its_own_is_told_and_recorded_under_it(tmp_path: Path) -> None:
+    from crucible.ports.telemetry import TurnEnded
+
+    class _Telemetry:
+        def __init__(self) -> None:
+            self.events: list = []
+
+        def record(self, event) -> None:
+            self.events.append(event)
+
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    telemetry = _Telemetry()
+    verdict = NotAdmitted("Your budget with this agent for today is spent.", code="budget_spent")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=_Admission({"u1": verdict}), telemetry=telemetry)
+    try:
+        chat = _PrivateChat()
+        assert await flow.handle(_dm("hi"), chat) is TurnOutcome.NOT_ADMITTED
+        (_, _, _, code, _, _), = chat.private
+        assert code == "budget_spent"  # the verdict's word, not the engine's generic one
+        (event,) = telemetry.events
+        assert isinstance(event, TurnEnded) and event.notice == "budget_spent"
+        # Without a private word the notice goes out in the open under the same code.
+        plain = FakeChat()
+        assert await flow.handle(_dm2("hi again", "m-again"), plain) is TurnOutcome.NOT_ADMITTED
+        assert plain.notice_codes[-1] == "budget_spent"
     finally:
         await store.close()
 

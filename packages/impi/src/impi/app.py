@@ -70,7 +70,7 @@ from crucible.interactions import (
 )
 from crucible.interactions.delegation import (
     EngineDelegationService,
-    TrustedTurns,
+    TrustedLinkRegistry,
     TrustedTurnTracer,
 )
 from crucible.interactions.files import ChatFileService, default_roots
@@ -394,7 +394,7 @@ def _build_unit(
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
-    trusted: TrustedTurns,
+    trusted: TrustedLinkRegistry,
 ) -> AgentUnit:
     profile = profiles.build(spec)
     # An agent whose profile gives a gateway fewer tools runs each conversation
@@ -418,7 +418,7 @@ def _build_unit(
         # is held to it before a turn (its per-turn budget is the runtime's).
         # The budget is read from the unit's profile as it is now — a reload
         # swaps the spec in place, and a budget added then counts from then.
-        usage=sessions,
+        ledger=sessions,
         admission=BudgetAdmission(sessions, lambda _agent: unit.spec.budget, telemetry=telemetry),
     )
     served: Flow = flow
@@ -478,7 +478,7 @@ def _build_units(
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
-    trusted: TrustedTurns,
+    trusted: TrustedLinkRegistry,
 ) -> list[AgentUnit]:
     units: list[AgentUnit] = []
     for spec in specs:
@@ -487,7 +487,7 @@ def _build_units(
             # Nobody talks to it: no platform account, so no gateway, whatever
             # tokens the deployment holds. It is reached by a task alone.
             logger.info("agent %s is headless: reached only by a task another agent hands it", spec.name)
-        for config in configs.get(spec.name) or [] if not spec.headless else []:
+        for config in configs.get(spec.name) or []:
             handle = gateway_factory.create(spec.name, config)
             if handle is None:
                 continue  # unknown gateway kind (factory logged why)
@@ -869,7 +869,7 @@ def build_app(settings: ImpiSettings) -> App:
     )
     # The trusted tasks in flight: the door's client posts their cards where the
     # asker is, the tracer shows their steps in the asker's turn.
-    trusted = TrustedTurns()
+    trusted = TrustedLinkRegistry()
     units = _build_units(
         specs, configs, engine_names, trusted=trusted,
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
@@ -1107,6 +1107,11 @@ async def run(settings: ImpiSettings) -> None:
         # Old traces go at boot, not on a timer (the attachment sweep is the
         # loop below) — the http journal's records as much as the widget's.
         await sweep_traces(app.sessions, retention_days=settings.tool_trace_retention_days)
+    if settings.usage_retention_days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=settings.usage_retention_days)
+        gone = await app.sessions.prune_usage(before=cutoff.isoformat(timespec="seconds"))
+        if gone:
+            logger.info("forgot %d turn cost(s) older than %d days", gone, settings.usage_retention_days)
     if settings.processed_posts_retention_days > 0:
         cutoff = datetime.now(timezone.utc) - timedelta(days=settings.processed_posts_retention_days)
         forgotten = await app.sessions.prune_processed(before=cutoff.isoformat(timespec="seconds"))

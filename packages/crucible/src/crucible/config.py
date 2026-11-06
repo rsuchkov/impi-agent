@@ -593,6 +593,9 @@ class Settings(BaseSettings):
     # Retention is in days of the trace's own age; 0 keeps every one.
     tool_trace_enabled: bool = True
     tool_trace_retention_days: int = 14
+    # The ledger of what turns cost (the budgets read today's rows): rows older
+    # than this many days go at startup; 0 keeps every one.
+    usage_retention_days: int = 90
     # What becomes of the progress message when the turn ends: `nothing` — it
     # is deleted and the reply stands alone, and no record of the calls is
     # kept for it (an http turn's record is written either way); `button` —

@@ -17,9 +17,12 @@ from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.gateways import GatewayConfig
 from crucible.interactions.screens import ScreenState
 from crucible.ports.chat.types import UserProfile
+from crucible.ports.delegation import (
+    ACCOUNTS_HANDED_ATTRIBUTE,
+    ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
+)
 from crucible.ports.turn import (
     ENGINE_TURN_ATTRIBUTE,
-    PERSON_GATEWAY_ATTRIBUTE,
     TurnScope,
 )
 from crucible.skills import SkillLibrary
@@ -262,7 +265,7 @@ async def test_a_built_service_acts_for_the_chat_user_of_the_agent_asking(
     # A turn one agent opened for another, as the person: their accounts are
     # the ones under the gateway they came through — and none at all when the
     # trust did not hand them over.
-    handed = TurnScope(turn_id="t", attributes={PERSON_GATEWAY_ATTRIBUTE: "slack"})
+    handed = TurnScope(turn_id="t", attributes={ACCOUNTS_HANDED_ATTRIBUTE: "1", ON_BEHALF_OF_GATEWAY_ATTRIBUTE: "slack"})
     assert connections.owner_for("helper", "U1", "trusted-delegation", handed) == "slack:U1"
     assert connections.owner_for("helper", "U1", "trusted-delegation", TurnScope(turn_id="t")) is None
     assert connections.owner_for("helper", "U1", "delegation", TurnScope(turn_id="t")) is None

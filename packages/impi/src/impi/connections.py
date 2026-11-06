@@ -40,10 +40,13 @@ from crucible.ports.connections import (
     ConnectionAccessFactory,
     TokenGrant,
 )
+from crucible.ports.delegation import (
+    ACCOUNTS_HANDED_ATTRIBUTE,
+    ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
+)
 from crucible.ports.telemetry import Telemetry
 from crucible.ports.turn import (
     ENGINE_TURN_ATTRIBUTE,
-    PERSON_GATEWAY_ATTRIBUTE,
     TurnScope,
 )
 from crucible.store.base import Store
@@ -164,10 +167,10 @@ class Connections:
         asserts, or a scheduled turn, which acts for no person. ``gateway`` is
         the conversation's; the agent's own stands in when the conversation
         names none (a record from before gateways were recorded, a screen)."""
-        if turn is not None and turn.attributes.get(PERSON_GATEWAY_ATTRIBUTE):
-            # A turn one agent opened for another, as the person: the person's
-            # own gateway is the one their accounts are kept under.
-            gateway = turn.attributes[PERSON_GATEWAY_ATTRIBUTE]
+        if turn is not None and turn.attributes.get(ACCOUNTS_HANDED_ATTRIBUTE):
+            # A task's turn whose asker handed the person's accounts over: they
+            # are kept under the gateway the person reached the asker through.
+            gateway = turn.attributes.get(ON_BEHALF_OF_GATEWAY_ATTRIBUTE, "")
         gateway = gateway or self.gateways.get(agent, "")
         if gateway in ASSERTED_IDENTITY_GATEWAYS or gateway in (GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION):
             # Nobody's: a caller's asserted id, or a task's turn whose trust

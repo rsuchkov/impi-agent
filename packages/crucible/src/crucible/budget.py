@@ -41,14 +41,14 @@ class BudgetAdmission:
 
     def __init__(
         self,
-        usage: UsageStore,
+        ledger: UsageStore,
         budget_for: Callable[[str], Budget],
         *,
         then: TurnAdmission | None = None,
         telemetry: Telemetry | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
-        self._usage = usage
+        self._ledger = ledger
         self._budget_for = budget_for
         self._then = then
         self._telemetry = telemetry
@@ -59,13 +59,13 @@ class BudgetAdmission:
         if budget.daily:
             since = day_start(self._now())
             if budget.tokens_per_day or budget.usd_per_day:
-                spent = await self._usage.usage_since(agent, since)
+                spent = await self._ledger.usage_since(agent, since)
                 hit = self._over(agent, msg.user_id, "tokens_per_day", spent.total, budget.tokens_per_day, AGENT_SPENT, "tokens") \
                     or self._over(agent, msg.user_id, "usd_per_day", spent.cost_usd, budget.usd_per_day, AGENT_SPENT, "USD")
                 if hit is not None:
                     return hit
             if msg.user_id and (budget.tokens_per_day_per_person or budget.usd_per_day_per_person):
-                spent = await self._usage.usage_since(agent, since, user_id=msg.user_id)
+                spent = await self._ledger.usage_since(agent, since, user_id=msg.user_id)
                 hit = self._over(
                     agent, msg.user_id, "tokens_per_day_per_person", spent.total, budget.tokens_per_day_per_person,
                     PERSON_SPENT, "tokens",

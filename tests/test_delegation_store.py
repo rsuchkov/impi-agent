@@ -45,6 +45,34 @@ async def test_a_task_leaves_running_exactly_once(store: Store) -> None:
     assert await store.end_delegation(_record("nope", status=DELEGATION_ANSWERED)) is False  # no such task
 
 
+async def test_a_table_from_before_the_trust_columns_is_widened_on_open(tmp_path) -> None:
+    import sqlite3
+
+    from crucible.store.sqlite import SqliteSessionStore
+
+    path = tmp_path / "old.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TABLE delegations (id TEXT PRIMARY KEY, agent TEXT NOT NULL, \"to\" TEXT NOT NULL, channel_id TEXT NOT NULL,"
+            " conversation_id TEXT NOT NULL, kind TEXT NOT NULL, gateway TEXT NOT NULL, task TEXT NOT NULL,"
+            " user_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, started_at TEXT NOT NULL, files TEXT NOT NULL DEFAULT '',"
+            " attributes TEXT NOT NULL DEFAULT '', finished_at TEXT NOT NULL DEFAULT '', answer TEXT NOT NULL DEFAULT '',"
+            " notice TEXT NOT NULL DEFAULT '', delivered_at TEXT NOT NULL DEFAULT '')"
+        )
+        conn.execute(
+            "INSERT INTO delegations VALUES ('old1', 'assistant', 'coder', 'c', 'c', 'dm', 'slack', 't', 'u', 'answered',"
+            " '2026-11-06T10:00:00+00:00', '', '', '2026-11-06T10:01:00+00:00', 'ok', '', '')"
+        )
+    store = SqliteSessionStore(path)
+    try:
+        old = await store.get_delegation("old1")
+        assert old is not None and old.to_conversation_id == "" and old.trusted is False
+        await store.save_delegation(_record("new1", trusted=True, to_conversation_id="delegated:new1"))  # the new columns are there
+        assert await store.get_delegation("new1") == _record("new1", trusted=True, to_conversation_id="delegated:new1")
+    finally:
+        await store.close()
+
+
 async def test_the_running_tasks_are_listed_oldest_first(store: Store) -> None:
     await store.save_delegation(_record("later", started_at="2026-11-06T10:05:00+00:00"))
     await store.save_delegation(_record("first"))

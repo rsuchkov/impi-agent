@@ -35,11 +35,16 @@ async def test_the_registry_knows_the_turn_only_while_it_is_bound() -> None:
     async with registry.bind("assistant--c1", scope):
         assert registry.current("assistant--c1") is scope
         assert registry.current("assistant--c2") is None  # another conversation
-        assert registry.has_turn("assistant--c1") and not registry.has_turn("assistant--c2")
-    assert registry.current("assistant--c1") is None and not registry.has_turn("assistant--c1")
-    # A turn bound with no scope — every chat gateway's — is a turn all the same.
+        token = registry.turn_token("assistant--c1")
+        assert token is not None and registry.turn_token("assistant--c2") is None
+    assert registry.current("assistant--c1") is None and registry.turn_token("assistant--c1") is None
+    # A turn bound with no scope — every chat gateway's — is a turn all the same,
+    # and a later turn on the same session is another one.
     async with registry.bind("assistant--c3", None):
-        assert registry.current("assistant--c3") is None and registry.has_turn("assistant--c3")
+        first = registry.turn_token("assistant--c3")
+        assert registry.current("assistant--c3") is None and first is not None
+    async with registry.bind("assistant--c3", None):
+        assert registry.turn_token("assistant--c3") is not first
 
 
 async def test_binding_over_a_bound_turn_restores_it_afterwards() -> None:

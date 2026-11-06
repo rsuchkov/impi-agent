@@ -308,7 +308,7 @@ class AgentFlow:
         file_keeper: FileKeeper | None = None,
         received_files_of: Callable[[str, str], ReceivedFiles] | None = None,
         telemetry: Telemetry | None = None,
-        usage: UsageStore | None = None,
+        ledger: UsageStore | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
         if (entitlements is None) != (conversation_profiles is None):
@@ -366,7 +366,7 @@ class AgentFlow:
         # Whether a turn may run at all (ports.admission); None = every turn may.
         self._admission = admission
         # The ledger of what turns cost, for the budgets (None = nobody keeps it).
-        self._usage = usage
+        self._ledger = ledger
         self._conversation_profiles = conversation_profiles
         # Who captions a tool call for the person watching ("Reading X-1"):
         # asked once per call here, so every trace reads the same line.
@@ -506,7 +506,7 @@ class AgentFlow:
                     del self._active_at[address]
         if self._telemetry is not None:
             self._tell_turn(fresh, anchor, key, outcome, facts, time.monotonic() - started)
-        if self._usage is not None and facts.result is not None and facts.result.usage is not None:
+        if self._ledger is not None and facts.result is not None and facts.result.usage is not None:
             await self._keep_usage(anchor, facts.result.usage)
         if anchor.turn is not None and anchor.turn.flags:
             # After the answer or the failure notice: a tool's note about the turn
@@ -538,7 +538,7 @@ class AgentFlow:
         """What the turn cost, written to the ledger as the person's and the
         agent's — never at the turn's expense."""
         try:
-            await self._usage.add_usage(UsageRecord(  # type: ignore[union-attr]
+            await self._ledger.add_usage(UsageRecord(  # type: ignore[union-attr]
                 agent=self._agent_name, user_id=anchor.user_id,
                 at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 input=usage.input, output=usage.output, cache_read=usage.cache_read, cache_write=usage.cache_write,

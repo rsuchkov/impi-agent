@@ -52,7 +52,7 @@ STALLED_MESSAGE = (
     "The model stopped responding in the middle of this turn, so I stopped it. "
     "Ask again."
 )
-TOKEN_BUDGET_MESSAGE = (
+OVER_BUDGET_MESSAGE = (
     "This turn used more than its token budget and was stopped. What it did "
     "stands; ask again for what is left, in a smaller step."
 )
@@ -129,7 +129,7 @@ NOTICE_CREDENTIALS = "credentials"
 NOTICE_CONTEXT = "context"
 NOTICE_TIMEOUT = "timeout"
 NOTICE_STALLED = "stalled"
-NOTICE_TOKEN_BUDGET = "token_budget"
+NOTICE_OVER_BUDGET = "over_budget"
 NOTICE_MODEL_UNAVAILABLE = "model_unavailable"
 NOTICE_AGENT_ERROR = "agent_error"
 # Not a failure: a person stopped the turn. Listed with the codes a client acts
@@ -160,7 +160,7 @@ def notice_for(error: Exception) -> tuple[str, str]:
     if _MODEL_UNAVAILABLE.search(text):
         return NOTICE_MODEL_UNAVAILABLE, MODEL_UNAVAILABLE_MESSAGE
     if isinstance(error, AgentOverBudget):
-        return NOTICE_TOKEN_BUDGET, TOKEN_BUDGET_MESSAGE
+        return NOTICE_OVER_BUDGET, OVER_BUDGET_MESSAGE
     if isinstance(error, AgentStalled):
         return NOTICE_STALLED, STALLED_MESSAGE
     if isinstance(error, AgentTimeout):

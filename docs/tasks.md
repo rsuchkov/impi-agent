@@ -115,7 +115,7 @@ about those; everything else it reports itself:
 | `cancelled` | shut down, or the task was removed mid-run |
 | `stopped` | a person stopped the run's turn (`/stop`, the panel's Stop button); said in the conversation by the turn itself, and not counted as a failure |
 | `gone` | a watch ended because there was nothing left to wait for — the application said so (or no hook was wired to ask) |
-| `not_admitted` | the application did not let the run's turn happen (`turn` mode only: the run comes in under the task creator's id with no session of theirs, and the application's rule may want a person signed in; a `prompt`-mode task runs no turn and is not asked); nothing ran, and not counted as a failure |
+| `not_admitted` | the application did not let the run's turn happen, or the agent's daily `runtime.budget` is spent (`budget_spent`) (`turn` mode only: the run comes in under the task creator's id with no session of theirs, and the application's rule may want a person signed in; a `prompt`-mode task runs no turn and is not asked); nothing ran, and not counted as a failure |
 
 Per task, `notify` chooses how loud this is: `failures` (default), `always` (also
 confirm good runs) or `never`. After **five failures in a row** a task is paused
