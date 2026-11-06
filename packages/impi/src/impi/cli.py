@@ -337,6 +337,8 @@ def _cmd_agent_list(args: argparse.Namespace) -> int:
             gateways, status = "-", _sgr("32", "headless: reached by delegation")
         else:
             status = _sgr("32", "token ok") if has_token else _sgr("33", "no token")
+        if settings.model_env_for(spec.name):
+            status += "  " + _sgr("36", "own model endpoint")
         print(f"{_bold(spec.name):<32} {spec.role:<24} {gateways:<12} {status}")
     return 0
 

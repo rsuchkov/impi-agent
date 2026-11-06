@@ -19,7 +19,7 @@ import random
 import secrets
 import signal
 import socket
-from collections.abc import Awaitable, Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
@@ -310,12 +310,19 @@ class ProfileBuilder:
     ``build_profile``, on every hot-reload (re-reading live hints/caps/env).
     """
 
-    def __init__(self, tools: ToolWiring, *, engine_owned: frozenset[str] = frozenset()) -> None:
+    def __init__(
+        self, tools: ToolWiring, *, engine_owned: frozenset[str] = frozenset(),
+        model_env_for: Callable[[str], Mapping[str, str]] = lambda _agent: {},
+    ) -> None:
         self._tools = tools
         # Agents that are part of the engine (support): their processes inherit
         # the engine's whole environment, as the CLI they run does. Everyone
         # else inherits the base set plus what their profile names.
         self._engine_owned = engine_owned
+        # An agent's own model endpoint (LLM_*__<AGENT>): in its profile's env,
+        # which is the one place a variable reaches that agent's processes and
+        # no other's — the key for a model one agent answers with stays its.
+        self._model_env_for = model_env_for
         self.hints: dict[str, str] = {}  # agent -> its gateway's formatting rules
 
     def set_hint(self, name: str, hint: str) -> None:
@@ -330,7 +337,11 @@ class ProfileBuilder:
             append_system_prompt=self.hints.get(spec.name, ""),
             inherit_all=spec.name in self._engine_owned,
         )
-        return with_tool_env(base, self._tools.profile_env(spec))
+        env = self._tools.profile_env(spec)
+        own_model = self._model_env_for(spec.name)
+        if own_model:
+            env = {**(env or {}), **own_model}
+        return with_tool_env(base, env)
 
 
 # Gateway kinds that hold a connection the platform pushes events into (a bot's
@@ -748,7 +759,9 @@ def build_app(settings: ImpiSettings) -> App:
         delegation_on=delegation_on,
         connections_on=connections is not None,
     )
-    profile_builder = ProfileBuilder(tools, engine_owned=frozenset(engine_names))
+    profile_builder = ProfileBuilder(
+        tools, engine_owned=frozenset(engine_names), model_env_for=settings.model_env_for,
+    )
     if attachments is not None:
         for spec in specs:
             # Each agent's own directory, named in its environment. It is the one

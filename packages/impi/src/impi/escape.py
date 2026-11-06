@@ -133,7 +133,7 @@ def build_plan(
         thinking=profile.thinking,
         append_system_prompt=note,
     )
-    env = {name: value for name, value in build_pi_env(settings).items() if name in _MODEL_ENV}
+    env = {name: value for name, value in build_pi_env(settings, spec.name).items() if name in _MODEL_ENV}
     if engine_owned:
         # What the engine hands its own agents (app.py), with the host's names.
         env["AGENTS_PATH"] = map_path(agents_path, maps)

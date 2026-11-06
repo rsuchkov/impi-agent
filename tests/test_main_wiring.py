@@ -210,6 +210,32 @@ def test_build_pi_env_forwards_custom_endpoint(tmp_path: Path) -> None:
     assert env["NODE_TLS_REJECT_UNAUTHORIZED"] == "0"
 
 
+def test_build_pi_env_gives_an_agent_its_own_endpoint_in_place_of_the_deployments(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LLM_API_KEY__CODER", "cloud-key")
+    monkeypatch.setenv("LLM_MODEL__CODER", "large")
+    settings = _settings(tmp_path).model_copy(update={"llm_base_url": "https://llm.local", "llm_api_key": "k", "llm_model": "m"})
+    assert build_pi_env(settings, "coder") == {"LLM_BASE_URL": "https://llm.local", "LLM_API_KEY": "cloud-key", "LLM_MODEL": "large"}
+    assert build_pi_env(settings, "assistant") == build_pi_env(settings) == {"LLM_BASE_URL": "https://llm.local", "LLM_API_KEY": "k", "LLM_MODEL": "m"}
+
+
+def test_an_agents_own_model_key_is_in_its_profile_env_and_in_no_other_agents(tmp_path: Path, monkeypatch) -> None:
+    settings = _settings(tmp_path)
+    coder_dir = Path(settings.agents_path) / "agents" / "coder"
+    coder_dir.mkdir(parents=True)
+    (coder_dir / "agent.yaml").write_text(AGENT_YAML.replace("assistant", "coder") + "headless: true\n", encoding="utf-8")
+    monkeypatch.setenv("LLM_API_KEY__CODER", "cloud-key")
+    app = build_app(settings)
+    try:
+        by_name = {u.spec.name: u.flow.profile for u in app.units}
+        coder, assistant = by_name["coder"], by_name["assistant"]
+        assert isinstance(coder, PiProfile) and isinstance(assistant, PiProfile)
+        assert coder.env["LLM_API_KEY"] == "cloud-key"
+        assert "LLM_API_KEY" not in assistant.env  # the deployment has none, and coder's is coder's
+    finally:
+        assert isinstance(app.sessions, SqliteSessionStore)
+        app.sessions.close_sync()
+
+
 def test_build_pi_extensions_bundles_engine_first_then_the_named_agents_extensions(
     tmp_path: Path,
 ) -> None:

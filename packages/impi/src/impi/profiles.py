@@ -19,8 +19,10 @@ BUILTIN_AGENTS_PATH = Path(__file__).parent / "builtin_agents"
 IMPI_ROOT = Path(__file__).resolve().parents[4]
 
 
-def build_pi_env(settings: ImpiSettings) -> dict[str, str]:
-    """Env forwarded into every pi subprocess.
+def build_pi_env(settings: ImpiSettings, agent: str = "") -> dict[str, str]:
+    """Env forwarded into every pi subprocess — and, with ``agent``, into that
+    agent's: the deployment's endpoint with the agent's own (``LLM_*__<AGENT>``,
+    ``Settings.model_env_for``) in place of it, key by key.
 
     Empty when the ChatGPT subscription is used — pi then authenticates via its
     own OAuth store; LLM_* only feed the optional custom provider extension.
@@ -34,6 +36,8 @@ def build_pi_env(settings: ImpiSettings) -> dict[str, str]:
         env["LLM_MODEL"] = settings.llm_model
     if not settings.llm_verify_ssl:
         env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    if agent:
+        env.update(settings.model_env_for(agent))
     return env
 
 

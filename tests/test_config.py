@@ -65,6 +65,16 @@ def test_skills_for_empty_disables_all(monkeypatch) -> None:
     assert _no_dotenv().skills_for("support") == ()  # set-but-empty != unset
 
 
+def test_an_agents_own_model_endpoint_is_read_key_by_key(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_API_KEY__MY_CODER", "cloud-key")
+    monkeypatch.setenv("LLM_BASE_URL__MY_CODER", "https://cloud.example/v1")
+    monkeypatch.delenv("LLM_MODEL__MY_CODER", raising=False)
+    assert _no_dotenv().model_env_for("my-coder") == {
+        "LLM_API_KEY": "cloud-key", "LLM_BASE_URL": "https://cloud.example/v1",
+    }
+    assert _no_dotenv().model_env_for("assistant") == {}  # on the deployment's endpoint
+
+
 def test_skills_for_uppercases_name_and_maps_hyphen(monkeypatch) -> None:
     monkeypatch.setenv("AGENTS_SKILLS__MY_AGENT", "a")
     assert _no_dotenv().skills_for("my-agent") == ("a",)

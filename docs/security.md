@@ -207,8 +207,9 @@ acceptable, and no agent answers another at all. Nor against a task text
 that carries what it should not and a reviewer who did not read it; files
 in the shared directory nobody looked at; an agent at `off`, or one in a
 container without Landlock, which sees every shared directory, not only its
-own; and, on one host, the runtime's shared model credential (above) — an
-agent whose model should stay apart belongs in a container of its own.
+own; and, on one host, the runtime's shared login (above) — an agent whose
+model should stay apart answers with a key of its own (`LLM_API_KEY__<AGENT>`)
+or runs in a container of its own.
 
 ### An MCP server and the engine
 
@@ -329,7 +330,7 @@ engine use it at every start.
 | the chat platform tokens, one per agent | `conf/.env` on the host, bind-mounted into the engine, mode 600 | the engine; an unconfined agent with `read` |
 | the gateway tokens for your programs (`WS_SERVICE_TOKEN__*`, `HTTP_CALLER_TOKEN__*`) | `conf/.env`, in the clear | as above |
 | the model provider's login | `~/.impi/pi/agent/auth.json` on the host (mode 600, directory 700), mounted into the engine as pi's home and into each agent container as that one file, read-only | read: every runtime process; written: the engine (which refreshes the login) and unconfined processes |
-| a custom endpoint's key (`LLM_API_KEY`) | `conf/.env`; passed to each runtime in its environment | every agent's runtime |
+| a custom endpoint's key (`LLM_API_KEY`) | `conf/.env`; passed to each runtime in its environment | every agent's runtime — or, as `LLM_API_KEY__<AGENT>`, that agent's alone |
 | the agents' broker certificates | `~/.impi/certs`, mounted into the engine (or one each into its container) | see [secrets.md](secrets.md) |
 | the operator's broker certificate | `~/.impi/operator`, mounted into nothing an agent runs in | the operator |
 | the store's unseal key and the broker's credential | `~/.impi/ward-recovery.txt` on the host, mode 600, mounted into nothing | the operator |
@@ -429,13 +430,17 @@ Things the design does not solve, stated so nobody relies on them by accident.
   declared, so for an honest caller the card shows what runs; anything else in
   the container can claim any argv. A rule narrows what an honest caller may do
   quietly and is worth nothing against a compromised container.
-- **The runtime's model credential is shared.** Every agent calls the model
-  as the same account and can read the login — use it, or copy it. Only the
-  engine and unconfined processes can write the file: a confined process and
-  an agent's container get it read-only, because `pi` runs a key that begins
-  with `!` on every model request. An unconfined agent (`off`) could still
-  plant one; `pi` is then not started anywhere until a fresh login replaces
-  the file, but processes already running would read it.
+- **The runtime's login is shared.** Every agent on the deployment's login
+  calls the model as the same account and can read it — use it, or copy it.
+  Only the engine and unconfined processes can write the file: a confined
+  process and an agent's container get it read-only, because `pi` runs a key
+  that begins with `!` on every model request. An unconfined agent (`off`)
+  could still plant one; `pi` is then not started anywhere until a fresh
+  login replaces the file, but processes already running would read it. An
+  API key is different: `LLM_API_KEY__<AGENT>` puts a key in one agent's
+  environment and in no other's — where an agent answers with a model whose
+  key must not reach the rest, that is the setting; the login file is read by
+  every process still.
 - **The engine does not restrict egress** and does not encrypt session files
   at rest; both are the deployment's.
 - **Connected accounts are a direct-message feature.** The panel opens and the
