@@ -735,8 +735,7 @@ class DelegationRecord:
     person behind the task: whose message the asker's turn answered, and so
     who read the card. ``attributes`` carries the asker's turn attributes as
     JSON (plain facts, never secrets) for the turns the task opens. ``files``
-    is the names of the files handed on, as JSON. ``hop_depth`` counts the
-    tasks handed on before this one. ``answer`` is what the asked agent said,
+    is the names of the files handed on, as JSON. ``answer`` is what the asked agent said,
     bounded; ``notice`` the code its turn ended with; ``delivered_at`` when
     the asker's turn on the answer was opened ("" while it is not)."""
 
@@ -753,7 +752,6 @@ class DelegationRecord:
     started_at: str
     files: str = ""
     attributes: str = ""
-    hop_depth: int = 1
     finished_at: str = ""
     answer: str = ""
     notice: str = ""
@@ -766,6 +764,12 @@ class DelegationStore(Protocol):
 
     async def save_delegation(self, record: DelegationRecord) -> None:
         """Write the record as it is; a second save of the same id replaces it."""
+        ...
+
+    async def end_delegation(self, record: DelegationRecord) -> bool:
+        """Write the record in place of the running one of the same id — the one
+        step out of ``running``, taken once: False when the task was no longer
+        running (ended, or called off) and nothing was written."""
         ...
 
     async def get_delegation(self, task_id: str) -> DelegationRecord | None: ...

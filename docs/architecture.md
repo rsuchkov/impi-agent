@@ -119,7 +119,7 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   `requested_message` (the one way a request becomes the sink's message).
 - **Delegation** (`ports/delegation`): `DelegationService` (the tool-facing
   "hand this task to another agent", ask after it, call it off), the task's
-  statuses, `TaskTurnChat` (the chat client a task's turn posts into — the
+  statuses, `DelegatedTurnChat` (the chat client a task's turn posts into — the
   gateway's `DelegationChatClient` implements it) and the attribute names a
   task's turn carries (`delegated_by`, `delegation_task`,
   `on_behalf_of_gateway`). The engine's own gateway, `GATEWAY_DELEGATION`, is

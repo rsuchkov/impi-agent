@@ -15,6 +15,12 @@ from crucible.ports.chat.types import (
 )
 
 
+class NobodyToAnswer(Exception):
+    """A card, a widget or a form was put to a chat client behind which no
+    person can answer it — a turn's that runs for nobody. Raised rather than
+    degraded, so what waits for a yes is refused instead of waiting."""
+
+
 class ChatClient(Protocol):
     """The agent's outbound platform surface. Posting verbs:
     - ``post_reply``  — a real answer from the agent (rich rendering applies);

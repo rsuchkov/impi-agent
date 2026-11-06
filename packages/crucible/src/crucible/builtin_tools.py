@@ -415,6 +415,8 @@ class Delegate(Tool):
                 previews = await ctx.require_delegation().preview_files(ctx.agent_name, [str(f) for f in files])
             except DelegationError as exc:
                 return CannotRun(str(exc))
+            # What the person is shown is what the task will carry, or nothing.
+            ctx.previewed.update({str(f): p.digest for f, p in zip(files, previews, strict=True)})
             texts = [p for p in previews if p.text is not None]
             binaries = [p for p in previews if p.text is None]
             if binaries:
@@ -436,7 +438,7 @@ class Delegate(Tool):
             raise ToolError("files must be a list of absolute paths")
         try:
             task_id = await ctx.require_delegation().delegate(
-                ctx.agent_name, ctx.runtime_session_id, other, task, files
+                ctx.agent_name, ctx.runtime_session_id, other, task, files, digests=ctx.previewed,
             )
         except DelegationError as exc:
             raise ToolError(str(exc)) from exc

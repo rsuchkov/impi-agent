@@ -19,6 +19,7 @@ task is the one that turn answered, so the asked agent's turn runs as theirs
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import mimetypes
@@ -28,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from crucible.interactions.presence import AgentPresence
+from crucible.ports.attachments import FileSaver
 from crucible.ports.chat.directory import AgentDirectory
 from crucible.ports.chat.flow import StoppableSink, TrackedSink, TurnOutcome
 from crucible.ports.chat.gateway import GATEWAY_DELEGATION
@@ -47,12 +49,12 @@ from crucible.ports.delegation import (
     DELEGATION_TASK_ATTRIBUTE,
     DELEGATION_TIMED_OUT,
     ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
+    DelegatedTurnChat,
     DelegationError,
     DelegationView,
     FilePreview,
-    TaskTurnChat,
-    delegated_conversation,
-    delegated_task_id,
+    delegated_conversation_key,
+    delegation_id,
 )
 from crucible.ports.engine_turn import (
     ConversationBusy,
@@ -65,12 +67,10 @@ from crucible.store.base import DelegationRecord, DelegationStore, SessionStore
 
 logger = logging.getLogger(__name__)
 
-# The cascade counter a handed-on task starts at: one hop past the person.
+# The cascade counter a handed-on task carries: one hop past the person. A
+# task's turn cannot hand on again (``DELEGATED_TURN_DENIED``), so there is no
+# chain to count.
 DELEGATION_HOP = 1
-# How many times a task may be handed on: an agent asked may ask another, and
-# that one another, and there it stops — a chain longer than that is a loop
-# with extra steps, whoever read the cards.
-DELEGATION_MAX_DEPTH = 3
 MAX_FILES_PER_TASK = 5
 # How much of a text file the card shows as written; the rest is said to be cut.
 FILE_PREVIEW_MAX = 6000
@@ -86,9 +86,9 @@ _LANGUAGE_BY_SUFFIX = {
 ANSWER_RETRY_S = 3.0
 ANSWER_WAIT_S = 600.0
 
-# The notice codes a task ends with beyond its turn's own.
+# The notice codes a task's record carries beyond its turn's own: ended by a
+# restart; answered, but the answer could not be handed to the asker.
 NOTICE_ENGINE_RESTARTED = "engine_restarted"
-NOTICE_CANNOT_TAKE = "cannot_take"
 NOTICE_UNDELIVERED = "undelivered"
 
 _STATUS_BY_OUTCOME = {
@@ -114,11 +114,13 @@ class EngineDelegationService:
     """``DelegationService`` over the agents' sinks and the engine's turn
     dispatcher: the task is a message of the engine's into a conversation of
     the asked agent's that exists for this task alone, its outcome is written
-    down, and the answer is a turn of the asker's. ``task_chat`` makes the
-    chat client that turn posts into, one per task — the gateway's
+    down, and the answer is a turn of the asker's. ``delegated_chat`` makes
+    the chat client that turn posts into, one per task — the gateway's
     (``gateways.delegation``), as every chat client is. ``file_roots`` are
-    the directories each agent may hand files from (as for ``send_file``);
-    None when the deployment hands no files."""
+    the directories each agent may hand files from (as for ``send_file``) and
+    ``saver`` where a copy of each goes — the task's own conversation, which
+    the asked agent's process may read and the asker cannot touch afterwards;
+    both None when the deployment hands no files."""
 
     def __init__(
         self,
@@ -127,9 +129,10 @@ class EngineDelegationService:
         directory: AgentDirectory,
         store: DelegationStore,
         dispatcher: TurnDispatcher,
-        task_chat: Callable[[], TaskTurnChat],
+        delegated_chat: Callable[[], DelegatedTurnChat],
         *,
         file_roots: Mapping[str, tuple[Path, ...]] | None = None,
+        saver: FileSaver | None = None,
         max_file_bytes: int = 0,
         turns: TurnScopes | None = None,
     ) -> None:
@@ -138,8 +141,9 @@ class EngineDelegationService:
         self._directory = directory
         self._store = store
         self._dispatcher = dispatcher
-        self._task_chat = task_chat
+        self._delegated_chat = delegated_chat
         self._file_roots = file_roots
+        self._saver = saver
         self._max_file_bytes = max_file_bytes
         self._turns = turns
         self._running: set[asyncio.Task] = set()
@@ -148,6 +152,7 @@ class EngineDelegationService:
 
     async def delegate(
         self, agent: str, runtime_session_id: str, to: str, task: str, paths: Sequence[str] = (),
+        *, digests: Mapping[str, str] | None = None,
     ) -> str:
         other = next((a for a in self._directory.list_agents() if a.name == to), None)
         if other is None:
@@ -160,15 +165,11 @@ class EngineDelegationService:
         target = self._presence.sink(to)
         if target is None or not isinstance(target.sink, TrackedSink):
             raise DelegationError(f"{to} cannot take a task here")
-        depth = await self._depth(record.conversation_id)
-        if depth > DELEGATION_MAX_DEPTH:
-            raise DelegationError(
-                f"this task has already been handed on {DELEGATION_MAX_DEPTH} times; do it yourself or answer"
-            )
-        attachments = self._attachments(agent, paths)
+        sources = self._attachments(agent, paths)
         scope = self._turns.current(runtime_session_id) if self._turns is not None else None
         attributes = dict(scope.attributes) if scope is not None else {}
-        task_id = delegated_task_id()
+        task_id = delegation_id()
+        attachments, digested = await self._snapshot(to, task_id, sources, digests or {})
         entry = DelegationRecord(
             id=task_id, agent=agent, to=to,
             channel_id=record.channel_id, conversation_id=record.conversation_id, kind=record.kind,
@@ -177,9 +178,8 @@ class EngineDelegationService:
             # card (the card's approvers default to them), and whom the asked
             # agent's turn now runs for.
             user_id=record.last_user_id, status=DELEGATION_RUNNING, started_at=_now(),
-            files=json.dumps([a.name for a in attachments]) if attachments else "",
+            files=json.dumps(digested) if digested else "",
             attributes=json.dumps(attributes, ensure_ascii=False) if attributes else "",
-            hop_depth=depth,
         )
         await self._store.save_delegation(entry)
         self._spawn(self._run(entry, target.sink, attachments))
@@ -199,14 +199,13 @@ class EngineDelegationService:
 
     async def cancel(self, agent: str, runtime_session_id: str, task_id: str) -> bool:
         entry = await self._own(agent, runtime_session_id, task_id)
-        if entry.status != DELEGATION_RUNNING:
+        # The one write that takes a task out of running: whichever of this and
+        # the turn's own end comes second finds it gone and does nothing more.
+        if not await self._store.end_delegation(replace(entry, status=DELEGATION_CANCELLED, finished_at=_now())):
             return False
-        # Written first, so a turn that ends while this runs sees it was
-        # called off and hands nothing back.
-        await self._store.save_delegation(replace(entry, status=DELEGATION_CANCELLED, finished_at=_now()))
         target = self._presence.sink(entry.to)
         if target is not None and isinstance(target.sink, StoppableSink):
-            stopped = await target.sink.stop(delegated_conversation(task_id))
+            stopped = await target.sink.stop(delegated_conversation_key(task_id))
             logger.info("task %s cancelled by %s (%s)", task_id, agent,
                         "its turn was interrupted" if stopped else "its turn had not started")
         return True
@@ -218,7 +217,8 @@ class EngineDelegationService:
         it: each is ended as failed, and its asker told so."""
         for entry in await self._store.running_delegations():
             ended = replace(entry, status=DELEGATION_FAILED, finished_at=_now(), notice=NOTICE_ENGINE_RESTARTED)
-            await self._store.save_delegation(ended)
+            if not await self._store.end_delegation(ended):
+                continue  # another replica got there first
             logger.warning("task %s (%s -> %s) was running when the engine stopped; ended as failed",
                            entry.id, entry.agent, entry.to)
             self._spawn(self._answer(ended))
@@ -246,19 +246,34 @@ class EngineDelegationService:
             raise DelegationError(f"no task {task_id!r} was handed on from this conversation")
         return entry
 
-    async def _depth(self, conversation_id: str) -> int:
-        """How many tasks deep the asker's conversation is: one for a person's,
-        one more for each task handed on before."""
-        parent = conversation_id.removeprefix(delegated_conversation(""))
-        if parent == conversation_id:
-            return DELEGATION_HOP
-        above = await self._store.get_delegation(parent)
-        return (above.hop_depth if above is not None else DELEGATION_HOP) + 1
+    async def _snapshot(
+        self, to: str, task_id: str, sources: Sequence[Attachment], digests: Mapping[str, str],
+    ) -> tuple[tuple[Attachment, ...], list[dict[str, str]]]:
+        """The files as they are now, copied into the task's conversation: what
+        the asked agent is handed is this copy, not the asker's file — which
+        the asker could rewrite once its turn goes on, and which the asked
+        agent's confined process could not read. A file whose content is not
+        what the card showed (``digests``) is refused instead."""
+        if not sources:
+            return (), []
+        assert self._saver is not None  # _attachments refused the paths without one
+        copies: list[Attachment] = []
+        digested: list[dict[str, str]] = []
+        for index, source in enumerate(sources):
+            data = await asyncio.to_thread(Path(source.path).read_bytes)
+            digest = hashlib.sha256(data).hexdigest()
+            shown = digests.get(source.path)
+            if shown and shown != digest:
+                raise DelegationError(f"{source.name} changed after the card was shown; ask again")
+            saved = await self._saver.save(to, delegated_conversation_key(task_id), source.name, data, key=f"{task_id}-{index}")
+            copies.append(Attachment(name=source.name, path=saved.path, mime=source.mime, size=len(data)))
+            digested.append({"name": source.name, "sha256": digest})
+        return tuple(copies), digested
 
     def _attachments(self, agent: str, paths: Sequence[str]) -> tuple[Attachment, ...]:
         if not paths:
             return ()
-        if self._file_roots is None:
+        if self._file_roots is None or self._saver is None:
             raise DelegationError("sending files is turned off in this deployment")
         if len(paths) > MAX_FILES_PER_TASK:
             raise DelegationError(f"at most {MAX_FILES_PER_TASK} files with a task")
@@ -280,7 +295,7 @@ class EngineDelegationService:
         return tuple(attachments)
 
     async def _run(self, entry: DelegationRecord, sink: TrackedSink, attachments: tuple[Attachment, ...]) -> None:
-        key = delegated_conversation(entry.id)
+        key = delegated_conversation_key(entry.id)
         attributes = _attributes_of(entry)
         message = IncomingMessage(
             ref=ConversationRef(channel_id=key, conversation_id=key, message_id=entry.id, thread_root_id=""),
@@ -293,7 +308,7 @@ class EngineDelegationService:
             mentioned=True,
             is_from_bot=True,
             gateway=GATEWAY_DELEGATION,
-            hop_depth=entry.hop_depth,
+            hop_depth=DELEGATION_HOP,
             attachments=attachments,
             synthetic=True,
             turn=TurnScope(turn_id=entry.id, attributes={
@@ -304,7 +319,7 @@ class EngineDelegationService:
             }),
             engine_started=True,
         )
-        chat = self._task_chat()
+        chat = self._delegated_chat()
         try:
             outcome = await sink.submit_tracked(message, chat)
         except asyncio.CancelledError:
@@ -312,9 +327,6 @@ class EngineDelegationService:
         except Exception:
             logger.exception("task %s: the asked agent's turn raised", entry.id)
             outcome = TurnOutcome.ERROR
-        current = await self._store.get_delegation(entry.id)
-        if current is not None and current.status == DELEGATION_CANCELLED:
-            return  # called off while it ran: whatever came of it is nobody's
         ended = replace(
             entry,
             status=_STATUS_BY_OUTCOME.get(outcome, DELEGATION_FAILED),
@@ -322,7 +334,8 @@ class EngineDelegationService:
             answer=chat.answer,
             notice=chat.notice_code,
         )
-        await self._store.save_delegation(ended)
+        if not await self._store.end_delegation(ended):
+            return  # called off while it ran: whatever came of it is nobody's
         logger.info("task %s: %s %s (%s)", entry.id, entry.to, ended.status, outcome.name.lower())
         await self._answer(ended)
 
@@ -353,8 +366,10 @@ class EngineDelegationService:
                     continue
                 logger.warning("task %s: %s's conversation stayed busy; the answer is in the record alone",
                                ended.id, ended.agent)
+                await self._store.save_delegation(replace(ended, notice=ended.notice or NOTICE_UNDELIVERED))
             except DispatchError as exc:
                 logger.warning("task %s: the answer could not be handed to %s: %s", ended.id, ended.agent, exc)
+                await self._store.save_delegation(replace(ended, notice=ended.notice or NOTICE_UNDELIVERED))
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -366,18 +381,21 @@ class EngineDelegationService:
 
 def _preview(attachment: Attachment) -> FilePreview:
     """A file as the card shows it: text when it decodes as UTF-8 and holds no
-    NUL (what a text file is, whatever its suffix says), else its name and size."""
+    NUL (what a text file is, whatever its suffix says), else its name and
+    size — and either way its digest, which is what the file is held to when
+    the task goes. Read whole, within the size the deployment lets a file have."""
     data = Path(attachment.path).read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
-        return FilePreview(name=attachment.name, size=attachment.size)
+        return FilePreview(name=attachment.name, size=attachment.size, digest=digest)
     if "\0" in text:
-        return FilePreview(name=attachment.name, size=attachment.size)
+        return FilePreview(name=attachment.name, size=attachment.size, digest=digest)
     return FilePreview(
         name=attachment.name, size=attachment.size,
         text=text[:FILE_PREVIEW_MAX], language=_LANGUAGE_BY_SUFFIX.get(Path(attachment.name).suffix.lower(), ""),
-        truncated=len(text) > FILE_PREVIEW_MAX,
+        truncated=len(text) > FILE_PREVIEW_MAX, digest=digest,
     )
 
 
@@ -393,6 +411,5 @@ def _attributes_of(entry: DelegationRecord) -> dict[str, str]:
 
 __all__ = [
     "DELEGATION_HOP",
-    "DELEGATION_MAX_DEPTH",
     "EngineDelegationService",
 ]

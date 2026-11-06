@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS delegations (
   started_at      TEXT NOT NULL,
   files           TEXT NOT NULL DEFAULT '',
   attributes      TEXT NOT NULL DEFAULT '',
-  hop_depth       INTEGER NOT NULL DEFAULT 1,
   finished_at     TEXT NOT NULL DEFAULT '',
   answer          TEXT NOT NULL DEFAULT '',
   notice          TEXT NOT NULL DEFAULT '',
@@ -65,6 +64,16 @@ class DelegationStoreMixin(SqliteBase):
             )
             self._conn.commit()
 
+    def end_delegation_sync(self, record: DelegationRecord) -> bool:
+        assignments = ", ".join(f'"{name}" = ?' for name in _FIELDS if name != "id")
+        with self._lock:
+            cursor = self._conn.execute(
+                f"UPDATE delegations SET {assignments} WHERE id = ? AND status = ?",
+                (*(getattr(record, name) for name in _FIELDS if name != "id"), record.id, DELEGATION_RUNNING),
+            )
+            self._conn.commit()
+        return cursor.rowcount == 1
+
     def get_delegation_sync(self, task_id: str) -> DelegationRecord | None:
         with self._lock:
             row = self._conn.execute(
@@ -84,6 +93,9 @@ class DelegationStoreMixin(SqliteBase):
 
     async def save_delegation(self, record: DelegationRecord) -> None:
         await asyncio.to_thread(self.save_delegation_sync, record)
+
+    async def end_delegation(self, record: DelegationRecord) -> bool:
+        return await asyncio.to_thread(self.end_delegation_sync, record)
 
     async def get_delegation(self, task_id: str) -> DelegationRecord | None:
         return await asyncio.to_thread(self.get_delegation_sync, task_id)

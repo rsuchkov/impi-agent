@@ -38,6 +38,7 @@ from crucible.ports.tasks import TaskService
 from crucible.ports.telemetry import Telemetry, ToolCalled
 from crucible.ports.turn import TurnScopes
 from crucible.tools.base import (
+    CAP_CONFIRMATION,
     SPEAKS_TO_USER_NOTE,
     UNTRUSTED_NOTE,
     Describing,
@@ -319,10 +320,13 @@ class ToolServer:
         by_gateway = self._gateway_admins.get(agent, {})
         admin = by_gateway[gateway] if gateway in by_gateway else self._admins.get(agent)
         caps = self._gateway_caps.get(agent, {}).get(gateway)
-        if caps is not None and tool.requires - caps:
+        # A tool that must be confirmed needs the gateway to carry a card too —
+        # the same rule the allowlist is built by (``wiring._gate_tools``).
+        needs = tool.requires | (frozenset({CAP_CONFIRMATION}) if tool.requires_confirmation else frozenset())
+        if caps is not None and needs - caps:
             logger.info(
                 "tool %s: conversation %s is on gateway %s, which lacks %s; refused",
-                tool.name, runtime_session_id, gateway or "-", ", ".join(sorted(tool.requires - caps)),
+                tool.name, runtime_session_id, gateway or "-", ", ".join(sorted(needs - caps)),
             )
             call.outcome = "not_through_gateway"
             return web.json_response({"error": NOT_THROUGH_GATEWAY_ERROR}, status=403)

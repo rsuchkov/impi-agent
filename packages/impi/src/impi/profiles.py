@@ -21,7 +21,7 @@ IMPI_ROOT = Path(__file__).resolve().parents[4]
 
 def build_pi_env(settings: ImpiSettings, agent: str = "") -> dict[str, str]:
     """Env forwarded into every pi subprocess — and, with ``agent``, into that
-    agent's: the deployment's endpoint with the agent's own (``LLM_*__<AGENT>``,
+    agent's: the deployment's endpoint with the agent's own (``AGENTS_LLM_*__<AGENT>``,
     ``Settings.model_env_for``) in place of it, key by key.
 
     Empty when the ChatGPT subscription is used — pi then authenticates via its

@@ -13,6 +13,13 @@ class MongoDelegationMixin(MongoBase):
         db = await self._ready()
         await db[DELEGATIONS].replace_one({"_id": record.id}, to_doc(record, _id=record.id), upsert=True)
 
+    async def end_delegation(self, record: DelegationRecord) -> bool:
+        db = await self._ready()
+        result = await db[DELEGATIONS].replace_one(
+            {"_id": record.id, "status": DELEGATION_RUNNING}, to_doc(record, _id=record.id),
+        )
+        return result.matched_count == 1
+
     async def get_delegation(self, task_id: str) -> DelegationRecord | None:
         db = await self._ready()
         doc = await db[DELEGATIONS].find_one({"_id": task_id})

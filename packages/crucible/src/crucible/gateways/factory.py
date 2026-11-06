@@ -42,7 +42,7 @@ from crucible.ports.chat.gateway import (
     Gateway,
 )
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
-from crucible.tools.base import CAP_EPHEMERAL, CAP_FORMS, CAP_WIDGETS
+from crucible.tools.base import CAP_DELEGATION, CAP_EPHEMERAL, CAP_FORMS, CAP_WIDGETS
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +221,9 @@ class GatewayFactory:
         return GatewayHandle(
             chat=chat, admin=None, create_gateway=create_gateway,
             prompt_hint="", needs_http_receiver=False,
+            # Nothing on this transport answers a card: a task, confirmed every
+            # time, would wait for a yes that cannot come.
+            denied_caps=frozenset({CAP_DELEGATION}),
         )
 
     def _http(self, agent: str, config: GatewayConfig) -> GatewayHandle | None:

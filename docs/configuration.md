@@ -18,7 +18,7 @@ Only needed when `pi` talks to a custom OpenAI-compatible endpoint. Empty when
 | `LLM_API_KEY` | `""` | API key |
 | `LLM_MODEL` | `""` | model name for the endpoint |
 | `LLM_VERIFY_SSL` | `true` | set `false` to skip TLS verification |
-| `LLM_BASE_URL__<AGENT>`, `LLM_API_KEY__<AGENT>`, `LLM_MODEL__<AGENT>` | unset | that agent's endpoint, key and model in place of the three above, in its processes' environment alone — a key for a model one agent answers with is never in another agent's environment; the OAuth login (`auth.json`) stays shared |
+| `AGENTS_LLM_BASE_URL__<AGENT>`, `AGENTS_LLM_API_KEY__<AGENT>`, `AGENTS_LLM_MODEL__<AGENT>` | unset | that agent's endpoint, key and model in place of the three above, in its processes' environment alone (`<AGENT>` upper-cased, `-` → `_`, as for every `AGENTS_*__<AGENT>` key) — a key for a model one agent answers with is never in another agent's environment, the engine's own agent excepted; the OAuth login (`auth.json`) stays shared |
 
 ## Provider / model defaults
 

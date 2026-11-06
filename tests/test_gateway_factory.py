@@ -111,7 +111,7 @@ async def test_where_a_direct_message_is_answered_reaches_both_gateways_and_the_
         await gateway.stop()
 
 
-def test_a_task_can_be_handed_on_from_every_gateway_since_the_engine_carries_it() -> None:
+def test_a_task_can_be_handed_on_wherever_a_card_can_be_answered() -> None:
     from crucible.gateways.http import HttpHub, TokenCallers
     from crucible.gateways.ws import WsHub
     from crucible.tools.base import CAP_DELEGATION, CAP_FORMS, CAP_WIDGETS
@@ -119,8 +119,9 @@ def test_a_task_can_be_handed_on_from_every_gateway_since_the_engine_carries_it(
     ws = WsHub("127.0.0.1", 8498, {"one": ("tok", None)}, directory=Directory())  # type: ignore[arg-type]
     http = HttpHub("127.0.0.1", 8499, TokenCallers({"portal": ("tok", None)}), directory=Directory())  # type: ignore[arg-type]
     factory = GatewayFactory(directory=Directory(), loop_guard=LoopGuard(), dispatcher=None, ws_hub=ws, http_hub=http)  # type: ignore[arg-type]
-    for kind in ("ws", "http"):
-        handle = factory.create("assistant", GatewayConfig(kind=kind))
-        assert handle is not None and CAP_DELEGATION not in handle.denied_caps, kind
+    # The engine carries the task, so a caller's panel may hand one on — the card is a journal event there.
     http_handle = factory.create("assistant", GatewayConfig(kind="http"))
     assert http_handle is not None and http_handle.denied_caps == {CAP_WIDGETS, CAP_FORMS}  # those still need a chat
+    # Nothing on the ws transport answers a card, and the task is confirmed every time.
+    ws_handle = factory.create("assistant", GatewayConfig(kind="ws"))
+    assert ws_handle is not None and ws_handle.denied_caps == {CAP_DELEGATION}

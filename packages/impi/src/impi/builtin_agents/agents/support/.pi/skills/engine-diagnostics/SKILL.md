@@ -320,6 +320,19 @@ And from the session check:
   another of its gateways (`AGENTS_GATEWAY__<AGENT>=mattermost,slack`), but the
   conversation is in one without the capability it needs: a channel-admin tool
   asked for from Slack. Not a bug; the same call from the other gateway works.
+  The same answer in a turn on a task another agent handed on (`delegate`):
+  such a turn has no person and no conversation of anybody's, so widgets,
+  confirmed tools, `send_file`, connected accounts and `delegate` itself are
+  refused there by design.
+- Tasks handed between agents — `X cannot take a task here` (the other agent
+  runs nowhere the engine can open a turn: no profile, or a ws-only one), `no
+  task '<id>' was handed on from this conversation` (the id is another
+  conversation's or another agent's), `<file> changed after the card was
+  shown; ask again` (the file was rewritten between the card and the yes),
+  `undelivered` in `delegation_status` (the asker's conversation stayed busy
+  for ten minutes; the answer is in the record, the model asks for it), and in
+  the log `task <id>: … stayed busy; the answer is in the record alone` — see
+  `$IMPI_ROOT/docs/creating-agents.md` "Handing a task on".
 
 ### What `impi health` may add
 

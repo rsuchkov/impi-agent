@@ -29,7 +29,8 @@ class ListAgents(Tool):
     destructive: ClassVar[bool] = False  # asks, reads or shows; changes nothing
     description: ClassVar[str] = (
         "List the other agents in this system with their roles, so you can decide "
-        "whom to involve. Returns name, role, description and @username for each."
+        "whom to involve. Returns name, role, description and @username for each "
+        "(empty for a headless agent, which is reached only by a task you hand it)."
     )
     parameters: ClassVar[dict[str, Any]] = {
         "type": "object",

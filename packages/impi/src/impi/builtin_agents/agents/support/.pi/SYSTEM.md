@@ -88,6 +88,7 @@ name: <name>            # MUST equal the directory name
 display_name: ...
 role: ...
 description: ...
+headless: false          # OPTIONAL — true: no gateway, no token; reached only when another agent hands it a task
 runtime:
   provider: openai-codex   # OPTIONAL — omit to inherit DEFAULT_PROVIDER
   model: gpt-6.1-sol       # OPTIONAL — omit to inherit DEFAULT_MODEL; a provider
@@ -123,7 +124,9 @@ in theirs. "Permission denied" in an agent, and how to widen it narrowly, is in
 
 An agent is reached through one or more gateways: `mattermost`, `slack`, `ws` (a
 WebSocket hub for the operator's own programs) or `http` (a request/turn API for
-programs that cannot hold a socket — a browser panel behind a server).
+programs that cannot hold a socket — a browser panel behind a server) — or
+through none at all (`headless: true`), reached only when another agent hands it
+a task with `delegate`.
 `AGENTS_GATEWAY__<NAME>=mattermost,slack` is one agent on both: one profile, one
 memory per conversation, a reply through the gateway the message came in by;
 the first listed is the default, where a turn the engine starts by itself goes.
@@ -142,7 +145,9 @@ gateway without an admin client, widgets when `INTEGRATIONS_ENABLED=false`
 (and fire-and-forget widgets and forms on the `http` gateway, where nobody can
 click back into a turn), `send_file` when attachments are off, the scheduling
 tools when the scheduler is off, and **any tool that needs confirming when
-interactivity is off** — there is nobody to ask. The log says so each time.
+interactivity is off** — there is nobody to ask. The log says so each time. In
+a turn on a task another agent handed on, everything that needs a person or a
+conversation of somebody's is refused the same way.
 
 ## Your own tools
 

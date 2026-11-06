@@ -133,7 +133,9 @@ def build_app(settings, registry, loop_guard):  # registry implements AgentDirec
                          file_keeper=attachments)  # a file saved under another key follows the conversation
         coalescer = MessageCoalescer(flow, on_arrival=interactions.on_arrival_for(spec.name))
         kind = configs[spec.name].kind
-        sinks_by_agent[spec.name] = AgentSink(sink=coalescer, gateways={kind: handle.chat}, default=kind)
+        sinks_by_agent[spec.name] = AgentSink(
+            sink=coalescer, gateways={kind: handle.chat, GATEWAY_DELEGATION: DelegationChatClient(keeps=False)}, default=kind,
+        )
         units.append((spec, handle.create_gateway(coalescer)))
 
     tool_server = tools.build_server(
@@ -492,7 +494,7 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
 - **One agent hands another a task.** The `delegate`, `delegation_status`
   and `cancel_delegation` tools (`crucible.builtin_tools`) are advertised
   where the server has the service: wire `ToolWiring(delegation_on=True)` and
-  `build_server(delegation_svc=EngineDelegationService(presence, sessions, directory, store, dispatcher, DelegationChatClient, file_roots=…, max_file_bytes=…, turns=…))`
+  `build_server(delegation_svc=EngineDelegationService(presence, sessions, directory, store, dispatcher, DelegationChatClient, file_roots=…, saver=attachments, max_file_bytes=…, turns=…))`
   (`crucible.interactions.delegation`; the client from
   `crucible.gateways.delegation`) — the wiring raises when the flag and the
   service disagree, as for confirmations and connections. The service opens
@@ -504,19 +506,25 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   `DELEGATION_TASK_ATTRIBUTE` and `ON_BEHALF_OF_GATEWAY_ATTRIBUTE`
   (`crucible.ports.delegation`) — your `TurnAdmission` and
   `EntitlementSource` see them on the message. The turn posts into a
-  `TaskTurnChat` the gateway provides (`DelegationChatClient`: replies become
-  the answer, a card raises), its outcome is written to the
-  `DelegationStore` facet (`DelegationRecord`, both backends), and the answer
+  `DelegatedTurnChat` the gateway provides (`DelegationChatClient`: replies
+  become the answer, a card raises `NobodyToAnswer`); the files go as copies
+  into the task's conversation through the `FileSaver` (`saver=`, the
+  attachment store), each held to the digest the card showed
+  (`ToolContext.previewed`, filled by `describe`); its outcome is written to
+  the `DelegationStore` facet (`DelegationRecord`, both backends;
+  `end_delegation` is the one step out of running, so a cancel and the turn's
+  own end cannot both win), and the answer
   goes back as a `TurnRequest` through the `TurnDispatcher` you hand the
   service — `event` the agent's words, `is_from_bot` so the prompt marks the
   speaker an agent, `user_id` the person — retried while the asker's
   conversation is busy (`ConversationBusy`, which `HttpHub.run_turn` raises).
-  Give every agent's `AgentSink` a `DelegationChatClient` under
+  Give every agent's `AgentSink` a `DelegationChatClient(keeps=False)` under
   `GATEWAY_DELEGATION` (impi does), so a tool gate asking in a task's
   conversation finds the door and not the agent's platform, and enrol every
   agent's `delegation` capabilities (`ToolWiring.enroll` does it beside each
-  gateway; `DELEGATED_TURN_DENIED` is what a task's turn may not have; a
-  headless agent — `AgentSpec.headless` — enrols with that door alone). Call
+  gateway, and derives the door's own denials — `DELEGATED_TURN_DENIED` — when
+  the gateway named is `GATEWAY_DELEGATION`; a headless agent —
+  `AgentSpec.headless` — enrols with that door alone). Call
   `recover()` once the agents are up and `aclose()` at shutdown. A tool reads
   the service as `ctx.require_delegation()` and declares `CAP_DELEGATION`.
   `AgentInfo.model` is what the card shows as the model the task goes to;

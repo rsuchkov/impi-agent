@@ -99,7 +99,7 @@ The installer drops a small CLI into `~/.local/bin/impi`:
 | `impi task …` | scheduled and recurring work (see [tasks.md](tasks.md)) |
 | `impi ward …` | the secret store and who may reach it (see [secrets.md](secrets.md)) |
 | `impi agent add` | interactive agent creation (bot + profile + `.env`) |
-| `impi agent list` | profiles with token status |
+| `impi agent list` | profiles with token status; a headless agent and one with its own model endpoint are marked |
 | `impi escape <agent> [-- "prompt"]` | that agent's pi on this host, in your terminal (see below) |
 | `impi login` | pi subscription login inside the container |
 | `impi login --copy-auth [file]` | import `~/.pi/agent/auth.json` from a logged-in machine |
@@ -120,7 +120,8 @@ answer instead of a session.
 
 What carries over: the profile directory (`.pi/SYSTEM.md`, its own skills, any
 pi permission policy it ships), the shared skill library, the model and the
-`LLM_*` settings from `conf/.env`. What does not: the engine's tools
+`LLM_*` settings from `conf/.env` (the agent's own `AGENTS_LLM_*__<AGENT>` in
+place of them). What does not: the engine's tools
 (`create_agent`, the skill tools, `open_screen`, `ask_user_confirm`,
 `schedule_task`, `send_file`) — they live in the engine's tool server and there
 is no engine here, so they are dropped from the allowlist and the agent is told

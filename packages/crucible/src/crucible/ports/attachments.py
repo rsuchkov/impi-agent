@@ -51,6 +51,17 @@ class ReceivedFiles(Protocol):
         ...
 
 
+class FileSaver(Protocol):
+    """Where a file handed into a conversation is written: under that agent's
+    and that conversation's keeping, named so a second save with the same
+    ``key`` writes the same path. What the engine does with a file a person
+    sent, and with one an agent hands another with a task."""
+
+    async def save(
+        self, agent: str, conversation_id: str, name: str, data: bytes, *, key: str = ""
+    ) -> Attachment: ...
+
+
 class FileKeeper(Protocol):
     """Where a conversation's files are kept, for the flow that settles which
     conversation a message belongs to. A gateway saves a file before the

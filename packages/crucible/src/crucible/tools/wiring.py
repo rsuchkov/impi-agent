@@ -205,6 +205,10 @@ class ToolWiring:
         # whatever extra capabilities its kind advertises (e.g. ephemeral)...
         # minus what the gateway cannot honour however the deployment is set
         # (a fire-and-forget widget on a transport nobody can click back from).
+        if gateway == GATEWAY_DELEGATION:
+            # The engine's own door: what a task's turn may not have is the
+            # door's rule, not the caller's to know.
+            denied_caps = denied_caps | DELEGATED_TURN_DENIED
         caps = (
             self.base_caps
             | (frozenset({CAP_CHAT_ADMIN}) if admin is not None else frozenset())

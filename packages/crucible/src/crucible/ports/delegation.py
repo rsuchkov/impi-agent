@@ -13,7 +13,7 @@ or call it off by its id.
 """
 
 import secrets
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -33,12 +33,12 @@ ON_BEHALF_OF_GATEWAY_ATTRIBUTE = "on_behalf_of_gateway"
 _DELEGATED_PREFIX = "delegated:"
 
 
-def delegated_task_id() -> str:
+def delegation_id() -> str:
     return secrets.token_hex(6)
 
 
-def delegated_conversation(task_id: str) -> str:
-    """The conversation key the asked agent's turn on ``task_id`` runs in."""
+def delegated_conversation_key(task_id: str) -> str:
+    """The key of the conversation the asked agent's turn on ``task_id`` runs in."""
     return f"{_DELEGATED_PREFIX}{task_id}"
 
 
@@ -80,10 +80,13 @@ class FilePreview:
     text: str | None = None
     language: str = ""
     truncated: bool = False
+    # The file's content as a SHA-256 hex digest: what the card showed, for the
+    # call that follows to hold the file to.
+    digest: str = ""
 
 
-class TaskTurnChat(ChatClient, Protocol):
-    """The chat client a task's turn posts into: nobody's platform, so what
+class DelegatedTurnChat(ChatClient, Protocol):
+    """The chat client the turn on a task posts into: nobody's platform, so what
     the turn says is kept here for the asker — the replies as ``answer``, the
     code of the notice the turn ended with as ``notice_code``. A gateway
     provides one; the service reads it once the turn is over."""
@@ -101,10 +104,14 @@ class DelegationService(Protocol):
 
     async def delegate(
         self, agent: str, runtime_session_id: str, to: str, task: str, paths: Sequence[str] = (),
+        *, digests: Mapping[str, str] | None = None,
     ) -> str:
-        """Start the task for ``to`` from ``agent``'s turn; the task's id.
-        ``DelegationError`` when it cannot start — no such agent, one that
-        cannot take a task here, a file that may not be sent."""
+        """Start the task for ``to`` from ``agent``'s turn; the task's id. The
+        files are copied into the task's conversation as they are now — and,
+        with ``digests`` (path → the digest ``preview_files`` gave), refused
+        when one is no longer what the card showed. ``DelegationError`` when
+        it cannot start — no such agent, one that cannot take a task here, a
+        file that may not be sent or that changed since."""
         ...
 
     async def preview_files(self, agent: str, paths: Sequence[str]) -> Sequence[FilePreview]:

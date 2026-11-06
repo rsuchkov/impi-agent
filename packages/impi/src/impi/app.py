@@ -116,7 +116,6 @@ from crucible.skills import SkillLibrary
 from crucible.store import open_store
 from crucible.store.base import SessionStore, Store
 from crucible.tools import SessionProofBook, ToolServer, ToolWiring
-from crucible.tools.wiring import DELEGATED_TURN_DENIED
 from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
@@ -319,7 +318,7 @@ class ProfileBuilder:
         # the engine's whole environment, as the CLI they run does. Everyone
         # else inherits the base set plus what their profile names.
         self._engine_owned = engine_owned
-        # An agent's own model endpoint (LLM_*__<AGENT>): in its profile's env,
+        # An agent's own model endpoint (AGENTS_LLM_*__<AGENT>): in its profile's env,
         # which is the one place a variable reaches that agent's processes and
         # no other's — the key for a model one agent answers with stays its.
         self._model_env_for = model_env_for
@@ -422,7 +421,7 @@ def _build_unit(
     kinds = list(handles)
     sinks_by_agent[spec.name] = AgentSink(
         sink=coalescer,
-        gateways={**{kind: handle.chat for kind, handle in handles.items()}, GATEWAY_DELEGATION: DelegationChatClient()},
+        gateways={**{kind: handle.chat for kind, handle in handles.items()}, GATEWAY_DELEGATION: DelegationChatClient(keeps=False)},
         default=kinds[0] if kinds else GATEWAY_DELEGATION,
     )
     return AgentUnit(
@@ -485,7 +484,7 @@ def _build_units(
         if not handles:
             # Its one door is the engine's own: the capabilities a task's turn
             # may have, and nothing a platform would add.
-            tools.enroll(spec, None, denied_caps=DELEGATED_TURN_DENIED, gateway=GATEWAY_DELEGATION)
+            tools.enroll(spec, None, gateway=GATEWAY_DELEGATION)
         if spec.name in engine_names:
             # Engine-owned agents (support) get the agents directory path (their
             # editable workspace) and the engine source root (read-only) so their
@@ -883,7 +882,7 @@ def build_app(settings: ImpiSettings) -> App:
     delegation_svc = (
         EngineDelegationService(
             presence, sessions, registry, sessions, dispatcher, DelegationChatClient,
-            file_roots=file_roots, max_file_bytes=settings.attachment_max_bytes, turns=turns,
+            file_roots=file_roots, saver=attachments, max_file_bytes=settings.attachment_max_bytes, turns=turns,
         )
         if delegation_on else None
     )

@@ -191,16 +191,21 @@ none. The asked agent's turn runs in a conversation that exists for this
 task alone (`delegated:<task id>`, a fresh session): the task and its files
 are all it is given — no thread of the asker's is replayed, no earlier task
 remembered — so what reaches its model is what the card showed, and nothing
-else. Its answer comes back as a turn of the asker's in which the answer is
-quoted as data under the agent's name, not as anybody's instructions. The
-turn runs as the person who read the card (`user_id`) with the asker's turn
-attributes, so the application's admission and entitlement rules decide for
-that person and telemetry counts it as theirs — but with none of what a
-person's own turn has: no widgets, forms, confirmed tools, connected
-accounts, files out, scheduling or handing on again (`DELEGATED_TURN_DENIED`;
+else. The files are copies taken when the person allowed, each held to the
+digest of what the card showed (a file changed in between is refused) and
+placed in that conversation, out of the asker's reach: the asker's own turn,
+which goes on once the task is handed over, cannot rewrite what the asked
+agent reads. Its answer comes back as a turn of the asker's in which the
+answer is quoted as data under the agent's name, not as anybody's
+instructions. The turn runs as the person who read the card (`user_id`) with
+the asker's turn attributes, so the application's admission and entitlement
+rules decide for that person and telemetry counts it as theirs — but with
+none of what a person's own turn has: no widgets, forms, ephemeral posts,
+channel administration, confirmed tools, connected accounts, files out,
+scheduling or handing on again (`DELEGATED_TURN_DENIED`;
 `runtime.tools_by_gateway: {delegation: [...]}` narrows further). The asked
 agent runs under its own profile — its own tools, its own confinement, its
-own ports, its own model key where it has one (`LLM_API_KEY__<AGENT>`) — and
+own ports, its own model key where it has one (`AGENTS_LLM_API_KEY__<AGENT>`) — and
 reaches nothing of the asker's but the task; a headless agent reaches nothing
 of anyone's but the tasks it is handed. A directory the two share
 (`runtime.shared_dirs`) has no card: every agent naming it reads all of it,
@@ -220,7 +225,7 @@ carries what it should not and a reviewer who did not read it; files in the
 shared directory nobody looked at; an agent at `off`, or one in a container
 without Landlock, which sees every shared directory, not only its own; and,
 on one host, the runtime's shared login (above) — an agent whose model should
-stay apart answers with a key of its own (`LLM_API_KEY__<AGENT>`) or runs in
+stay apart answers with a key of its own (`AGENTS_LLM_API_KEY__<AGENT>`) or runs in
 a container of its own.
 
 ### An MCP server and the engine
@@ -342,7 +347,7 @@ engine use it at every start.
 | the chat platform tokens, one per agent | `conf/.env` on the host, bind-mounted into the engine, mode 600 | the engine; an unconfined agent with `read` |
 | the gateway tokens for your programs (`WS_SERVICE_TOKEN__*`, `HTTP_CALLER_TOKEN__*`) | `conf/.env`, in the clear | as above |
 | the model provider's login | `~/.impi/pi/agent/auth.json` on the host (mode 600, directory 700), mounted into the engine as pi's home and into each agent container as that one file, read-only | read: every runtime process; written: the engine (which refreshes the login) and unconfined processes |
-| a custom endpoint's key (`LLM_API_KEY`) | `conf/.env`; passed to each runtime in its environment | every agent's runtime — or, as `LLM_API_KEY__<AGENT>`, that agent's alone |
+| a custom endpoint's key (`LLM_API_KEY`) | `conf/.env`; passed to each runtime in its environment | every agent's runtime — or, as `AGENTS_LLM_API_KEY__<AGENT>`, that agent's alone |
 | the agents' broker certificates | `~/.impi/certs`, mounted into the engine (or one each into its container) | see [secrets.md](secrets.md) |
 | the operator's broker certificate | `~/.impi/operator`, mounted into nothing an agent runs in | the operator |
 | the store's unseal key and the broker's credential | `~/.impi/ward-recovery.txt` on the host, mode 600, mounted into nothing | the operator |
@@ -449,10 +454,11 @@ Things the design does not solve, stated so nobody relies on them by accident.
   that begins with `!` on every model request. An unconfined agent (`off`)
   could still plant one; `pi` is then not started anywhere until a fresh
   login replaces the file, but processes already running would read it. An
-  API key is different: `LLM_API_KEY__<AGENT>` puts a key in one agent's
-  environment and in no other's — where an agent answers with a model whose
-  key must not reach the rest, that is the setting; the login file is read by
-  every process still.
+  API key is different: `AGENTS_LLM_API_KEY__<AGENT>` puts a key in one agent's
+  environment and in no other's (the engine's own agent, which inherits the
+  engine's whole environment, excepted) — where an agent answers with a model
+  whose key must not reach the rest, that is the setting; the login file is
+  read by every process still.
 - **The engine does not restrict egress** and does not encrypt session files
   at rest; both are the deployment's.
 - **Connected accounts are a direct-message feature.** The panel opens and the

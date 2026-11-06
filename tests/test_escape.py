@@ -132,7 +132,7 @@ def test_the_env_is_the_models_and_nothing_else(tmp_path: Path) -> None:
 def test_the_plan_gives_the_agent_its_own_model_key(tmp_path: Path, monkeypatch) -> None:
     settings = _settings(tmp_path, llm_api_key="deployment-key")
     spec = _spec(settings)
-    monkeypatch.setenv(f"LLM_API_KEY__{spec.name.upper().replace('-', '_')}", "own-key")
+    monkeypatch.setenv(f"AGENTS_LLM_API_KEY__{spec.name.upper().replace('-', '_')}", "own-key")
     plan = build_plan(spec, settings, engine_owned=False, agents_path=settings.agents_path)
     assert plan.env["LLM_API_KEY"] == "own-key"
 

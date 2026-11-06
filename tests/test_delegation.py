@@ -9,15 +9,17 @@ from pathlib import Path
 
 import pytest
 
+from crucible.attachments import AttachmentStore
 from crucible.builtin_tools import CancelDelegation, Delegate, DelegationStatus
 from crucible.gateways.delegation import ANSWER_MAX, DelegationChatClient
 from crucible.interactions import AgentSink, MappingPresence
 from crucible.interactions.delegation import (
     DELEGATION_HOP,
-    DELEGATION_MAX_DEPTH,
     NOTICE_ENGINE_RESTARTED,
+    NOTICE_UNDELIVERED,
     EngineDelegationService,
 )
+from crucible.ports.chat.client import NobodyToAnswer
 from crucible.ports.chat.directory import AgentInfo, StaticDirectory
 from crucible.ports.chat.flow import TurnOutcome
 from crucible.ports.chat.gateway import GATEWAY_DELEGATION, GATEWAY_SLACK
@@ -41,7 +43,7 @@ from crucible.ports.delegation import (
     DelegationError,
     DelegationView,
     FilePreview,
-    delegated_conversation,
+    delegated_conversation_key,
 )
 from crucible.ports.engine_turn import ConversationBusy, DispatchError, TurnRequest
 from crucible.ports.turn import TurnScope
@@ -151,7 +153,7 @@ async def test_the_task_opens_the_other_agents_turn_alone_and_its_answer_comes_b
     # The asked agent's turn: a message of the engine's, in a conversation
     # that exists for this task alone, run as the person's.
     (message, chat), = sink.submitted
-    key = delegated_conversation(task_id)
+    key = delegated_conversation_key(task_id)
     assert message.ref == ConversationRef(channel_id=key, conversation_id=key, message_id=task_id, thread_root_id="")
     assert (message.text, message.kind, message.is_dm, message.gateway) == ("Write the migration.", KIND_DM, True, GATEWAY_DELEGATION)
     assert (message.username, message.is_from_bot, message.user_id) == ("assistant", True, "u-alice")
@@ -168,7 +170,7 @@ async def test_the_task_opens_the_other_agents_turn_alone_and_its_answer_comes_b
     assert (kept.agent, kept.to, kept.status, kept.user_id, kept.gateway) == ("assistant", "coder", DELEGATION_ANSWERED, "u-alice", GATEWAY_SLACK)
     assert (kept.channel_id, kept.conversation_id, kept.kind) == ("ch1", "root1", KIND_THREAD)
     assert kept.answer == "Done: the migration is in `0042_add_index.py`." and kept.finished_at and kept.delivered_at
-    assert json.loads(kept.attributes) == {"realm": "acme"} and kept.hop_depth == DELEGATION_HOP
+    assert json.loads(kept.attributes) == {"realm": "acme"}
 
     # The asker's turn on the answer: in its conversation, as the person's,
     # the answer quoted as the agent's words.
@@ -181,20 +183,34 @@ async def test_the_task_opens_the_other_agents_turn_alone_and_its_answer_comes_b
     assert request.turn is not None and request.turn.attributes == {"realm": "acme", DELEGATION_TASK_ATTRIBUTE: task_id}
 
 
-async def test_files_travel_as_the_messages_attachments_under_send_files_rules(store, tmp_path: Path) -> None:
+async def test_files_travel_as_copies_in_the_tasks_own_conversation_held_to_what_the_card_showed(store, tmp_path: Path) -> None:
     sink = ScriptedSink()
     spec = tmp_path / "spec.md"
     spec.write_text("# spec")
     roots = {"assistant": (tmp_path.resolve(),)}
-    svc = EngineDelegationService(_presence(sink), store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient, file_roots=roots, max_file_bytes=1024)
+    saver = AttachmentStore(tmp_path / "attachments", max_bytes=1024)
+    svc = EngineDelegationService(
+        _presence(sink), store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient,
+        file_roots=roots, saver=saver, max_file_bytes=1024,
+    )
     record, _ = await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD)
-    task_id = await svc.delegate("assistant", record.runtime_session_id, "coder", "Implement this.", [str(spec)])
+    shown, = await svc.preview_files("assistant", [str(spec)])
+    task_id = await svc.delegate("assistant", record.runtime_session_id, "coder", "Implement this.", [str(spec)], digests={str(spec): shown.digest})
     await _settled(svc)
     (message, _), = sink.submitted
     attachment, = message.attachments
-    assert (attachment.name, attachment.path, attachment.mime, attachment.size) == ("spec.md", str(spec.resolve()), "text/markdown", 6)
+    # A copy in the asked agent's conversation for this task — readable to its process, out of the asker's reach.
+    copy = Path(attachment.path)
+    assert copy.is_relative_to(saver.conversation_dir("coder", delegated_conversation_key(task_id))) and copy.read_text() == "# spec"
+    assert (attachment.name, attachment.mime, attachment.size) == ("spec.md", "text/markdown", 6)
     kept = await store.get_delegation(task_id)
-    assert kept is not None and json.loads(kept.files) == ["spec.md"]
+    assert kept is not None and json.loads(kept.files) == [{"name": "spec.md", "sha256": shown.digest}]
+    # The asker rewriting its file afterwards changes nothing the asked agent reads.
+    spec.write_text("# something else")
+    assert copy.read_text() == "# spec"
+    # A file that is no longer what the card showed does not go.
+    with pytest.raises(DelegationError, match="spec.md changed after the card was shown"):
+        await svc.delegate("assistant", record.runtime_session_id, "coder", "x", [str(spec)], digests={str(spec): shown.digest})
     # A file the asker may not send is refused in the model's words, before anything starts.
     with pytest.raises(DelegationError, match="outside the directories"):
         await svc.delegate("assistant", record.runtime_session_id, "coder", "x", ["/etc/passwd"])
@@ -206,7 +222,7 @@ async def test_files_travel_as_the_messages_attachments_under_send_files_rules(s
         await svc.delegate("assistant", record.runtime_session_id, "coder", "x", [str(big)])
     with pytest.raises(DelegationError, match="at most 5 files"):
         await svc.delegate("assistant", record.runtime_session_id, "coder", "x", [str(spec)] * 6)
-    off = EngineDelegationService(_presence(sink), store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient)
+    off = EngineDelegationService(_presence(sink), store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient, file_roots=roots)
     with pytest.raises(DelegationError, match="turned off"):
         await off.delegate("assistant", record.runtime_session_id, "coder", "x", [str(spec)])
     assert len(sink.submitted) == 1
@@ -223,13 +239,14 @@ async def test_the_files_are_previewed_as_written_or_by_name_and_size_under_send
     odd.write_bytes(b"\xff\xfe\xfd")
     svc = EngineDelegationService(
         _presence(ScriptedSink()), store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient,
-        file_roots={"assistant": (tmp_path.resolve(),)}, max_file_bytes=10_000,
+        file_roots={"assistant": (tmp_path.resolve(),)}, saver=AttachmentStore(tmp_path / "att", max_bytes=10_000), max_file_bytes=10_000,
     )
     previews = await svc.preview_files("assistant", [str(spec), str(patch), str(picture), str(odd)])
-    assert previews[0] == FilePreview(name="spec.md", size=13, text="# spec\n\n- one", language="markdown")
+    assert previews[0] == FilePreview(name="spec.md", size=13, text="# spec\n\n- one", language="markdown", digest=previews[0].digest)
+    assert len(previews[0].digest) == 64
     assert (previews[1].name, previews[1].language, previews[1].truncated, len(previews[1].text or "")) == ("fix.diff", "diff", True, 6000)
-    assert previews[2] == FilePreview(name="shot.png", size=10)  # NUL bytes: not text, whatever decodes
-    assert previews[3] == FilePreview(name="data.bin", size=3)  # not UTF-8
+    assert previews[2] == FilePreview(name="shot.png", size=10, digest=previews[2].digest)  # NUL bytes: not text, whatever decodes
+    assert previews[3] == FilePreview(name="data.bin", size=3, digest=previews[3].digest)  # not UTF-8
     with pytest.raises(DelegationError, match="outside the directories"):
         await svc.preview_files("assistant", ["/etc/hostname"])
     assert await svc.preview_files("assistant", []) == []
@@ -252,32 +269,12 @@ async def test_no_such_agent_oneself_an_unresolvable_conversation_and_an_agent_w
     assert sink.submitted == []
 
 
-async def test_a_task_handed_on_too_many_times_is_refused(store) -> None:
-    sink = ScriptedSink()
-    svc = EngineDelegationService(_presence(sink), store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient)
-    # A chain: the asker's conversation is itself a task's, three deep already.
-    above = DelegationRecord(
-        id="abc", agent="assistant", to="coder", channel_id="x", conversation_id="x", kind=KIND_DM,
-        gateway=GATEWAY_DELEGATION, task="t", user_id="u", status=DELEGATION_RUNNING, started_at="2026-11-06T10:00:00+00:00",
-        hop_depth=DELEGATION_MAX_DEPTH,
-    )
-    await store.save_delegation(above)
-    key = delegated_conversation("abc")
-    record, _ = await store.get_or_create("assistant", key, key, KIND_DM, gateway=GATEWAY_DELEGATION)
-    with pytest.raises(DelegationError, match="already been handed on 3 times"):
-        await svc.delegate("assistant", record.runtime_session_id, "coder", "again")
-    # Two deep: allowed, and the count travels with the task.
-    await store.save_delegation(replace(above, hop_depth=DELEGATION_MAX_DEPTH - 1))
-    await svc.delegate("assistant", record.runtime_session_id, "coder", "again")
-    await _settled(svc)
-    assert sink.submitted[0][0].hop_depth == DELEGATION_MAX_DEPTH
-
-
 @pytest.mark.parametrize(("outcome", "status", "verb"), [
     (TurnOutcome.TIMEOUT, DELEGATION_TIMED_OUT, "ran out of time on"),
     (TurnOutcome.ERROR, DELEGATION_FAILED, "failed at"),
     (TurnOutcome.NOT_ADMITTED, DELEGATION_FAILED, "failed at"),
     (TurnOutcome.EMPTY, DELEGATION_ANSWERED, "finished"),
+    (TurnOutcome.STOPPED, DELEGATION_CANCELLED, "ended"),  # stopped by something other than cancel: told as such
 ])
 async def test_how_the_turn_ended_is_how_the_task_ended_and_the_asker_is_told(store, outcome, status, verb) -> None:
     async def script(msg, chat) -> TurnOutcome:
@@ -326,7 +323,7 @@ async def test_the_asker_cancels_a_running_task_and_no_answer_comes(store) -> No
     view = await svc.status("assistant", record.runtime_session_id, task_id)
     assert view == DelegationView(task_id=task_id, to="coder", status=DELEGATION_RUNNING, started_at=view.started_at)
     assert await svc.cancel("assistant", record.runtime_session_id, task_id) is True
-    assert sink.stopped == [delegated_conversation(task_id)]  # the asked agent's turn is told to end
+    assert sink.stopped == [delegated_conversation_key(task_id)]  # the asked agent's turn is told to end
     assert await svc.cancel("assistant", record.runtime_session_id, task_id) is False  # already over
     release.set()
     await _settled(svc)
@@ -361,6 +358,7 @@ async def test_the_answer_waits_for_a_busy_conversation_and_is_kept_when_it_cann
     await _settled(svc)
     kept = await store.get_delegation(task_id)
     assert kept is not None and kept.status == DELEGATION_ANSWERED and kept.answer == "ok" and kept.delivered_at == ""
+    assert kept.notice == NOTICE_UNDELIVERED  # the record says so, for delegation_status
     assert never.requests == []
     # An asker that cannot be reached at all: the same.
     gone = FakeTurnDispatcher(error=DispatchError("agent is not running"))
@@ -368,7 +366,7 @@ async def test_the_answer_waits_for_a_busy_conversation_and_is_kept_when_it_cann
     task_id = await svc.delegate("assistant", record.runtime_session_id, "coder", "x")
     await _settled(svc)
     kept = await store.get_delegation(task_id)
-    assert kept is not None and kept.answer == "ok" and kept.delivered_at == ""
+    assert kept is not None and kept.answer == "ok" and kept.delivered_at == "" and kept.notice == NOTICE_UNDELIVERED
     view = await svc.status("assistant", record.runtime_session_id, task_id)
     assert view.answer == "ok" and view.status == DELEGATION_ANSWERED  # which is what status is for
 
@@ -414,10 +412,16 @@ async def test_the_task_turns_chat_collects_the_answer_and_has_nobody_to_ask() -
     assert chat.notice_code == "truncated"
     assert await chat.get_thread_posts(ref) == [] and await chat.get_recent_posts("c") == []
     assert chat.format_mention("coder", user_id="u") == "@coder"
-    with pytest.raises(DelegationError, match="no person who could confirm"):
+    with pytest.raises(NobodyToAnswer, match="no person who could confirm"):
         await chat.post_confirmation(ref, None, [], callback_url="")  # type: ignore[arg-type]
-    with pytest.raises(DelegationError, match="no person who could click"):
+    with pytest.raises(NobodyToAnswer, match="no person who could click"):
         await chat.post_actions(ref, "x", [], callback_url="")
+    # The door an agent's sink holds keeps nothing: whatever resolves a chat by the gateway posts into the void.
+    door = DelegationChatClient(keeps=False)
+    await door.post_reply(ref, "lost")
+    await door.post_files(ref, [OutgoingFile(name="x", data=b"x", mime="text/plain")], text="lost too")
+    await door.post_notice(ref, "x", code="timeout")
+    assert (door.answer, door.notice_code) == ("", "")
     assert await chat.post_cards(ref, [], callback_url="") == ""  # the turn's steps, drawn for nobody
     # The answer is bounded.
     long = DelegationChatClient()
@@ -441,8 +445,8 @@ class _Delegation:
             raise self._error
         return self._previews
 
-    async def delegate(self, agent, runtime_session_id, to, task, paths=()):
-        self.calls.append(("delegate", agent, runtime_session_id, to, task, list(paths)))
+    async def delegate(self, agent, runtime_session_id, to, task, paths=(), *, digests=None):
+        self.calls.append(("delegate", agent, runtime_session_id, to, task, list(paths), dict(digests or {})))
         if self._error is not None:
             raise self._error
         return "task0001"
@@ -466,13 +470,18 @@ def _ctx(svc) -> ToolContext:
 
 async def test_the_card_names_the_agent_its_model_the_task_whole_and_the_files_as_written() -> None:
     svc = _Delegation(previews=[
-        FilePreview(name="spec.md", size=6, text="# spec", language="markdown"),
-        FilePreview(name="schema.sql", size=9000, text="CREATE…", language="sql", truncated=True),
-        FilePreview(name="shot.png", size=1234),
+        FilePreview(name="spec.md", size=6, text="# spec", language="markdown", digest="d1"),
+        FilePreview(name="schema.sql", size=9000, text="CREATE…", language="sql", truncated=True, digest="d2"),
+        FilePreview(name="shot.png", size=1234, digest="d3"),
     ])
-    preview = await Delegate().describe(_ctx(svc), {
+    ctx = _ctx(svc)
+    preview = await Delegate().describe(ctx, {
         "agent": "coder", "task": "Write the migration.\nKeep it reversible.", "files": ["/tmp/spec.md", "/tmp/schema.sql", "/tmp/shot.png"],
     })
+    # What the person saw is what the call holds the files to.
+    assert ctx.previewed == {"/tmp/spec.md": "d1", "/tmp/schema.sql": "d2", "/tmp/shot.png": "d3"}
+    await Delegate().execute(ctx, {"agent": "coder", "task": "x", "files": ["/tmp/spec.md"]})
+    assert svc.calls[-1] == ("delegate", "assistant", "assistant--conv", "coder", "x", ["/tmp/spec.md"], ctx.previewed)
     assert preview is not None and not isinstance(preview, CannotRun)
     assert preview.title == "Hand a task to coder" and preview.danger is False
     assert preview.rows == (
@@ -485,7 +494,7 @@ async def test_the_card_names_the_agent_its_model_the_task_whole_and_the_files_a
     # The text files as written, each under its name and size; one language only when they share it.
     assert preview.block_label == "Files as written" and preview.block_language == ""
     assert preview.block == "── spec.md (6 bytes)\n# spec\n\n── schema.sql (9000 bytes, cut at 7 chars)\nCREATE…"
-    assert svc.calls == [("preview_files", "assistant", ["/tmp/spec.md", "/tmp/schema.sql", "/tmp/shot.png"])]
+    assert svc.calls[0] == ("preview_files", "assistant", ["/tmp/spec.md", "/tmp/schema.sql", "/tmp/shot.png"])
     one = _Delegation(previews=[FilePreview(name="a.py", size=1, text="1", language="python")])
     preview = await Delegate().describe(_ctx(one), {"agent": "coder", "task": "x", "files": ["/tmp/a.py"]})
     assert not isinstance(preview, CannotRun) and preview is not None and preview.block_language == "python"
@@ -503,7 +512,7 @@ async def test_the_card_names_the_agent_its_model_the_task_whole_and_the_files_a
 async def test_the_tool_hands_the_task_to_the_service_and_answers_with_the_task_id() -> None:
     svc = _Delegation()
     result = await Delegate().execute(_ctx(svc), {"agent": "coder", "task": "Write it.", "files": ["/tmp/a.md"]})
-    assert svc.calls == [("delegate", "assistant", "assistant--conv", "coder", "Write it.", ["/tmp/a.md"])]
+    assert svc.calls == [("delegate", "assistant", "assistant--conv", "coder", "Write it.", ["/tmp/a.md"], {})]
     assert result["task_id"] == "task0001" and result["handed_to"] == "coder" and "task task0001" in result["note"]
     with pytest.raises(ToolError, match="no agent named"):
         await Delegate().execute(_ctx(_Delegation(DelegationError("no agent named 'x'"))), {"agent": "x", "task": "y"})

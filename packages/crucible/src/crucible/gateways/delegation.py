@@ -3,12 +3,17 @@ another on a task (``ports.delegation``).
 
 There is no platform behind it, as there is none behind the http journal: what
 the turn posts is collected for the asker — its replies as the answer, the
-names of the files it sent, the code of a notice it ended with — and read by
+names of the files it sent (where the application lets such a turn send
+any), the code of a notice it ended with — and read by
 the delegation service once the turn is over. A card or a widget has nobody
 to show it to: the turn answers to no person, and a tool of its that needs
-one is refused where it asks. One client per task.
+one is refused where it asks. One client per task; the one an agent's sink
+holds for the door itself (``keeps=False``) is reached only by what resolves a
+chat by the conversation's gateway, and keeps nothing — the task's own client
+is the one read.
 """
 
+from crucible.ports.chat.client import NobodyToAnswer
 from crucible.ports.chat.types import (
     Action,
     ApprovalCard,
@@ -19,16 +24,17 @@ from crucible.ports.chat.types import (
     PostSnippet,
     UserProfile,
 )
-from crucible.ports.delegation import DelegationError
 
 # How much of the asked agent's answer is kept and handed back.
 ANSWER_MAX = 20_000
 
 
 class DelegationChatClient:
-    """``TaskTurnChat``: a ``ChatClient`` that keeps what the turn says."""
+    """``DelegatedTurnChat``: a ``ChatClient`` that keeps what the turn says —
+    or, with ``keeps`` False, drops it: the sink's door, whose posts nobody reads."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, keeps: bool = True) -> None:
+        self.keeps = keeps
         self.replies: list[str] = []
         self.file_names: list[str] = []
         self.notice_code = ""
@@ -41,10 +47,12 @@ class DelegationChatClient:
         return "\n\n".join(parts)[:ANSWER_MAX]
 
     async def post_reply(self, ref: ConversationRef, text: str, *, hop_depth: int = 0) -> None:
-        self.replies.append(text)
+        if self.keeps:
+            self.replies.append(text)
 
     async def post_notice(self, ref: ConversationRef, text: str, *, code: str = "") -> None:
-        self.notice_code = code
+        if self.keeps:
+            self.notice_code = code
 
     async def add_reaction(self, ref: ConversationRef, name: str) -> None:
         return
@@ -70,6 +78,8 @@ class DelegationChatClient:
     async def post_files(
         self, ref: ConversationRef, files: list[OutgoingFile], *, text: str = "", hop_depth: int = 0
     ) -> None:
+        if not self.keeps:
+            return
         if text:
             self.replies.append(text)
         self.file_names += [file.name for file in files]
@@ -77,12 +87,12 @@ class DelegationChatClient:
     async def post_actions(
         self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str
     ) -> str:
-        raise DelegationError("a task's turn answers to no person who could click")
+        raise NobodyToAnswer("a task's turn answers to no person who could click")
 
     async def post_confirmation(
         self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
     ) -> str:
-        raise DelegationError("a task's turn answers to no person who could confirm")
+        raise NobodyToAnswer("a task's turn answers to no person who could confirm")
 
     async def update_confirmation(
         self, post_id: str, card: ApprovalCard, actions: list[Action] | None = None, *, callback_url: str = "",
@@ -102,4 +112,4 @@ class DelegationChatClient:
         return
 
     async def open_dialog(self, trigger_id: str, form: Form, *, submit_url: str, state: str) -> None:
-        raise DelegationError("a task's turn answers to no person who could fill a form")
+        raise NobodyToAnswer("a task's turn answers to no person who could fill a form")

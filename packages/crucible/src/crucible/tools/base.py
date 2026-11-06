@@ -7,7 +7,7 @@ only Python — never the TypeScript bridge.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
@@ -134,6 +134,10 @@ class ToolContext:
     # The connected accounts of the person this turn acts for (None = the
     # deployment connects none, or the turn acts for nobody it can name).
     connections: ConnectionAccess | None = None
+    # What the preview showed the person, by a key of the tool's own (a path →
+    # the digest of what was shown), for the call that follows to hold itself
+    # to: one context serves a call's preview and its execution.
+    previewed: dict[str, str] = field(default_factory=dict)
 
     def require_connections(self) -> ConnectionAccess:
         """The person's connected accounts, or a ToolError when there are none to

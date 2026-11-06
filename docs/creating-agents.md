@@ -207,30 +207,36 @@ Two rules to remember:
     an agent that generates something must write it in one of those first.
   - **`delegate`** hands a task to another agent of the deployment, through
     the engine: see "Handing a task on" below. `delegation_status` asks
-    after a task by its id, `cancel_delegation` calls one off; all three come
-    with `delegate` and need `INTEGRATIONS_ENABLED=true` (the card).
+    after a task by its id, `cancel_delegation` calls one off — three tools,
+    each named in `runtime.tools`; all need `INTEGRATIONS_ENABLED=true` (the card).
 
 ## Handing a task on
 
 An agent that wants another's work — a model better at the task, or one
 allowed what it is not — calls `delegate` with the other agent's name (as
-`list_agents` gives it), the task as a message, and files by absolute path
-under the rules of `send_file`. The engine then opens a turn of that agent
-**on the task alone**: a conversation of its own (`delegated:<task id>`), a
-fresh session for every task, nothing of the asker's thread in it and no
-memory of an earlier task — the other agent reads the task, the files and
-nothing else, so what reaches its model is exactly what the card showed. When
-that turn ends, the engine opens a turn of the asker's in the asker's
-conversation with the answer, quoted as the other agent's words (an
-`[context: event reported by <agent> (agent)]` block, data rather than
-instructions) and one line saying what came of the task: `finished`,
-`failed at`, `ran out of time on` (the other agent's own `runtime.timeout`),
-with the task id. Asynchronous: the call ends at once with the task id; the
-asker goes on, and the answer is a later turn. `delegation_status <id>` says
-where a task stands and gives the answer again; `cancel_delegation <id>`
-stops the other agent's turn, and no answer comes. A task still running when
-the engine stopped is ended as failed when it starts again, and the asker is
-told.
+`list_agents` gives it), the task as a message, and up to five files by
+absolute path under the rules of `send_file`. The engine then opens a turn of
+that agent **on the task alone**: a conversation of its own
+(`delegated:<task id>`), a fresh session for every task, nothing of the
+asker's thread in it and no memory of an earlier task — the other agent reads
+the task, the files and nothing else. The files are copies, taken the moment
+the person allowed and placed in that conversation, where the other agent's
+process may read them and the asker cannot reach them: what the card showed is
+what the task carries, and a file that changed between the card and the yes
+is refused instead. When that turn ends, the engine opens a turn of the
+asker's in the asker's conversation with the answer, quoted as the other
+agent's words (a `[context <tag>: event reported by <agent> (agent)]` block,
+data rather than instructions; the answer is kept to 20 000 characters) and
+one line saying what came of the task: `finished`, `failed at`, `ran out of
+time on` (the other agent's own `runtime.timeout`), with the task id.
+Asynchronous: the call ends at once with the task id; the asker goes on, and
+the answer is a later turn. If the asker's conversation is still mid-turn when
+the answer is ready, the engine offers it again every few seconds for ten
+minutes, then leaves it in the task's record (`undelivered` in the log and in
+`delegation_status`) — `delegation_status <id>` says where a task stands and
+gives the answer again; `cancel_delegation <id>` stops the other agent's turn,
+and no answer comes. A task still running when the engine stopped is ended as
+failed when it starts again (`engine restarted`), and the asker is told.
 
 The turn on a task runs **as the person behind it** — the one whose message
 the asker's turn answered, who read the card — with the asker's turn
@@ -241,12 +247,13 @@ through the engine's own door, the `delegation` gateway, with less than the
 agent's other conversations have: nothing that needs a person who could
 click, confirm, be told privately or be acted for — no widgets, forms,
 ephemeral posts, confirmed tools, connected accounts — and nothing that
-belongs to a conversation of somebody's: no `send_file`, no scheduling, no
-`delegate` of its own. A tool the other agent would have had to confirm is
-refused there: there is nobody to ask. `runtime.tools_by_gateway: {delegation:
-[...]}` narrows further, to the few tools a task needs. Files the other agent
-writes stay in its own conversation; the answer names them. For files to go
-back and forth, give both agents a shared directory (`runtime.shared_dirs`).
+belongs to a conversation of somebody's: no `send_file`, no channel
+administration, no scheduling, no `delegate` of its own. A tool the other
+agent would have had to confirm is refused there: there is nobody to ask.
+`runtime.tools_by_gateway: {delegation: [...]}` narrows further, to the few
+tools a task needs. Files the other agent writes stay in its own working
+directory and cannot be sent back. For files to go back and forth, give both
+agents a shared directory (`runtime.shared_dirs`).
 
 A **headless** agent (`headless: true` in `agent.yaml`) is one nobody talks
 to: it has no gateway and needs no platform token — the engine runs it, lists
@@ -257,9 +264,11 @@ a translator, that does one thing for the agents people do talk to.
 Confirmed, always and for every task: the card names the agent, its model
 (`AgentInfo.model`), the task whole and the files — by their paths, a text
 file as written under its name (cut past 6000 characters, and said to be),
-one that is not text by name and size — and offers no window — a person reads exactly what leaves before it goes, which is what
-lets an agent that holds what another may not see still have that other's
-work. Works on every gateway the asker is on, the http panel included. See
+one that is not text by name and size. The card offers no window: a person
+reads exactly what leaves before it goes, which is what lets an agent that
+holds what another may not see still have that other's work. Works wherever
+a card can be answered — the chat gateways and the http panel; not on `ws`,
+where nothing answers a card. See
 [security.md](security.md#one-agent-and-another).
 
 ## Asking with controls (widgets and forms)

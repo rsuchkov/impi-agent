@@ -36,6 +36,7 @@ name: <name>                 # MUST equal the directory name
 display_name: <Display Name>
 role: <short-role>
 description: <one line>
+# headless: false              # optional; true = no gateway, no token: reached only when another agent hands it a task
 runtime:
   provider: openai-codex     # optional; omit to inherit the engine default
   model: gpt-6.1-sol         # optional; omit to inherit the engine default — but a
@@ -78,10 +79,11 @@ trusted server's hint): not a gate of the engine's — it confirms by
 `requires_confirmation` — but the word an application's own auto-approval may
 rely on; a tool that says nothing is never let through without a person.
 `runtime.tools_by_gateway` narrows the list per gateway (`mattermost`, `slack`,
-`ws`, `http`): a subset of `tools` for the gateway named — or `{except: [names]}`,
+`ws`, `http`, or `delegation` for the turns on a task another agent handed on):
+a subset of `tools` for the gateway named — or `{except: [names]}`,
 everything but those, the form to take a few tools away from one gateway without
 repeating the list — the whole list for one not named; a name the agent's list
-lacks (in a list or an `except`), or a gateway that is not one of the four,
+lacks (in a list or an `except`), or a gateway that is not one of the five,
 fails the profile. A tool refused with `not available in this
 conversation` on one gateway and fine on another is this map.
 **Skills need `read` + `bash`** to function (the model reads `SKILL.md` and runs
@@ -96,7 +98,7 @@ and logs why. Common cases:
 | `ask_user_buttons`, `ask_user_select`, `open_form`, `open_screen` | `INTEGRATIONS_ENABLED=true`, and a gateway someone can click back from (not `http`) |
 | `create_agent`, `install_skill`, `remove_skill` — anything that needs confirming | `INTEGRATIONS_ENABLED=true` (somebody to ask) |
 | `send_file` | `ATTACHMENTS_ENABLED=true` |
-| `delegate`, `delegation_status`, `cancel_delegation` | `INTEGRATIONS_ENABLED=true` (the task is confirmed); any gateway. The other agent needs no bot and no place in the conversation — the engine opens its turn on the task alone; `headless: true` in its `agent.yaml` makes an agent reached by tasks only (no token). Its turn has no widgets, confirmed tools, files out or connected accounts; `runtime.tools_by_gateway: {delegation: [...]}` narrows the rest |
+| `delegate`, `delegation_status`, `cancel_delegation` | `INTEGRATIONS_ENABLED=true` (the task is confirmed) and a gateway where a card can be answered (Mattermost, Slack, http; not ws). The other agent needs no bot and no place in the conversation — the engine opens its turn on the task alone; `headless: true` in its `agent.yaml` makes an agent reached by tasks only (no token). Its turn has no widgets, ephemeral posts, channel-admin tools, confirmed tools, files out or connected accounts; `runtime.tools_by_gateway: {delegation: [...]}` narrows the rest |
 | `send_ephemeral` | a gateway that has ephemeral messages |
 | `schedule_task`, `list_tasks`, `cancel_task`, `pause_task` | `SCHEDULER_ENABLED=true` |
 | `mcp__<server>__<tool>`, `mcp__<server>__*` | the server declared with `impi mcp add` and its tools pinned (the **mcp** skill); a confirmed tool — every tool of an untrusted server outside its `safe:` list, a trusted server's destructive ones, anything in `confirm:`, and a tool that takes a person's file, always — also needs `INTEGRATIONS_ENABLED=true` |
@@ -152,7 +154,8 @@ then tell the operator to:
    `impi agent sync`, which builds the new one and starts it.
 
 An agent with no token is skipped at startup and logged — that, not a broken
-profile, is the usual reason a new agent "doesn't exist".
+profile, is the usual reason a new agent "doesn't exist" (a `headless` agent
+needs none and runs anyway).
 
 ## 4. Applying a change to an existing agent
 

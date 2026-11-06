@@ -1889,13 +1889,67 @@ def test_every_enrolled_agent_has_the_engines_own_door_with_a_tasks_turns_capabi
     by_gateway = wiring.gateway_caps["assistant"]
     assert {CAP_WIDGETS, CAP_FILES, CAP_CONFIRMATION, CAP_DELEGATION} <= by_gateway["slack"]
     # The task's turn: none of what needs a person or a conversation of somebody's.
-    assert by_gateway[GATEWAY_DELEGATION] == wiring.base_caps - DELEGATED_TURN_DENIED
-    assert not by_gateway[GATEWAY_DELEGATION] & {CAP_WIDGETS, CAP_FILES, CAP_CONFIRMATION, CAP_DELEGATION}
+    assert by_gateway[GATEWAY_DELEGATION] == frozenset()  # every capability the deployment has needs a person or a place
+    assert DELEGATED_TURN_DENIED >= wiring.base_caps
     assert wiring.gateway_admins["assistant"][GATEWAY_DELEGATION] is None
     # The agent's own allowlist is what any of its gateways can serve: the door takes nothing away.
     assert wiring.allowlists["assistant"] == {"delegate", "send_file"}
     # A headless agent enrols through the door alone, with the same capabilities.
     coder = AgentSpec(name="coder", display_name="c", role="r", description="", profile_dir=tmp_path, tools=("delegate",), headless=True)
-    wiring.enroll(coder, None, denied_caps=DELEGATED_TURN_DENIED, gateway=GATEWAY_DELEGATION)
-    assert wiring.gateway_caps["coder"] == {GATEWAY_DELEGATION: wiring.base_caps - DELEGATED_TURN_DENIED}
+    wiring.enroll(coder, None, gateway=GATEWAY_DELEGATION)  # the door's denials are the door's own
+    assert wiring.gateway_caps["coder"] == {GATEWAY_DELEGATION: frozenset()}
     assert wiring.allowlists["coder"] == frozenset()  # delegate needs a person to confirm it; there is none
+
+
+async def test_a_confirmed_tool_is_refused_at_the_door_of_a_conversation_whose_gateway_cannot_confirm() -> None:
+    """The rule the allowlist is built by holds per call too: a tool that must
+    be confirmed needs the conversation's gateway to carry a card — a turn on a
+    task another agent handed on has none, and the gate is never asked."""
+    from typing import Any, ClassVar
+
+    from crucible.ports.conversation import SessionConversation
+    from crucible.tools.base import CAP_CONFIRMATION
+    from crucible.tools.server import NOT_THROUGH_GATEWAY_ERROR
+
+    class _Confirmed(Tool):
+        name: ClassVar[str] = "confirmed_thing"
+        description: ClassVar[str] = "d"
+        parameters: ClassVar[dict] = {"type": "object"}
+        requires_confirmation: ClassVar[bool] = True
+
+        async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
+            return {"ran": True}
+
+    class _Gate:
+        asked = 0
+
+        async def confirm(self, *args, **kwargs):
+            self.asked += 1
+            raise AssertionError("the gate must not be asked")
+
+    gate = _Gate()
+
+    async def resolver(agent: str, rsid: str):
+        return SessionConversation("delegated:abc", "u1", kind="dm", gateway="delegation", gateways=("delegation",))
+
+    server = ToolServer(
+        build_registry([_Confirmed]),
+        directory=FakeDirectory(AGENTS),
+        admins={},
+        gateway_caps={"assistant": {"delegation": frozenset(), "slack": frozenset({CAP_CONFIRMATION})}},
+        tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"confirmed_thing"})},
+        port=8472,
+        conversation_resolver=resolver,
+        tool_gate=gate,  # type: ignore[arg-type]
+    )
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as s, s.post(
+            "http://127.0.0.1:8472/tool/confirmed_thing", json={},
+            headers={"X-Tool-Token": "tok", "X-Runtime-Session": "coder--delegated"},
+        ) as resp:
+            assert resp.status == 403 and (await resp.json()) == {"error": NOT_THROUGH_GATEWAY_ERROR}
+        assert gate.asked == 0
+    finally:
+        await server.stop()

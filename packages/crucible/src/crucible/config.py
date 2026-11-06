@@ -782,8 +782,9 @@ class Settings(BaseSettings):
 
     def model_env_for(self, agent: str) -> dict[str, str]:
         """The model endpoint one agent's processes are given instead of the
-        deployment's: ``LLM_BASE_URL__<AGENT>``, ``LLM_API_KEY__<AGENT>``,
-        ``LLM_MODEL__<AGENT>`` (env or .env), each replacing the ``LLM_*`` of
+        deployment's: ``AGENTS_LLM_BASE_URL__<AGENT>``,
+        ``AGENTS_LLM_API_KEY__<AGENT>``, ``AGENTS_LLM_MODEL__<AGENT>`` (env or
+        .env, the per-agent family's shape), each replacing the ``LLM_*`` of
         the same name for that agent alone — so a key for a model one agent
         answers with is in that agent's environment and in no other's. Only
         the keys set; {} when the agent runs on the deployment's endpoint."""
@@ -791,7 +792,7 @@ class Settings(BaseSettings):
         return {
             name: value
             for name in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL")
-            if (value := self._token(f"{name}__{up}"))
+            if (value := self._token(f"AGENTS_{name}__{up}"))
         }
 
     def skills_for(self, agent: str) -> tuple[str, ...] | None:
