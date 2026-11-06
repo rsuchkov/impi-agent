@@ -68,6 +68,20 @@ class DelegationView:
     notice: str = ""  # the notice code the asked agent's turn ended with, "" when none
 
 
+@dataclass(frozen=True)
+class FilePreview:
+    """One file as the card shows it before it leaves: its name and size and,
+    for a text file, its content as written — bounded, ``truncated`` saying
+    when it was cut — with the language a fence names it by; ``text`` is None
+    for a file that is not text, which the card names by name and size."""
+
+    name: str
+    size: int
+    text: str | None = None
+    language: str = ""
+    truncated: bool = False
+
+
 class TaskTurnChat(ChatClient, Protocol):
     """The chat client a task's turn posts into: nobody's platform, so what
     the turn says is kept here for the asker — the replies as ``answer``, the
@@ -91,6 +105,12 @@ class DelegationService(Protocol):
         """Start the task for ``to`` from ``agent``'s turn; the task's id.
         ``DelegationError`` when it cannot start — no such agent, one that
         cannot take a task here, a file that may not be sent."""
+        ...
+
+    async def preview_files(self, agent: str, paths: Sequence[str]) -> Sequence[FilePreview]:
+        """The files as the card shows them before the task goes, under the
+        rules ``delegate`` sends them by: ``DelegationError`` for one the agent
+        may not send, so the card never shows what the task could not carry."""
         ...
 
     async def status(self, agent: str, runtime_session_id: str, task_id: str) -> DelegationView:

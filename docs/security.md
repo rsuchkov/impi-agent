@@ -184,8 +184,9 @@ first one a shell.
 **When one agent hands another a task.** Two things cross between them.
 The task handed through `delegate` goes through the engine, not through the
 chat, and only after a person has read the card — the agent it goes to, the
-model that agent answers with, the task whole, the files by their paths —
-and read every time: the card offers no "allow for a while" and honours
+model that agent answers with, the task whole, the files by their paths and,
+a text file, as written (a file that is not text by name and size) — and
+read every time: the card offers no "allow for a while" and honours
 none. The asked agent's turn runs in a conversation that exists for this
 task alone (`delegated:<task id>`, a fresh session): the task and its files
 are all it is given — no thread of the asker's is replayed, no earlier task

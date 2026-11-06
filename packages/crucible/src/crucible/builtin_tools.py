@@ -21,7 +21,7 @@ from crucible.ports.chat.types import (
     FormField,
     PreviewRow,
 )
-from crucible.ports.delegation import DelegationError
+from crucible.ports.delegation import DelegationError, FilePreview
 from crucible.tools.base import (
     CAP_DELEGATION,
     CAP_EPHEMERAL,
@@ -44,6 +44,13 @@ _BUTTON_LABEL_MAX = 75
 # interaction service renders it.
 _STYLES = {"options": ASK_SELECT, "users": ASK_USERS, "channels": ASK_CHANNELS}
 _SELECT_SOURCES = tuple(_STYLES)
+
+
+def _file_heading(preview: FilePreview) -> str:
+    """The line over a file's content on the card: its name and size, and that
+    it was cut when it was."""
+    cut = f", cut at {len(preview.text or '')} chars" if preview.truncated else ""
+    return f"── {preview.name} ({preview.size} bytes{cut})"
 
 
 def _require_str(args: dict[str, Any], key: str) -> str:
@@ -385,7 +392,8 @@ class Delegate(Tool):
 
     async def describe(self, ctx: ToolContext, args: dict[str, Any]) -> CallPreview | CannotRun | None:
         """The card: whom the task goes to and what model answers there, the
-        task as written, the files by name. The person reads what leaves."""
+        task as written, the files by their paths and — text — as written,
+        a file that is not text by name and size. The person reads what leaves."""
         other_name = str(args.get("agent") or "")
         other = next((a for a in ctx.directory.list_agents() if a.name == other_name), None)
         if other is None:
@@ -397,12 +405,28 @@ class Delegate(Tool):
             PreviewRow("Model", other.model or "not said"),
             PreviewRow("Task", str(args.get("task") or ""), passage=True),
         ]
+        block, language = "", ""
         files = args.get("files")
         if isinstance(files, list) and files:
             # The paths as given: where a file comes from is part of what
             # leaves, and a name alone would hide another conversation's file.
             rows.append(PreviewRow("Files", ", ".join(str(f) for f in files)))
-        return CallPreview(f"Hand a task to {other.name}", tuple(rows))
+            try:
+                previews = await ctx.require_delegation().preview_files(ctx.agent_name, [str(f) for f in files])
+            except DelegationError as exc:
+                return CannotRun(str(exc))
+            texts = [p for p in previews if p.text is not None]
+            binaries = [p for p in previews if p.text is None]
+            if binaries:
+                rows.append(PreviewRow("Not text", ", ".join(f"{p.name} ({p.size} bytes)" for p in binaries)))
+            if texts:
+                block = "\n\n".join(f"{_file_heading(p)}\n{p.text}" for p in texts)
+                languages = {p.language for p in texts}
+                language = languages.pop() if len(languages) == 1 else ""
+        return CallPreview(
+            f"Hand a task to {other.name}", tuple(rows),
+            block_label="Files as written" if block else "", block=block, block_language=language,
+        )
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
         other = _require_str(args, "agent")

@@ -30,7 +30,11 @@ when a release is cut, and `impi update` shows the target version's section.
   somebody's (no widgets, forms, confirmed tools, connected accounts, files
   out, scheduling or handing on again — `DELEGATED_TURN_DENIED`), and
   `runtime.tools_by_gateway: {delegation: [...]}` narrows the rest. The card
-  is unchanged: the agent, its model, the task whole, the files, no window.
+  names the agent, its model, the task whole and the files — by their paths
+  and, a text file, as written (under its name and size, cut past 6000
+  characters and said to be; one that is not text by name and size), so the
+  person reads the code that leaves, not a path to it
+  (`DelegationService.preview_files`, `FilePreview`); no window.
   For an application: `EngineDelegationService(presence, sessions, directory,
   store, dispatcher, DelegationChatClient, …)` in `crucible.interactions.delegation`,
   the `DelegationStore` facet (`DelegationRecord`, a `delegations` table or

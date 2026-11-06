@@ -40,6 +40,7 @@ from crucible.ports.delegation import (
     ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
     DelegationError,
     DelegationView,
+    FilePreview,
     delegated_conversation,
 )
 from crucible.ports.engine_turn import ConversationBusy, DispatchError, TurnRequest
@@ -209,6 +210,29 @@ async def test_files_travel_as_the_messages_attachments_under_send_files_rules(s
     with pytest.raises(DelegationError, match="turned off"):
         await off.delegate("assistant", record.runtime_session_id, "coder", "x", [str(spec)])
     assert len(sink.submitted) == 1
+
+
+async def test_the_files_are_previewed_as_written_or_by_name_and_size_under_send_files_rules(store, tmp_path: Path) -> None:
+    spec = tmp_path / "spec.md"
+    spec.write_text("# spec\n\n- one")
+    patch = tmp_path / "fix.diff"
+    patch.write_text("x" * 7000)
+    picture = tmp_path / "shot.png"
+    picture.write_bytes(b"PNG\x00\x00\x00\x00\x00\x00\x00")  # decodes, yet holds NUL: not text
+    odd = tmp_path / "data.bin"
+    odd.write_bytes(b"\xff\xfe\xfd")
+    svc = EngineDelegationService(
+        _presence(ScriptedSink()), store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient,
+        file_roots={"assistant": (tmp_path.resolve(),)}, max_file_bytes=10_000,
+    )
+    previews = await svc.preview_files("assistant", [str(spec), str(patch), str(picture), str(odd)])
+    assert previews[0] == FilePreview(name="spec.md", size=13, text="# spec\n\n- one", language="markdown")
+    assert (previews[1].name, previews[1].language, previews[1].truncated, len(previews[1].text or "")) == ("fix.diff", "diff", True, 6000)
+    assert previews[2] == FilePreview(name="shot.png", size=10)  # NUL bytes: not text, whatever decodes
+    assert previews[3] == FilePreview(name="data.bin", size=3)  # not UTF-8
+    with pytest.raises(DelegationError, match="outside the directories"):
+        await svc.preview_files("assistant", ["/etc/hostname"])
+    assert await svc.preview_files("assistant", []) == []
 
 
 async def test_no_such_agent_oneself_an_unresolvable_conversation_and_an_agent_without_a_sink_are_refused(store) -> None:
@@ -405,10 +429,17 @@ async def test_the_task_turns_chat_collects_the_answer_and_has_nobody_to_ask() -
 
 
 class _Delegation:
-    def __init__(self, error: Exception | None = None, *, cancelled: bool = True) -> None:
+    def __init__(self, error: Exception | None = None, *, cancelled: bool = True, previews=()) -> None:
         self.calls: list[tuple] = []
         self._error = error
         self._cancelled = cancelled
+        self._previews = list(previews)
+
+    async def preview_files(self, agent, paths):
+        self.calls.append(("preview_files", agent, list(paths)))
+        if self._error is not None:
+            raise self._error
+        return self._previews
 
     async def delegate(self, agent, runtime_session_id, to, task, paths=()):
         self.calls.append(("delegate", agent, runtime_session_id, to, task, list(paths)))
@@ -433,9 +464,14 @@ def _ctx(svc) -> ToolContext:
     return ToolContext(agent_name="assistant", directory=AGENTS, runtime_session_id="assistant--conv", delegation_svc=svc)
 
 
-async def test_the_card_names_the_agent_its_model_the_task_whole_and_the_files() -> None:
-    preview = await Delegate().describe(_ctx(_Delegation()), {
-        "agent": "coder", "task": "Write the migration.\nKeep it reversible.", "files": ["/tmp/spec.md", "/tmp/schema.sql"],
+async def test_the_card_names_the_agent_its_model_the_task_whole_and_the_files_as_written() -> None:
+    svc = _Delegation(previews=[
+        FilePreview(name="spec.md", size=6, text="# spec", language="markdown"),
+        FilePreview(name="schema.sql", size=9000, text="CREATE…", language="sql", truncated=True),
+        FilePreview(name="shot.png", size=1234),
+    ])
+    preview = await Delegate().describe(_ctx(svc), {
+        "agent": "coder", "task": "Write the migration.\nKeep it reversible.", "files": ["/tmp/spec.md", "/tmp/schema.sql", "/tmp/shot.png"],
     })
     assert preview is not None and not isinstance(preview, CannotRun)
     assert preview.title == "Hand a task to coder" and preview.danger is False
@@ -443,8 +479,21 @@ async def test_the_card_names_the_agent_its_model_the_task_whole_and_the_files()
         PreviewRow("Agent", "coder — writes code"),
         PreviewRow("Model", "astra/large"),
         PreviewRow("Task", "Write the migration.\nKeep it reversible.", passage=True),
-        PreviewRow("Files", "/tmp/spec.md, /tmp/schema.sql"),
+        PreviewRow("Files", "/tmp/spec.md, /tmp/schema.sql, /tmp/shot.png"),
+        PreviewRow("Not text", "shot.png (1234 bytes)"),
     )
+    # The text files as written, each under its name and size; one language only when they share it.
+    assert preview.block_label == "Files as written" and preview.block_language == ""
+    assert preview.block == "── spec.md (6 bytes)\n# spec\n\n── schema.sql (9000 bytes, cut at 7 chars)\nCREATE…"
+    assert svc.calls == [("preview_files", "assistant", ["/tmp/spec.md", "/tmp/schema.sql", "/tmp/shot.png"])]
+    one = _Delegation(previews=[FilePreview(name="a.py", size=1, text="1", language="python")])
+    preview = await Delegate().describe(_ctx(one), {"agent": "coder", "task": "x", "files": ["/tmp/a.py"]})
+    assert not isinstance(preview, CannotRun) and preview is not None and preview.block_language == "python"
+    # Without files there is no block; a file the agent may not send is nothing to ask about.
+    preview = await Delegate().describe(_ctx(_Delegation()), {"agent": "coder", "task": "x"})
+    assert not isinstance(preview, CannotRun) and preview is not None and preview.block == "" and preview.block_label == ""
+    refused = await Delegate().describe(_ctx(_Delegation(DelegationError("/etc/x: outside the directories"))), {"agent": "coder", "task": "x", "files": ["/etc/x"]})
+    assert isinstance(refused, CannotRun) and "outside the directories" in refused.reason
     # Nothing to ask about: no such agent, or oneself.
     assert isinstance(await Delegate().describe(_ctx(_Delegation()), {"agent": "nobody", "task": "x"}), CannotRun)
     assert isinstance(await Delegate().describe(_ctx(_Delegation()), {"agent": "assistant", "task": "x"}), CannotRun)

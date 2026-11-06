@@ -49,6 +49,7 @@ from crucible.ports.delegation import (
     ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
     DelegationError,
     DelegationView,
+    FilePreview,
     TaskTurnChat,
     delegated_conversation,
     delegated_task_id,
@@ -71,6 +72,14 @@ DELEGATION_HOP = 1
 # with extra steps, whoever read the cards.
 DELEGATION_MAX_DEPTH = 3
 MAX_FILES_PER_TASK = 5
+# How much of a text file the card shows as written; the rest is said to be cut.
+FILE_PREVIEW_MAX = 6000
+# What a fence names a file by, from its suffix — for a renderer that highlights.
+_LANGUAGE_BY_SUFFIX = {
+    ".py": "python", ".ts": "typescript", ".js": "javascript", ".json": "json", ".yaml": "yaml", ".yml": "yaml",
+    ".md": "markdown", ".diff": "diff", ".patch": "diff", ".sh": "bash", ".sql": "sql", ".groovy": "groovy",
+    ".java": "java", ".go": "go", ".rs": "rust", ".toml": "toml", ".xml": "xml", ".html": "html", ".css": "css",
+}
 # The asker's conversation may be mid-turn when the answer is ready (its own
 # turn that handed the task on, often): the answer is offered again every
 # so often, for this long, before it is left in the record alone.
@@ -177,6 +186,9 @@ class EngineDelegationService:
         logger.info("agent %s handed task %s to %s%s", agent, task_id, to,
                     f" with {len(attachments)} file(s)" if attachments else "")
         return task_id
+
+    async def preview_files(self, agent: str, paths: Sequence[str]) -> Sequence[FilePreview]:
+        return [await asyncio.to_thread(_preview, attachment) for attachment in self._attachments(agent, paths)]
 
     async def status(self, agent: str, runtime_session_id: str, task_id: str) -> DelegationView:
         entry = await self._own(agent, runtime_session_id, task_id)
@@ -350,6 +362,23 @@ class EngineDelegationService:
             else:
                 await self._store.save_delegation(replace(ended, delivered_at=_now()))
             return
+
+
+def _preview(attachment: Attachment) -> FilePreview:
+    """A file as the card shows it: text when it decodes as UTF-8 and holds no
+    NUL (what a text file is, whatever its suffix says), else its name and size."""
+    data = Path(attachment.path).read_bytes()
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return FilePreview(name=attachment.name, size=attachment.size)
+    if "\0" in text:
+        return FilePreview(name=attachment.name, size=attachment.size)
+    return FilePreview(
+        name=attachment.name, size=attachment.size,
+        text=text[:FILE_PREVIEW_MAX], language=_LANGUAGE_BY_SUFFIX.get(Path(attachment.name).suffix.lower(), ""),
+        truncated=len(text) > FILE_PREVIEW_MAX,
+    )
 
 
 def _attributes_of(entry: DelegationRecord) -> dict[str, str]:

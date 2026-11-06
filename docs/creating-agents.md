@@ -255,8 +255,9 @@ it in `list_agents` without a platform identity, and reaches it only through
 a translator, that does one thing for the agents people do talk to.
 
 Confirmed, always and for every task: the card names the agent, its model
-(`AgentInfo.model`), the task whole and the files by their paths, and offers
-no window — a person reads exactly what leaves before it goes, which is what
+(`AgentInfo.model`), the task whole and the files — by their paths, a text
+file as written under its name (cut past 6000 characters, and said to be),
+one that is not text by name and size — and offers no window — a person reads exactly what leaves before it goes, which is what
 lets an agent that holds what another may not see still have that other's
 work. Works on every gateway the asker is on, the http panel included. See
 [security.md](security.md#one-agent-and-another).
