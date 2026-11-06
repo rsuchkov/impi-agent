@@ -401,7 +401,7 @@ See [troubleshooting.md](troubleshooting.md) if callbacks don't arrive.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AGENTS_REPLY_TO_AGENTS` | `true` | agents answer other agents' mentions |
+| `AGENTS_REPLY_TO_AGENTS` | `true` | agents answer other agents' mentions in the chat; `delegate` does not depend on it |
 | `AGENT_MAX_HOPS` | `4` | refuse an agent-triggered turn past this depth from a human |
 | `AGENT_RATE_LIMIT_TURNS` | `6` | max agent-triggered turns per conversation… |
 | `AGENT_RATE_WINDOW_S` | `60` | …within this sliding window (seconds) |

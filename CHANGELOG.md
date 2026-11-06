@@ -6,7 +6,55 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A task handed to another agent goes through the engine.** `delegate` no
+  longer posts a mention in the thread for the other agent's gateway to pick
+  up: the engine opens a turn of that agent on the task alone — a
+  conversation that exists for this task (`delegated:<task id>`, a fresh
+  session), given the task and its files and nothing of the asker's thread —
+  and, when it ends, a turn of the asker's with the answer quoted as the
+  agent's words (`[context: event reported by <agent> (agent)]`) and one line
+  saying what came of it: finished, failed, ran out of time (the asked agent's
+  `runtime.timeout`). The call answers with a task id; `delegation_status`
+  asks after a task and gives the answer again, `cancel_delegation` stops the
+  other agent's turn. A task still running when the engine stopped is ended
+  as failed at the next start, and the asker told. It works on every gateway
+  the asker is on — the http panel included — and the other agent needs no
+  bot and no place in the conversation: an agent with `headless: true` in
+  its `agent.yaml` has no gateway and no token, is listed by `list_agents`
+  without a platform identity and is reached by tasks alone. The turn on a
+  task runs as the person who read the card (`user_id`) with the asker's turn
+  attributes beside `delegated_by`, `delegation_task` and
+  `on_behalf_of_gateway`, for an application's admission and entitlement
+  rules and for telemetry; it runs through the engine's own door, the
+  `delegation` gateway, with none of what needs a person or a conversation of
+  somebody's (no widgets, forms, confirmed tools, connected accounts, files
+  out, scheduling or handing on again — `DELEGATED_TURN_DENIED`), and
+  `runtime.tools_by_gateway: {delegation: [...]}` narrows the rest. The card
+  is unchanged: the agent, its model, the task whole, the files, no window.
+  For an application: `EngineDelegationService(presence, sessions, directory,
+  store, dispatcher, DelegationChatClient, …)` in `crucible.interactions.delegation`,
+  the `DelegationStore` facet (`DelegationRecord`, a `delegations` table or
+  collection), `TaskTurnChat` and the attribute names in
+  `crucible.ports.delegation`, the chat client in
+  `crucible.gateways.delegation`, `TurnRequest.is_from_bot`, and
+  `ConversationBusy` from a dispatcher whose conversation is mid-turn (the
+  http hub's), which the service retries. **Breaks:** `delegate` posts no
+  message and the other agent's answer appears in no thread — it reaches the
+  asker alone; `crucible.ports.chat.delegation` is `crucible.ports.delegation`
+  and `ChatDelegationService` is `EngineDelegationService`, with a store, a
+  dispatcher and a chat factory where it took a file service and places;
+  `DelegationService.delegate` returns the task id; the http and ws gateways
+  no longer deny `CAP_DELEGATION`; `AGENTS_REPLY_TO_AGENTS` no longer gates
+  the tool; every `AgentSink` has a `delegation` gateway entry and every
+  enrolled agent a `delegation` capability set.
+- **A model key of one agent's own.** `LLM_API_KEY__<AGENT>`,
+  `LLM_BASE_URL__<AGENT>` and `LLM_MODEL__<AGENT>` replace the deployment's
+  `LLM_*` for that agent alone, in its processes' environment and in no
+  other agent's (`Settings.model_env_for`, `build_pi_env(settings, agent)`,
+  `ProfileBuilder(model_env_for=)`) — where an agent answers with a model
+  whose key must not reach the rest. `impi escape` hands the host's `pi` the
+  agent's own; `impi doctor` marks the agent. The runtime's login file stays
+  shared, as security.md now says in those words.
 
 ## v0.46.0 — 2026-11-04
 

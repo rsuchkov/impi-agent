@@ -100,8 +100,7 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   messages — busy or free for the turn, waiting while a card is up), `StoppableSink` (a person stops the
   turn in flight), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `FileService`
-  (the tool-facing "send this file"), `DelegationService` (the tool-facing
-  "hand this task to another agent", `ports/chat/delegation`), `MessageSink` / `Flow` (inbound entry
+  (the tool-facing "send this file"), `MessageSink` / `Flow` (inbound entry
   point, returning a `TurnOutcome`), `AgentDirectory` (who our agents are), and
   `types` (the neutral vocabulary: `ConversationRef`, `IncomingMessage`,
   `Attachment`, `Action`, `Form`, …).
@@ -111,11 +110,21 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   (`scheduler/ports`) add `WatchHook`: the application's answer to "has it
   happened yet?" for a `watch` task.
 - **Engine turn** (`ports/engine_turn`): `TurnRequest` (a turn the engine
-  starts by itself — a scheduled task, an event the application reports — with
-  the `EventReport` it is about and the `TurnScope` it runs under),
-  `TurnDispatcher` (runs it where the agent lives and answers with the
-  outcome; the http hub is one, an application's sink dispatcher another),
+  starts by itself — a scheduled task, an event the application reports, the
+  answer to a task one agent handed another — with the `EventReport` it is
+  about and the `TurnScope` it runs under), `TurnDispatcher` (runs it where
+  the agent lives and answers with the outcome; the http hub is one, an
+  application's sink dispatcher another; `ConversationBusy` when the
+  conversation is mid-turn and the request may be made again),
   `requested_message` (the one way a request becomes the sink's message).
+- **Delegation** (`ports/delegation`): `DelegationService` (the tool-facing
+  "hand this task to another agent", ask after it, call it off), the task's
+  statuses, `TaskTurnChat` (the chat client a task's turn posts into — the
+  gateway's `DelegationChatClient` implements it) and the attribute names a
+  task's turn carries (`delegated_by`, `delegation_task`,
+  `on_behalf_of_gateway`). The engine's own gateway, `GATEWAY_DELEGATION`, is
+  the door such a turn runs through; `interactions/delegation` is the service
+  over the sinks, the store (`DelegationRecord`) and the turn dispatcher.
 - **Entitlement** (`ports/entitlement`): `Entitlement` (what one conversation
   may do, out of its agent's profile: a subset of its tool names, built-ins
   included, trusted instructions for its system prompt, and the names whose

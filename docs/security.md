@@ -182,34 +182,45 @@ named. Turn the containers on for a network of their own, or do not give the
 first one a shell.
 
 **When one agent hands another a task.** Two things cross between them.
-The task handed through `delegate` is a message in the thread, posted only
-after a person has read the card — the agent it goes to, the model that
-agent answers with, the task whole, the files by their paths — and read every
-time: the card offers no "allow for a while" and honours none. The answer
-comes back as a message marked an agent's. A directory the two share
+The task handed through `delegate` goes through the engine, not through the
+chat, and only after a person has read the card — the agent it goes to, the
+model that agent answers with, the task whole, the files by their paths —
+and read every time: the card offers no "allow for a while" and honours
+none. The asked agent's turn runs in a conversation that exists for this
+task alone (`delegated:<task id>`, a fresh session): the task and its files
+are all it is given — no thread of the asker's is replayed, no earlier task
+remembered — so what reaches its model is what the card showed, and nothing
+else. Its answer comes back as a turn of the asker's in which the answer is
+quoted as data under the agent's name, not as anybody's instructions. The
+turn runs as the person who read the card (`user_id`) with the asker's turn
+attributes, so the application's admission and entitlement rules decide for
+that person and telemetry counts it as theirs — but with none of what a
+person's own turn has: no widgets, forms, confirmed tools, connected
+accounts, files out, scheduling or handing on again (`DELEGATED_TURN_DENIED`;
+`runtime.tools_by_gateway: {delegation: [...]}` narrows further). The asked
+agent runs under its own profile — its own tools, its own confinement, its
+own ports, its own model key where it has one (`LLM_API_KEY__<AGENT>`) — and
+reaches nothing of the asker's but the task; a headless agent reaches nothing
+of anyone's but the tasks it is handed. A directory the two share
 (`runtime.shared_dirs`) has no card: every agent naming it reads all of it,
 whatever its model and wherever that model runs, so what may not reach one
-of them must not be put there. The asked agent runs under its own profile —
-its own tools, its own confinement, its own ports — and reaches nothing of
-the asker's but the thread and the shared directory; its turn is opened by a
-bot's message, so a card of its own there is addressed to nobody who can
-answer unless `TOOL_APPROVERS` names someone.
+of them must not be put there.
 
-Does not hold against: **the mention itself**. With `AGENTS_REPLY_TO_AGENTS`
-on (the default), an agent's gateway opens a turn on any message by one of
-the deployment's agents that mentions it — a plain reply the model wrote, a
-`send_file` caption — with no card: the card is `delegate`'s, not the
-mention's, and a talked-into agent can address another without it. The
-cascade is bounded (`AGENT_MAX_HOPS`), what the asked agent may do is its own
-profile's, and its confirmed tools still ask a person; but what left the
+Does not hold against: **a mention**. With `AGENTS_REPLY_TO_AGENTS` on (the
+default), an agent's gateway still opens a turn on any message by one of the
+deployment's agents that mentions it — a plain reply the model wrote, a
+`send_file` caption — with no card and with the thread for context: that is
+not `delegate`, and a talked-into agent can address another that way. The
+cascade is bounded (`AGENT_MAX_HOPS`), what the mentioned agent may do is its
+own profile's, and its confirmed tools still ask a person; but what left the
 first agent was not read. Turn `AGENTS_REPLY_TO_AGENTS` off where that is not
-acceptable, and no agent answers another at all. Nor against a task text
-that carries what it should not and a reviewer who did not read it; files
-in the shared directory nobody looked at; an agent at `off`, or one in a
-container without Landlock, which sees every shared directory, not only its
-own; and, on one host, the runtime's shared login (above) — an agent whose
-model should stay apart answers with a key of its own (`LLM_API_KEY__<AGENT>`)
-or runs in a container of its own.
+acceptable: `delegate` does not need it. Nor against a task text that
+carries what it should not and a reviewer who did not read it; files in the
+shared directory nobody looked at; an agent at `off`, or one in a container
+without Landlock, which sees every shared directory, not only its own; and,
+on one host, the runtime's shared login (above) — an agent whose model should
+stay apart answers with a key of its own (`LLM_API_KEY__<AGENT>`) or runs in
+a container of its own.
 
 ### An MCP server and the engine
 

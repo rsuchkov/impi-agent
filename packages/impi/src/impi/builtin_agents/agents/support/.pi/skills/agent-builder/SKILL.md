@@ -96,7 +96,7 @@ and logs why. Common cases:
 | `ask_user_buttons`, `ask_user_select`, `open_form`, `open_screen` | `INTEGRATIONS_ENABLED=true`, and a gateway someone can click back from (not `http`) |
 | `create_agent`, `install_skill`, `remove_skill` — anything that needs confirming | `INTEGRATIONS_ENABLED=true` (somebody to ask) |
 | `send_file` | `ATTACHMENTS_ENABLED=true` |
-| `delegate` | `INTEGRATIONS_ENABLED=true` (it is confirmed), `AGENTS_REPLY_TO_AGENTS` on, and a chat gateway (Mattermost, Slack) — the other agent must be in the same conversation (a member of the channel); nothing checks that, a task to one that is not goes unanswered |
+| `delegate`, `delegation_status`, `cancel_delegation` | `INTEGRATIONS_ENABLED=true` (the task is confirmed); any gateway. The other agent needs no bot and no place in the conversation — the engine opens its turn on the task alone; `headless: true` in its `agent.yaml` makes an agent reached by tasks only (no token). Its turn has no widgets, confirmed tools, files out or connected accounts; `runtime.tools_by_gateway: {delegation: [...]}` narrows the rest |
 | `send_ephemeral` | a gateway that has ephemeral messages |
 | `schedule_task`, `list_tasks`, `cancel_task`, `pause_task` | `SCHEDULER_ENABLED=true` |
 | `mcp__<server>__<tool>`, `mcp__<server>__*` | the server declared with `impi mcp add` and its tools pinned (the **mcp** skill); a confirmed tool — every tool of an untrusted server outside its `safe:` list, a trusted server's destructive ones, anything in `confirm:`, and a tool that takes a person's file, always — also needs `INTEGRATIONS_ENABLED=true` |

@@ -489,30 +489,51 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   permission ([creating-agents.md](creating-agents.md)), and without it the
   person still gets the sentence, in the open. `ChatAdmin.post_ephemeral` is
   the tools' plain ephemeral post and knows neither code nor link.
-- **One agent hands another a task.** The `delegate` tool
-  (`crucible.builtin_tools`) is advertised where the server can post it: wire
-  `ToolWiring(delegation_on=True)` and
-  `build_server(delegation_svc=ChatDelegationService(presence, sessions, directory, file_svc=…, places=…))`
-  (`crucible.interactions.delegation`) — the wiring raises when the flag and
-  the service disagree, as for confirmations and connections. The service
-  posts the task in the turn's place as the asking agent, addressed to the
-  other by the mention its gateway recognizes, with files through the file
-  service; a tool reads it as `ctx.require_delegation()` and declares
-  `CAP_DELEGATION`, which the ws and http gateways deny (nobody else reads
-  their conversations). Advertise it only where agents answer agents'
-  mentions (`reply_to_agents` on the gateways): the task is a mention, and
-  one nobody answers is a task nobody does. `AgentInfo.model` is what the
-  card shows as the model the task goes to; fill it in your directory.
+- **One agent hands another a task.** The `delegate`, `delegation_status`
+  and `cancel_delegation` tools (`crucible.builtin_tools`) are advertised
+  where the server has the service: wire `ToolWiring(delegation_on=True)` and
+  `build_server(delegation_svc=EngineDelegationService(presence, sessions, directory, store, dispatcher, DelegationChatClient, file_roots=…, max_file_bytes=…, turns=…))`
+  (`crucible.interactions.delegation`; the client from
+  `crucible.gateways.delegation`) — the wiring raises when the flag and the
+  service disagree, as for confirmations and connections. The service opens
+  the asked agent's turn itself: a message of the engine's into that agent's
+  sink (`presence.sink(to)`, which must report outcomes — the coalescer
+  does), in a conversation keyed `delegated:<task id>` on the `delegation`
+  gateway, run as the person whose message the asker's turn answered, with
+  the asker's `TurnScope.attributes` beside `DELEGATED_BY_ATTRIBUTE`,
+  `DELEGATION_TASK_ATTRIBUTE` and `ON_BEHALF_OF_GATEWAY_ATTRIBUTE`
+  (`crucible.ports.delegation`) — your `TurnAdmission` and
+  `EntitlementSource` see them on the message. The turn posts into a
+  `TaskTurnChat` the gateway provides (`DelegationChatClient`: replies become
+  the answer, a card raises), its outcome is written to the
+  `DelegationStore` facet (`DelegationRecord`, both backends), and the answer
+  goes back as a `TurnRequest` through the `TurnDispatcher` you hand the
+  service — `event` the agent's words, `is_from_bot` so the prompt marks the
+  speaker an agent, `user_id` the person — retried while the asker's
+  conversation is busy (`ConversationBusy`, which `HttpHub.run_turn` raises).
+  Give every agent's `AgentSink` a `DelegationChatClient` under
+  `GATEWAY_DELEGATION` (impi does), so a tool gate asking in a task's
+  conversation finds the door and not the agent's platform, and enrol every
+  agent's `delegation` capabilities (`ToolWiring.enroll` does it beside each
+  gateway; `DELEGATED_TURN_DENIED` is what a task's turn may not have; a
+  headless agent — `AgentSpec.headless` — enrols with that door alone). Call
+  `recover()` once the agents are up and `aclose()` at shutdown. A tool reads
+  the service as `ctx.require_delegation()` and declares `CAP_DELEGATION`.
+  `AgentInfo.model` is what the card shows as the model the task goes to;
+  fill it in your directory, and list a headless agent with an empty
+  `username`/`user_id`.
 - **Turns the engine starts.** A person's message opens a turn through a
   gateway; the engine opens one by itself through a `TurnDispatcher`
   (`crucible.ports.engine_turn`) — the scheduler does for a `turn`-mode task,
-  and an application does when something it watches has happened and the
-  agent should come back to the conversation with its memory: a pipeline
-  finished, a ticket moved. `TurnRequest` names the agent and the
+  the delegation service does to hand an asker the answer to a task, and an
+  application does when something it watches has happened and the agent
+  should come back to the conversation with its memory: a pipeline finished,
+  a ticket moved. `TurnRequest` names the agent and the
   conversation by the engine's own keys (the platform's ids on a chat
   gateway; on the http gateway the realm-namespaced key `HttpHub.conversation_key`
   spells), a `message_id` of the run's own, `user_id`/`username` for who it
-  appears to come from, and two things the application adds: `event`, an
+  appears to come from (`is_from_bot` when that is an agent, so the prompt
+  marks the line `(agent)`), and two things the application adds: `event`, an
   `EventReport(source, text)` the flow quotes as data in a
   `[context <tag>: event reported by <source>]` block ahead of the speaker
   line (`text` is then the one-phrase summary the line carries), and `turn`,
@@ -619,7 +640,7 @@ credential, is another user's credential.
   refuses pickling), hand `AgentFlow(..., turns=TurnRegistry())`,
   `build_server(..., turns=<the same registry>)` and
   `InteractionWiring(..., turns=<the same registry>)` (and
-  `ChatFileService(places=)` and `ChatDelegationService(places=)`); the flow binds the scope to the conversation's
+  `ChatFileService(places=)` and `EngineDelegationService(turns=)`); the flow binds the scope to the conversation's
   session for exactly the turn, and a tool reads
   `ctx.turn` or `ctx.require_secret("cookie")` — a `ToolError` that tells the
   model to stop when there is none. `scope.flag("session_expired")` is how a

@@ -345,7 +345,9 @@ confirmation can take minutes.
   channel-admin tools are not advertised either. The tool-trace widget under a
   reply has no message to sit under: the same tool events go to the journal
   instead. The journal is swept on every call, not only on new messages.
-- **The engine can open a turn too.** A scheduled task in `turn` mode, or an
+- **The engine can open a turn too.** A scheduled task in `turn` mode, the
+  answer to a task the agent handed another with `delegate` (which works here
+  as on any gateway: the card comes as a `confirmation` event), or an
   event the application reports (`HttpHub.run_turn(TurnRequest)`, see
   [building-an-app.md](building-an-app.md) "Turns the engine starts"), opens a
   turn in the conversation exactly as a posted message would: `activeTurn`

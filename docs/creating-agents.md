@@ -57,6 +57,8 @@ runtime:
   shared_dirs: [crm-code] # optional; directories shared with every agent naming the same (see below)
   packages:               # OPTIONAL, and only with agent containers (see below)
     apt: [ffmpeg]
+headless: false           # optional; true = nobody talks to it: no gateway, no token, reached
+                          # only when another agent hands it a task (see "Handing a task on")
 ```
 
 Only `name` and `role` are required. Leave `provider`/`model` out unless the agent
@@ -137,7 +139,8 @@ no tools at all**.
 
 An agent on several gateways may be allowed less on one of them:
 `runtime.tools_by_gateway` maps a gateway kind (`mattermost`, `slack`, `ws`,
-`http`) to the names of `tools` a conversation there may use — a subset,
+`http`, or `delegation` for the turns on a task another agent handed on) to
+the names of `tools` a conversation there may use — a subset,
 checked when the profile loads — or to `{except: [names]}`, every entry of
 `tools` but those (each named as `tools` writes it, `mcp__<server>__*`
 included), which is the form to take a few tools away from one gateway: a
@@ -202,24 +205,61 @@ Two rules to remember:
   - **`send_file`** posts a file back into the conversation. It reads only from
     the agent's own profile directory, its attachment directory and `/tmp`, so
     an agent that generates something must write it in one of those first.
-  - **`delegate`** hands a task to another agent that is in the conversation:
-    the engine posts the task in the thread, as this agent, addressed to the
-    other (with files, by the same rules as `send_file`), and the other
-    agent's gateway opens a turn of its own on the mention. Nothing checks
-    that the other agent is in the channel — a task addressed to one that is
-    not is posted and goes unanswered — and the tool is offered only while
-    agents answer agents' mentions (`AGENTS_REPLY_TO_AGENTS`), which is also
-    what makes a plain reply mentioning an agent open its turn without any
-    card ([security.md](security.md#one-agent-and-another)). The card is
-    answered for each task: it offers no window. Asynchronous: the
-    call ends when the task is posted, and the answer arrives later as a
-    message from that agent — in the prompt its line says `(agent)`, so the
-    model knows whose words they are; the task should ask it to mention the
-    asker back. Confirmed, always: a person reads exactly what leaves — the
-    agent, its model, the task, the files — before it goes, so an agent
-    that holds what another may not see can still have that other's work.
-    Chat gateways only: nobody else reads an http or ws conversation. See
-    [security.md](security.md#one-agent-and-another).
+  - **`delegate`** hands a task to another agent of the deployment, through
+    the engine: see "Handing a task on" below. `delegation_status` asks
+    after a task by its id, `cancel_delegation` calls one off; all three come
+    with `delegate` and need `INTEGRATIONS_ENABLED=true` (the card).
+
+## Handing a task on
+
+An agent that wants another's work — a model better at the task, or one
+allowed what it is not — calls `delegate` with the other agent's name (as
+`list_agents` gives it), the task as a message, and files by absolute path
+under the rules of `send_file`. The engine then opens a turn of that agent
+**on the task alone**: a conversation of its own (`delegated:<task id>`), a
+fresh session for every task, nothing of the asker's thread in it and no
+memory of an earlier task — the other agent reads the task, the files and
+nothing else, so what reaches its model is exactly what the card showed. When
+that turn ends, the engine opens a turn of the asker's in the asker's
+conversation with the answer, quoted as the other agent's words (an
+`[context: event reported by <agent> (agent)]` block, data rather than
+instructions) and one line saying what came of the task: `finished`,
+`failed at`, `ran out of time on` (the other agent's own `runtime.timeout`),
+with the task id. Asynchronous: the call ends at once with the task id; the
+asker goes on, and the answer is a later turn. `delegation_status <id>` says
+where a task stands and gives the answer again; `cancel_delegation <id>`
+stops the other agent's turn, and no answer comes. A task still running when
+the engine stopped is ended as failed when it starts again, and the asker is
+told.
+
+The turn on a task runs **as the person behind it** — the one whose message
+the asker's turn answered, who read the card — with the asker's turn
+attributes beside `delegated_by`, `delegation_task` and
+`on_behalf_of_gateway`, so an application's admission or entitlement rule
+decides for that person, and telemetry counts the turn as theirs. It runs
+through the engine's own door, the `delegation` gateway, with less than the
+agent's other conversations have: nothing that needs a person who could
+click, confirm, be told privately or be acted for — no widgets, forms,
+ephemeral posts, confirmed tools, connected accounts — and nothing that
+belongs to a conversation of somebody's: no `send_file`, no scheduling, no
+`delegate` of its own. A tool the other agent would have had to confirm is
+refused there: there is nobody to ask. `runtime.tools_by_gateway: {delegation:
+[...]}` narrows further, to the few tools a task needs. Files the other agent
+writes stay in its own conversation; the answer names them. For files to go
+back and forth, give both agents a shared directory (`runtime.shared_dirs`).
+
+A **headless** agent (`headless: true` in `agent.yaml`) is one nobody talks
+to: it has no gateway and needs no platform token — the engine runs it, lists
+it in `list_agents` without a platform identity, and reaches it only through
+`delegate`. The shape for a specialist on another model: a reviewer, a coder,
+a translator, that does one thing for the agents people do talk to.
+
+Confirmed, always and for every task: the card names the agent, its model
+(`AgentInfo.model`), the task whole and the files by their paths, and offers
+no window — a person reads exactly what leaves before it goes, which is what
+lets an agent that holds what another may not see still have that other's
+work. Works on every gateway the asker is on, the http panel included. See
+[security.md](security.md#one-agent-and-another).
 
 ## Asking with controls (widgets and forms)
 
