@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.48.0 — 2026-11-06
+
 - **An agent has a budget at the model.** `runtime.budget` in `agent.yaml`:
   `tokens_per_turn` is held by the runtime while the turn runs — the model is
   told once to round off at the budget (`BUDGET_NOTE`) and the turn is stopped
