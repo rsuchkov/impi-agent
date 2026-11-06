@@ -1896,10 +1896,13 @@ async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> 
     runtime = FakeRuntime(result=PiResult(text="answer", tool_calls=["read"], model="openai/gpt-5.5", stop_reason="stop", usage=usage))
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     telemetry = _Telemetry()
-    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=telemetry)
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=telemetry, usage=store)
     msg = _with_files(tmp_path, ("note.txt", "text/plain", b"hi"))
     msg.gateway = "mattermost"
     assert await flow.handle(msg, FakeChat()) is TurnOutcome.REPLIED
+    # What the turn cost is in the ledger, as the person's and the agent's.
+    spent = await store.usage_since("assistant", "2000-01-01T00:00:00+00:00", user_id="u1")
+    assert (spent.total, spent.cost_usd) == (15, 0.0002)
     (event,) = telemetry.events
     assert isinstance(event, TurnEnded)
     assert (event.agent, event.gateway, event.user_id, event.conversation_id) == ("assistant", "mattermost", "u1", "dm1")

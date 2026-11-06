@@ -35,6 +35,9 @@ class NotAdmitted:
     text: str
     link: str = ""
     label: str = ""
+    # The notice code the person's client gets; the application's rule says
+    # ``not_admitted`` and the engine's budget rule its own word.
+    code: str = NOTICE_NOT_ADMITTED
 
 
 class TurnAdmission(Protocol):

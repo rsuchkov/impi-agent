@@ -109,6 +109,17 @@ class ConnectionChanged:
 
 
 @dataclass(frozen=True)
+class BudgetHit:
+    """A turn was not admitted, or stopped, for a budget (``AgentSpec.budget``)."""
+
+    agent: str
+    user_id: str  # whose turn ("" when nobody's)
+    rule: str  # the budget key that was hit: tokens_per_day, usd_per_day_per_person, …
+    spent: float  # what had been spent when the rule was applied, in the rule's unit
+    limit: float
+
+
+@dataclass(frozen=True)
 class EngineState:
     """How the engine stands, told on a timer: what a gauge reads, where the
     other events are what a counter sums."""
@@ -122,7 +133,7 @@ class EngineState:
 
 
 TelemetryEvent = (
-    TurnEnded | ToolCalled | CardAnswered | McpCalled | McpChecked | TaskRan | ConnectionChanged | EngineState
+    TurnEnded | ToolCalled | CardAnswered | McpCalled | McpChecked | TaskRan | ConnectionChanged | BudgetHit | EngineState
 )
 
 

@@ -357,6 +357,7 @@ class PiRuntime:
                 result = await managed.session.prompt(
                     message, timeout=pi_profile.timeout, images=images, on_event=on_event,
                     idle_timeout=pi_profile.idle_timeout, wrap_up_after=pi_profile.wrap_up_after,
+                    tokens_per_turn=pi_profile.tokens_per_turn,
                 )
             except (PiTimeout, PiProcessError):
                 # A dead/stuck/poisoned session can't be reused; drop it so the
@@ -392,6 +393,7 @@ class PiRuntime:
             return await session.prompt(
                 message, timeout=pi_profile.timeout, images=images, on_event=on_event,
                 idle_timeout=pi_profile.idle_timeout, wrap_up_after=pi_profile.wrap_up_after,
+                tokens_per_turn=pi_profile.tokens_per_turn,
             )
         finally:
             await self._close_session(session, pi_profile.name)

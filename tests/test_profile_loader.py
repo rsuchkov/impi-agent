@@ -455,6 +455,31 @@ def test_runtime_network_ports_are_read_each_once_and_must_be_ports(tmp_path: Pa
             FsProfileStore(tmp_path, library=None).get("assistant")
 
 
+def test_a_budget_is_read_as_numbers_and_refused_otherwise(tmp_path: Path) -> None:
+    from crucible.ports.agent.spec import Budget
+
+    _write_agent(tmp_path, "assistant", _yaml_with_runtime(
+        "  budget:\n    tokens_per_turn: 20000\n    usd_per_day: 2.5\n    tokens_per_day_per_person: 50000\n"
+    ))
+    spec = FsProfileStore(tmp_path, library=None).get("assistant")
+    assert spec.budget == Budget(tokens_per_turn=20000, usd_per_day=2.5, tokens_per_day_per_person=50000) and spec.budget.daily
+    assert build_pi_profile(spec).tokens_per_turn == 20000  # the turn's own budget is the runtime's to hold
+    manifest = tmp_path / "agents" / "assistant" / "agent.yaml"
+    for body, problem in [
+        ("  budget: 5\n", "must be a map of"),
+        ("  budget:\n    tokens_per_turn: 1.5\n", "tokens_per_turn must be a whole number"),
+        ("  budget:\n    usd_per_day: -1\n", "usd_per_day must be a number of zero or more"),
+        ("  budget:\n    coins: 3\n", "unknown keys: coins"),
+    ]:
+        manifest.write_text(_yaml_with_runtime(body), encoding="utf-8")
+        with pytest.raises(ProfileError, match=problem):
+            FsProfileStore(tmp_path, library=None).get("assistant")
+    manifest.write_text(_yaml_with_runtime("  budget:\n    tokens_per_turn: 100\n"), encoding="utf-8")
+    only_turn = FsProfileStore(tmp_path, library=None).get("assistant").budget
+    assert only_turn.tokens_per_turn == 100 and not only_turn.daily
+    assert FsProfileStore(tmp_path, library=None).get("assistant").budget != Budget() and Budget().daily is False
+
+
 def test_trusted_agents_are_named_with_what_each_is_handed(tmp_path: Path) -> None:
     from crucible.ports.agent.spec import TrustedAgent
 

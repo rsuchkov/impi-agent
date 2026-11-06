@@ -37,6 +37,7 @@ CONNECTION_LINKS = "connection_links"
 LEASES = "leases"
 CONVERSATION_OWNERS = "conversation_owners"
 DELEGATIONS = "delegations"
+USAGE = "usage"
 
 # The heartbeat is one document by construction: a reader asks for THE beat,
 # so there is nothing to choose between.
@@ -141,6 +142,8 @@ async def create_indexes(db: Collections) -> None:
     await db[CONNECTION_LINKS].create_index([("expire_at", 1)], expireAfterSeconds=0)
     # A restart asks for every task still running; nothing else scans them.
     await db[DELEGATIONS].create_index([("status", 1)])
+    # Summed by agent since a moment before a turn; pruned by age.
+    await db[USAGE].create_index([("agent", 1), ("at", 1)])
 
 
 class MongoBase:

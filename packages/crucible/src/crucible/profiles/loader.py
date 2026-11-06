@@ -23,10 +23,12 @@ from crucible.ports.agent.confinement import ConfinementLevel, check_confinement
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
 from crucible.ports.agent.spec import (
+    BUDGET_KEYS,
     DELEGATION_SESSION_PER_TASK,
     DELEGATION_SESSIONS,
     TRUST_CONTEXT_TASK,
     TRUST_CONTEXTS,
+    Budget,
     TrustedAgent,
 )
 from crucible.ports.chat.gateway import (
@@ -194,6 +196,7 @@ class FsProfileStore:
         if not isinstance(headless, bool):
             raise ProfileError(f"{manifest}: headless must be true or false")
         trusted_agents = _trusted_agents(runtime, manifest)
+        budget = _budget(runtime, manifest)
         delegation_session = str(runtime.get("delegation_session") or DELEGATION_SESSION_PER_TASK)
         if delegation_session not in DELEGATION_SESSIONS:
             raise ProfileError(
@@ -312,6 +315,7 @@ class FsProfileStore:
             headless=headless,
             trusted_agents=trusted_agents,
             delegation_session=delegation_session,
+            budget=budget,
         )
 
     def _fallback_models(self, name: str, runtime: dict, manifest: Path) -> tuple[str, ...]:
@@ -376,6 +380,29 @@ def _shared_dirs(runtime: dict, manifest: Path) -> tuple[str, ...]:
             f"{manifest}: runtime.shared_dirs must be a list of names (lowercase letters, digits, hyphens)"
         )
     return tuple(dict.fromkeys(raw))
+
+
+def _budget(runtime: dict, manifest: Path) -> Budget:
+    """``runtime.budget``: a map of ``tokens_per_turn``, ``tokens_per_day``,
+    ``usd_per_day``, ``tokens_per_day_per_person``, ``usd_per_day_per_person``
+    to numbers of zero or more (tokens whole); absent = no limit."""
+    raw = runtime.get("budget")
+    if raw is None:
+        return Budget()
+    if not isinstance(raw, dict):
+        raise ProfileError(f"{manifest}: runtime.budget must be a map of {', '.join(BUDGET_KEYS)} to numbers")
+    unknown = set(raw) - set(BUDGET_KEYS)
+    if unknown:
+        raise ProfileError(f"{manifest}: runtime.budget has unknown keys: {', '.join(sorted(unknown))}")
+    values: dict[str, int | float] = {}
+    for key, value in raw.items():
+        whole = key.startswith("tokens")
+        if isinstance(value, bool) or not isinstance(value, int | float) or value < 0 or (whole and not isinstance(value, int)):
+            raise ProfileError(
+                f"{manifest}: runtime.budget.{key} must be a {'whole number' if whole else 'number'} of zero or more"
+            )
+        values[key] = int(value) if whole else float(value)
+    return Budget(**values)  # type: ignore[arg-type]
 
 
 def _trusted_agents(runtime: dict, manifest: Path) -> tuple[TrustedAgent, ...]:

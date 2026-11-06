@@ -324,6 +324,11 @@ And from the session check:
   such a turn has no person and no conversation of anybody's, so widgets,
   confirmed tools, `send_file`, connected accounts and `delegate` itself are
   refused there by design.
+- `token_budget` — the turn spent past `runtime.budget.tokens_per_turn` (told to round
+  off at the budget, stopped a quarter past; log `pi turn spent N tokens against a budget of M`).
+  `budget_spent` — a daily rule of `runtime.budget` (`tokens_per_day`, `usd_per_day`, the
+  `…_per_person` pair): nothing ran, the day turns at 00:00 UTC; the log names the rule and the
+  person, telemetry says `BudgetHit`. Raise the budget or wait; neither is a bug.
 - Tasks handed between agents — `X is not an agent you trust; hand the task on
   with delegate` (`ask_agent` to an agent the asker's `runtime.trusted_agents`
   does not name), `asker turn ended` in `delegation_status` (the asker answered or

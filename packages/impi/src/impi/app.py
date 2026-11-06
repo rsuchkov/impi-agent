@@ -28,6 +28,7 @@ from pathlib import Path
 from crucible.approvals import PendingApprovals
 from crucible.attachment_retention import run_attachment_sweeps
 from crucible.attachments import AttachmentStore
+from crucible.budget import BudgetAdmission
 from crucible.confinement import NET_ABI, landlock_abi
 from crucible.conversation_files import (
     conversation_files_dir_lookup,
@@ -123,7 +124,7 @@ from crucible.scheduler.admin import TaskAdmin
 from crucible.scheduler.service import Scheduler
 from crucible.skills import SkillLibrary
 from crucible.store import open_store
-from crucible.store.base import SessionStore, Store
+from crucible.store.base import Store
 from crucible.tools import SessionProofBook, ToolServer, ToolWiring
 from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
@@ -377,7 +378,7 @@ def _build_unit(
     *,
     runtime: AgentRuntime,
     control: RuntimeControl,
-    sessions: SessionStore,
+    sessions: Store,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
@@ -413,6 +414,10 @@ def _build_unit(
         control=control,
         entitlements=GatewayEntitlements(lambda name: spec if name == spec.name else None) if by_gateway else None,
         conversation_profiles=EntitledProfiles(tools, narrow_pi_profile) if by_gateway else None,
+        # What every turn cost goes to the ledger; an agent with a daily budget
+        # is held to it before a turn (its per-turn budget is the runtime's).
+        usage=sessions,
+        admission=BudgetAdmission(sessions, lambda _agent: spec.budget, telemetry=telemetry) if spec.budget.daily else None,
     )
     served: Flow = flow
     if replica is not None and replicas is not None and forwarder is not None:
@@ -452,7 +457,7 @@ def _build_units(
     settings: ImpiSettings,
     runtime: AgentRuntime,
     control: RuntimeControl,
-    sessions: SessionStore,
+    sessions: Store,
     gateway_factory: GatewayFactory,
     tools: ToolWiring,
     captions: CallCaptions,

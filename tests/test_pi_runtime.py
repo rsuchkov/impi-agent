@@ -44,11 +44,12 @@ class FakeSession:
     async def prompt(
         self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
         on_event: object = None, idle_timeout: float = 0.0, wrap_up_after: float = 0.0,
+        tokens_per_turn: int = 0,
     ) -> PiResult:
         self.calls.append(("prompt", message))
         self.images = list(images)
         self.callbacks.append(on_event)
-        self.limits = (timeout, idle_timeout, wrap_up_after)
+        self.limits = (timeout, idle_timeout, wrap_up_after, tokens_per_turn)
         if self._prompt_error is not None:
             raise self._prompt_error
         return self._result
@@ -176,6 +177,7 @@ async def test_per_session_lock_serializes_turns() -> None:
         async def prompt(
             self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
             on_event: object = None, idle_timeout: float = 0.0, wrap_up_after: float = 0.0,
+        tokens_per_turn: int = 0,
         ) -> PiResult:
             order.append(f"start:{message}")
             await asyncio.sleep(0.02)
@@ -1032,9 +1034,9 @@ async def test_the_turns_limits_come_from_the_profile() -> None:
         return session
 
     rt = PiRuntime(session_factory=cast(SessionFactory, factory))
-    profile = dataclasses.replace(_profile(), timeout=300.0, idle_timeout=45.0, wrap_up_after=240.0)
+    profile = dataclasses.replace(_profile(), timeout=300.0, idle_timeout=45.0, wrap_up_after=240.0, tokens_per_turn=9000)
     await rt.run_stateful(profile, "assistant--T1", "a")
-    assert session.limits == (300.0, 45.0, 240.0)
+    assert session.limits == (300.0, 45.0, 240.0, 9000)
 
 
 async def test_a_profile_with_a_loop_guard_loads_the_extension_and_hands_the_value_on(monkeypatch) -> None:

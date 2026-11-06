@@ -457,8 +457,14 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   its button. The flow then runs nothing — no prompt, no process, no reaction —
   and tells the person privately where the platform lets one person be told
   (`PrivateNotices`, below), with the link; the turn's outcome is
-  `TurnOutcome.NOT_ADMITTED`, its notice code `not_admitted`, and a scheduled
-  run ends as `not_admitted`. Asked once per author of the turn's messages,
+  `TurnOutcome.NOT_ADMITTED`, its notice code `not_admitted` (or the verdict's own
+  `NotAdmitted.code`), and a scheduled
+  run ends as `not_admitted`. The engine's own rule of this kind is the budget
+  (`crucible.budget.BudgetAdmission(usage_store, budget_for, then=your_rule,
+  telemetry=)`): an agent with a daily `runtime.budget` is held to the ledger's
+  sum for the day first, and your rule is asked when the budget admits; hand
+  `AgentFlow(usage=the store)` so every turn's cost is written to the ledger
+  (`UsageStore`, the `usage` facet of both backends). Asked once per author of the turn's messages,
   every turn, synthetic messages included — a command or a click carries the
   person who typed or clicked; a scheduled run carries the id of the person
   who created the task, with `synthetic=True` and `engine_started=True`, and

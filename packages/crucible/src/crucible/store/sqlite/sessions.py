@@ -31,6 +31,7 @@ from crucible.store.sqlite.leases import LeaseStoreMixin
 from crucible.store.sqlite.replicas import ReplicaStoreMixin
 from crucible.store.sqlite.tasks import TaskStoreMixin
 from crucible.store.sqlite.traces import TraceStoreMixin
+from crucible.store.sqlite.usage import UsageStoreMixin
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -103,7 +104,7 @@ _COLUMNS = (
 
 class SqliteSessionStore(
     TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, ConnectionStoreMixin, LeaseStoreMixin,
-    ReplicaStoreMixin, HeldCardStoreMixin, DelegationStoreMixin,
+    ReplicaStoreMixin, HeldCardStoreMixin, DelegationStoreMixin, UsageStoreMixin,
 ):
     def __init__(self, db_path: str | Path) -> None:
         path = Path(db_path)
@@ -133,6 +134,7 @@ class SqliteSessionStore(
             self._create_replica_table()  # which replica serves which conversation
             self._create_held_card_table()  # cards conversations hold outside a turn
             self._create_delegation_table()  # tasks agents handed one another
+            self._create_usage_table()  # what turns cost, for the budgets
             self._create_app_tables()  # whatever the application keeps here too
             self._migrate()
             self._conn.commit()

@@ -784,6 +784,51 @@ class DelegationStore(Protocol):
         ...
 
 
+# -- what turns cost at the model ---------------------------------------------
+
+
+@dataclass(frozen=True)
+class UsageRecord:
+    """What one turn cost at the model, as the runtime reported it: whose
+    agent and which person's, when it ended (UTC ISO-8601), tokens by kind and
+    the runtime's own price estimate. Read back summed over a day, for an
+    agent's budget and a person's."""
+
+    agent: str
+    user_id: str
+    at: str
+    input: int = 0
+    output: int = 0
+    cache_read: int = 0
+    cache_write: int = 0
+    total: int = 0
+    cost_usd: float = 0.0
+
+
+@dataclass(frozen=True)
+class UsageSum:
+    """Tokens and dollars summed over a span."""
+
+    total: int = 0
+    cost_usd: float = 0.0
+
+
+class UsageStore(Protocol):
+    """The ledger of what turns cost: one row per turn that reported a cost,
+    summed by agent — and by person — since a moment."""
+
+    async def add_usage(self, record: UsageRecord) -> None: ...
+
+    async def usage_since(self, agent: str, since: str, *, user_id: str | None = None) -> UsageSum:
+        """Tokens and dollars ``agent`` spent at or after ``since`` (ISO-8601,
+        UTC) — all of its turns, or ``user_id``'s alone."""
+        ...
+
+    async def prune_usage(self, *, before: str) -> int:
+        """Forget rows older than ``before``; how many went."""
+        ...
+
+
 class AgentStore(Protocol):
     """Persistence for the agent registry (synced from profiles at boot)."""
 
@@ -869,6 +914,7 @@ class Store(
     ConnectionStore,
     ConnectionLinkStore,
     DelegationStore,
+    UsageStore,
     LeaseStore,
     ReplicaStore,
     Protocol,

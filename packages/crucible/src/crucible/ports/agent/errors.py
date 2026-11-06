@@ -18,6 +18,12 @@ class AgentTimeout(AgentError):
     """A turn did not produce a final result within the allotted time."""
 
 
+class AgentOverBudget(AgentTimeout):
+    """A turn spent more than its token budget and was stopped — after the
+    model had been told once to round off. A limit of the agent's own, not a
+    failure of the runtime's."""
+
+
 class AgentStalled(AgentTimeout):
     """The runtime stopped reporting anything mid-turn — no text, no reasoning,
     no tool activity — for longer than the turn's idle limit, while no tool was
@@ -45,6 +51,10 @@ TIMEOUT_MESSAGE = (
 STALLED_MESSAGE = (
     "The model stopped responding in the middle of this turn, so I stopped it. "
     "Ask again."
+)
+TOKEN_BUDGET_MESSAGE = (
+    "This turn used more than its token budget and was stopped. What it did "
+    "stands; ask again for what is left, in a smaller step."
 )
 INTERNAL_ERROR_MESSAGE = "Sorry, something broke on my side. Please try again later."
 STOPPED_MESSAGE = "Stopped at your request. What was done so far stays."
@@ -119,6 +129,7 @@ NOTICE_CREDENTIALS = "credentials"
 NOTICE_CONTEXT = "context"
 NOTICE_TIMEOUT = "timeout"
 NOTICE_STALLED = "stalled"
+NOTICE_TOKEN_BUDGET = "token_budget"
 NOTICE_MODEL_UNAVAILABLE = "model_unavailable"
 NOTICE_AGENT_ERROR = "agent_error"
 # Not a failure: a person stopped the turn. Listed with the codes a client acts
@@ -148,6 +159,8 @@ def notice_for(error: Exception) -> tuple[str, str]:
         return NOTICE_CONTEXT, CONTEXT_MESSAGE
     if _MODEL_UNAVAILABLE.search(text):
         return NOTICE_MODEL_UNAVAILABLE, MODEL_UNAVAILABLE_MESSAGE
+    if isinstance(error, AgentOverBudget):
+        return NOTICE_TOKEN_BUDGET, TOKEN_BUDGET_MESSAGE
     if isinstance(error, AgentStalled):
         return NOTICE_STALLED, STALLED_MESSAGE
     if isinstance(error, AgentTimeout):

@@ -66,6 +66,13 @@ and the `agent.yaml` key behind it:
   `not_admitted`, seen by that person alone) — the application's admission
   rule did not let the turn run; not the engine's doing, and not a failure. A
   scheduled run of such an agent ends as `not_admitted` for the same reason.
+- "This turn used more than its token budget and was stopped" (`token_budget`)
+  — `runtime.budget.tokens_per_turn`: the model was told to round off at the
+  budget and went a quarter past it; the log says `pi turn spent N tokens
+  against a budget of M; aborting`. Raise the budget, or ask in smaller steps.
+- "This agent's budget for today is spent" / "Your budget with this agent for
+  today is spent" (`budget_spent`) — a daily rule of `runtime.budget`; nothing
+  ran, and the day turns at 00:00 UTC. The log names the rule and the person.
 - "The model stopped responding in the middle of this turn, so I stopped it"
   (`stalled`) — no text, reasoning or tool activity for `runtime.idle_timeout`
   seconds (120 by default; not counted while a tool runs or a card is up); the

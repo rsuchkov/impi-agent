@@ -40,6 +40,12 @@ runtime:
                           # rounds off before `timeout` cuts it. 0 = never; must be below timeout
   loop_guard: false       # optional; the agent's loop guard, off by default — true for the
                           # defaults, or {repeat: 4, same_result: 4, calls: 40} (see "Loop guard")
+  budget:                 # optional; what the agent may spend at the model (see "Budgets"); 0 = no limit
+    tokens_per_turn: 0              #   told to round off at this many tokens in one turn, stopped a quarter past
+    tokens_per_day: 0               #   the agent's day (UTC), in tokens…
+    usd_per_day: 0                  #   …and in the runtime's own dollar estimate
+    tokens_per_day_per_person: 0    #   each person's day with this agent
+    usd_per_day_per_person: 0
   thinking: medium        # optional; how much the model reasons before it answers:
                           # off | minimal | low | medium | high | xhigh | max (the runtime's levels;
                           # omit for its default). An answer that comes back cut short, or not at
@@ -430,6 +436,38 @@ Skills are **toggleable per agent without editing `agent.yaml`** via the
 `AGENTS_SKILLS__<AGENT>` environment variable (CSV of names): a set value replaces
 the profile's list, empty disables all, unset keeps the profile's list. This is
 how you turn a bundled agent's skills on or off.
+
+## Budgets
+
+`runtime.budget` bounds what an agent spends at the model, in tokens and in
+the runtime's own dollar estimate (a price table, not a bill):
+
+- **`tokens_per_turn`** is the runtime's to hold while the turn runs: as each
+  of the model's messages ends its tokens are counted, at the budget the model
+  is told once to stop calling tools and say what is done and what is left
+  (the same note a long turn gets at `wrap_up_after`), and a quarter past it
+  the turn is stopped — the person sees "This turn used more than its token
+  budget and was stopped" (`token_budget`), and the next turn is told what
+  this one did before it was cut. A tool in flight is not interrupted mid-call.
+- **`tokens_per_day`**, **`usd_per_day`** bound the agent's calendar day, UTC,
+  over everyone it answers; **`tokens_per_day_per_person`**,
+  **`usd_per_day_per_person`** bound each person's day with it. These are held
+  *before* a turn: the engine keeps a ledger of what every turn cost (the
+  `usage` table, written as a turn ends — see [storage.md](storage.md)), reads
+  the day's sum when a message arrives, and past a limit lets no turn run — the
+  person is told, alone where the platform can, "This agent's budget for today
+  is spent (N of M tokens); it answers again after 00:00 UTC" or "Your budget
+  with this agent for today is spent…" (`budget_spent`); nothing is rendered,
+  no process starts, and a scheduled run of the agent ends as `not_admitted`.
+  A turn one agent hands another counts for the person behind the task and the
+  agent that ran it. Telemetry says `BudgetHit` each time
+  ([telemetry.md](telemetry.md)). An application with an admission rule of its
+  own is asked after the budget admits ([building-an-app.md](building-an-app.md)).
+
+Tokens are counted as the runtime reports them (input, output and cache
+included in the total); the dollar figure is only as good as the runtime's
+price table for the model, and 0 for a model it does not price — a dollar
+budget on such a model is never spent.
 
 ## Directories agents share
 

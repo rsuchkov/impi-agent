@@ -6,6 +6,7 @@ These subclass the runtime-agnostic ``crucible.ports.agent`` errors so flows can
 from crucible.ports.agent.errors import (
     AgentBusy,
     AgentError,
+    AgentOverBudget,
     AgentStalled,
     AgentTimeout,
     AgentUnavailable,
@@ -31,6 +32,10 @@ class PiTimeout(PiError, AgentTimeout):
 class PiStalled(PiTimeout, AgentStalled):
     """The process reported nothing for the turn's idle limit while no tool ran
     and nobody was waited on: a hang, not long work."""
+
+
+class PiOverBudget(PiTimeout, AgentOverBudget):
+    """The turn spent more than its token budget and was aborted."""
 
 
 class PiBusy(PiTimeout, AgentBusy):

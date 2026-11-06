@@ -64,6 +64,9 @@ class PiProfile:
     # (0 = never).
     idle_timeout: float = DEFAULT_IDLE_TIMEOUT_S
     wrap_up_after: float = 0.0
+    # Tokens a turn may spend before the model is told to round off, and a
+    # quarter more before it is stopped (0 = no budget). Read per turn too.
+    tokens_per_turn: int = 0
     # The loop guard as the profile wrote it (``True`` or a map of limits),
     # baked into the process as its extension's setting (extension/loopguard.ts
     # reads it); None = the extension is not loaded.
@@ -88,6 +91,7 @@ def build_pi_profile(spec: AgentSpec) -> PiProfile:
         thinking=spec.thinking,
         idle_timeout=spec.idle_timeout,
         wrap_up_after=spec.wrap_up_after,
+        tokens_per_turn=spec.budget.tokens_per_turn,
         loop_guard=spec.loop_guard,
     )
 

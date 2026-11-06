@@ -12,13 +12,13 @@ import secrets
 import time
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
 from crucible.containment import one_line, quoted, speaker
 from crucible.content_types import format_size, sniff_image
-from crucible.ports.admission import NOTICE_NOT_ADMITTED, NotAdmitted, TurnAdmission
+from crucible.ports.admission import NotAdmitted, TurnAdmission
 from crucible.ports.agent import (
     NOTICE_STOPPED,
     STOPPED_MESSAGE,
@@ -38,6 +38,7 @@ from crucible.ports.agent import (
     notice_for,
 )
 from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.agent.runtime import TokenUsage
 from crucible.ports.attachments import FileKeeper, ReceivedFiles
 from crucible.ports.chat.client import ChatClient, ConversationView, PrivateNotices
 from crucible.ports.chat.context import ContextSource, HistorySource
@@ -63,6 +64,8 @@ from crucible.store.base import (
     GatewayAddress,
     SessionRecord,
     SessionStore,
+    UsageRecord,
+    UsageStore,
     gateway_addresses,
     with_gateway_address,
 )
@@ -305,6 +308,7 @@ class AgentFlow:
         file_keeper: FileKeeper | None = None,
         received_files_of: Callable[[str, str], ReceivedFiles] | None = None,
         telemetry: Telemetry | None = None,
+        usage: UsageStore | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
         if (entitlements is None) != (conversation_profiles is None):
@@ -361,6 +365,8 @@ class AgentFlow:
         self._entitlements = entitlements
         # Whether a turn may run at all (ports.admission); None = every turn may.
         self._admission = admission
+        # The ledger of what turns cost, for the budgets (None = nobody keeps it).
+        self._usage = usage
         self._conversation_profiles = conversation_profiles
         # Who captions a tool call for the person watching ("Reading X-1"):
         # asked once per call here, so every trace reads the same line.
@@ -469,11 +475,12 @@ class AgentFlow:
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         started = time.monotonic()
         facts = _TurnFacts(record.runtime_session_id)
-        if self._admission is not None and not await self._every_author_admitted(fresh, chat):
+        refused = await self._first_not_admitted(fresh, chat) if self._admission is not None else None
+        if refused is not None:
             # Nothing ran: no prompt, no process, no reaction. Each person not
             # admitted has been told, alone; a caller that started the turn
             # learns it did not happen.
-            facts.notice = NOTICE_NOT_ADMITTED
+            facts.notice = refused.code
             if self._telemetry is not None:
                 self._tell_turn(fresh, anchor, key, TurnOutcome.NOT_ADMITTED, facts, time.monotonic() - started)
             return TurnOutcome.NOT_ADMITTED
@@ -499,6 +506,8 @@ class AgentFlow:
                     del self._active_at[address]
         if self._telemetry is not None:
             self._tell_turn(fresh, anchor, key, outcome, facts, time.monotonic() - started)
+        if self._usage is not None and facts.result is not None and facts.result.usage is not None:
+            await self._keep_usage(anchor, facts.result.usage)
         if anchor.turn is not None and anchor.turn.flags:
             # After the answer or the failure notice: a tool's note about the turn
             # ("your session expired") reads as the footnote it is.
@@ -508,21 +517,35 @@ class AgentFlow:
                 )
         return outcome
 
-    async def _every_author_admitted(self, msgs: list[IncomingMessage], chat: ChatClient) -> bool:
+    async def _first_not_admitted(self, msgs: list[IncomingMessage], chat: ChatClient) -> NotAdmitted | None:
         """Whether the turn may run: every author of its messages is admitted.
         Each is asked about once, with their newest message — where they will
         look for the answer; each who is not is told, alone — in the open
-        without the link where the client cannot speak to one person."""
+        without the link where the client cannot speak to one person. The
+        first refusal is the turn's word for how it ended; None = admitted."""
         assert self._admission is not None
         newest_by_author = {m.user_id: m for m in msgs}
-        admitted = True
+        first: NotAdmitted | None = None
         for msg in newest_by_author.values():
             verdict = await self._admission.admit(self._agent_name, msg)
             if verdict is None:
                 continue
-            admitted = False
+            first = first or verdict
             await self._tell_not_admitted(chat, msg, verdict)
-        return admitted
+        return first
+
+    async def _keep_usage(self, anchor: IncomingMessage, usage: TokenUsage) -> None:
+        """What the turn cost, written to the ledger as the person's and the
+        agent's — never at the turn's expense."""
+        try:
+            await self._usage.add_usage(UsageRecord(  # type: ignore[union-attr]
+                agent=self._agent_name, user_id=anchor.user_id,
+                at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                input=usage.input, output=usage.output, cache_read=usage.cache_read, cache_write=usage.cache_write,
+                total=usage.total, cost_usd=usage.cost_usd,
+            ))
+        except Exception:  # noqa: BLE001 - the ledger must never cost the turn
+            logger.warning("the turn's cost could not be written to the ledger", exc_info=True)
 
     async def _tell_not_admitted(self, chat: ChatClient, msg: IncomingMessage, verdict: NotAdmitted) -> None:
         # A message with no author (an engine-started turn from a dispatcher
@@ -530,7 +553,7 @@ class AgentFlow:
         if msg.user_id and isinstance(chat, PrivateNotices):
             try:
                 await chat.post_private_notice(
-                    msg.ref, msg.user_id, verdict.text, code=NOTICE_NOT_ADMITTED, link=verdict.link, label=verdict.label,
+                    msg.ref, msg.user_id, verdict.text, code=verdict.code, link=verdict.link, label=verdict.label,
                 )
                 return
             except Exception:  # noqa: BLE001 - a bot without the platform's permission for it, say
@@ -545,7 +568,7 @@ class AgentFlow:
             )
         # The link is the person's alone and the conversation is not: the word
         # goes out without it.
-        await chat.post_notice(msg.ref, verdict.text, code=NOTICE_NOT_ADMITTED)
+        await chat.post_notice(msg.ref, verdict.text, code=verdict.code)
 
     async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
         """Stop the turn running in this conversation (``StoppableSink``): the

@@ -41,6 +41,27 @@ DELEGATION_SESSIONS = (DELEGATION_SESSION_PER_TASK, DELEGATION_SESSION_PER_CONVE
 
 
 @dataclass(frozen=True)
+class Budget:
+    """What an agent may spend at the model: tokens in one turn, and tokens or
+    dollars (the runtime's own estimate) in one calendar day, UTC — for the
+    agent as a whole and for each person it answers. 0 = no limit of that kind."""
+
+    tokens_per_turn: int = 0
+    tokens_per_day: int = 0
+    usd_per_day: float = 0.0
+    tokens_per_day_per_person: int = 0
+    usd_per_day_per_person: float = 0.0
+
+    @property
+    def daily(self) -> bool:
+        """Whether any rule needs the day's spending read before a turn."""
+        return bool(self.tokens_per_day or self.usd_per_day or self.tokens_per_day_per_person or self.usd_per_day_per_person)
+
+
+BUDGET_KEYS = ("tokens_per_turn", "tokens_per_day", "usd_per_day", "tokens_per_day_per_person", "usd_per_day_per_person")
+
+
+@dataclass(frozen=True)
 class TrustedAgent:
     """An agent this one hands tasks to without a card, as the person it acts
     for — the same person, the same deployment: a specialist of its own that
@@ -132,6 +153,8 @@ class AgentSpec:
     trusted_agents: tuple[TrustedAgent, ...] = ()
     # How this agent keeps the turns on tasks handed to it (``DELEGATION_SESSIONS``).
     delegation_session: str = DELEGATION_SESSION_PER_TASK
+    # What it may spend at the model (``runtime.budget``); none by default.
+    budget: Budget = Budget()
 
     def trust_in(self, name: str) -> TrustedAgent | None:
         """What this agent hands ``name`` of the person's, or None: not trusted."""

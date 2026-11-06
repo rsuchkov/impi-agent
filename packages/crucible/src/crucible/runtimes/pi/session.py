@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from crucible.confinement import ProcessScope
 from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
 from crucible.ports.agent.runtime import (
+    BUDGET_NOTE,
     WRAP_UP_NOTE,
     AgentEvent,
     PromptImage,
@@ -17,6 +18,7 @@ from crucible.ports.agent.runtime import (
 from crucible.ports.agent.ui import UiBridge, UiOutcome, UiRequest
 from crucible.runtimes.pi import protocol
 from crucible.runtimes.pi.errors import (
+    PiOverBudget,
     PiProcessError,
     PiProtocolError,
     PiStalled,
@@ -38,6 +40,15 @@ _INTERACTIVE_UI_METHODS = frozenset({"select", "confirm", "input", "editor"})
 _TURN_POLL_INTERVAL = 0.5
 # The runtime's stop reason for a run that hit the model's output limit.
 STOP_LENGTH = "length"
+
+
+# How far past its token budget a turn may go once told to round off: room
+# for the answer the note asked for, not for more calls.
+BUDGET_STOP_FACTOR = 1.25
+
+
+class _OverBudget(Exception):
+    """The turn spent past its budget and the room to round off."""
 
 
 class _Stalled(Exception):
@@ -77,6 +88,10 @@ class _Turn:
         # silence after its last call can fall back to the last remark.
         self.progress: list[str] = []
         self.tool_calls: list[str] = []
+        # What the model has spent so far this turn, as each of its messages
+        # ends; told once to round off when it passes the budget.
+        self.tokens_used = 0
+        self.budget_told = False
         # This turn's listener. Bound here, not on the session: a conversation
         # has many turns and each caller wants its own events, so a callback
         # that lived as long as the process would go on reporting to whoever
@@ -181,21 +196,23 @@ class PiRpcSession:
     async def prompt(
         self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
         on_event: EventCallback | None = None, idle_timeout: float = 0.0,
-        wrap_up_after: float = 0.0,
+        wrap_up_after: float = 0.0, tokens_per_turn: int = 0,
     ) -> PiResult:
         return await self._run_turn(
             protocol.encode_prompt, message, timeout=timeout, images=images,
             on_event=on_event, idle_timeout=idle_timeout, wrap_up_after=wrap_up_after,
+            tokens_per_turn=tokens_per_turn,
         )
 
     async def follow_up(
         self, message: str, *, timeout: float, images: Sequence[PromptImage] = (),
         on_event: EventCallback | None = None, idle_timeout: float = 0.0,
-        wrap_up_after: float = 0.0,
+        wrap_up_after: float = 0.0, tokens_per_turn: int = 0,
     ) -> PiResult:
         return await self._run_turn(
             protocol.encode_follow_up, message, timeout=timeout, images=images,
             on_event=on_event, idle_timeout=idle_timeout, wrap_up_after=wrap_up_after,
+            tokens_per_turn=tokens_per_turn,
         )
 
     async def abort(self) -> None:
@@ -248,6 +265,7 @@ class PiRpcSession:
         on_event: EventCallback | None = None,
         idle_timeout: float = 0.0,
         wrap_up_after: float = 0.0,
+        tokens_per_turn: int = 0,
     ) -> PiResult:
         if self._closed:
             raise PiProcessError("Session is closed")
@@ -276,7 +294,8 @@ class PiRpcSession:
                 encoder(message, command_id=command_id, images=images)
             )
             result = await self._await_turn(
-                turn, timeout=timeout, idle_timeout=idle_timeout, wrap_up_after=wrap_up_after
+                turn, timeout=timeout, idle_timeout=idle_timeout, wrap_up_after=wrap_up_after,
+                tokens_per_turn=tokens_per_turn,
             )
             result.duration_s = asyncio.get_running_loop().time() - started
             return result
@@ -290,11 +309,17 @@ class PiRpcSession:
             self._poisoned = True
             await self._safe_abort()
             raise PiStalled(f"pi reported nothing for {idle_timeout:.0f}s") from None
+        except _OverBudget:
+            logger.warning("pi turn spent %d tokens against a budget of %d; aborting", turn.tokens_used, tokens_per_turn)
+            self._poisoned = True
+            await self._safe_abort()
+            raise PiOverBudget(f"the turn spent {turn.tokens_used} tokens against a budget of {tokens_per_turn}") from None
         finally:
             self._turn = None
 
     async def _await_turn(
-        self, turn: _Turn, *, timeout: float, idle_timeout: float = 0.0, wrap_up_after: float = 0.0
+        self, turn: _Turn, *, timeout: float, idle_timeout: float = 0.0, wrap_up_after: float = 0.0,
+        tokens_per_turn: int = 0,
     ) -> PiResult:
         """Await the turn result, PAUSING the timeout while a human is answering a
         UI request (``_ui_wait_started`` set). Polls so it notices a UI wait
@@ -308,7 +333,9 @@ class PiRpcSession:
         the ceiling. The wrap-up: at ``wrap_up_after`` active seconds the model
         is told once, by a steering message read before its next call, to stop
         calling tools and say where things stand, so a long-working turn rounds
-        off instead of being cut off."""
+        off instead of being cut off. The token budget, the same way: at
+        ``tokens_per_turn`` spent the model is told once to round off, and a
+        quarter past it the turn is stopped as over budget."""
         loop = asyncio.get_running_loop()
         started = loop.time()
         while True:
@@ -328,6 +355,13 @@ class PiRpcSession:
                     # current calls and before the next model call.
                     await self._transport.send(
                         protocol.encode_steer(WRAP_UP_NOTE, command_id=protocol.new_command_id())
+                    )
+                if tokens_per_turn and turn.tokens_used >= tokens_per_turn * BUDGET_STOP_FACTOR:
+                    raise _OverBudget
+                if tokens_per_turn and not turn.budget_told and turn.tokens_used >= tokens_per_turn:
+                    turn.budget_told = True
+                    await self._transport.send(
+                        protocol.encode_steer(BUDGET_NOTE, command_id=protocol.new_command_id())
                     )
             try:
                 return await asyncio.wait_for(
@@ -401,6 +435,8 @@ class PiRpcSession:
         turn = self._turn
         if turn is not None:
             turn.last_event_at = asyncio.get_running_loop().time()
+        if turn is not None and event.type == protocol.EV_TURN_END:
+            turn.tokens_used += _tokens_of_message(event.raw.get("message"))
         if turn is not None and event.type == protocol.EV_TOOL_EXECUTION_START and turn.text_parts:
             # Text written before a call is a remark on the way, not the answer:
             # it crosses the port as progress, ahead of the call it preceded.
@@ -600,6 +636,15 @@ class PiRpcSession:
                 await result
         except Exception:
             logger.exception("on_event callback failed")
+
+
+def _tokens_of_message(message: object) -> int:
+    """What one of the model's messages cost in tokens, as pi reports it on
+    the message (``usage.totalTokens``); 0 for anything else."""
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        return 0
+    usage = message.get("usage")
+    return _int_or_zero(usage.get("totalTokens")) if isinstance(usage, dict) else 0
 
 
 def _assistant_messages(event: PiEvent) -> list[dict]:

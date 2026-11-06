@@ -103,6 +103,11 @@ WRAP_UP_NOTE = (
     "You are running out of time for this turn. Stop calling tools now and "
     "answer with what is done so far and what is left to do."
 )
+# The same, when it is the turn's token budget that is spent.
+BUDGET_NOTE = (
+    "This turn has used its token budget. Stop calling tools now and answer "
+    "with what is done so far and what is left to do."
+)
 
 
 class AgentRuntime(Protocol):

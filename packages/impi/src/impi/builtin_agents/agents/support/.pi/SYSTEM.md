@@ -97,6 +97,7 @@ runtime:
   timeout: 180             # seconds of active time per turn (waiting on a person does not count)
   idle_timeout: 120        # OPTIONAL — seconds without a word from the model before the turn is stopped as stalled; 0 = never
   wrap_up_after: 0         # OPTIONAL — active seconds after which the model is told once to round off; 0 = never, must be below timeout
+  budget: { ... }          # OPTIONAL — tokens_per_turn (told to round off, then stopped), tokens_per_day, usd_per_day, …_per_person (a day, UTC)
   thinking: medium         # OPTIONAL — off | minimal | low | medium | high | xhigh | max; omit for the runtime's default
   tools: [ ... ]           # the single capability allowlist (see below) — tool
                            # names only: no *, no +name/-name

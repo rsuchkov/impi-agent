@@ -6,6 +6,17 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **An agent has a budget at the model.** `runtime.budget` in `agent.yaml`:
+  `tokens_per_turn` is held by the runtime while the turn runs — the model is
+  told once to round off at the budget (`BUDGET_NOTE`) and the turn is stopped
+  a quarter past it (`token_budget`, `AgentOverBudget`); `tokens_per_day`,
+  `usd_per_day`, `tokens_per_day_per_person` and `usd_per_day_per_person` are
+  held before a turn, against a ledger of what every turn cost (the `usage`
+  table or collection, `UsageStore`, written by the flow as a turn ends):
+  past a limit the turn is not admitted and the person is told their budget
+  with the agent, or the agent's, is spent until 00:00 UTC (`budget_spent`;
+  `BudgetAdmission` in `crucible.budget`, asked before the application's own
+  rule, `NotAdmitted.code` carrying the word). Telemetry says `BudgetHit`.
 - **An agent asks the agents it trusts without a card, as the person.** The
   task of v0.47.0 crosses a boundary — an agent that must see no more than the
   task. A specialist of the same person's is the other case, and

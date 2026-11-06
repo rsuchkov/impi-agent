@@ -961,6 +961,53 @@ async def test_a_process_that_says_nothing_is_stalled_unless_a_tool_is_running()
     assert (await session.prompt("hi", timeout=5.0, idle_timeout=0.2)).text == "done"
 
 
+def _assistant_turn_end(tokens: int) -> dict:
+    return {"type": "turn_end", "message": {"role": "assistant", "usage": {"totalTokens": tokens}}, "toolResults": []}
+
+
+async def test_a_turn_over_its_token_budget_is_told_once_and_stopped_a_quarter_past_it() -> None:
+    from crucible.ports.agent.runtime import BUDGET_NOTE
+    from crucible.runtimes.pi.errors import PiOverBudget
+
+    steers: list[str] = []
+
+    def react(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport.emit({"type": "agent_start"})
+            transport.emit(_assistant_turn_end(600))  # the model's first message
+            transport.emit({"type": "turn_end", "message": {"role": "user", "usage": {"totalTokens": 99999}}})  # not the model's: not counted
+            transport.emit(_assistant_turn_end(500))  # 1100 of 1000: told to round off
+        if command.get("type") == "steer":
+            steers.append(command["message"])
+            transport.emit(_assistant_turn_end(300))  # 1400 ≥ 1250: stopped
+
+    transport = FakeTransport()
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    with pytest.raises(PiOverBudget, match="spent 1400 tokens against a budget of 1000"):
+        await session.prompt("hi", timeout=5.0, tokens_per_turn=1000)
+    assert steers == [BUDGET_NOTE]
+    assert "abort" in transport.sent_types()  # the turn was aborted, the session is poisoned
+
+
+async def test_a_turn_within_its_token_budget_is_told_nothing() -> None:
+    def react(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport.emit({"type": "agent_start"})
+            transport.emit(_assistant_turn_end(400))
+            transport.emit({"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": "fine"}})
+            transport.emit({"type": "agent_end", "messages": []})
+            transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport = FakeTransport()
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    result = await session.prompt("hi", timeout=5.0, tokens_per_turn=1000)
+    assert result.text == "fine" and "steer" not in transport.sent_types()
+
+
 async def test_a_long_turn_is_told_once_to_wrap_up_and_the_answer_it_then_gives_is_the_result() -> None:
     from crucible.ports.agent.runtime import WRAP_UP_NOTE
 
