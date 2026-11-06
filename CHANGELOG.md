@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.47.0 — 2026-11-06
+
 - **A task handed to another agent goes through the engine.** `delegate` no
   longer posts a mention in the thread for the other agent's gateway to pick
   up: the engine opens a turn of that agent on the task alone — a
