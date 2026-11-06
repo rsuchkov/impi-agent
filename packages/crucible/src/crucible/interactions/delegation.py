@@ -556,7 +556,7 @@ class EngineDelegationService:
             await asyncio.wait({running}, timeout=ASKER_WATCH_S)
             if running.done():
                 break
-            if self._turns.current(asker_session_id) is None:
+            if not self._turns.has_turn(asker_session_id):
                 logger.info("task %s: the asker's turn ended before %s answered; the task is called off", entry.id, entry.to)
                 await self._store.end_delegation(
                     replace(entry, status=DELEGATION_CANCELLED, finished_at=_now(), notice=NOTICE_ASKER_TURN_ENDED)

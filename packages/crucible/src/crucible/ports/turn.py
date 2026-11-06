@@ -111,8 +111,14 @@ class TurnPlaces(Protocol):
 
 
 class SessionTurns(TurnScopes, TurnPlaces, Protocol):
-    """The turn on a session as whoever acts on its behalf needs it: its scope
-    and where it answers. The registry is one."""
+    """The turn on a session as whoever acts on its behalf needs it: its scope,
+    where it answers, and whether there is one at all — a turn may be bound
+    with no scope (every chat gateway's), so ``current`` alone cannot say.
+    The registry is one."""
+
+    def has_turn(self, runtime_session_id: str) -> bool:
+        """Whether a turn is bound to the session right now."""
+        ...
 
 
 # What a turn is told while it runs — an event for whoever shows the turn

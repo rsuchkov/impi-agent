@@ -416,8 +416,10 @@ def _build_unit(
         conversation_profiles=EntitledProfiles(tools, narrow_pi_profile) if by_gateway else None,
         # What every turn cost goes to the ledger; an agent with a daily budget
         # is held to it before a turn (its per-turn budget is the runtime's).
+        # The budget is read from the unit's profile as it is now — a reload
+        # swaps the spec in place, and a budget added then counts from then.
         usage=sessions,
-        admission=BudgetAdmission(sessions, lambda _agent: spec.budget, telemetry=telemetry) if spec.budget.daily else None,
+        admission=BudgetAdmission(sessions, lambda _agent: unit.spec.budget, telemetry=telemetry),
     )
     served: Flow = flow
     if replica is not None and replicas is not None and forwarder is not None:
@@ -443,10 +445,11 @@ def _build_unit(
         },
         default=kinds[0] if kinds else GATEWAY_DELEGATION,
     )
-    return AgentUnit(
+    unit = AgentUnit(
         spec=spec, flow=flow,
         gateways={kind: handle.create_gateway(coalescer) for kind, handle in handles.items()},
     )
+    return unit
 
 
 def _build_units(
@@ -565,7 +568,8 @@ def build_app(settings: ImpiSettings) -> App:
     # are runnable and whether any needs the HTTP receiver — so the interaction
     # plumbing can be built complete (no post-loop finalize).
     specs = select_specs(settings, user_store, engine_store)
-    configs = {spec.name: resolve_gateways(settings, spec.name) for spec in specs}
+    # A headless agent has no gateway to resolve: no token is looked for, none is missed.
+    configs = {spec.name: [] if spec.headless else resolve_gateways(settings, spec.name) for spec in specs}
     # The default gateway's config per agent, for what asks about one gateway.
     defaults = {name: (cfgs[0] if cfgs else None) for name, cfgs in configs.items()}
     # A receiver with no secret trusts every callback on arrival; a deployment

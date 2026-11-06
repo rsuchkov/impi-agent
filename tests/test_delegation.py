@@ -713,9 +713,12 @@ async def test_a_trusted_task_ends_with_the_askers_turn(store, monkeypatch) -> N
     svc, links, _ = _trusting(sink, store, turns, trust=TrustedAgent("coder"), asker_chat=FakeChat())
     record, _ = await store.get_or_create("assistant", "d1", "d1", KIND_DM, user_id="u1", gateway=GATEWAY_SLACK)
     rsid = record.runtime_session_id
-    async with turns.bind(rsid, TurnScope(turn_id="t1")):
+    # Bound with no scope, as every chat gateway's turn is: still a turn.
+    async with turns.bind(rsid, None, place=TurnPlace(GATEWAY_SLACK, "")):
         task_id = await svc.ask("assistant", rsid, "coder", "x")
         await sink.started.wait()
+        await asyncio.sleep(0.05)
+        assert sink.stopped == []  # the asker's turn is live: the task runs on
     # The asker's turn is over, the task still runs: it is called off, since
     # what it was handed was that turn's.
     for _ in range(100):

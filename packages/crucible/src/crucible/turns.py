@@ -30,6 +30,9 @@ class TurnRegistry:
         bound = self._by_session.get(runtime_session_id)
         return bound[1] if bound else None
 
+    def has_turn(self, runtime_session_id: str) -> bool:
+        return runtime_session_id in self._by_session
+
     def feed(self, runtime_session_id: str, event: object) -> None:
         bound = self._by_session.get(runtime_session_id)
         if bound is not None and bound[2] is not None:
