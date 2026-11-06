@@ -1517,7 +1517,10 @@ async def test_a_finished_turn_accounts_for_itself_and_its_calls_outlive_the_jou
         await trace.end()
         return TurnOutcome.REPLIED
 
-    hub, _ = _hub(8499, script=tools, turns=HttpTurns(traces=store, journal_retention_s=0.0))
+    # A short retention, not none: with none the journal may be swept between
+    # two polls of the drain — the one that waited while the turn finished and
+    # the one that would have read turn.finished — and the drain finds no turn.
+    hub, _ = _hub(8499, script=tools, turns=HttpTurns(traces=store, journal_retention_s=0.5))
     await hub.start()
     try:
         async with aiohttp.ClientSession() as s:
@@ -1529,7 +1532,7 @@ async def test_a_finished_turn_accounts_for_itself_and_its_calls_outlive_the_jou
             assert isinstance(finished["durationS"], float) and finished["durationS"] >= 0
             token = finished["traceToken"]
             assert len(token) == 32
-            # The journal is gone (no retention); the calls are not.
+            # The journal goes with its retention; the calls do not.
             status, body = await _get(s, 8499, f"/v1/traces/{token}")
             assert status == 200
             assert body["agent"] == "helper" and body["conversationId"] == "c1"
