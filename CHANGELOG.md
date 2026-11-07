@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.49.0 — 2026-11-07
+
 - **A conversation started over takes the asked agents' memory of it along.**
   An agent with `delegation_session: per_conversation` keeps its tasks from one
   asking conversation under a key of its own, which outlived the asker's
