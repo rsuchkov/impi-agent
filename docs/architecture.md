@@ -124,7 +124,11 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   task's turn carries (`delegated_by`, `delegation_task`,
   `on_behalf_of_gateway`), and `TrustedLink`/`TrustedLinks` (a trusted task in
   flight: whose turn asked, where that turn answers, and the asker's
-  conversation on its other gateways — where a card is copied). The engine's own gateways,
+  conversation on its other gateways — where a card is copied);
+  `shared_conversation_key(asker, conversation_id)` is where an agent keeping
+  one conversation per asking conversation runs its tasks, named so an
+  application can forget it with the asker's own
+  (`EngineDelegationService.forget`). The engine's own gateways,
   `GATEWAY_DELEGATION` and `GATEWAY_TRUSTED_DELEGATION`, are the doors such a
   turn runs through — the second as the person, with what the asker's trust
   (`AgentSpec.trusted_agents`) hands over; `ACCOUNTS_HANDED_ATTRIBUTE` says

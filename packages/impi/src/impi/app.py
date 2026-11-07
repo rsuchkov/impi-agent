@@ -932,6 +932,7 @@ def build_app(settings: ImpiSettings) -> App:
             # Among replicas a task's record names the one running it, and a
             # restart here ends only the tasks of replicas whose lease lapsed.
             replica=replica.id if replica is not None else "", replicas=sessions if replica is not None else None,
+            control=runtime,
         )
         if delegation_on else None
     )

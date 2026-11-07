@@ -70,12 +70,14 @@ from crucible.ports.delegation import (
     DELEGATION_TASK_ATTRIBUTE,
     DELEGATION_TIMED_OUT,
     NOTICE_ASKER_TURN_ENDED,
+    NOTICE_CONVERSATION_FORGOTTEN,
     ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
     DelegationError,
     DelegationView,
     FilePreview,
     TrustedLink,
     delegated_conversation_key,
+    shared_conversation_key,
 )
 from crucible.ports.engine_turn import ConversationBusy, DispatchError, TurnRequest
 from crucible.ports.turn import (
@@ -83,7 +85,12 @@ from crucible.ports.turn import (
     TurnScope,
     TurnSecrets,
 )
-from crucible.store.base import DelegationRecord, GatewayAddress, SessionRecord
+from crucible.store.base import (
+    DelegationRecord,
+    GatewayAddress,
+    SessionRecord,
+    derive_runtime_session_id,
+)
 from crucible.store.sqlite import SqliteSessionStore
 from crucible.tools.base import ToolContext, ToolError
 from crucible.turns import TurnRegistry
@@ -821,6 +828,90 @@ async def test_a_trusted_agent_keeps_one_session_per_asking_conversation_when_it
     assert keys[0].startswith("delegated:assistant-") and first != second != elsewhere
     kept = await store.get_delegation(first)
     assert kept is not None and kept.to_conversation_id == keys[0]
+
+
+class _Control:
+    """The runtime's control side, as far as forgetting goes: which sessions it remembers."""
+
+    def __init__(self, remembered: set[str]) -> None:
+        self.remembered = remembered
+        self.reset_calls: list[tuple[str, str]] = []
+
+    def has_memory(self, agent: str, session_id: str) -> bool:
+        return session_id in self.remembered
+
+    async def reset(self, agent: str, session_id: str) -> None:
+        self.reset_calls.append((agent, session_id))
+        self.remembered.discard(session_id)
+
+
+async def test_a_conversation_forgotten_takes_the_asked_agents_memory_of_it_and_its_running_tasks(store) -> None:
+    releases = [asyncio.Event(), asyncio.Event()]
+
+    async def script(msg, chat) -> TurnOutcome:
+        await releases[len(sink.submitted) - 1].wait()
+        return TurnOutcome.REPLIED
+
+    sink = ScriptedSink(script)
+    turns = TurnRegistry()
+    links = TrustedLinkRegistry()
+    directory = StaticDirectory([*AGENTS.list_agents(), AgentInfo("notes", "notes", "keeps notes", "", "")])
+    key = shared_conversation_key("assistant", "d1")
+    assert key == "delegated:assistant-e254ac076291fd5c"  # what an application's stored data hangs on: the formula is fixed
+    other_key = shared_conversation_key("assistant", "d2")
+    # What the runtime remembers: the asked agent's conversations with both of the asker's, and — were anyone to
+    # ask it — a per-task agent's session under the same key.
+    control = _Control({
+        derive_runtime_session_id("coder", key), derive_runtime_session_id("coder", other_key),
+        derive_runtime_session_id("notes", key),
+    })
+    presence = MappingPresence({
+        "coder": AgentSink(sink=sink, gateways={GATEWAY_TRUSTED_DELEGATION: TrustedDelegationChatClient(links, keeps=False)}, default=GATEWAY_TRUSTED_DELEGATION),
+        "notes": AgentSink(sink=ScriptedSink(), gateways={GATEWAY_DELEGATION: DelegationChatClient(keeps=False)}, default=GATEWAY_DELEGATION),
+        "assistant": AgentSink(sink=ScriptedSink(), gateways={GATEWAY_SLACK: FakeChat()}, default=GATEWAY_SLACK),
+    })
+    svc = EngineDelegationService(
+        presence, store, directory, store, FakeTurnDispatcher(), DelegationChatClient, turns=turns,
+        trust_for=lambda asker, to: TrustedAgent(to), trusted_chat=lambda: TrustedDelegationChatClient(links), links=links,
+        session_for=lambda agent: "per_conversation" if agent == "coder" else "per_task", control=control,  # type: ignore[arg-type]
+    )
+    record, _ = await store.get_or_create("assistant", "d1", "d1", KIND_DM, user_id="u1", gateway=GATEWAY_SLACK)
+    rsid = record.runtime_session_id
+    async with turns.bind(rsid, TurnScope(turn_id="t1")):
+        task_id = await svc.ask("assistant", rsid, "coder", "one")
+        await sink.started.wait()
+        # The key the asked agent's memory lives under is the one the port tells the application.
+        assert sink.submitted[0][0].conversation_id == key
+        forgotten = await svc.forget("assistant", "d1")
+        releases[0].set()
+        await _settled(svc)
+    # The agent that keeps one conversation per asking conversation forgot this one — not the asker's other
+    # conversation with it; an agent that keeps one per task had nothing of the conversation to forget.
+    assert forgotten == ["coder"] and control.reset_calls == [("coder", derive_runtime_session_id("coder", key))]
+    assert derive_runtime_session_id("coder", key) not in control.remembered and len(control.remembered) == 2
+    # The task still running from the conversation was called off, with why.
+    kept = await store.get_delegation(task_id)
+    assert kept is not None and (kept.status, kept.notice) == (DELEGATION_CANCELLED, NOTICE_CONVERSATION_FORGOTTEN)
+    assert sink.stopped == [key]
+    # Nothing left of it: forgetting again finds no memory and no task.
+    assert await svc.forget("assistant", "d1") == []
+    # A task of another conversation is not the forgotten one's.
+    other, _ = await store.get_or_create("assistant", "d2", "d2", KIND_DM, user_id="u1", gateway=GATEWAY_SLACK)
+    async with turns.bind(other.runtime_session_id, TurnScope(turn_id="t2")):
+        elsewhere = await svc.ask("assistant", other.runtime_session_id, "coder", "two")
+        for _ in range(100):
+            if len(sink.submitted) == 2:
+                break
+            await asyncio.sleep(0.01)
+        assert await svc.forget("assistant", "d1") == []
+        releases[1].set()
+        await _settled(svc)
+    kept = await store.get_delegation(elsewhere)
+    assert kept is not None and kept.status == DELEGATION_ANSWERED
+    # A deployment that gave the service no runtime control cannot forget.
+    without, _, _ = _trusting(ScriptedSink(), store, turns, trust=TrustedAgent("coder"), asker_chat=FakeChat(), session="per_conversation")
+    with pytest.raises(DelegationError, match="not available in this deployment"):
+        await without.forget("assistant", "d1")
 
 
 async def test_an_agent_keeping_one_conversation_takes_one_task_from_it_at_a_time(store) -> None:

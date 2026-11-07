@@ -558,6 +558,18 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   `ACCOUNTS_HANDED_ATTRIBUTE` with `ON_BEHALF_OF_GATEWAY_ATTRIBUTE`
   (`crucible.ports.delegation`) from the turn: the person's own gateway when a
   trusted task hands their accounts over, nobody's on either door otherwise.
+  **Starting a conversation over.** An agent with `delegation_session:
+  per_conversation` keeps its tasks from one asking conversation in a
+  conversation of its own, keyed `shared_conversation_key(asker,
+  conversation_id)` (`crucible.ports.delegation`; the runtime session is
+  `derive_runtime_session_id(agent, key)`), and its memory of them outlives the
+  asker's. When your application forgets the asker's session
+  (`runtime.reset(asker, session_id)`), call `await
+  delegation.forget(asker, conversation_id)` beside it: the tasks still running
+  from that conversation are called off (`conversation_forgotten`) and every
+  such agent's memory of it is reset the same way — the service needs
+  `control=runtime` for that, and answers with the names of the agents whose
+  memory went. Their files stay for the attachment sweep.
 - **Turns the engine starts.** A person's message opens a turn through a
   gateway; the engine opens one by itself through a `TurnDispatcher`
   (`crucible.ports.engine_turn`) — the scheduler does for a `turn`-mode task,

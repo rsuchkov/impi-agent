@@ -349,7 +349,13 @@ An agent asked again and again from one conversation — with `ask_agent` or
 **one session per asking conversation** instead of one per task:
 `runtime.delegation_session: per_conversation` in its own `agent.yaml` (the
 default is `per_task`). It then remembers the project and the fields from the
-last task; a different asking conversation is a different session still.
+last task; a different asking conversation is a different session still. That
+memory is the asked agent's, under a key of its own, and **outlives whatever
+the asking conversation does with its own**: an application that lets a person
+start a conversation over and forgets only the asker's session leaves the asked
+agent remembering the last conversation and answering from it. The application
+forgets both at once (`forget` in the delegation service — see "Building an
+app"); `impi` has no such control yet, its conversations are not started over.
 
 ## Asking with controls (widgets and forms)
 

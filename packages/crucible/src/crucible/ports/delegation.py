@@ -12,6 +12,7 @@ conversation is read by a person first — and the asker can ask after a task
 or call it off by its id.
 """
 
+import hashlib
 import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -48,6 +49,16 @@ def delegated_conversation_key(task_id: str) -> str:
     return f"{_DELEGATED_PREFIX}{task_id}"
 
 
+def shared_conversation_key(asker: str, conversation_id: str) -> str:
+    """The key of the conversation an agent that keeps one per asking
+    conversation (``delegation_session: per_conversation``) runs every task
+    from ``asker``'s conversation in — the one its memory of those tasks
+    lives under, for an application to find (``has_memory``) or forget with
+    the asker's own."""
+    digest = hashlib.sha256(f"{asker}\0{conversation_id}".encode()).hexdigest()[:16]
+    return delegated_conversation_key(f"{asker}-{digest}")
+
+
 # What a task came to. ``running`` until the asked agent's turn ends; then
 # one of the rest, and the asker is told — except a task the asker cancelled.
 DELEGATION_RUNNING = "running"
@@ -61,6 +72,9 @@ DELEGATION_STATUSES = (
 # The notice a trusted task carries when the asker's turn ended before it did:
 # what the asker handed over was the turn's, and went with it.
 NOTICE_ASKER_TURN_ENDED = "asker_turn_ended"
+# The notice a task carries when the conversation it was asked from was
+# forgotten — started over — while it ran: nobody is left to answer.
+NOTICE_CONVERSATION_FORGOTTEN = "conversation_forgotten"
 
 
 @dataclass(frozen=True)

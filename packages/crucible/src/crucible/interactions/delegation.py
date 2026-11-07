@@ -45,7 +45,7 @@ from crucible.ports.agent.events import (
     ToolFinished,
     ToolStarted,
 )
-from crucible.ports.agent.runtime import TurnClock
+from crucible.ports.agent.runtime import RuntimeControl, TurnClock
 from crucible.ports.agent.spec import (
     DELEGATION_SESSION_PER_CONVERSATION,
     TRUST_CONTEXT_CONVERSATION,
@@ -76,6 +76,7 @@ from crucible.ports.delegation import (
     DELEGATION_TASK_ATTRIBUTE,
     DELEGATION_TIMED_OUT,
     NOTICE_ASKER_TURN_ENDED,
+    NOTICE_CONVERSATION_FORGOTTEN,
     ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
     DelegatedTurnChat,
     DelegationError,
@@ -84,6 +85,7 @@ from crucible.ports.delegation import (
     TrustedLink,
     delegated_conversation_key,
     delegation_id,
+    shared_conversation_key,
 )
 from crucible.ports.engine_turn import (
     ConversationBusy,
@@ -103,6 +105,7 @@ from crucible.store.base import (
     DelegationStore,
     SessionRecord,
     SessionStore,
+    derive_runtime_session_id,
     gateway_addresses,
 )
 
@@ -231,7 +234,9 @@ class EngineDelegationService:
     registered; ``clock`` pauses the asker's turn while it waits for answers;
     ``session_for(agent)`` says how an agent keeps its turns on tasks
     (``DELEGATION_SESSIONS``); ``replica`` is this process among the replicas
-    sharing the store and ``replicas`` says which of them live."""
+    sharing the store and ``replicas`` says which of them live; ``control``
+    is the runtime's, for ``forget`` to take an asked agent's memory of a
+    conversation with the conversation."""
 
     def __init__(
         self,
@@ -253,6 +258,7 @@ class EngineDelegationService:
         session_for: Callable[[str], str] | None = None,
         replica: str = "",
         replicas: Replicas | None = None,
+        control: RuntimeControl | None = None,
     ) -> None:
         self._presence = presence
         self._sessions = sessions
@@ -274,6 +280,7 @@ class EngineDelegationService:
         # ends only the tasks of replicas that are gone.
         self._replica = replica
         self._replicas = replicas
+        self._control = control
         self._running: set[asyncio.Task] = set()
         # The ends of the trusted tasks in flight, for the turns that await them.
         self._ends: dict[str, asyncio.Future[None]] = {}
@@ -426,6 +433,37 @@ class EngineDelegationService:
 
     # -- the engine's --------------------------------------------------------------
 
+    async def forget(self, asker: str, conversation_id: str) -> list[str]:
+        """Take with a conversation that starts over what the agents it asked
+        keep of it: the tasks still running from it are called off
+        (``conversation_forgotten``), and an agent that keeps one conversation
+        per asking conversation has its memory of this one reset — the
+        runtime's ``reset``, as the application's for the asker's own. The names
+        of the agents whose memory went. An application that starts a
+        conversation over calls this beside its reset of the asker's session;
+        the asked agents' files stay for the attachment sweep."""
+        if self._control is None:
+            raise DelegationError("forgetting a conversation's tasks is not available in this deployment")
+        for entry in await self._store.running_delegations():
+            if entry.agent != asker or entry.conversation_id != conversation_id:
+                continue
+            ended = replace(entry, status=DELEGATION_CANCELLED, finished_at=_now(), notice=NOTICE_CONVERSATION_FORGOTTEN)
+            if await self._store.end_delegation(ended):
+                await self._stop_turn(entry)
+        key = shared_conversation_key(asker, conversation_id)
+        forgotten: list[str] = []
+        for info in self._directory.list_agents():
+            if not self._keeps_one_conversation(info.name):
+                continue
+            session_id = derive_runtime_session_id(info.name, key)
+            if not self._control.has_memory(info.name, session_id):
+                continue
+            await self._control.reset(info.name, session_id)
+            forgotten.append(info.name)
+        if forgotten:
+            logger.info("conversation %s of %s forgotten: %s forgot their tasks from it", conversation_id, asker, ", ".join(forgotten))
+        return forgotten
+
     async def recover(self) -> None:
         """What a restart finds still running was lost with the process that ran
         it: each is ended as failed, and its asker told — a trusted task's
@@ -500,11 +538,12 @@ class EngineDelegationService:
         """Where the asked agent's turn runs: a conversation per task, or — when
         the asked agent keeps one per asking conversation — one for every task
         this conversation hands it."""
-        session = self._session_for(to) if self._session_for is not None else ""
-        if session == DELEGATION_SESSION_PER_CONVERSATION:
-            digest = hashlib.sha256(f"{asker.agent}\0{asker.conversation_id}".encode()).hexdigest()[:16]
-            return delegated_conversation_key(f"{asker.agent}-{digest}")
+        if self._keeps_one_conversation(to):
+            return shared_conversation_key(asker.agent, asker.conversation_id)
         return delegated_conversation_key(task_id)
+
+    def _keeps_one_conversation(self, agent: str) -> bool:
+        return self._session_for is not None and self._session_for(agent) == DELEGATION_SESSION_PER_CONVERSATION
 
     async def _own(self, agent: str, runtime_session_id: str, task_id: str) -> DelegationRecord:
         entry = await self._store.get_delegation(task_id)

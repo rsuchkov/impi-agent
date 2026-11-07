@@ -62,6 +62,7 @@ runtime:
   # trusted_agents: {jira: {secrets: [jira_token], connections: true, context: conversation}}
   #                            # optional; agents asked with no card, as the person, with what each is handed
   # delegation_session: per_task  # optional; per_conversation = one session per asking conversation for tasks handed to it
+                                  # (its memory outlives the asker's; an application starting a conversation over forgets both)
   # shared_dirs: [crm-code]    # optional; directories shared with every agent naming the same —
                                #   the process gets $AGENT_SHARED_DIR__CRM_CODE; every agent naming it reads all of it
 ```
