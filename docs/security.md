@@ -191,7 +191,12 @@ none. The asked agent's turn runs in a conversation that exists for this
 task alone (`delegated:<task id>`, a fresh session): the task and its files
 are all it is given — no thread of the asker's is replayed, no earlier task
 remembered — so what reaches its model is what the card showed, and nothing
-else. The files are copies taken when the person allowed, each held to the
+else. One exception the asked agent's own profile makes:
+`delegation_session: per_conversation` keeps every task from one asking
+conversation in one conversation of its own (`per_conversation_key`), so the
+earlier tasks of that conversation are remembered there — and outlive the
+asker's memory until the application forgets them with it
+(`EngineDelegationService.forget`). The files are copies taken when the person allowed, each held to the
 digest of what the card showed (a file changed in between is refused) and
 placed in that conversation, out of the asker's reach: the asker's own turn,
 which goes on once the task is handed over, cannot rewrite what the asked

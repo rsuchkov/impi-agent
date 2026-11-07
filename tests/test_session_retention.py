@@ -230,12 +230,24 @@ async def test_deleting_a_conversation_by_hand_takes_its_manifest_too(tmp_path: 
         manifest.write_text("[]")
         files = AttachmentStore(settings.resolved_attachments_dir, max_bytes=1024)
         (attachment,) = await files.save_many("assistant", "dm1", [IncomingFile("a.pdf", b"a", "application/pdf", key="f1")])
+        # An agent that keeps one conversation per asking conversation keeps one for this: it goes too — the
+        # same agent's conversation for another of the asker's does not.
+        from crucible.ports.delegation import per_conversation_key
+
+        asked_key = per_conversation_key("assistant", "dm1")
+        asked, _ = await store.get_or_create("jira", asked_key, asked_key, KIND_DM)
+        (asked_file,) = await files.save_many("jira", asked_key, [IncomingFile("b.txt", b"b", "text/plain", key="f2")])
+        other_key = per_conversation_key("assistant", "dm2")
+        await store.get_or_create("jira", other_key, other_key, KIND_DM)
 
         await cmd_delete(settings, store, argparse.Namespace(agent="assistant", conversation_id="dm1"))
 
         assert not manifest.exists()
         assert not Path(attachment.path).exists()  # the files it received went with it
-        assert "deleted assistant/dm1" in capsys.readouterr().out
+        assert not Path(asked_file.path).exists()
+        assert {r.conversation_id for r in await store.list("jira")} == {other_key}
+        out = capsys.readouterr().out
+        assert "deleted assistant/dm1" in out and "deleted jira's conversation for it" in out
         # purge-idle by hand takes the files of what it forgets, the same way.
         from crucible.sessions_cli import cmd_purge_idle
 

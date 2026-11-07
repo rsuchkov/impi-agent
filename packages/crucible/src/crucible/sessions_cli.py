@@ -1,9 +1,14 @@
-"""Manual session cleanup: the ONLY way conversation memory gets deleted.
+"""Manual session cleanup: the only way conversation memory gets deleted by
+hand (``session_retention.purge_idle`` forgets it by age, ``RuntimeControl.reset``
+when an application starts a conversation over).
 
 Deletes all of a conversation in one motion — the inventory row, the runtime's
 on-disk session files (`{pi_session_dir}/{agent}/{runtime_session_id}/`, as
-``runtimes.pi.spawn.conversation_memory_dir`` spells it) and the files it
-received. Deleting only one part silently resets or orphans memory, so don't.
+``runtimes.pi.spawn.conversation_memory_dir`` spells it), the files it
+received, and the conversations the agents it asked keep for it (an agent with
+``delegation_session: per_conversation`` runs this conversation's tasks under
+``per_conversation_key``). Deleting only one part silently resets or orphans
+memory, so don't.
 
 Usage:
     python -m crucible.sessions_cli list [--agent X]
@@ -22,6 +27,7 @@ from pathlib import Path
 
 from crucible.attachments import AttachmentStore
 from crucible.config import Settings, load_settings
+from crucible.ports.delegation import per_conversation_key
 from crucible.runtimes.pi.spawn import forget_conversation_memory, session_files
 from crucible.session_retention import purge_idle
 from crucible.store import open_store
@@ -73,6 +79,14 @@ async def cmd_delete(settings: Settings, store: Store, args: argparse.Namespace)
     attachments = _attachments(settings)
     files = await attachments.forget(record.agent, record.conversation_id) if attachments is not None else 0
     print(f"deleted {record.agent}/{record.conversation_id} (pi files removed: {removed}, attachments: {files})")
+    # The conversations other agents keep for this one's tasks go with it too.
+    key = per_conversation_key(record.agent, record.conversation_id)
+    for asked in [r for r in await store.list() if r.conversation_id == key]:
+        if await store.delete(asked.agent, asked.conversation_id) is None:
+            continue
+        removed = _forget_memory(settings, asked)
+        files = await attachments.forget(asked.agent, asked.conversation_id) if attachments is not None else 0
+        print(f"deleted {asked.agent}'s conversation for it (pi files removed: {removed}, attachments: {files})")
 
 
 async def cmd_purge_idle(settings: Settings, store: Store, args: argparse.Namespace) -> None:

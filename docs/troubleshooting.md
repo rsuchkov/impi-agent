@@ -299,8 +299,9 @@ if it does, the log says so and names the way out:
 impi sessions delete <agent> <conversation>
 ```
 
-That forgets the conversation (inventory row + the runtime's memory for it) and
-the next message starts fresh. See [files.md](files.md).
+That forgets the conversation (inventory row + the runtime's memory for it,
+and the conversations agents with `delegation_session: per_conversation` keep
+for its tasks) and the next message starts fresh. See [files.md](files.md).
 
 ## A scheduled task didn't run
 

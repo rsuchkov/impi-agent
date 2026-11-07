@@ -38,6 +38,10 @@ every conversation idle for N days or more — its record, the runtime's files
 for it and the files it received, exactly what `impi sessions purge-idle --days N`
 does by hand. An agent in a container of its own keeps its memory in that
 container's volume; only its record and its attachments are forgotten there.
+A conversation an agent with `delegation_session: per_conversation` keeps for
+another's tasks (`delegated:<asker>-<digest>` in `impi sessions list`) idles
+and is forgotten on its own clock; `impi sessions delete` of the asking
+conversation takes it along at once.
 The attachments alone have a shorter life: `ATTACHMENT_RETENTION_DAYS`
 ([files.md](files.md)) takes a conversation's files once it has been idle that
 long, record or no record.

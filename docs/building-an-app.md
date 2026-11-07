@@ -506,7 +506,9 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   service disagree, as for confirmations and connections. The service opens
   the asked agent's turn itself: a message of the engine's into that agent's
   sink (`presence.sink(to)`, which must report outcomes — the coalescer
-  does), in a conversation keyed `delegated:<task id>` on the `delegation`
+  does), in a conversation keyed `delegated:<task id>` (or
+  `per_conversation_key(asker, conversation_id)` when the asked agent keeps
+  one per asking conversation) on the `delegation`
   gateway, run as the person whose message the asker's turn answered, with
   the asker's `TurnScope.attributes` beside `DELEGATED_BY_ATTRIBUTE`,
   `DELEGATION_TASK_ATTRIBUTE` and `ON_BEHALF_OF_GATEWAY_ATTRIBUTE`
@@ -560,16 +562,19 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   trusted task hands their accounts over, nobody's on either door otherwise.
   **Starting a conversation over.** An agent with `delegation_session:
   per_conversation` keeps its tasks from one asking conversation in a
-  conversation of its own, keyed `shared_conversation_key(asker,
+  conversation of its own, keyed `per_conversation_key(asker,
   conversation_id)` (`crucible.ports.delegation`; the runtime session is
-  `derive_runtime_session_id(agent, key)`), and its memory of them outlives the
+  `derive_runtime_session_id(agent, key)`, `crucible.store`), and its memory of them outlives the
   asker's. When your application forgets the asker's session
   (`runtime.reset(asker, session_id)`), call `await
   delegation.forget(asker, conversation_id)` beside it: the tasks still running
   from that conversation are called off (`conversation_forgotten`) and every
-  such agent's memory of it is reset the same way — the service needs
-  `control=runtime` for that, and answers with the names of the agents whose
-  memory went. Their files stay for the attachment sweep.
+  such agent that was asked from it has its memory of it reset the same way —
+  the service needs `control=runtime` for that (without it `forget` raises
+  `ValueError`), and answers with the names of the agents asked. Memory the runtime cannot see (an agent hosted in its own
+  container) is that host's to honour, as with `reset` itself. Their files stay
+  for the attachment sweep. Offline, `impi sessions delete` (and
+  `crucible.sessions_cli delete`) take those conversations along too.
 - **Turns the engine starts.** A person's message opens a turn through a
   gateway; the engine opens one by itself through a `TurnDispatcher`
   (`crucible.ports.engine_turn`) — the scheduler does for a `turn`-mode task,

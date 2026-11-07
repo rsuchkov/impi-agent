@@ -85,7 +85,7 @@ from crucible.ports.delegation import (
     TrustedLink,
     delegated_conversation_key,
     delegation_id,
-    shared_conversation_key,
+    per_conversation_key,
 )
 from crucible.ports.engine_turn import (
     ConversationBusy,
@@ -437,28 +437,31 @@ class EngineDelegationService:
         """Take with a conversation that starts over what the agents it asked
         keep of it: the tasks still running from it are called off
         (``conversation_forgotten``), and an agent that keeps one conversation
-        per asking conversation has its memory of this one reset — the
-        runtime's ``reset``, as the application's for the asker's own. The names
-        of the agents whose memory went. An application that starts a
+        per asking conversation and was asked from this one — the store has
+        its conversation under the key — has its memory of it reset: the
+        runtime's ``reset``, as the application's for the asker's own; memory
+        the runtime cannot see (an agent hosted elsewhere) is that host's to
+        honour. The names of the agents asked. An application that starts a
         conversation over calls this beside its reset of the asker's session;
         the asked agents' files stay for the attachment sweep."""
         if self._control is None:
-            raise DelegationError("forgetting a conversation's tasks is not available in this deployment")
+            raise ValueError("forget needs the runtime's control: EngineDelegationService(control=...)")
         for entry in await self._store.running_delegations():
             if entry.agent != asker or entry.conversation_id != conversation_id:
                 continue
             ended = replace(entry, status=DELEGATION_CANCELLED, finished_at=_now(), notice=NOTICE_CONVERSATION_FORGOTTEN)
             if await self._store.end_delegation(ended):
                 await self._stop_turn(entry)
-        key = shared_conversation_key(asker, conversation_id)
+        key = per_conversation_key(asker, conversation_id)
         forgotten: list[str] = []
         for info in self._directory.list_agents():
             if not self._keeps_one_conversation(info.name):
                 continue
             session_id = derive_runtime_session_id(info.name, key)
-            if not self._control.has_memory(info.name, session_id):
-                continue
-            await self._control.reset(info.name, session_id)
+            if await self._sessions.get_by_runtime_session(session_id) is None:
+                continue  # never asked from this conversation
+            if self._control.has_memory(info.name, session_id):  # a reset the runtime knows is pointless is skipped
+                await self._control.reset(info.name, session_id)
             forgotten.append(info.name)
         if forgotten:
             logger.info("conversation %s of %s forgotten: %s forgot their tasks from it", conversation_id, asker, ", ".join(forgotten))
@@ -539,7 +542,7 @@ class EngineDelegationService:
         the asked agent keeps one per asking conversation — one for every task
         this conversation hands it."""
         if self._keeps_one_conversation(to):
-            return shared_conversation_key(asker.agent, asker.conversation_id)
+            return per_conversation_key(asker.agent, asker.conversation_id)
         return delegated_conversation_key(task_id)
 
     def _keeps_one_conversation(self, agent: str) -> bool:

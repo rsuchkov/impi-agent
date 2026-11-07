@@ -11,12 +11,14 @@ when a release is cut, and `impi update` shows the target version's section.
   asking conversation under a key of its own, which outlived the asker's
   memory: an application that forgot the asker's session left the asked agent
   answering from the last conversation. The key is now the port's —
-  `shared_conversation_key(asker, conversation_id)` in
+  `per_conversation_key(asker, conversation_id)` in
   `crucible.ports.delegation`, fixed — and `EngineDelegationService.forget(asker,
   conversation_id)` (`control=` the runtime) calls off the tasks still running
-  from the conversation (`conversation_forgotten`) and resets every such agent's
-  memory of it, answering with their names. `impi` wires `control`; it starts no
-  conversation over itself.
+  from the conversation (`conversation_forgotten`) and resets the memory of
+  every such agent asked from it, answering with their names. `impi` wires
+  `control`; it starts no conversation over while it runs, and `impi sessions
+  delete` now takes the asked agents' conversations along with the one it
+  deletes.
 
 ## v0.48.2 — 2026-11-07
 

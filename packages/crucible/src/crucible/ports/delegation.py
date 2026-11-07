@@ -49,12 +49,11 @@ def delegated_conversation_key(task_id: str) -> str:
     return f"{_DELEGATED_PREFIX}{task_id}"
 
 
-def shared_conversation_key(asker: str, conversation_id: str) -> str:
+def per_conversation_key(asker: str, conversation_id: str) -> str:
     """The key of the conversation an agent that keeps one per asking
     conversation (``delegation_session: per_conversation``) runs every task
     from ``asker``'s conversation in — the one its memory of those tasks
-    lives under, for an application to find (``has_memory``) or forget with
-    the asker's own."""
+    lives under, for an application to find or forget with the asker's own."""
     digest = hashlib.sha256(f"{asker}\0{conversation_id}".encode()).hexdigest()[:16]
     return delegated_conversation_key(f"{asker}-{digest}")
 

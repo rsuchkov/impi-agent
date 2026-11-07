@@ -125,7 +125,7 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
   `on_behalf_of_gateway`), and `TrustedLink`/`TrustedLinks` (a trusted task in
   flight: whose turn asked, where that turn answers, and the asker's
   conversation on its other gateways — where a card is copied);
-  `shared_conversation_key(asker, conversation_id)` is where an agent keeping
+  `per_conversation_key(asker, conversation_id)` is where an agent keeping
   one conversation per asking conversation runs its tasks, named so an
   application can forget it with the asker's own
   (`EngineDelegationService.forget`). The engine's own gateways,
@@ -562,7 +562,7 @@ result returns into `pi`'s turn.
 `/skills` browses the skill library and hands skills to agents. A
 `ScreenRegistry` is consulted **before** the agent is chosen; the screen renders
 a `View` (text + actions), and each click carries its own state back and
-**rewrites the same message** (`ChatClient.update_actions`) — no turn, no second
+**rewrites the same message** (`ChatClient.update_cards`) — no turn, no second
 message. A line meant for the clicker alone (`View.private_note`, a link only
 they may hold) travels beside the redraw: an ephemeral reply on Mattermost, a
 whisper on Slack, `privateNote` in the http answer. Listing what exists and editing a profile are facts and edits, so a
