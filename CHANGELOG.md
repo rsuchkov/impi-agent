@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.48.2 — 2026-11-07
+
 - **Fixed: a trusted agent's card is asked on every gateway the asker's
   conversation is live in.** It was posted only where the asker's turn
   answers, so a conversation in two gateways (a panel's task and its chat
