@@ -32,6 +32,22 @@ when a release is cut, and `impi update` shows the target version's section.
   turn has the same ids on every replica. `Telemetries(a, b)` joins receivers.
   In `impi`: `TELEMETRY_OTLP_ENDPOINT`, `TELEMETRY_OTLP_HEADERS`,
   `TELEMETRY_SERVICE_NAME` ([telemetry.md](docs/telemetry.md)).
+- **A person's message can join the running turn.** With
+  `JOIN_RUNNING_TURNS=true` (`MessageCoalescer(join_running_turns=)`,
+  `HttpHub(join_running_turns=)`) a message into a conversation whose turn is
+  running is put to that turn (`RuntimeControl.steer`, the sink's `steer` —
+  `SteerableSink`/`TurnSteerer`, `Joined`) and read by the model before its
+  next call — after the tool calls in flight, or after the answer it is
+  writing — as the person's words; the turn goes on to answer it. What the
+  model had written before reading it is posted as its own answer
+  (`Answered`), the turn's wrap-up clock starts over at the read, and a
+  message the turn ends without reading is taken back out of the runtime's
+  queue (`AgentResult.unread`) and runs as the next turn. The pi driver reports
+  `MessageRead`, sends `clear_queue`, and measures the wrap-up per segment. On
+  `http`: `200 {turnId, joined: true}` instead of `409 turn_in_progress` for
+  the same caller, journal events `message.joined` and `message.read`,
+  `turn.finished.next` for what runs next, `409 awaiting_person` while a card
+  is up, `422` for a message with files. Off by default: everything as before.
 - **Telemetry may carry content, opt-in.** `TELEMETRY_CONTENT=text`
   (`AgentFlow(telemetry_content=)`, `build_server(telemetry_content=)`) makes
   `TurnEnded` carry what the person wrote (`input_text`) and what the agent

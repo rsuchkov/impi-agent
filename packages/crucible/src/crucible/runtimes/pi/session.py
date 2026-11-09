@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 
 from crucible.confinement import ProcessScope
 from crucible.ports.agent.events import (
+    Answered,
+    MessageRead,
     ModelAnswered,
     TextProgress,
     ToolFinished,
@@ -79,6 +81,10 @@ class PiResult:
     # Tokens and pi's own cost estimate, summed over the run's answers; None
     # when pi reported none.
     usage: TokenUsage | None = None
+    # Messages put to the turn (``steer``) that the model never read: the run
+    # ended first. Taken out of pi's queue, so the next prompt does not carry
+    # them; whoever put them decides what to do.
+    unread: tuple[str, ...] = ()
 
 
 class _Turn:
@@ -121,8 +127,12 @@ class _Turn:
         # The last moment the process said anything for this turn, by the
         # loop's clock — what the idle watchdog measures from.
         self.last_event_at = asyncio.get_running_loop().time()
-        # The wrap-up note goes once; after it the turn runs out on its own.
+        # The wrap-up note goes once per segment; after it the segment runs
+        # out on its own. A message read mid-turn starts a new segment.
         self.wrapped_up = False
+        self.segment_started = asyncio.get_running_loop().time()
+        # Messages put to the turn and not yet read by the model, as sent.
+        self.steers: list[str] = []
 
 
 class PiRpcSession:
@@ -223,6 +233,19 @@ class PiRpcSession:
             on_event=on_event, idle_timeout=idle_timeout, wrap_up_after=wrap_up_after,
             tokens_per_turn=tokens_per_turn,
         )
+
+    async def steer(self, text: str) -> bool:
+        """Put ``text`` to the turn in flight, to be read before the model's
+        next call (after the tool calls in flight, or after the answer it is
+        writing — the loop then goes on). False when no turn is in flight.
+        pi answers the command only when it gets to it, so the answer is not
+        waited for; the turn's result says what was never read (``unread``)."""
+        turn = self._turn
+        if turn is None or turn.future.done():
+            return False
+        turn.steers.append(text)
+        await self._transport.send(protocol.encode_steer(text, command_id=protocol.new_command_id()))
+        return True
 
     async def abort(self) -> None:
         if self._turn is not None:
@@ -357,7 +380,8 @@ class PiRpcSession:
                     raise asyncio.TimeoutError
                 if idle_timeout and not turn.tool_started and now - turn.last_event_at >= idle_timeout:
                     raise _Stalled
-                if wrap_up_after and not turn.wrapped_up and active >= wrap_up_after:
+                segment_active = (now - turn.segment_started) - self._ui_wait_total
+                if wrap_up_after and not turn.wrapped_up and segment_active >= wrap_up_after:
                     turn.wrapped_up = True
                     # Steered, not followed up: a follow-up waits for the agent to
                     # stop, which is exactly too late; a steer is read after the
@@ -446,6 +470,18 @@ class PiRpcSession:
             turn.last_event_at = asyncio.get_running_loop().time()
         if turn is not None and event.type == protocol.EV_TURN_START:
             turn.answer_started = asyncio.get_running_loop().time()
+        if turn is not None and (read := protocol.user_message_text(event)) is not None and read in turn.steers:
+            # The loop picked up a message put to the turn: what the model had
+            # written before it is its answer to what came before, and the turn
+            # goes on in a new segment, with the wrap-up clock started afresh.
+            turn.steers.remove(read)
+            written = "".join(turn.text_parts).strip()
+            turn.text_parts.clear()
+            if written:
+                await self._notify(Answered(written))
+            turn.wrapped_up = False
+            turn.segment_started = asyncio.get_running_loop().time()
+            await self._notify(MessageRead(read))
         if turn is not None and event.type == protocol.EV_TURN_END:
             turn.tokens_used += _tokens_of_message(event.raw.get("message"))
             answered = _model_answered(turn, event.raw.get("message"))
@@ -513,7 +549,9 @@ class PiRpcSession:
         (an extension consumed the prompt), which is an empty answer."""
         if event is None:
             if not turn.future.done():
-                turn.future.set_result(PiResult(text="".join(turn.text_parts).strip(), tool_calls=turn.tool_calls))
+                turn.future.set_result(PiResult(
+                    text="".join(turn.text_parts).strip(), tool_calls=turn.tool_calls, unread=self._take_unread(turn),
+                ))
             return
         # The answer is what the model said after its last call; what it said
         # before one went out as progress.
@@ -543,9 +581,20 @@ class PiRpcSession:
             model=_model_from_agent_end(event),
             truncated=stop_reason == STOP_LENGTH,
             usage=_usage_from_agent_end(event),
+            unread=self._take_unread(turn),
         )
         if not turn.future.done():
             turn.future.set_result(result)
+
+    def _take_unread(self, turn: _Turn) -> tuple[str, ...]:
+        """The messages put to the turn that the run ended without reading,
+        taken out of pi's queue too — left there, the next prompt would carry
+        them, after its own text."""
+        unread = tuple(turn.steers)
+        turn.steers.clear()
+        if unread:
+            asyncio.ensure_future(self._transport.send(protocol.encode_clear_queue(command_id=protocol.new_command_id())))
+        return unread
 
     async def _handle_ui_request(self, event: PiEvent) -> None:
         """Answer a pi ``extension_ui_request``.

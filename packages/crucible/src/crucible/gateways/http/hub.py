@@ -16,6 +16,7 @@ types and fields it does not know.
 import asyncio
 import logging
 import re
+import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -29,7 +30,12 @@ from crucible.attachments import AttachmentStore
 from crucible.gateways.dispatch import GatewayDispatcher
 from crucible.gateways.http.auth import Caller, CallerAuthenticator, Refusal
 from crucible.gateways.http.client import HttpChatClient, wire_action, wire_card
-from crucible.gateways.http.journal import EV_ACTIONS_RETIRED, STATUS_RUNNING
+from crucible.gateways.http.journal import (
+    EV_ACTIONS_RETIRED,
+    EV_MESSAGE_JOINED,
+    EV_MESSAGE_READ,
+    STATUS_RUNNING,
+)
 from crucible.gateways.http.turns import (
     STARTED_BY_ENGINE,
     HttpTurns,
@@ -40,7 +46,13 @@ from crucible.gateways.ws.events import files_error, frame_files
 from crucible.interactions.screens import SCREEN_KEY, STATE_KEY
 from crucible.ports.agent.runtime import RuntimeControl
 from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.flow import StoppableSink, TrackedSink, TurnOutcome
+from crucible.ports.chat.flow import (
+    Joined,
+    StoppableSink,
+    TrackedSink,
+    TurnOutcome,
+    TurnSteerer,
+)
 from crucible.ports.chat.gateway import GATEWAY_HTTP
 from crucible.ports.chat.interactions import actions_from_json, approval_card_from_json
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
@@ -136,6 +148,7 @@ class HttpHub:
         readiness_probes: Sequence[ReadinessProbe] = (),
         engine_turns: EngineTurnsSince | None = None,
         keying: ConversationKey | None = None,
+        join_running_turns: bool = False,
     ) -> None:
         self._host = host
         self._port = port
@@ -148,6 +161,11 @@ class HttpHub:
         self._attachments = attachments
         self._dispatcher = dispatcher
         self._control = control
+        # Whether a message into a conversation with a turn running is put to
+        # that turn (the sink's ``steer``) rather than refused with 409; the
+        # watchers that tell a journal when the model read such a message.
+        self._join_running_turns = join_running_turns
+        self._watching: set[asyncio.Task[None]] = set()
         # Every waiting poll holds a connection (and, behind a proxy, one of its
         # workers), so the wait is capped here whatever the client asks for.
         self._max_wait_s = max_wait_s
@@ -457,10 +475,23 @@ class HttpHub:
         self._sweep()
         if (running := self.turns.active(conversation)) is not None and \
                 running.client_message_id != client_message_id:
-            raise Refusal(
-                409, "turn_in_progress", "this conversation already has a turn running",
-                turnId=running.id,
-            )
+            if any(cid == client_message_id for cid, _joined, _msg in running.joined):
+                return web.json_response({"turnId": running.id, "conversationId": conversation_id, "joined": True})
+            if not self._join_running_turns or running.owner != caller.owner or not isinstance(sink, TurnSteerer):
+                raise Refusal(
+                    409, "turn_in_progress", "this conversation already has a turn running",
+                    turnId=running.id,
+                )
+            if files:
+                raise Refusal(422, "validation", "a message with files cannot join a running turn; wait for it to finish")
+            if running.calls.awaiting is not None:
+                # The model reads what joins only after the call it waits on is
+                # answered: the person is asked to answer the card first.
+                raise Refusal(
+                    409, "awaiting_person", "the turn waits on your answer to its card; answer it first",
+                    turnId=running.id,
+                )
+            return await self._join(running, conversation_id, client_message_id, caller, sink, chat, text)
         message = IncomingMessage(
             ref=ConversationRef(
                 channel_id=conversation, conversation_id=conversation,
@@ -523,6 +554,43 @@ class HttpHub:
         task.add_done_callback(self._settling.discard)
         return web.json_response(answer, status=202)
 
+    async def _join(
+        self, running: Turn, conversation_id: str, client_message_id: str, caller: Caller,
+        sink: TurnSteerer, chat: HttpChatClient, text: str,
+    ) -> web.Response:
+        """Put the message to the turn running in its conversation. The journal
+        says it joined, then that the model read it; one the turn ends without
+        reading runs as the next turn, which `turn.finished` names."""
+        message = IncomingMessage(
+            ref=ConversationRef(
+                channel_id=running.conversation, conversation_id=running.conversation,
+                message_id=f"{caller.realm}{_SEP}{client_message_id}", thread_root_id="",
+            ),
+            text=text, user_id=caller.user_id, username=caller.username or caller.user_id,
+            kind=KIND_DM, is_dm=True, mentioned=True, gateway=GATEWAY_HTTP, timestamp=datetime.now(timezone.utc),
+        )
+        joined = await sink.steer(message, chat)
+        if joined is None:  # the turn ended meanwhile, or the flow cannot take it
+            raise Refusal(
+                409, "turn_in_progress", "this conversation already has a turn running", turnId=running.id,
+            )
+        running.joined.append((client_message_id, joined, message))
+        self.turns.remember(running.conversation, client_message_id, running)
+        running.journal.emit(EV_MESSAGE_JOINED, clientMessageId=client_message_id)
+        watch = asyncio.ensure_future(self._watch_read(running, client_message_id, joined))
+        self._watching.add(watch)
+        watch.add_done_callback(self._watching.discard)
+        return web.json_response({"turnId": running.id, "conversationId": conversation_id, "joined": True})
+
+    @staticmethod
+    async def _watch_read(turn: Turn, client_message_id: str, joined: Joined) -> None:
+        try:
+            read = await joined.read
+        except asyncio.CancelledError:
+            return
+        if read:
+            turn.journal.emit(EV_MESSAGE_READ, clientMessageId=client_message_id)
+
     async def _settle(self, turn: Turn, outcome) -> TurnOutcome:
         try:
             result = await outcome
@@ -532,8 +600,41 @@ class HttpHub:
         except Exception:
             logger.exception("turn %s: the flow raised", turn.id)
             result = TurnOutcome.ERROR
-        self.turns.finish(turn, result)
+        unread = [(cid, msg) for cid, joined, msg in turn.joined if joined.read.done() and joined.read.result() is False]
+        if not unread or self._draining:
+            self.turns.finish(turn, result)
+            return result
+        # What the turn never read is a turn of its own, named now so the
+        # client that posted it goes there for the answer.
+        next_id = uuid.uuid4().hex
+        self.turns.finish(turn, result, next_turn={"turnId": next_id, "clientMessageIds": [cid for cid, _ in unread]})
+        self._start_next(turn, next_id, unread)
         return result
+
+    def _start_next(self, ended: Turn, next_id: str, unread: list[tuple[str, IncomingMessage]]) -> None:
+        entry = self._agents.get(ended.agent)
+        if entry is None:
+            return
+        sink, chat = entry
+        first_id, _ = unread[0]
+        for cid, _ in unread:
+            self.turns.forget_message(ended.conversation, cid)  # known by the ended turn until now
+        try:
+            following, _created = self.turns.start(
+                agent=ended.agent, conversation=ended.conversation, owner=ended.owner, client_message_id=first_id,
+                turn_id=next_id,
+            )
+        except TurnInProgress:
+            logger.warning("turn %s: the messages it never read found another turn running; dropped", ended.id)
+            return
+        for cid, _ in unread[1:]:
+            self.turns.remember(ended.conversation, cid, following)
+        futures = [
+            sink.submit_tracked(replace(msg, turn=TurnScope(turn_id=following.id)), chat) for _cid, msg in unread
+        ]
+        task = asyncio.ensure_future(self._settle(following, futures[0]))
+        self._settling.add(task)
+        task.add_done_callback(self._settling.discard)
 
     def _sweep(self) -> None:
         self.turns.sweep(asyncio.get_running_loop().time())

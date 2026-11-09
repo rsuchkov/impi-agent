@@ -418,6 +418,7 @@ def _build_unit(
     received_files_of: Callable[[str, str], ReceivedFiles] | None = None,
     telemetry: Telemetry | None = None,
     telemetry_content: str = CONTENT_NONE,
+    join_running_turns: bool = False,
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
@@ -457,7 +458,10 @@ def _build_unit(
         served = OwnedFlow(
             flow, replicas, replica, forwarder, agent=spec.name, forwarded=CONNECTION_GATEWAYS,
         )
-    coalescer = MessageCoalescer(served, on_arrival=interactions.on_arrival_for(spec.name), agent=spec.name)
+    coalescer = MessageCoalescer(
+        served, on_arrival=interactions.on_arrival_for(spec.name), agent=spec.name,
+        join_running_turns=join_running_turns,
+    )
     # Record the agent's live presence in the app-owned registry; interactions read
     # it lazily through MappingPresence. One sink, a chat client per gateway, the
     # first gateway the default — and the engine's own door beside them, so a
@@ -567,7 +571,7 @@ def _build_units(
             captions=captions,
             posting_tools=_posting_tools(tools), tools=tools,
             file_keeper=file_keeper, received_files_of=received_files_of, telemetry=telemetry,
-            telemetry_content=telemetry_content,
+            telemetry_content=telemetry_content, join_running_turns=settings.join_running_turns,
             replica=replica, replicas=replicas, forwarder=forwarder, trusted=trusted,
         )
         for kind in handles:
@@ -880,6 +884,7 @@ def build_app(settings: ImpiSettings) -> App:
             directory=registry, attachments=attachments,
             dispatcher=interactions.dispatcher, control=runtime,
             max_wait_s=settings.http_max_wait_s,
+            join_running_turns=settings.join_running_turns,
             # `startedSince`: which of a person's conversations the engine
             # started a turn in — a scheduled task, an event — from the inventory.
             engine_turns=engine_turns_lookup(sessions),

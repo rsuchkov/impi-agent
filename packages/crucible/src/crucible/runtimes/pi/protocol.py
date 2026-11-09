@@ -27,6 +27,8 @@ CMD_FOLLOW_UP = "follow_up"
 # model call — unlike a follow-up, which waits until the agent stops.
 CMD_STEER = "steer"
 CMD_ABORT = "abort"
+# Drop what is queued for the model and not yet read (steers, follow-ups).
+CMD_CLEAR_QUEUE = "clear_queue"
 
 # --- Event/response types (pi -> bot, read from stdout) --------------------
 EV_RESPONSE = "response"
@@ -40,6 +42,9 @@ EV_AGENT_SETTLED = "agent_settled"
 DISPOSITION_HANDLED = "handled"
 EV_TURN_START = "turn_start"
 EV_TURN_END = "turn_end"
+# A message entered the model's context: the prompt, a steer the loop picked
+# up (``role: user`` with its text), the model's own answer, a tool's result.
+EV_MESSAGE_START = "message_start"
 EV_MESSAGE_UPDATE = "message_update"
 EV_TOOL_EXECUTION_START = "tool_execution_start"
 EV_TOOL_EXECUTION_END = "tool_execution_end"
@@ -113,6 +118,10 @@ def encode_follow_up(
 
 def encode_abort(*, command_id: str) -> str:
     return _encode({"id": command_id, "type": CMD_ABORT})
+
+
+def encode_clear_queue(*, command_id: str) -> str:
+    return _encode({"id": command_id, "type": CMD_CLEAR_QUEUE})
 
 
 def encode_extension_ui_response(
@@ -206,6 +215,24 @@ def completed_text(event: PiEvent) -> str | None:
     if payload and payload.get("type") in (ASSISTANT_TEXT_END, ASSISTANT_TEXT_DONE):
         content = payload.get("content")
         return content if isinstance(content, str) else None
+    return None
+
+
+def user_message_text(event: PiEvent) -> str | None:
+    """The text of a ``message_start`` whose message is the user's — a prompt
+    or a steer the loop just picked up; None for any other event or role."""
+    if event.type != EV_MESSAGE_START:
+        return None
+    message = event.raw.get("message")
+    if not isinstance(message, dict) or message.get("role") != "user":
+        return None
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
+        )
     return None
 
 

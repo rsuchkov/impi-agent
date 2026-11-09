@@ -47,6 +47,7 @@ for the full resolution order.
 | `MATTERMOST_TOKEN` | `""` | bot token for the default agent (`AGENT_NAME`) |
 | `MM_MAX_POST_CHARS` | `16000` | reply chunking threshold |
 | `DM_REPLIES` | `top` | where a top-level direct message is answered, `top` or `thread` — the same setting as in the Slack table below; both chat gateways honour it (`AGENTS_DM_REPLIES__<AGENT>` per agent) |
+| `JOIN_RUNNING_TURNS` | `false` | a person's message into a conversation whose turn is running joins that turn — read by the model before its next call, answered in it — instead of waiting for the next turn (chat) or being refused with 409 (`http`); one the turn ends without reading runs next ([http-gateway.md](http-gateway.md)) |
 
 ## Slack gateway (Socket Mode)
 

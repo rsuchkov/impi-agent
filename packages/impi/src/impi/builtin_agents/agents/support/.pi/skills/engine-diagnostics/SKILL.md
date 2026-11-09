@@ -332,7 +332,10 @@ And from the session check:
 - Tasks handed between agents — `X is not an agent you trust; hand the task on
   with delegate` (`ask_agent` to an agent the asker's `runtime.trusted_agents`
   does not name), `asker_turn_ended` in `delegation_status` (the asker answered or
-  was stopped before `await_agents`; the trusted task was called off), `conversation_forgotten` (the application
+  was stopped before `await_agents`; the trusted task was called off), a message a person sent while a turn ran
+  that got no answer until the next one (`JOIN_RUNNING_TURNS` is off, the default — on, it joins the running turn
+  and the log says `a message joined the running turn in <agent>/<conversation>`; one the turn never read is
+  queued as the next turn), `conversation_forgotten` (the application
   started the asking conversation over while the task ran — `impi` itself never does; log
   `conversation <id> of <asker> forgotten: <agents> forgot their tasks from it`), a trusted agent's turn that ended
   `empty_answer`, `truncated`, `timeout` or failed posts **no notice** to the person — the code is the `notice`

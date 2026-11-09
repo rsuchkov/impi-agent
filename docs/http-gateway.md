@@ -64,7 +64,8 @@ caller, so two programs never reach each other's conversations.
 | `unauthorized` | 401 | no accepted token |
 | `forbidden` | 403 | the agent does not exist on this hub, or this caller may not address it |
 | `not_found` | 404 | unknown turn, another person's turn, a retired control, a question nobody waits on any more, nothing running to cancel, interactivity off, an engine not wired to list engine-started turns |
-| `turn_in_progress` | 409 | this conversation already has a turn running; `turnId` names it |
+| `turn_in_progress` | 409 | this conversation already has a turn running; `turnId` names it (with `join_running_turns` only another caller's message, or one the turn could not take) |
+| `awaiting_person` | 409 | the running turn waits on your answer to its card; the message would be read only after — answer the card first (`turnId`) |
 | `not_cancellable` | 409 | the turn cannot be interrupted here: an application flow that cannot stop a turn, and no runtime control wired |
 | `not_available` | 409 | a form was asked to open; forms are chat-only |
 | `draining` | 503 | the engine is shutting down and takes no new messages; polls and answers still work |
@@ -83,6 +84,20 @@ caller, so two programs never reach each other's conversations.
 - `200` with the same body — `clientMessageId` was already accepted: a retry
   returns the turn it started, not a second one.
 - `409 turn_in_progress` with `turnId` — follow that turn instead.
+- `200 {"turnId", "conversationId", "joined": true}` — with
+  `HttpHub(join_running_turns=True)` (`JOIN_RUNNING_TURNS` in `impi`), a
+  message of the same caller into a conversation whose turn is running
+  **joins that turn**: the model reads it before its next call — after the
+  tool calls in flight, or after the answer it is writing — and the turn goes
+  on to answer it. The turn's journal says `message.joined`, then
+  `message.read` when the model got to it; a retry of the same
+  `clientMessageId` gets the same answer. What the model had written before
+  reading the message comes as a `message` of its own (the answer to what came
+  before), then the answer to the new message. A message the turn ends without
+  reading runs as the next turn, which `turn.finished` names in `next`
+  (`{turnId, clientMessageIds}`): follow that one. A message with files cannot
+  join (`422 validation`), and while the turn waits on your answer to a card
+  the message is refused with `409 awaiting_person` — answer the card first.
 
 `clientMessageId` is required (1–128 characters of `A-Za-z0-9_.:-`) and is what makes a
 submit idempotent; generate one per message, reuse it on retry. `text` may be
@@ -123,7 +138,9 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | `tool.finished` | `callId`, `tool`, `ok` | it ended |
 | `tool.awaiting` | `callId`, `tool`, `caption` | the call waits on the person — its confirmation card is up (the `confirmation` event, status `awaiting_input`); say "waiting for you" on that step rather than letting it look slow. Over with the call's `tool.finished`: allowed and run (`ok`), or refused |
 | `progress` | `text` | what the model said on its way to the next call ("Found the workflow, now listing transitions") — a step's heading, not the answer; the answer is the `message` after the last call |
-| `message` | `messageId`, `format: "markdown"`, `text` | the agent's answer |
+| `message` | `messageId`, `format: "markdown"`, `text` | the agent's answer — more than one when a message joined the turn: the answer to what came before, then to what joined |
+| `message.joined` | `clientMessageId` | your message was put to this running turn (`join_running_turns`) |
+| `message.read` | `clientMessageId` | the model read it; from here the turn answers it too |
 | `notice` | `code`, `text` | the engine speaking: `timeout`, `busy`, `quota`, `credentials`, `context`, `model_unavailable`, `runtime_unavailable`, `agent_error`, `empty_answer`, `over_budget` (the turn spent more than its token budget and was stopped; what it did stands), `budget_spent` (the agent's or this person's budget for the day is spent: nothing ran, again after 00:00 UTC), `stalled` (the model stopped responding mid-turn and the turn was stopped), `truncated` (the answer hit the model's length limit: the `message` before it stops where the limit fell, or there was none), `stopped` (a person ended the turn; not a failure), `not_admitted` (the application did not let the turn run — a sign-in is wanted; such a notice may carry `link`, a URL for this caller alone, and `label`, the word for its button) — or a flag a tool left on the turn (`session_expired`, whatever the application defines), after the answer; `text` is a sentence for a person, `code` is for you |
 | `actions` | `postId`, `text`, `actions[]` | a question with controls — what the runtime asks mid-turn (`ask_user_confirm`); the turn waits (`awaiting_input`). An action's `data` (the application's own, see building-an-app) stays on the engine's side and is not on the wire |
 | `confirmation` | `postId`, `agent`, `icon`, `headline`, `title`, `tool`, `displayName`, `fields[{label, value, before, passage}]`, `block {label, text, language} \| null`, `danger`, `expiresAt`, `verdict`, `grantS`, `actions[]` | a request for a yes, as data — a tool that needs confirming, a credential an agent asks for. Nothing is rendered: draw the headline, `title` (the one-line account of the call, "" when the card is not about a call) and `tool` (the id of the tool being confirmed, "" for a credential; `displayName` the name it declares for people, "" when none — what a chat signs the card with), the facts (a `before` means a change; `passage` means the value is text to show whole, with its lines), the verbatim block (a command line, raw arguments — show it as written; `language` is what it is written in, `json`, `groovy`, `diff`, for a highlighter, or `""`), a warning when `danger`, a countdown to `expiresAt`; the turn waits (`awaiting_input`) |
@@ -131,7 +148,7 @@ Every event has `seq` (strictly increasing within a turn, from 1), `at`
 | `actions.retired` | `postId`, `text` | the controls of an `actions` post are gone; show `text` in their place — or a post the engine removed (a progress message whose turn is over), with `text` empty: show nothing |
 | `cards` | `postId`, `cards[{text, accent, actions[], steps[{id, title, state, note}]}]` | a message built from cards; the same `postId` again means redraw it. `steps` are a turn's steps so far under the card's text (a tool call with its caption; `state` is `running`, `done` or `failed`; `note` is a line under it, "waiting for you" while the call waits on the person) — empty for any other card |
 | `file` | `name`, `mime`, `data` (base64), `text` | a file the agent sent (the caption rides with the first) |
-| `turn.finished` | `outcome`, `durationS`, `calls`, `failedCalls`, `traceToken` | the last event — with the turn's own account of itself: how long it took, how many tools it called and how many of those failed, and the token its calls are kept under (`GET /v1/traces/{token}`; `""` when it called none, or the engine keeps no records — `TOOL_TRACE_ENABLED=false`). `outcome`: `replied`, `acted` (a speaking tool — a widget, a form — answered for it), `truncated` (the answer hit the model's length limit; what there was came as `message`, then a `notice`), `empty`, `duplicate`, `timeout`, `error`, `stopped` (a person ended the turn — `/cancel`, a `/stop` in chat; what there was came as `message`, then a `notice` with code `stopped`), `not_admitted` (the application did not let the turn run; nothing ran, and a `notice` with code `not_admitted` said what to do) |
+| `turn.finished` | `outcome`, `durationS`, `calls`, `failedCalls`, `traceToken`, `next` (`{turnId, clientMessageIds}`, only when messages that joined were never read and run as the next turn) | the last event — with the turn's own account of itself: how long it took, how many tools it called and how many of those failed, and the token its calls are kept under (`GET /v1/traces/{token}`; `""` when it called none, or the engine keeps no records — `TOOL_TRACE_ENABLED=false`). `outcome`: `replied`, `acted` (a speaking tool — a widget, a form — answered for it), `truncated` (the answer hit the model's length limit; what there was came as `message`, then a `notice`), `empty`, `duplicate`, `timeout`, `error`, `stopped` (a person ended the turn — `/cancel`, a `/stop` in chat; what there was came as `message`, then a `notice` with code `stopped`), `not_admitted` (the application did not let the turn run; nothing ran, and a `notice` with code `not_admitted` said what to do) |
 
 An action: `{id, label, value, style, kind, options[{label, value}]}`. `kind` is
 `button`, `select`, `user_select` or `channel_select`; a button echoes its

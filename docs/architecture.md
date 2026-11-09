@@ -101,7 +101,9 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
 - **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill + files + the widget
   verbs), `ConversationView` (a platform's view of the conversation beside its
   messages — busy or free for the turn, waiting while a card is up), `StoppableSink` (a person stops the
-  turn in flight), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
+  turn in flight), `SteerableSink`/`TurnSteerer` and `Joined` (a person's message
+  joins the turn in flight: read by the model before its next call, answered in
+  it; `read` says whether it was), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `FileService`
   (the tool-facing "send this file"), `MessageSink` / `Flow` (inbound entry
   point, returning a `TurnOutcome`), `AgentDirectory` (who our agents are), and

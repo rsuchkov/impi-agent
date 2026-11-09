@@ -205,3 +205,82 @@ async def test_the_coalescer_stops_the_turn_through_its_flow_when_the_flow_can()
     assert await MessageCoalescer(flow).stop("dm1", gateway="slack") is True
     assert flow.stopped == [("dm1", "slack")]
     assert await MessageCoalescer(OutcomeFlow()).stop("dm1") is False
+
+
+class SteeringFlow(SlowFlow):
+    """A flow that also takes a message into the running turn, and says at
+    the end whether the model read it."""
+
+    def __init__(self, *, reads: bool = True) -> None:
+        super().__init__()
+        self.steered: list[str] = []
+        self.joined: list = []
+        self.reads = reads
+
+    async def steer(self, msg, chat):
+        from crucible.ports.chat.flow import Joined
+
+        self.steered.append(msg.ref.message_id)
+        joined = Joined(message=msg, read=asyncio.get_running_loop().create_future())
+        self.joined.append(joined)
+        return joined
+
+    async def handle_batch(self, msgs, chat) -> TurnOutcome:
+        outcome = await super().handle_batch(msgs, chat)
+        for joined in self.joined:
+            if not joined.read.done():
+                joined.read.set_result(self.reads)
+        return outcome
+
+
+async def test_with_joining_on_a_message_during_a_turn_goes_to_that_turn_and_a_burst_before_one_still_coalesces() -> None:
+    flow = SteeringFlow()
+    co = MessageCoalescer(flow, join_running_turns=True)
+    co.submit(_msg("p1"), chat=FakeChat())
+    await asyncio.sleep(0)
+    co.submit(_msg("p2"), chat=FakeChat())  # mid-turn: joins it
+    await asyncio.sleep(0.01)
+    assert flow.steered == ["p2"] and flow.batches == [["p1"]]
+    # The sink's own steer, for a gateway that asks before it submits: a conversation with no turn says None.
+    assert await co.steer(_msg("q1", conv="cQ"), FakeChat()) is None
+    assert flow.steered == ["p2"]
+    assert (await co.steer(_msg("p3"), FakeChat())) is not None and flow.steered == ["p2", "p3"]
+    flow.release()
+    await asyncio.sleep(0.02)
+    assert flow.batches == [["p1"]]  # both were read in the turn: no next turn
+    # Off (the default), a message during a turn waits for the next one, as always.
+    plain = SteeringFlow()
+    co2 = MessageCoalescer(plain)
+    co2.submit(_msg("a1"), chat=FakeChat())
+    await asyncio.sleep(0)
+    co2.submit(_msg("a2"), chat=FakeChat())
+    plain.release()
+    await asyncio.sleep(0.02)
+    assert plain.steered == [] and plain.batches == [["a1"], ["a2"]]
+
+
+async def test_a_joined_message_the_turn_did_not_read_becomes_the_next_turn() -> None:
+    flow = SteeringFlow(reads=False)
+    co = MessageCoalescer(flow, join_running_turns=True)
+    co.submit(_msg("p1"), chat=FakeChat())
+    await asyncio.sleep(0)
+    co.submit(_msg("p2"), chat=FakeChat())
+    await asyncio.sleep(0.01)
+    assert flow.steered == ["p2"]
+    flow.release()
+    await asyncio.sleep(0.03)
+    assert flow.batches == [["p1"], ["p2"]]  # not read: queued, and run as the next turn
+    # A message with files, or a synthetic one, never joins: it queues.
+    from dataclasses import replace
+
+    from crucible.ports.chat.types import Attachment
+
+    flow2 = SteeringFlow()
+    co3 = MessageCoalescer(flow2, join_running_turns=True)
+    co3.submit(_msg("b1"), chat=FakeChat())
+    await asyncio.sleep(0)
+    co3.submit(replace(_msg("b2"), attachments=(Attachment(name="a.txt", path="/tmp/a.txt", mime="text/plain", size=1),)), chat=FakeChat())
+    co3.submit(replace(_msg("b3"), synthetic=True), chat=FakeChat())
+    flow2.release()
+    await asyncio.sleep(0.03)
+    assert flow2.steered == [] and flow2.batches == [["b1"], ["b2", "b3"]]

@@ -1205,6 +1205,28 @@ def test_a_collector_named_gets_the_traces_beside_the_log(tmp_path: Path) -> Non
     assert build_app(base).tracing is None
 
 
+async def test_join_running_turns_reaches_the_coalescer_and_the_http_hub(tmp_path: Path) -> None:
+    import os
+
+    base = _settings(tmp_path)
+    off = build_app(base)
+    assert next(iter(off.sinks_by_agent.values())).sink._join_running_turns is False  # type: ignore[attr-defined]  # noqa: SLF001
+    saved = os.environ.get("HTTP_CALLER_TOKEN__PORTAL")
+    os.environ["HTTP_CALLER_TOKEN__PORTAL"] = "tok-portal"
+    try:
+        on = build_app(base.model_copy(update={"join_running_turns": True, "gateway": "http"}))
+        try:
+            assert next(iter(on.sinks_by_agent.values())).sink._join_running_turns is True  # type: ignore[attr-defined]  # noqa: SLF001
+            assert on.http_hub is not None and on.http_hub._join_running_turns is True  # noqa: SLF001
+        finally:
+            await _closed(on)
+    finally:
+        if saved is None:
+            os.environ.pop("HTTP_CALLER_TOKEN__PORTAL", None)
+        else:
+            os.environ["HTTP_CALLER_TOKEN__PORTAL"] = saved
+
+
 def test_impi_hands_one_telemetry_to_every_producer(tmp_path: Path) -> None:
     from impi.telemetry import LogTelemetry
 

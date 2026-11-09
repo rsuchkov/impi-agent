@@ -620,6 +620,11 @@ class Settings(BaseSettings):
     tasks_command: str = "tasks"
 
     log_level: str = "INFO"
+    # Whether a person's message into a conversation whose turn is running
+    # joins that turn — read by the model before its next call, answered in
+    # it — instead of waiting for the next one (chat gateways) or being
+    # refused with 409 (http). One the turn ends without reading runs next.
+    join_running_turns: bool = False
     # How often (seconds) the engine's state — sessions alive and busy, turns
     # waiting — is told as telemetry; 0 = never.
     telemetry_state_s: float = Field(default=60.0, ge=0)

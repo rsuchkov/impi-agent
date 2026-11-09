@@ -1682,3 +1682,174 @@ async def test_a_private_notice_reaches_the_callers_journal_with_its_link() -> N
             assert events[-1]["type"] == "turn.finished" and events[-1]["outcome"] == "not_admitted"
     finally:
         await hub.stop()
+
+
+# -- a message joins the running turn ----------------------------------------------------
+
+
+OTHER_AUTH = {"Authorization": "Bearer tok-portal", "X-User-Id": "u-9", "X-Username": "bob"}  # the same realm, another person
+CALLER_USER = "u-7"
+
+
+class SteeringSink(FakeSink):
+    """A sink whose running turn takes a message (``steer``): the test says
+    whether the model reads it, and when."""
+
+    def __init__(self, script=_reply) -> None:
+        super().__init__(script)
+        self.steered: list[IncomingMessage] = []
+        self.joined: list = []
+        self.takes = True
+
+    async def steer(self, msg, chat):
+        from crucible.ports.chat.flow import Joined
+
+        if not self.takes:
+            return None
+        self.steered.append(msg)
+        joined = Joined(message=msg, read=asyncio.get_running_loop().create_future())
+        self.joined.append(joined)
+        return joined
+
+    def settle(self, read: bool) -> None:
+        for joined in self.joined:
+            if not joined.read.done():
+                joined.read.set_result(read)
+
+
+def _joining_hub(port: int, script) -> tuple[HttpHub, SteeringSink]:
+    sink = SteeringSink(script)
+    hub = HttpHub(
+        "127.0.0.1", port, TokenCallers(SERVICES), directory=FakeDirectory(), max_wait_s=0.2, join_running_turns=True,
+    )
+    hub.register_agent("helper", sink, HttpChatClient(hub.turns, "helper"))
+    return hub, sink
+
+
+async def test_with_joining_on_a_message_during_the_turn_joins_it_and_the_journal_says_so() -> None:
+    release = asyncio.Event()
+
+    async def slow(msg, chat):
+        await release.wait()
+        await chat.post_reply(msg.ref, "the answer to both")
+        return TurnOutcome.REPLIED
+
+    hub, sink = _joining_hub(8530, slow)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            status, first = await _post(s, 8530, MESSAGES, {"clientMessageId": "m1", "text": "one"})
+            assert status == 202
+            # Another message while the turn runs: put to the turn, not refused.
+            status, joined = await _post(s, 8530, MESSAGES, {"clientMessageId": "m2", "text": "and two"})
+            assert status == 200 and joined == {"turnId": first["turnId"], "conversationId": "c1", "joined": True}
+            (steered,) = sink.steered
+            assert steered.text == "and two" and steered.user_id == CALLER_USER and steered.gateway == "http"
+            assert steered.ref.conversation_id == steered.channel_id and steered.timestamp is not None
+            # A retry of the joined message: the same answer, nothing put twice.
+            status, again = await _post(s, 8530, MESSAGES, {"clientMessageId": "m2", "text": "and two"})
+            assert (status, again) == (200, joined) and len(sink.steered) == 1
+            # A message with files cannot join; another caller's message is refused as before.
+            status, body = await _post(s, 8530, MESSAGES, {"clientMessageId": "m3", "text": "with a file", "files": [{"name": "a.txt", "mime": "text/plain", "data": "YQ=="}]})
+            assert status == 422 and "cannot join" in body["error"]["message"]
+            status, body = await _post(s, 8530, MESSAGES, {"clientMessageId": "m4", "text": "mine"}, headers=OTHER_AUTH)
+            assert status == 409 and body["error"]["code"] == "turn_in_progress"
+            # The model reads it: the journal says so.
+            sink.settle(True)
+            await asyncio.sleep(0.01)
+            _, page = await _events(s, 8530, first["turnId"])
+            kinds = [(e["type"], e.get("clientMessageId")) for e in page["events"]]
+            assert ("message.joined", "m2") in kinds and ("message.read", "m2") in kinds
+            release.set()
+            events, status_word = await _drain(s, 8530, first["turnId"])
+            finished = events[-1]
+            assert finished["type"] == "turn.finished" and "next" not in finished
+    finally:
+        await hub.stop()
+
+
+async def test_with_joining_off_a_sink_that_could_take_the_message_is_not_asked() -> None:
+    release = asyncio.Event()
+    sink = SteeringSink(lambda msg, chat: _until(release, msg, chat))
+    hub = HttpHub("127.0.0.1", 8533, TokenCallers(SERVICES), directory=FakeDirectory(), max_wait_s=0.2)
+    hub.register_agent("helper", sink, HttpChatClient(hub.turns, "helper"))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, first = await _post(s, 8533, MESSAGES, {"clientMessageId": "m1", "text": "one"})
+            status, body = await _post(s, 8533, MESSAGES, {"clientMessageId": "m2", "text": "two"})
+            assert status == 409 and body["error"]["code"] == "turn_in_progress" and sink.steered == []
+            release.set()
+            await _drain(s, 8533, first["turnId"])
+    finally:
+        await hub.stop()
+
+
+async def test_a_joined_message_the_turn_never_read_runs_as_the_next_turn_which_the_journal_names() -> None:
+    release = asyncio.Event()
+    texts: list[str] = []
+
+    async def slow(msg, chat):
+        texts.append(msg.text)
+        if len(texts) == 1:
+            await release.wait()
+            await chat.post_reply(msg.ref, "first")
+        else:
+            await chat.post_reply(msg.ref, "second")
+        return TurnOutcome.REPLIED
+
+    hub, sink = _joining_hub(8531, slow)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, first = await _post(s, 8531, MESSAGES, {"clientMessageId": "m1", "text": "one"})
+            status, joined = await _post(s, 8531, MESSAGES, {"clientMessageId": "m2", "text": "late"})
+            assert status == 200 and joined["joined"] is True
+            sink.settle(False)  # the turn ends without reading it
+            release.set()
+            events, _ = await _drain(s, 8531, first["turnId"])
+            finished = events[-1]
+            assert finished["next"]["clientMessageIds"] == ["m2"]
+            next_id = finished["next"]["turnId"]
+            assert ("message.read", "m2") not in [(e["type"], e.get("clientMessageId")) for e in events]
+            # The next turn is the late message's own: a retry of it finds that turn, and its answer is there.
+            status, retry = await _post(s, 8531, MESSAGES, {"clientMessageId": "m2", "text": "late"})
+            assert status == 200 and retry["turnId"] == next_id
+            events, status_word = await _drain(s, 8531, next_id)
+            assert status_word == "done" and [e["text"] for e in events if e["type"] == "message"] == ["second"]
+            assert texts == ["one", "late"] and sink.submitted[-1].turn is not None and sink.submitted[-1].turn.turn_id == next_id
+    finally:
+        await hub.stop()
+
+
+async def test_while_the_turn_waits_on_a_card_a_message_is_refused_and_a_turn_that_cannot_take_it_refuses_as_before() -> None:
+    from crucible.ports.agent.events import CallAwaiting, ToolFinished, ToolStarted
+
+    release = asyncio.Event()
+    hub, sink = _joining_hub(8532, lambda msg, chat: _until(release, msg, chat))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, first = await _post(s, 8532, MESSAGES, {"clientMessageId": "m1", "text": "one"})
+            turn = hub.turns.get(first["turnId"])
+            assert turn is not None
+            turn.calls.on_event(ToolStarted(call_id="c1", tool="jira_create"))
+            turn.calls.on_event(CallAwaiting(tool="jira_create"))
+            assert turn.calls.awaiting is not None
+            status, body = await _post(s, 8532, MESSAGES, {"clientMessageId": "m2", "text": "wait no"})
+            assert status == 409 and body["error"]["code"] == "awaiting_person" and body["turnId"] == first["turnId"]
+            # The flow cannot take it (no turn there, as it sees it): refused as before.
+            turn.calls.on_event(ToolFinished(call_id="c1", tool="jira_create"))  # the card was answered
+            sink.takes = False
+            status, body = await _post(s, 8532, MESSAGES, {"clientMessageId": "m3", "text": "again"})
+            assert status == 409 and body["error"]["code"] == "turn_in_progress"
+            release.set()
+            await _drain(s, 8532, first["turnId"])
+    finally:
+        await hub.stop()
+
+
+async def _until(release: asyncio.Event, msg, chat) -> TurnOutcome:
+    await release.wait()
+    await chat.post_reply(msg.ref, "done")
+    return TurnOutcome.REPLIED

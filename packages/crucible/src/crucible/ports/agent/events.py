@@ -23,6 +23,8 @@ TOOL_FINISHED = "tool_finished"
 TEXT_PROGRESS = "text_progress"
 CALL_AWAITING = "call_awaiting"
 MODEL_ANSWERED = "model_answered"
+MESSAGE_READ = "message_read"
+ANSWERED = "answered"
 
 
 @dataclass(frozen=True)
@@ -79,6 +81,27 @@ class ModelAnswered:
     stop_reason: str = ""
     duration_s: float = 0.0
     type: str = field(default=MODEL_ANSWERED, init=False)
+
+
+@dataclass(frozen=True)
+class MessageRead:
+    """The model read a message put to the turn while it ran (``steer``): the
+    text as it was put, so whoever put it knows which one. From here on the
+    turn answers that message too."""
+
+    text: str
+    type: str = field(default=MESSAGE_READ, init=False)
+
+
+@dataclass(frozen=True)
+class Answered:
+    """What the model had written when it read a message put to the turn, with
+    no tool call after it: its answer to what came before, finished — not a
+    remark on the way. It travels because it is for the person, and the turn
+    goes on to answer what joined. The turn's result is the answer to that."""
+
+    text: str
+    type: str = field(default=ANSWERED, init=False)
 
 
 @dataclass(frozen=True)

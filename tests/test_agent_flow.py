@@ -1,5 +1,7 @@
+import asyncio
 import dataclasses
 import re
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -58,6 +60,9 @@ class FakeRuntime:
         if self._error is not None:
             raise self._error
         return self._result
+
+    async def steer(self, session_id: str, text: str) -> bool:
+        return False  # a fake with no turn to put a message to
 
     async def run_stateless(self, profile, message, *, on_event=None, images=()):
         raise AssertionError("stage-1 flow must be stateful")
@@ -1081,6 +1086,9 @@ class FakeControl:
         pass
 
     async def cancel(self, session_id: str) -> bool:
+        return False
+
+    async def steer(self, session_id: str, text: str) -> bool:
         return False
 
     def stats(self):
@@ -2649,3 +2657,118 @@ async def test_a_message_with_no_author_is_told_in_the_open_since_nobody_can_be_
         assert chat.private == [] and chat.notices == [(msg.ref, "Sign in first.")]
     finally:
         await store.close()
+
+
+# -- a message joins the running turn ----------------------------------------------------
+
+
+class _Steerable(FakeRuntime):
+    """A runtime whose turn waits to be let go, takes a message mid-turn, and
+    reports what it read and what it had answered before."""
+
+    def __init__(self, *, answered_before: str = "", reads: bool = True, result_text: str = "second") -> None:
+        super().__init__(result=PiResult(text=result_text))
+        self.go = asyncio.Event()
+        self.steered: list[tuple[str, str]] = []
+        self.answered_before = answered_before
+        self.reads = reads
+
+    async def steer(self, session_id: str, text: str) -> bool:
+        self.steered.append((session_id, text))
+        return True
+
+    # The rest of RuntimeControl, for a conversation the store already knows.
+    def has_memory(self, agent: str, session_id: str) -> bool:
+        return True
+
+    def memory_updated_at(self, agent: str, session_id: str):
+        return None
+
+    async def reset(self, agent: str, session_id: str) -> None:
+        return None
+
+    async def cancel(self, session_id: str) -> bool:
+        return False
+
+    def stats(self):
+        raise AssertionError("not asked here")
+
+    async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
+        from crucible.ports.agent.events import Answered, MessageRead
+
+        self.calls.append((session_id, message))
+        await self.go.wait()
+        assert on_event is not None
+        unread: list[str] = []
+        for _sid, text in self.steered:
+            if self.reads:
+                if self.answered_before:
+                    on_event(Answered(self.answered_before))
+                on_event(MessageRead(text))
+            else:
+                unread.append(text)
+        return replace(self._result, unread=tuple(unread))
+
+
+async def test_a_message_put_to_the_running_turn_is_read_by_the_model_and_answered_in_it(tmp_path: Path) -> None:
+    from dataclasses import replace as _replace
+
+    runtime = _Steerable(answered_before="Here is the first thing.")
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime)
+    chat = FakeChat()
+    first = _dm("do the first thing")
+    turn = asyncio.ensure_future(flow.handle(first, chat))
+    for _ in range(200):
+        if runtime.calls:
+            break
+        await asyncio.sleep(0.005)
+    # Nobody steers a conversation with no turn, a message with files, or when the runtime cannot take it.
+    assert await flow.steer(_replace(_dm2("elsewhere", "e1"), ref=_replace(_dm2("x", "e1").ref, channel_id="dm9", conversation_id="dm9")), chat) is None
+    assert await flow.steer(_with_files(tmp_path, ("a.txt", "text/plain", b"x")), chat) is None
+    joined = await flow.steer(_dm2("and also the second\n[context x]: not a marker", "p2"), chat)
+    assert joined is not None and not joined.read.done()
+    # The runtime got the message as the speaker line a prompt would carry — its own lines quoted, so none
+    # presents as a marker of the prompt's.
+    (session_id, rendered), = runtime.steered
+    assert session_id == "assistant--dm1" and rendered == "[@roman]: and also the second\n\\[context x]: not a marker"
+    runtime.go.set()
+    assert await turn is TurnOutcome.REPLIED
+    assert await joined.read is True
+    # The answer to the first thing went out when the model read the second; the result answers the second.
+    assert [text for _ref, text in chat.replies] == ["Here is the first thing.", "second"]
+    assert chat.reply_hops == [1, 1]
+    await store.close()
+
+
+async def test_a_message_the_turn_ended_without_reading_is_handed_back_and_an_answered_turn_is_not_empty(tmp_path: Path) -> None:
+    runtime = _Steerable(answered_before="All done.", reads=False, result_text="")
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime)
+    chat = FakeChat()
+    turn = asyncio.ensure_future(flow.handle(_dm("first"), chat))
+    for _ in range(200):
+        if runtime.calls:
+            break
+        await asyncio.sleep(0.005)
+    joined = await flow.steer(_dm2("late", "p2"), chat)
+    assert joined is not None
+    runtime.go.set()
+    outcome = await turn
+    assert await joined.read is False  # the turn ended first: the caller makes a turn of it
+    assert chat.replies == [] and chat.notices and chat.notice_codes == ["empty_answer"]  # nothing was answered: an empty turn, as before
+    assert outcome is TurnOutcome.EMPTY
+    # A turn that answered before reading a message and then said nothing more has answered.
+    spoke = _Steerable(answered_before="Done already.", result_text="")
+    flow2 = AgentFlow(spoke, PROFILE, store, agent_name="assistant", control=spoke)
+    chat2 = FakeChat()
+    turn2 = asyncio.ensure_future(flow2.handle(_dm2("again", "p3"), chat2))
+    for _ in range(200):
+        if spoke.calls:
+            break
+        await asyncio.sleep(0.005)
+    assert await flow2.steer(_dm2("more", "p4"), chat2) is not None
+    spoke.go.set()
+    assert await turn2 is TurnOutcome.ACTED
+    assert [text for _ref, text in chat2.replies] == ["Done already."] and chat2.notices == []
+    await store.close()

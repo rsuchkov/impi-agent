@@ -258,6 +258,14 @@ class PiRuntime:
                 removed = forget_conversation_memory(Path(self._session_dir), agent, session_id)
         logger.info("reset session %s (%d memory file(s) removed)", session_id, removed)
 
+    async def steer(self, session_id: str, text: str) -> bool:
+        """Put ``text`` to the turn running on this conversation (``RuntimeControl``):
+        False when no session is busy here."""
+        managed = self._sessions.get(safe_session_id(session_id))
+        if managed is None or not managed.session.busy:
+            return False
+        return await managed.session.steer(text)
+
     async def cancel(self, session_id: str) -> bool:
         """Interrupt the turn running on this conversation, keeping the session
         for the next one. A runtime that does not end the turn within the grace

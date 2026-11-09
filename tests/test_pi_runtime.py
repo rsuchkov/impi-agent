@@ -23,6 +23,7 @@ from crucible.runtimes.pi.spawn import safe_session_id as _safe_session_id
 
 class FakeSession:
     def __init__(self, *, result: PiResult | None = None, prompt_error: Exception | None = None) -> None:
+        self.steered: list[str] = []
         self.calls: list[tuple[str, str]] = []
         self.images: list[PromptImage] = []
         self.started = False
@@ -73,6 +74,10 @@ class FakeSession:
     async def cancel(self, *, timeout: float) -> bool:
         self.cancelled = True
         return self.cancel_result
+
+    async def steer(self, text: str) -> bool:
+        self.steered.append(text)
+        return True
 
 
 def _profile(name: str = "assistant") -> PiProfile:
@@ -682,6 +687,18 @@ async def test_cancel_interrupts_a_live_turn_and_drops_a_session_that_would_not_
     assert stubborn.cancelled and stubborn.closed  # it would not end its turn: dropped
     assert "assistant--b" not in rt._sessions
     assert await rt.cancel("assistant--nobody") is False
+
+
+async def test_steer_reaches_the_busy_session_and_nobody_else() -> None:
+    busy, idle = FakeSession(), FakeSession()
+    rt = _runtime_with([busy, idle], max_concurrent_sessions=2)
+    await rt.run_stateful(_profile(), "assistant--a", "hi")
+    await rt.run_stateful(_profile(), "assistant--b", "hi")
+    assert await rt.steer("assistant--a", "and this") is False  # idle: no turn to put it to
+    busy.busy = True
+    assert await rt.steer("assistant--a", "and this") is True and busy.steered == ["and this"]
+    assert await rt.steer("assistant--b", "x") is False and idle.steered == []
+    assert await rt.steer("assistant--nobody", "x") is False  # no session at all
 
 
 async def test_stats_count_what_is_alive_busy_and_waiting() -> None:

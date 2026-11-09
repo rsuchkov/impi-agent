@@ -286,7 +286,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   deletes the memory; `cancel(session_id)` interrupts the turn in flight and
   keeps the session for the next one — the turn returns with what it had, or
   the session is dropped if the runtime would not stop, with memory on disk
-  untouched; `stats()` gives alive / busy / capacity / waiting for a readiness
+  untouched; `steer(session_id, text)` puts a person's message to the turn in
+  flight, read by the model before its next call (the turn reports
+  `MessageRead`, and what it never read as `AgentResult.unread`);
+  `stats()` gives alive / busy / capacity / waiting for a readiness
   check. A flow needs none of this to run a turn, which is why it is a second
   Protocol — but see the next point for the one question a flow may ask it.
 - **Confining the runtime's processes.** Pass `scopes=` to `PiRuntime` and
@@ -755,6 +758,21 @@ credential, is another user's credential.
   hub's handlers have; `hub.drain()` / `await hub.idle(timeout)` are the
   shutdown pair, and `HttpHub(readiness_probes=…)` gives your own dependencies a
   say in `/readyz` — see [http-gateway.md](http-gateway.md).
+- **A message joins the running turn.** `MessageCoalescer(join_running_turns=True)`
+  puts a message that arrives mid-turn to that turn (`steer`, `SteerableSink`)
+  instead of queueing it: the flow renders it as the speaker line a prompt
+  would carry and hands it to `RuntimeControl.steer`; the model reads it before
+  its next call (after the tool calls in flight, or after the answer it is
+  writing) and the turn goes on to answer it. The flow posts what the model had
+  written before the read as an answer of its own (`Answered`), restarts the
+  wrap-up clock at the read, and a message the turn ends without reading comes
+  back (`Joined.read` False, `AgentResult.unread`) — the coalescer queues it as
+  the next turn. A flow of your own in front of the engine's implements
+  `steer(msg, chat) -> Joined | None` and hands on to `AgentFlow.steer`; one
+  that does not is never asked, and the message queues as before. The http hub
+  has the same switch (`HttpHub(join_running_turns=True)`,
+  [http-gateway.md](http-gateway.md)); `impi` reads `JOIN_RUNNING_TURNS` for
+  both. Off by default.
 - **One agent, several gateways.** Build one `AgentFlow` and one
   `MessageCoalescer` per agent and hand every gateway's `create_gateway` the
   same coalescer; register the agent's presence as `AgentSink(sink,

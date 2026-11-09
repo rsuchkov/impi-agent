@@ -21,6 +21,7 @@ import logging
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from typing import Any
 
 from crucible.gateways.http.journal import (
     EV_PROGRESS,
@@ -40,10 +41,10 @@ from crucible.ports.agent.events import (
     ToolFinished,
     ToolStarted,
 )
-from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.flow import Joined, TurnOutcome
 from crucible.ports.chat.gateway import GATEWAY_HTTP
 from crucible.ports.chat.interactions import actions_to_json, approval_card_to_json
-from crucible.ports.chat.types import Action, ApprovalCard
+from crucible.ports.chat.types import Action, ApprovalCard, IncomingMessage
 from crucible.ports.held_cards import HeldCard, HeldCards
 from crucible.ports.traces import TraceRecord, Traces, TurnCalls, encode_calls
 
@@ -90,6 +91,10 @@ class Turn:
     calls: TurnCalls = field(default_factory=TurnCalls)
     trace_token: str = ""
     started_at: float = 0.0
+    # Messages put to the turn while it ran (``steer``): the client's id of
+    # each, the sink's handle (its ``read`` says whether the model got to it)
+    # and the message itself, to run as the next turn when it did not.
+    joined: list[tuple[str, Joined, IncomingMessage]] = field(default_factory=list)
 
 
 class _Trace:
@@ -190,18 +195,19 @@ class HttpTurns:
 
     def start(
         self, *, agent: str, conversation: str, owner: str, client_message_id: str,
-        started_by: str = STARTED_BY_CALLER,
+        started_by: str = STARTED_BY_CALLER, turn_id: str | None = None,
     ) -> tuple[Turn, bool]:
         """A new turn for the conversation, or the one this message already
         started (``created`` False). Raises TurnInProgress when another message
-        of the conversation is still being answered."""
+        of the conversation is still being answered. ``turn_id`` names the turn
+        ahead of time, for a caller that has already told clients of it."""
         known = self._by_message.get((conversation, client_message_id))
         if known is not None and known in self._by_id:
             return self._by_id[known], False
         running = self._active.get(conversation)
         if running is not None:
             raise TurnInProgress(running.id)
-        turn_id = uuid.uuid4().hex
+        turn_id = turn_id or uuid.uuid4().hex
         turn = Turn(
             id=turn_id, agent=agent, conversation=conversation, owner=owner,
             client_message_id=client_message_id, journal=TurnJournal(turn_id),
@@ -217,17 +223,36 @@ class HttpTurns:
         turn.journal.emit(EV_TURN_STARTED, startedBy=started_by)
         return turn, True
 
-    def finish(self, turn: Turn, outcome: TurnOutcome) -> None:
+    def remember(self, conversation: str, client_message_id: str, turn: Turn) -> None:
+        """Know ``client_message_id`` as ``turn``'s too — a message that joined
+        it, or one it was started for beside another — so a retry of it finds
+        the turn rather than starting one."""
+        self._by_message[(conversation, client_message_id)] = turn.id
+        while len(self._by_message) > self._remembered:
+            self._by_message.popitem(last=False)
+
+    def forget_message(self, conversation: str, client_message_id: str) -> None:
+        """No longer know ``client_message_id`` by the turn it joined: it is
+        about to start a turn of its own."""
+        self._by_message.pop((conversation, client_message_id), None)
+
+    def finish(self, turn: Turn, outcome: TurnOutcome, *, next_turn: dict[str, Any] | None = None) -> None:
+        """End the turn. ``next_turn`` — ``{turnId, clientMessageIds}`` — names
+        the turn that follows for the messages this one never read, so a
+        client goes there for their answer."""
         turn.posted.clear()
         turn.blocking.clear()
         # The turn's own account of itself, so no client has to add it up:
         # how long it took, how many tools it called and how many of them
         # failed, and the token its calls are kept under (see `trace`).
         took = asyncio.get_running_loop().time() - turn.started_at if turn.started_at else 0.0
-        turn.journal.emit(
-            EV_TURN_FINISHED, outcome=outcome.name.lower(), durationS=round(took, 1),
+        account: dict[str, Any] = dict(
+            outcome=outcome.name.lower(), durationS=round(took, 1),
             calls=len(turn.calls), failedCalls=turn.calls.failed, traceToken=turn.trace_token,
         )
+        if next_turn is not None:
+            account["next"] = next_turn
+        turn.journal.emit(EV_TURN_FINISHED, **account)
         turn.journal.finish(STATUS_FAILED if outcome in _FAILED else STATUS_DONE)
         if self._active.get(turn.conversation) is turn:
             del self._active[turn.conversation]

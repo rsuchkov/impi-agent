@@ -39,12 +39,18 @@ from crucible.ports.agent import (
     RuntimeControl,
     notice_for,
 )
-from crucible.ports.agent.events import ModelAnswered, ToolFinished, ToolStarted
+from crucible.ports.agent.events import (
+    Answered,
+    MessageRead,
+    ModelAnswered,
+    ToolFinished,
+    ToolStarted,
+)
 from crucible.ports.agent.runtime import TokenUsage
 from crucible.ports.attachments import FileKeeper, ReceivedFiles
 from crucible.ports.chat.client import ChatClient, ConversationView, PrivateNotices
 from crucible.ports.chat.context import ContextSource, HistorySource
-from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.flow import Joined, TurnOutcome
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
@@ -167,6 +173,12 @@ class _TurnFacts:
         # caller's, a task's), else one of the flow's — every turn has an id.
         self.scope = scope if scope is not None else TurnScope(turn_id=secrets.token_hex(8))
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        # Messages put to the turn while it runs, by the text they were put as,
+        # in order: each resolved when the model reads it or the turn ends.
+        self.joined: list[tuple[str, Joined]] = []
+        # The turn posted an answer before it ended (``Answered``): its silence
+        # after that is not an empty turn.
+        self.answered = False
 
 
 STOPPED_NOTE = (
@@ -517,6 +529,7 @@ class AgentFlow:
         try:
             outcome = await self._turn(fresh, anchor, record, created, chat, facts)
         finally:
+            self._settle_joined(facts)
             self._active.pop(key, None)
             for address in addresses:
                 if self._active_at.get(address) is facts:
@@ -586,6 +599,48 @@ class AgentFlow:
         # The link is the person's alone and the conversation is not: the word
         # goes out without it.
         await chat.post_notice(msg.ref, verdict.text, code=verdict.code)
+
+    async def steer(self, msg: IncomingMessage, chat: ChatClient) -> Joined | None:
+        """Put ``msg`` to the turn running in its conversation (``TurnSteerer``):
+        rendered as the speaker line a prompt would carry, handed to the
+        runtime to be read before the model's next call. None when no turn
+        runs there, the message carries files (a turn in flight takes none), or
+        the runtime cannot take it — the caller makes a turn of it then."""
+        if msg.attachments or self._control is None:
+            return None
+        key = self._keying.key(self._agent_name, msg)
+        facts = self._active.get(key)
+        if facts is None or not facts.runtime_session_id:
+            return None
+        rendered = self._render_joined(msg)
+        if not await self._control.steer(facts.runtime_session_id, rendered):
+            return None
+        joined = Joined(message=msg, read=asyncio.get_running_loop().create_future())
+        facts.joined.append((rendered, joined))
+        logger.info("a message joined the running turn in %s/%s", self._agent_name, key)
+        return joined
+
+    def _render_joined(self, msg: IncomingMessage) -> str:
+        """One message as the model is to read it mid-turn: its speaker line,
+        as in a prompt — the conversation is already in the session."""
+        author = f"@{speaker(msg.username)}" if msg.username else speaker(msg.user_id)
+        when = f" · {_format_time(msg.timestamp)}" if msg.timestamp else ""
+        return f"[{author}{when}]: {quoted(msg.text, inline=True)}"
+
+    def _message_read(self, facts: _TurnFacts, text: str) -> None:
+        for index, (rendered, joined) in enumerate(facts.joined):
+            if rendered == text and not joined.read.done():
+                joined.read.set_result(True)
+                del facts.joined[index]
+                return
+
+    @staticmethod
+    def _settle_joined(facts: _TurnFacts) -> None:
+        """The turn is over: whatever it never read, it never will."""
+        for _rendered, joined in facts.joined:
+            if not joined.read.done():
+                joined.read.set_result(False)
+        facts.joined.clear()
 
     async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
         """Stop the turn running in this conversation (``StoppableSink``): the
@@ -737,7 +792,7 @@ class AgentFlow:
         interrupted = True  # until the runtime hands back a result
         log = _TurnLog()
         names = await self._file_names(record.conversation_id)
-        observer = self._observer(trace, log, names, anchor, record.conversation_id, facts)
+        observer = self._observer(trace, log, names, anchor, record.conversation_id, facts, fresh, chat)
         # The anchor's scope is the turn's: a batch is one turn, and the newest
         # message is the one whose credentials are freshest. Where the anchor
         # is answered is the turn's too — a card or a widget posted for the
@@ -833,10 +888,11 @@ class AgentFlow:
             facts.notice = NOTICE_TRUNCATED
             await chat.post_notice(anchor.ref, TRUNCATED_EMPTY_MESSAGE, code=NOTICE_TRUNCATED)
             return TurnOutcome.TRUNCATED
-        if any(call in self._posting_tools for call in result.tool_calls):
-            # The silence is deliberate: a tool that posts to the person has
-            # already put something there (buttons, a form, a panel, a file),
-            # and a fallback here would double up on it.
+        if facts.answered or any(call in self._posting_tools for call in result.tool_calls):
+            # The silence is deliberate: the turn answered already — before a
+            # message it then read — or a tool that posts to the person has
+            # put something there (buttons, a form, a panel, a file), and a
+            # fallback here would double up on it.
             return TurnOutcome.ACTED
         if result.tool_calls:
             # The agent looked things up and stopped without a word: to the
@@ -866,7 +922,7 @@ class AgentFlow:
 
     def _observer(
         self, trace: ActiveTrace | None, log: _TurnLog, names: Mapping[str, str],
-        anchor: IncomingMessage, key: str, facts: _TurnFacts,
+        anchor: IncomingMessage, key: str, facts: _TurnFacts, fresh: list[IncomingMessage], chat: ChatClient,
     ) -> EventCallback:
         """The runtime's events, captioned on their way to the trace and noted
         in the turn's own log. A tool call that the runtime reported without a
@@ -882,6 +938,14 @@ class AgentFlow:
         def on_event(event: AgentEvent) -> None:
             if isinstance(event, ModelAnswered) and telemetry is not None:
                 self._tell_answer(anchor, key, facts, event)
+            if isinstance(event, MessageRead):
+                self._message_read(facts, event.text)
+            if isinstance(event, Answered) and event.text:
+                # The model's answer to what came before the message it just
+                # read: posted now, where the turn answers; the turn goes on.
+                facts.answered = True
+                hop = max(m.hop_depth for m in fresh) + 1
+                asyncio.ensure_future(chat.post_reply(anchor.ref, event.text, hop_depth=hop))
             if captions is not None and isinstance(event, ToolStarted) and not event.caption:
                 event = replace(event, caption=captions.caption(event.tool, _named(event.args, names)))
             log.record(event)

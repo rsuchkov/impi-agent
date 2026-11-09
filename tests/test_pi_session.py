@@ -997,6 +997,163 @@ async def test_each_answer_of_the_model_crosses_the_port_with_what_it_cost() -> 
     assert all(e.type == "model_answered" for e in answers)
 
 
+def _user_message(text: str) -> dict:
+    return {"role": "user", "content": [{"type": "text", "text": text}]}
+
+
+def _text_done(text: str) -> dict:
+    return {"type": "message_update", "assistantMessageEvent": {"type": "text_end", "content": text}}
+
+
+async def test_a_message_put_to_the_turn_is_read_after_the_calls_in_flight_and_the_turn_goes_on() -> None:
+    """As pi does it (probe A): a steer sent while a tool runs is read after
+    the tool's result, before the model's next call; the session sends it as
+    pi's steer, sees the model read it (``MessageRead``), and the result is
+    the model's answer to both."""
+    from crucible.ports.agent.events import Answered, MessageRead
+
+    transport = FakeTransport()
+    seen: list[object] = []
+
+    def react(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport.emit({"type": "agent_start"})
+            transport.emit({"type": "turn_start"})
+            transport.emit({"type": "message_start", "message": _user_message("Run sleep, then say DONE")})
+            transport.emit({"type": "tool_execution_start", "toolCallId": "c1", "toolName": "bash", "args": {"command": "sleep 6"}})
+        if command.get("type") == "steer":
+            transport.emit({"type": "tool_execution_end", "toolCallId": "c1", "toolName": "bash"})
+            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "toolUse"}})
+            transport.emit({"type": "turn_start"})
+            transport.emit({"type": "message_start", "message": _user_message(command["message"])})
+            transport.emit(_text_done("DONE\n4"))
+            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})
+            transport.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "DONE\n4"}]})
+            transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    assert await session.steer("too early") is False  # no turn in flight
+    turn = asyncio.ensure_future(session.prompt("Run sleep, then say DONE", timeout=5.0, on_event=seen.append))
+    for _ in range(200):
+        if any(isinstance(e, ToolStarted) for e in seen):
+            break
+        await asyncio.sleep(0.005)
+    assert await session.steer("Also: what is 2+2?") is True
+    result = await turn
+    assert [c["type"] for c in transport.sent] == ["prompt", "steer"]
+    assert transport.sent[1]["message"] == "Also: what is 2+2?"
+    assert result.text == "DONE\n4" and result.unread == ()
+    reads = [e for e in seen if isinstance(e, MessageRead)]
+    assert [r.text for r in reads] == ["Also: what is 2+2?"]
+    assert not [e for e in seen if isinstance(e, Answered)]  # nothing was written before the message was read
+    # The prompt's own user message is not a read of anything put to the turn.
+    assert all(e.text != "Run sleep, then say DONE" for e in reads)
+
+
+async def test_what_the_model_wrote_before_reading_the_message_is_its_answer_to_what_came_before(monkeypatch) -> None:
+    """Probe C: a steer during a tool-less answer is read after it, and the
+    loop goes on — the text before the read goes out as ``Answered``, the
+    result is the answer to the message, and the wrap-up clock starts over
+    at the read: the note is due ``wrap_up_after`` after it, not after the
+    turn began."""
+    from crucible.ports.agent.events import Answered, MessageRead
+    from crucible.ports.agent.runtime import WRAP_UP_NOTE
+    from crucible.runtimes.pi import session as session_module
+
+    monkeypatch.setattr(session_module, "_TURN_POLL_INTERVAL", 0.02)  # the clocks are read often enough to tell
+
+    transport = FakeTransport()
+    seen: list[object] = []
+    read_at: list[float] = []
+
+    def react(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport.emit({"type": "agent_start"})
+            transport.emit({"type": "turn_start"})
+            transport.emit({"type": "message_start", "message": _user_message("Count to 60")})
+            transport.emit(_text_done("1\n2\n3"))
+        elif command.get("type") == "steer" and command["message"] != WRAP_UP_NOTE:
+            read_at.append(asyncio.get_running_loop().time())
+            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})
+            transport.emit({"type": "turn_start"})
+            transport.emit({"type": "message_start", "message": _user_message(command["message"])})
+            # The model works on the message for a while — long enough for the
+            # turn's own wrap-up clock, not for a clock started at the read.
+        elif command.get("type") == "steer":
+            transport.emit(_text_done("BYE"))
+            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})
+            transport.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "BYE"}]})
+            transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    turn = asyncio.ensure_future(session.prompt("Count to 60", timeout=5.0, on_event=seen.append, wrap_up_after=0.6))
+    await asyncio.sleep(0.3)  # the model is writing
+    assert await session.steer("Stop and say BYE") is True
+    await asyncio.sleep(0.45)  # 0.75 s into the turn, 0.45 s after the read: no note yet
+    assert WRAP_UP_NOTE not in [c.get("message") for c in transport.sent]
+    result = await turn  # the note goes at 0.6 s after the read and ends the run
+    assert WRAP_UP_NOTE in [c.get("message") for c in transport.sent]
+    assert result.text == "BYE"
+    answered = [e for e in seen if isinstance(e, Answered)]
+    assert [a.text for a in answered] == ["1\n2\n3"]  # the answer to what came before, on its own
+    read = seen.index(next(e for e in seen if isinstance(e, MessageRead)))
+    assert seen.index(answered[0]) < read  # said before the read is reported
+
+
+async def test_a_message_the_run_ended_without_reading_is_taken_back_out_of_the_queue() -> None:
+    """Probe B: a steer that lands after the model's final answer stays in pi's
+    queue for the next prompt, where it would be read after that prompt's own
+    text — so the session clears the queue and hands the message back unread."""
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport.emit({"type": "agent_start"})
+            transport.emit({"type": "turn_start"})
+            transport.emit({"type": "message_start", "message": _user_message("Say HELLO")})
+            transport.emit(_text_done("HELLO"))
+            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})
+        if command.get("type") == "steer":
+            # pi: the loop had already decided; the steer waits for the next prompt.
+            transport.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "HELLO"}]})
+            transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    turn = asyncio.ensure_future(session.prompt("Say HELLO", timeout=5.0))
+    for _ in range(200):
+        if transport.sent and transport.sent[0].get("type") == "prompt" and session._turn is not None and session._turn.text_parts:  # noqa: SLF001
+            break
+        await asyncio.sleep(0.005)
+    assert await session.steer("Now say BYE") is True
+    result = await turn
+    await asyncio.sleep(0.01)  # the clear goes out as the turn ends, not awaited by it
+    assert result.text == "HELLO" and result.unread == ("Now say BYE",)
+    assert transport.sent_types() == ["prompt", "steer", "clear_queue"]
+    assert await session.steer("after the turn") is False
+    # A turn nobody steered clears nothing.
+    transport2 = FakeTransport()
+
+    def plain(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport2.emit({"type": "agent_start"})
+            transport2.emit(_text_done("x"))
+            transport2.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "x"}]})
+            transport2.emit({"type": "agent_settled", "aborted": False})
+
+    transport2._reactor = plain
+    session2 = PiRpcSession(transport2)
+    session2.start()
+    assert (await session2.prompt("x", timeout=1.0)).unread == ()
+    await asyncio.sleep(0.01)
+    assert transport2.sent_types() == ["prompt"]
+
+
 def _assistant_turn_end(tokens: int) -> dict:
     return {"type": "turn_end", "message": {"role": "assistant", "usage": {"totalTokens": tokens}}, "toolResults": []}
 
