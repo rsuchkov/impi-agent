@@ -538,7 +538,8 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   store), so a task's record names the replica running it and `recover()`
   ends only the tasks of replicas whose lease lapsed — and run
   `run_recovery(LEASE_TTL_S)` beside the heartbeat, since a replica that dies
-  mid-task is noticed only when its lease is gone. The gate takes `turns=` too:
+  mid-task is noticed only when its lease is gone; a pass never ends a task
+  this process is running, whatever its record says. The gate takes `turns=` too:
   on a task's turn the approver is the person on the gateway they came through
   (`on_behalf_of_gateway`), not the door. A tool reads
   the service as `ctx.require_delegation()` and declares `CAP_DELEGATION`.

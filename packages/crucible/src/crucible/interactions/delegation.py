@@ -288,6 +288,10 @@ class EngineDelegationService:
         # time in each — a second message into a running conversation would be
         # folded into the first task's turn, or answered into its client.
         self._busy: set[str] = set()
+        # The tasks this process runs right now, by id — from their record's
+        # writing until their turn is over: never lost, whatever their record
+        # says, so a recovery pass while they run leaves them be.
+        self._in_flight: set[str] = set()
 
     @property
     def links(self) -> TrustedLinkRegistry:
@@ -320,10 +324,15 @@ class EngineDelegationService:
             to_conversation_id=key, replica=self._replica,
         )
         await self._store.save_delegation(entry)
-        message = _message(entry, attachments, gateway=GATEWAY_DELEGATION, scope=TurnScope(
-            turn_id=task_id, attributes={**attributes, **_task_attributes(entry)},
-        ))
-        self._spawn(self._run(entry, sink, message, self._delegated_chat(), watch=None))
+        self._in_flight.add(task_id)
+        try:
+            message = _message(entry, attachments, gateway=GATEWAY_DELEGATION, scope=TurnScope(
+                turn_id=task_id, attributes={**attributes, **_task_attributes(entry)},
+            ))
+            self._spawn(self._run(entry, sink, message, self._delegated_chat(), watch=None))
+        except BaseException:
+            self._in_flight.discard(task_id)
+            raise
         logger.info("agent %s handed task %s to %s%s", agent, task_id, to,
                     f" with {len(attachments)} file(s)" if attachments else "")
         return task_id
@@ -366,33 +375,38 @@ class EngineDelegationService:
             to_conversation_id=key, trusted=True, replica=self._replica,
         )
         await self._store.save_delegation(entry)
-        # What the trust hands over of the person's: the named secrets, as the
-        # asker's turn holds them right now — in memory, for this turn — and
-        # their connected accounts when the trust says so.
-        handed = {**attributes, **_task_attributes(entry)}
-        if trust.connections:
-            handed[ACCOUNTS_HANDED_ATTRIBUTE] = "1"
-        secrets = TurnSecrets({
-            name: value for name in trust.secrets
-            if scope is not None and (value := scope.secrets.get(name)) is not None
-        })
-        event = None
-        if trust.context == TRUST_CONTEXT_CONVERSATION:
-            transcript = await _transcript(poster, record, ref)
-            if transcript:
-                event = EventReport(source=agent, text=transcript, label=CONTEXT_LABEL.format(asker=agent))
-        message = _message(
-            entry, attachments, gateway=GATEWAY_TRUSTED_DELEGATION,
-            scope=TurnScope(turn_id=task_id, attributes=handed, secrets=secrets), event=event,
-        )
-        self._links.register(key, TrustedLink(
-            asker=agent, asker_session_id=runtime_session_id, to=to, poster=poster, ref=ref, elsewhere=elsewhere,
-        ))
-        self._ends[task_id] = asyncio.get_running_loop().create_future()
-        # The asker's turn as it is now: the task ends with this turn, not with
-        # whatever turn the same conversation runs next.
-        watch = (runtime_session_id, self._turns.turn_token(runtime_session_id))
-        self._spawn(self._run(entry, sink, message, self._trusted_chat(), watch=watch))
+        self._in_flight.add(task_id)
+        try:
+            # What the trust hands over of the person's: the named secrets, as the
+            # asker's turn holds them right now — in memory, for this turn — and
+            # their connected accounts when the trust says so.
+            handed = {**attributes, **_task_attributes(entry)}
+            if trust.connections:
+                handed[ACCOUNTS_HANDED_ATTRIBUTE] = "1"
+            secrets = TurnSecrets({
+                name: value for name in trust.secrets
+                if scope is not None and (value := scope.secrets.get(name)) is not None
+            })
+            event = None
+            if trust.context == TRUST_CONTEXT_CONVERSATION:
+                transcript = await _transcript(poster, record, ref)
+                if transcript:
+                    event = EventReport(source=agent, text=transcript, label=CONTEXT_LABEL.format(asker=agent))
+            message = _message(
+                entry, attachments, gateway=GATEWAY_TRUSTED_DELEGATION,
+                scope=TurnScope(turn_id=task_id, attributes=handed, secrets=secrets), event=event,
+            )
+            self._links.register(key, TrustedLink(
+                asker=agent, asker_session_id=runtime_session_id, to=to, poster=poster, ref=ref, elsewhere=elsewhere,
+            ))
+            self._ends[task_id] = asyncio.get_running_loop().create_future()
+            # The asker's turn as it is now: the task ends with this turn, not with
+            # whatever turn the same conversation runs next.
+            watch = (runtime_session_id, self._turns.turn_token(runtime_session_id))
+            self._spawn(self._run(entry, sink, message, self._trusted_chat(), watch=watch))
+        except BaseException:
+            self._in_flight.discard(task_id)
+            raise
         logger.info("agent %s asked %s (trusted) with task %s%s", agent, to, task_id,
                     f" and {len(attachments)} file(s)" if attachments else "")
         return task_id
@@ -487,7 +501,8 @@ class EngineDelegationService:
     async def run_recovery(self, interval_s: float) -> None:
         """``recover`` again every ``interval_s``: a replica that dies while
         the others run leaves its tasks running in the store until its lease
-        lapses, which no start of another replica may have seen."""
+        lapses, which no start of another replica may have seen. The tasks
+        this process runs are left alone by every pass."""
         while True:
             await asyncio.sleep(interval_s)
             try:
@@ -498,8 +513,12 @@ class EngineDelegationService:
                 logger.warning("the recovery of lost tasks failed; trying again later", exc_info=True)
 
     async def _lost(self, entry: DelegationRecord) -> bool:
-        """Whether a running task's process is gone: one process, or a task of
-        this replica's own earlier life, or one whose replica holds no lease."""
+        """Whether a running task's process is gone. A task this process runs is
+        never lost; otherwise one process has lost every task it finds, and
+        among replicas a task is lost with a replica that holds no lease — or
+        with this replica's own earlier life, which left it running."""
+        if entry.id in self._in_flight:
+            return False
         if not entry.replica or entry.replica == self._replica or self._replicas is None:
             return True
         return await self._replicas.replica_url(entry.replica) is None
@@ -632,6 +651,7 @@ class EngineDelegationService:
             outcome = TurnOutcome.ERROR
         finally:
             self._busy.discard(entry.to_conversation_id)
+            self._in_flight.discard(entry.id)
             if entry.trusted:
                 self._links.release(entry.to_conversation_id)
         ended = replace(

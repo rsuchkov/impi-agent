@@ -492,6 +492,82 @@ async def test_among_replicas_a_restart_ends_only_the_tasks_of_replicas_that_are
     assert (await store.get_delegation("theirs-alive")).status == DELEGATION_FAILED  # type: ignore[union-attr]
 
 
+async def test_a_recovery_pass_leaves_the_tasks_this_process_runs_alone(store) -> None:
+    """``run_recovery`` looks again while tasks run: one this process is on is
+    not of an earlier life, whatever its record's replica says — with or
+    without replicas — and the pass ends only what is truly lost."""
+    release = asyncio.Event()
+
+    async def script(msg, chat) -> TurnOutcome:
+        await release.wait()
+        await chat.post_reply(msg.ref, "done")
+        return TurnOutcome.REPLIED
+
+    for replica, replicas in (("", None), ("r1", _Replicas(alive={"r1"}))):
+        release.clear()
+        sink = ScriptedSink(script)
+        dispatcher = FakeTurnDispatcher()
+        svc = EngineDelegationService(_presence(sink), store, AGENTS, store, dispatcher, DelegationChatClient, replica=replica, replicas=replicas)
+        record, _ = await store.get_or_create("assistant", f"d-{replica or 'one'}", f"d-{replica or 'one'}", KIND_DM)
+        earlier = DelegationRecord(
+            id=f"earlier-{replica or 'one'}", agent="assistant", to="coder", channel_id="d1", conversation_id="d1", kind=KIND_DM,
+            gateway=GATEWAY_SLACK, task="t", user_id="u1", status=DELEGATION_RUNNING, started_at="2026-11-06T10:00:00+00:00", replica=replica,
+        )
+        await store.save_delegation(earlier)
+        task_id = await svc.delegate("assistant", record.runtime_session_id, "coder", "x")
+        await sink.started.wait()
+        loop = asyncio.ensure_future(svc.run_recovery(0.01))
+        for _ in range(100):
+            if (await store.get_delegation(earlier.id)).status == DELEGATION_FAILED:  # type: ignore[union-attr]
+                break
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)  # a few more passes with the task still running
+        loop.cancel()
+        assert (await store.get_delegation(earlier.id)).status == DELEGATION_FAILED  # type: ignore[union-attr]  # the earlier life's
+        assert (await store.get_delegation(task_id)).status == DELEGATION_RUNNING  # type: ignore[union-attr]  # this process's own
+        release.set()
+        await _settled(svc)
+        kept = await store.get_delegation(task_id)
+        assert kept is not None and (kept.status, kept.answer) == (DELEGATION_ANSWERED, "done")
+        assert not svc._in_flight  # noqa: SLF001 - a task that ended is no longer this process's to keep
+        await svc.aclose()
+
+
+async def test_a_task_is_in_flight_from_before_its_record_is_written(store) -> None:
+    """Between the record and the turn a trusted task reads the asker's
+    conversation for context — a recovery pass in that window must not take
+    the task for lost."""
+    gate = asyncio.Event()
+
+    class _SlowChat(FakeChat):
+        async def get_thread_posts(self, ref):
+            await gate.wait()
+            return [PostSnippet(message_id="m1", username="alice", text="PROJ-7 is stuck", user_id="u1")]
+
+    sink = ScriptedSink()
+    turns = TurnRegistry()
+    asker_chat = _SlowChat()
+    svc, _, _ = _trusting(sink, store, turns, trust=TrustedAgent("coder", context="conversation"), asker_chat=asker_chat)
+    record, _ = await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD, user_id="u1", gateway=GATEWAY_SLACK)
+    rsid = record.runtime_session_id
+    async with turns.bind(rsid, TurnScope(turn_id="t1"), place=TurnPlace(GATEWAY_SLACK, "root1")):
+        asking = asyncio.ensure_future(svc.ask("assistant", rsid, "coder", "What is stuck?"))
+        for _ in range(100):
+            if await store.running_delegations():
+                break
+            await asyncio.sleep(0.005)
+        (entry,) = await store.running_delegations()
+        await svc.recover()  # the record is there, the turn is not yet
+        assert (await store.get_delegation(entry.id)).status == DELEGATION_RUNNING  # type: ignore[union-attr]
+        gate.set()
+        task_id = await asking
+        await _settled(svc)
+    kept = await store.get_delegation(task_id)
+    assert kept is not None and kept.status == DELEGATION_ANSWERED
+    (message, _), = sink.submitted
+    assert message.event is not None and "PROJ-7 is stuck" in message.event.text
+
+
 async def test_closing_the_service_lets_its_background_work_go(store) -> None:
     async def script(msg, chat) -> TurnOutcome:
         await asyncio.sleep(60)

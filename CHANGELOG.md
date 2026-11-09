@@ -6,7 +6,14 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a recovery pass no longer ends the tasks this process is running.**
+  `recover()` took every running task that named this replica — or, without
+  replicas, every running task — for one of an earlier life, which held at
+  startup and not when `run_recovery` looked again while tasks ran: a trusted
+  task longer than the interval was ended as failed (`engine_restarted`) under
+  the asker. The service now keeps the ids of the tasks it runs, from their
+  record's writing until their turn is over, and a recovery pass leaves those
+  alone; what it ends is what no process runs.
 
 ## v0.49.0 — 2026-11-07
 
