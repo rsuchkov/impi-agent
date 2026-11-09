@@ -34,7 +34,7 @@ from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.chat.types import CallPreview, CannotRun
 from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver, SessionConversation
-from crucible.ports.delegation import DelegationService
+from crucible.ports.delegation import DelegationService, parent_turn_of
 from crucible.ports.tasks import TaskService
 from crucible.ports.telemetry import Telemetry, ToolCalled
 from crucible.ports.turn import TurnScopes
@@ -109,6 +109,7 @@ class _CallFacts:
         self.conversation: SessionConversation | None = None
         self.outcome = ""
         self.turn_id = ""
+        self.parent_turn_id = ""
 
 
 def _log_if_orphaned(task: "asyncio.Future[Any]") -> None:
@@ -247,7 +248,7 @@ class ToolServer:
                     gateway=conversation.gateway if conversation is not None else "",
                     outcome=outcome, duration_s=time.monotonic() - started,
                     confirmed=bool(call.tool.requires_confirmation) if call.tool is not None else False,
-                    turn_id=call.turn_id, started_at=started_at,
+                    turn_id=call.turn_id, started_at=started_at, parent_turn_id=call.parent_turn_id,
                 ))
             except Exception:  # noqa: BLE001 - telemetry must never cost the call
                 logger.warning("telemetry failed to record a tool call", exc_info=True)
@@ -317,6 +318,7 @@ class ToolServer:
         call.conversation = conversation
         turn = self._turns.current(runtime_session_id) if self._turns is not None else None
         call.turn_id = turn.turn_id if turn is not None else ""
+        call.parent_turn_id = parent_turn_of(turn)
         # The gateway the conversation is in decides what this call may do and
         # with which admin client. May be None: a gateway without channel
         # administration (e.g. Slack) has none; tools that need it raise a

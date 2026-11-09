@@ -1174,6 +1174,33 @@ def test_impis_telemetry_writes_one_json_line_per_event(caplog) -> None:
     assert Settings(_env_file=None, dotenv_path="x").telemetry_log is True  # pyright: ignore[reportCallIssue]
 
 
+def test_a_collector_named_gets_the_traces_beside_the_log(tmp_path: Path) -> None:
+    """TELEMETRY_OTLP_ENDPOINT adds the trace exporter to the receivers — with
+    the log when the log is on, alone when it is off — and the headers come as
+    name=value pairs."""
+    from crucible.ports.telemetry import Telemetries
+    from crucible.telemetry_otel import OtelTelemetry
+
+    base = _settings(tmp_path)
+    settings = base.model_copy(update={
+        "telemetry_otlp_endpoint": "http://phoenix:6006/v1/traces",
+        "telemetry_otlp_headers": "api_key=k1, x-team = ops,broken,=novalue", "telemetry_service_name": "impi-stand",
+    })
+    assert settings.otlp_headers() == {"api_key": "k1", "x-team": "ops"}
+    app = build_app(settings)
+    assert isinstance(app.tracing, OtelTelemetry) and isinstance(app.telemetry, Telemetries)
+    assert app.units[0].flow._telemetry is app.telemetry  # noqa: SLF001
+    exporter = app.tracing._processor.span_exporter  # type: ignore[attr-defined]  # noqa: SLF001
+    headers = exporter._client._headers  # noqa: SLF001
+    assert exporter._endpoint == "http://phoenix:6006/v1/traces" and (headers["api_key"], headers["x-team"]) == ("k1", "ops")  # noqa: SLF001
+    assert app.tracing._resource.attributes["service.name"] == "impi-stand"  # noqa: SLF001
+    app.tracing.close()
+    alone = build_app(settings.model_copy(update={"telemetry_log": False}))
+    assert alone.telemetry is alone.tracing and isinstance(alone.tracing, OtelTelemetry)
+    alone.tracing.close()
+    assert build_app(base).tracing is None
+
+
 def test_impi_hands_one_telemetry_to_every_producer(tmp_path: Path) -> None:
     from impi.telemetry import LogTelemetry
 

@@ -22,6 +22,16 @@ when a release is cut, and `impi update` shows the target version's section.
 - Every turn now runs under a `TurnScope`: a chat gateway's turn, which has
   none of the application's, gets a bare one with a `turn_id` from the flow.
   `TurnScopes.current` therefore answers a scope for every running turn.
+- **Traces to Phoenix, Langfuse and the like.** `crucible.telemetry_otel.OtelTelemetry`
+  (the new `otel` extra — `crucible[otel]`, `impi[otel]`, in the engine image)
+  is a telemetry receiver that exports a turn's events as OTLP spans a tracing
+  backend draws as a tree, named as OpenInference readers expect: the turn an
+  `AGENT` span, each model call an `LLM` span with its token counts, each tool
+  call a `TOOL` span, a card the wait, a trusted agent's turn under the asker's.
+  Ids derive from `turn_id`, so spans leave as their events come and the same
+  turn has the same ids on every replica. `Telemetries(a, b)` joins receivers.
+  In `impi`: `TELEMETRY_OTLP_ENDPOINT`, `TELEMETRY_OTLP_HEADERS`,
+  `TELEMETRY_SERVICE_NAME` ([telemetry.md](docs/telemetry.md)).
 
 ## v0.49.1 — 2026-11-09
 

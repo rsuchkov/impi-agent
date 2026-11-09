@@ -37,6 +37,10 @@ mongo = [
 connections = [
     "cryptography>=43.0",
 ]
+otel = [
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+    "opentelemetry-sdk>=1.27",
+]
 
 [build-system]
 requires = ["hatchling"]

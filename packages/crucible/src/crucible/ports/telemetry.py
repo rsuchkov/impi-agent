@@ -10,14 +10,18 @@ durations; never an object of the engine's, never the text people wrote.
 ``user_id`` is the platform's id as the gateway gave it — a receiver that must
 not keep it hashes or maps it (``PersonKey``) on the way out. The events of
 one turn share its ``turn_id``, and a turn another agent's turn opened names
-that one as ``parent_turn_id``: a receiver that draws trees (spans) has what
-it needs; one that counts ignores both.
+that one as ``parent_turn_id`` — on its ``TurnEnded`` and on every event of
+its own, so each lands in the asker's trace: a receiver that draws trees
+(spans) has what it needs; one that counts ignores both.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Protocol
 
 from crucible.ports.agent.runtime import TokenUsage
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,7 @@ class ToolCalled:
     confirmed: bool  # the tool is one a person confirms
     turn_id: str = ""  # the turn the call was made in ("" when it named no known turn)
     started_at: str = ""  # when the call arrived, ISO 8601 UTC
+    parent_turn_id: str = ""  # the asker's turn, when the turn is a task's (as on ``TurnEnded``)
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,7 @@ class ModelCalled:
     stop_reason: str
     duration_s: float
     started_at: str  # ISO 8601 UTC
+    parent_turn_id: str = ""  # the asker's turn, when the turn is a task's
 
 
 @dataclass(frozen=True)
@@ -98,6 +104,7 @@ class CardAnswered:
     wait_s: float  # how long the call waited on people
     grant_s: int  # the window opened, when one was
     turn_id: str = ""  # the turn whose call was asked about
+    parent_turn_id: str = ""  # the asker's turn, when the turn is a task's
 
 
 @dataclass(frozen=True)
@@ -112,6 +119,7 @@ class McpCalled:
     duration_s: float
     file_bytes: int  # a person's file sent with the call, in bytes (0 for none)
     turn_id: str = ""  # the turn the call was made in
+    parent_turn_id: str = ""  # the asker's turn, when the turn is a task's
 
 
 @dataclass(frozen=True)
@@ -177,3 +185,18 @@ class Telemetry(Protocol):
     engine calls it on the turn's own path."""
 
     def record(self, event: TelemetryEvent) -> None: ...
+
+
+class Telemetries:
+    """Several receivers as one: every event goes to each, and one that raises
+    costs the others nothing (it is logged)."""
+
+    def __init__(self, *receivers: Telemetry) -> None:
+        self._receivers = receivers
+
+    def record(self, event: TelemetryEvent) -> None:
+        for receiver in self._receivers:
+            try:
+                receiver.record(event)
+            except Exception:  # noqa: BLE001 - telemetry must never cost the turn
+                logger.warning("a telemetry receiver failed to record %s", type(event).__name__, exc_info=True)

@@ -40,6 +40,7 @@ from crucible.ports.connections import (
     ProviderUnavailable,
     TokenGrant,
 )
+from crucible.ports.delegation import parent_turn_of
 from crucible.ports.telemetry import McpCalled, Telemetry
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 
@@ -215,7 +216,7 @@ class McpTool:
             self._telemetry.record(McpCalled(
                 server=self.server.name, tool=self._definition.name, agent=ctx.agent_name, outcome=outcome,
                 duration_s=time.monotonic() - started, file_bytes=file_bytes,
-                turn_id=ctx.turn.turn_id if ctx.turn is not None else "",
+                turn_id=ctx.turn.turn_id if ctx.turn is not None else "", parent_turn_id=parent_turn_of(ctx.turn),
             ))
         except Exception:  # noqa: BLE001 - telemetry must never cost the call
             logger.warning("telemetry failed to record an MCP call", exc_info=True)

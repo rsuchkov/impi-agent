@@ -16,6 +16,9 @@ mongo = ["crucible[mongo]"]
 # People's accounts connected at OAuth providers, sealed at rest. Installed in
 # the image for the same reason as Mongo: turning connections on is a setting.
 connections = ["crucible[connections]"]
+# The engine's telemetry as traces over OTLP (TELEMETRY_OTLP_ENDPOINT). In the
+# image for the same reason: pointing at a collector is a setting.
+otel = ["crucible[otel]"]
 
 [project.scripts]
 impi = "impi.cli:main"

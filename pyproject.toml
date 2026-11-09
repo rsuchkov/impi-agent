@@ -11,6 +11,8 @@ dev = [
     "ruff>=0.6",
     "import-linter>=2.0",
     "pyright>=1.1",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
 ]
 
 [tool.pytest.ini_options]
@@ -506,6 +508,25 @@ forbidden_modules = [
     "crucible.tools",
     "mattermostautodriver",
     "slack_bolt",
+]
+
+[[tool.importlinter.contracts]]
+name = "The trace exporter is a port consumer — no store, runtime, chat or engine machinery"
+type = "forbidden"
+source_modules = ["crucible.telemetry_otel"]
+forbidden_modules = [
+    "crucible.approvals",
+    "crucible.attachments",
+    "crucible.config",
+    "crucible.flows",
+    "crucible.gateways",
+    "crucible.interactions",
+    "crucible.profiles",
+    "crucible.runtimes",
+    "crucible.scheduler",
+    "crucible.skills",
+    "crucible.store",
+    "crucible.tools",
 ]
 
 [[tool.importlinter.contracts]]

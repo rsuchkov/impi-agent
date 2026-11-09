@@ -47,6 +47,22 @@ class ImpiSettings(Settings):
     # docs/telemetry.md) is written to the log as JSON lines, impi's own
     # receiver. Off for a deployment that reads the events some other way.
     telemetry_log: bool = True
+    # The engine's telemetry as traces, to an OTLP/http collector (Arize
+    # Phoenix, Langfuse, Jaeger — docs/telemetry.md): the traces URL
+    # (``…/v1/traces``); empty = no traces. Headers on every request as
+    # ``name=value`` CSV (an API key); the service the spans belong to.
+    telemetry_otlp_endpoint: str = ""
+    telemetry_otlp_headers: str = ""
+    telemetry_service_name: str = "impi"
+
+    def otlp_headers(self) -> dict[str, str]:
+        """``TELEMETRY_OTLP_HEADERS`` parsed: ``name=value`` pairs, CSV."""
+        headers: dict[str, str] = {}
+        for pair in self.telemetry_otlp_headers.split(","):
+            name, sep, value = pair.partition("=")
+            if sep and name.strip():
+                headers[name.strip()] = value.strip()
+        return headers
 
     @model_validator(mode="after")
     def _support_names_a_model(self) -> "ImpiSettings":

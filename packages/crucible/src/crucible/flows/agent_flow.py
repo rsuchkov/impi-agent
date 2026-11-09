@@ -55,7 +55,7 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     PostSnippet,
 )
-from crucible.ports.delegation import DELEGATED_FROM_TURN_ATTRIBUTE
+from crucible.ports.delegation import parent_turn_of
 from crucible.ports.entitlement import (
     ConversationProfiles,
     EntitlementSource,
@@ -624,8 +624,7 @@ class AgentFlow:
                 tool_calls=tuple(result.tool_calls) if result is not None else (),
                 truncated=result.truncated if result is not None else False,
                 usage=result.usage if result is not None else None,
-                turn_id=facts.scope.turn_id, started_at=facts.started_at,
-                parent_turn_id=facts.scope.attributes.get(DELEGATED_FROM_TURN_ATTRIBUTE, ""),
+                turn_id=facts.scope.turn_id, started_at=facts.started_at, parent_turn_id=parent_turn_of(facts.scope),
             ))
         except Exception:  # noqa: BLE001 - telemetry must never cost the turn
             logger.warning("telemetry failed to record a turn", exc_info=True)
@@ -638,6 +637,7 @@ class AgentFlow:
                 gateway=anchor.gateway, index=answered.index, model=answered.model, usage=answered.usage,
                 stop_reason=answered.stop_reason, duration_s=answered.duration_s,
                 started_at=(datetime.now(timezone.utc) - timedelta(seconds=answered.duration_s)).isoformat(timespec="seconds"),
+                parent_turn_id=parent_turn_of(facts.scope),
             ))
         except Exception:  # noqa: BLE001 - telemetry must never cost the turn
             logger.warning("telemetry failed to record a model call", exc_info=True)

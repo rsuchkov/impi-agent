@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from crucible.approvals import PendingApprovals
 from crucible.attachment_retention import run_attachment_sweeps
@@ -101,7 +102,7 @@ from crucible.ports.chat.gateway import (
 )
 from crucible.ports.lease import Leases
 from crucible.ports.replica import Replica, Replicas
-from crucible.ports.telemetry import Telemetry
+from crucible.ports.telemetry import Telemetries, Telemetry
 from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.profiles.errors import ProfileError
@@ -156,7 +157,28 @@ from impi.skill_screen import SkillScreen
 from impi.task_screen import TaskScreen
 from impi.telemetry import LogTelemetry
 
+if TYPE_CHECKING:
+    from crucible.telemetry_otel import OtelTelemetry
+
 logger = logging.getLogger(__name__)
+
+
+def _tracing(settings: ImpiSettings) -> "OtelTelemetry | None":
+    """The trace exporter, when ``TELEMETRY_OTLP_ENDPOINT`` names a collector.
+    Imported here and not at the top for the same reason the Mongo store is:
+    the OpenTelemetry packages are the ``otel`` extra, and a deployment that
+    sends no traces must not need them."""
+    if not settings.telemetry_otlp_endpoint:
+        return None
+    try:
+        from crucible.telemetry_otel import OtelTelemetry  # noqa: PLC0415
+    except ImportError as exc:
+        raise ValueError(
+            "TELEMETRY_OTLP_ENDPOINT needs the 'otel' extra: install impi[otel] (crucible[otel])"
+        ) from exc
+    return OtelTelemetry.to_endpoint(
+        settings.telemetry_otlp_endpoint, headers=settings.otlp_headers(), service_name=settings.telemetry_service_name,
+    )
 
 
 def build_pi_extensions(settings: ImpiSettings) -> list[str]:
@@ -286,6 +308,9 @@ class App:
     forwarder: HubForwarder | None = None
     # Where the engine tells what it did (docs/telemetry.md); None tells nothing.
     telemetry: Telemetry | None = None
+    # The trace exporter among the receivers, when TELEMETRY_OTLP_ENDPOINT names
+    # a collector: flushed and closed at stop.
+    tracing: "OtelTelemetry | None" = None
     # The runtime's control side (its sessions, their state), for the loops
     # that read it after the build.
     control: RuntimeControl | None = None
@@ -578,8 +603,13 @@ def build_app(settings: ImpiSettings) -> App:
     receiver_needed = needs_receiver(cfg for cfgs in configs.values() for cfg in cfgs)
     settings = ensure_receiver_secret(settings, needs_receiver=receiver_needed)
     # Where every event the engine tells goes (docs/telemetry.md): the log, by
-    # default; an application with a receiver of its own passes that instead.
-    telemetry: Telemetry | None = LogTelemetry() if settings.telemetry_log else None
+    # default, and an OTLP collector when one is named — both when both are;
+    # an application with a receiver of its own passes that instead.
+    tracing = _tracing(settings)
+    receivers: list[Telemetry] = [LogTelemetry()] if settings.telemetry_log else []
+    if tracing is not None:
+        receivers.append(tracing)
+    telemetry: Telemetry | None = Telemetries(*receivers) if len(receivers) > 1 else (receivers[0] if receivers else None)
 
     # The app owns the registry of live agent presences (agent -> AgentSink); the
     # loop fills it, the interaction collaborators read it lazily via MappingPresence.
@@ -1048,6 +1078,7 @@ def build_app(settings: ImpiSettings) -> App:
         forwarder=forwarder,
         mcp_servers=mcp if mcp.servers else None,
         telemetry=telemetry,
+        tracing=tracing,
         control=runtime,
         attachments=attachments,
         delegation=delegation_svc,
@@ -1237,6 +1268,9 @@ async def run(settings: ImpiSettings) -> None:
             await app.scheduler.stop()
         if app.delegation is not None:
             await app.delegation.aclose()
+        if app.tracing is not None:
+            # What the last turns told is still queued; shipped before the exit.
+            await asyncio.to_thread(app.tracing.close)
         if app.ws_hub is not None:
             await app.ws_hub.stop()
         if app.http_hub is not None:

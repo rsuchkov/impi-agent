@@ -487,3 +487,6 @@ nobody at the screen is the usual case of the second.
 | `LOG_LEVEL` | `INFO` | root log level |
 | `TELEMETRY_LOG` | `true` | the engine's telemetry — a turn ended, a tool ran, a card was answered — as INFO lines of JSON on logger `impi.telemetry` ([telemetry.md](telemetry.md)), so `LOG_LEVEL` at `INFO` or lower; off for a deployment that reads the events some other way |
 | `TELEMETRY_STATE_S` | `60` | how often (s) the engine's state (sessions alive and busy, turns waiting) is told; `0` never |
+| `TELEMETRY_OTLP_ENDPOINT` | `` | an OTLP/http collector's traces URL (`…/v1/traces`, Arize Phoenix, Langfuse, Jaeger): every turn's events go there as a tree of spans ([telemetry.md](telemetry.md)); empty = no traces; needs the `otel` extra (in the image) |
+| `TELEMETRY_OTLP_HEADERS` | `` | headers on every request to the collector, `name=value` CSV (an API key) |
+| `TELEMETRY_SERVICE_NAME` | `impi` | the service the spans belong to |

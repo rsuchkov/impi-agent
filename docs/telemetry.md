@@ -69,7 +69,60 @@ An application with a receiver of its own — a metrics exporter, a table, a
 stream — implements `record` and passes the instance where `impi` passes
 `LogTelemetry()`. Nothing in the engine depends on what it does with the
 events; a receiver that counts by `user_id` decides for itself whether to keep
-the id, hash it or map it to a person (`PersonKey`).
+the id, hash it or map it to a person (`PersonKey`). Several receivers are one
+with `Telemetries(a, b)` (`crucible.ports.telemetry`): every event goes to
+each, and one that fails costs the others nothing.
+
+## Traces: Phoenix, Langfuse and the like
+
+`crucible.telemetry_otel.OtelTelemetry` (the `otel` extra: `crucible[otel]`,
+`impi[otel]`; in the engine image already) is a receiver that exports the
+events of a turn as **spans** over OTLP/http — a tree a tracing backend
+draws, named the way [OpenInference](https://github.com/Arize-ai/openinference)
+readers such as Arize Phoenix expect:
+
+```
+AGENT  assistant: turn           session.id, user.id, crucible.outcome, llm.token_count.* (the sum), crucible.cost_usd
+├─ LLM   openai/gpt-5.5          llm.model_name, llm.provider, llm.token_count.prompt/completion/total, crucible.stop_reason
+├─ TOOL  jira_search             tool.name, crucible.outcome, crucible.confirmed
+├─ CHAIN card: jira_create       the wait on the person, crucible.outcome (allowed_once, denied, …)
+├─ LLM   openai/gpt-5.5
+└─ AGENT jira: turn              a trusted agent's turn, under the asker's (parent_turn_id)
+   └─ TOOL jira_get
+```
+
+The ids are derived from `turn_id` (the trace from the asker's turn, the
+turn's span from its own), so every span is exported the moment its event
+comes — children before the parent's `TurnEnded` — into the right trace, with
+nothing remembered between events and the same ids on every replica. What
+leaves is what the events carry: names, ids, numbers, outcome words; no text of
+anybody's. Spans are batched and shipped in the background; `close()` flushes
+what is left, and `impi` calls it at shutdown.
+
+In `impi`, name the collector's traces URL and the exporter joins the log
+receiver (or replaces it, with `TELEMETRY_LOG=false`):
+
+```
+TELEMETRY_OTLP_ENDPOINT=http://phoenix:6006/v1/traces
+TELEMETRY_OTLP_HEADERS=api_key=…         # optional, name=value CSV, on every request
+TELEMETRY_SERVICE_NAME=impi              # the service the spans belong to
+```
+
+Phoenix in five minutes, beside the engine: run `arizephoenix/phoenix` with
+port `6006` published (its UI and its OTLP/http endpoint are the same port),
+point `TELEMETRY_OTLP_ENDPOINT` at `http://<host>:6006/v1/traces`, restart the
+engine, and talk to an agent — each turn is a trace, each tool a span, a
+trusted agent's turn a branch under the asker's, all in the project named by
+`TELEMETRY_SERVICE_NAME` (Phoenix files spans by the resource attribute
+`openinference.project.name`, which the exporter sets to the same name).
+Recent Phoenix images ask for a token: either run the container with
+`PHOENIX_ENABLE_AUTH=false` for a local try, or make an API key in its UI and
+pass it as `TELEMETRY_OTLP_HEADERS=authorization=Bearer <key>`; a `401` from
+the collector is logged by the exporter and the batch is dropped. The exporter is the engine's
+process, not an agent's: a confined agent's network ([security.md](security.md))
+needs no port opened for it. An application with the port's receiver of its
+own gets the same from `OtelTelemetry.to_endpoint(url, headers=…,
+service_name=…)` or `OtelTelemetry(exporter)` with any `SpanExporter`.
 
 ## Settings
 
@@ -77,3 +130,6 @@ the id, hash it or map it to a person (`PersonKey`).
 |---|---|---|
 | `TELEMETRY_LOG` | `true` | the events as JSON lines on logger `impi.telemetry` |
 | `TELEMETRY_STATE_S` | `60` | how often `EngineState` is told; `0` never |
+| `TELEMETRY_OTLP_ENDPOINT` | `` | an OTLP/http collector's traces URL (`…/v1/traces`); the turns' events go there as spans; empty = none |
+| `TELEMETRY_OTLP_HEADERS` | `` | headers on every request to it, `name=value` CSV (an API key) |
+| `TELEMETRY_SERVICE_NAME` | `impi` | the service the spans belong to (`service.name`, and the Phoenix project) |
