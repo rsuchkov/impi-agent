@@ -237,13 +237,14 @@ forbidden_modules = [
 name = "flows work only through ports (never concretes)"
 type = "forbidden"
 source_modules = ["crucible.flows"]
-forbidden_modules = ["crucible.gateways", "crucible.runtimes.pi", "crucible.profiles"]
+forbidden_modules = ["crucible.gateways", "crucible.runtimes.pi", "crucible.profiles", "crucible.telemetry_otel"]
 
 [[tool.importlinter.contracts]]
 name = "The tool layer depends only on ports, not on platform/engine concretes"
 type = "forbidden"
 source_modules = ["crucible.tools", "crucible.builtin_tools"]
 forbidden_modules = [
+    "crucible.telemetry_otel",
     "crucible.mcp",
     # A tool reaches connected accounts through crucible.ports.connections; the
     # machinery behind it needs the store, and importing the package would
@@ -263,6 +264,7 @@ name = "interactions (widgets/forms + receiver): chat ports + store, not pi/flow
 type = "forbidden"
 source_modules = ["crucible.interactions"]
 forbidden_modules = [
+    "crucible.telemetry_otel",
     "crucible.gateways",
     "crucible.runtimes.pi",
     "crucible.flows",

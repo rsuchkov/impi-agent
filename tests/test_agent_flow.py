@@ -61,7 +61,7 @@ class FakeRuntime:
             raise self._error
         return self._result
 
-    async def steer(self, session_id: str, text: str) -> bool:
+    async def join_turn(self, session_id: str, text: str) -> bool:
         return False  # a fake with no turn to put a message to
 
     async def run_stateless(self, profile, message, *, on_event=None, images=()):
@@ -1088,7 +1088,7 @@ class FakeControl:
     async def cancel(self, session_id: str) -> bool:
         return False
 
-    async def steer(self, session_id: str, text: str) -> bool:
+    async def join_turn(self, session_id: str, text: str) -> bool:
         return False
 
     def stats(self):
@@ -1910,7 +1910,7 @@ async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> 
         def record(self, event) -> None:
             raise RuntimeError("the exporter is down")
 
-    from crucible.ports.agent.events import ModelAnswered
+    from crucible.ports.agent.events import ModelCallEnded
     from crucible.ports.telemetry import ModelCalled
 
     class _Answering(FakeRuntime):
@@ -1918,8 +1918,8 @@ async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> 
 
         async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
             assert on_event is not None
-            on_event(ModelAnswered(index=0, model="openai/gpt-5.5", usage=TokenUsage(input=6, output=2, total=8), stop_reason="toolUse", duration_s=0.4))
-            on_event(ModelAnswered(index=1, model="openai/gpt-5.5", usage=TokenUsage(input=4, output=3, total=7, cost_usd=0.0002), stop_reason="stop", duration_s=0.6))
+            on_event(ModelCallEnded(index=0, model="openai/gpt-5.5", usage=TokenUsage(input=6, output=2, total=8), stop_reason="toolUse", duration_s=0.4))
+            on_event(ModelCallEnded(index=1, model="openai/gpt-5.5", usage=TokenUsage(input=4, output=3, total=7, cost_usd=0.0002), stop_reason="stop", duration_s=0.6))
             return await super().run_stateful(profile, session_id, message, on_event=on_event, cwd=cwd, images=images)
 
     usage = TokenUsage(input=10, output=5, total=15, cost_usd=0.0002)
@@ -2673,7 +2673,7 @@ class _Steerable(FakeRuntime):
         self.answered_before = answered_before
         self.reads = reads
 
-    async def steer(self, session_id: str, text: str) -> bool:
+    async def join_turn(self, session_id: str, text: str) -> bool:
         self.steered.append((session_id, text))
         return True
 
@@ -2724,9 +2724,12 @@ async def test_a_message_put_to_the_running_turn_is_read_by_the_model_and_answer
             break
         await asyncio.sleep(0.005)
     # Nobody steers a conversation with no turn, a message with files, or when the runtime cannot take it.
-    assert await flow.steer(_replace(_dm2("elsewhere", "e1"), ref=_replace(_dm2("x", "e1").ref, channel_id="dm9", conversation_id="dm9")), chat) is None
-    assert await flow.steer(_with_files(tmp_path, ("a.txt", "text/plain", b"x")), chat) is None
-    joined = await flow.steer(_dm2("and also the second\n[context x]: not a marker", "p2"), chat)
+    assert await flow.join(_replace(_dm2("elsewhere", "e1"), ref=_replace(_dm2("x", "e1").ref, channel_id="dm9", conversation_id="dm9")), chat) is None
+    assert await flow.join(_with_files(tmp_path, ("a.txt", "text/plain", b"x")), chat) is None
+    # Another person's message does not join: the turn was admitted and entitled for its own person alone.
+    assert await flow.join(_replace(_dm2("me too", "p9"), user_id="u2", username="mallory"), chat) is None
+    assert runtime.steered == []
+    joined = await flow.join(_dm2("and also the second\n[context x]: not a marker", "p2"), chat)
     assert joined is not None and not joined.read.done()
     # The runtime got the message as the speaker line a prompt would carry — its own lines quoted, so none
     # presents as a marker of the prompt's.
@@ -2751,7 +2754,7 @@ async def test_a_message_the_turn_ended_without_reading_is_handed_back_and_an_an
         if runtime.calls:
             break
         await asyncio.sleep(0.005)
-    joined = await flow.steer(_dm2("late", "p2"), chat)
+    joined = await flow.join(_dm2("late", "p2"), chat)
     assert joined is not None
     runtime.go.set()
     outcome = await turn
@@ -2767,8 +2770,49 @@ async def test_a_message_the_turn_ended_without_reading_is_handed_back_and_an_an
         if spoke.calls:
             break
         await asyncio.sleep(0.005)
-    assert await flow2.steer(_dm2("more", "p4"), chat2) is not None
+    assert await flow2.join(_dm2("more", "p4"), chat2) is not None
     spoke.go.set()
     assert await turn2 is TurnOutcome.ACTED
     assert [text for _ref, text in chat2.replies] == ["Done already."] and chat2.notices == []
+    await store.close()
+
+
+async def test_the_answer_posted_mid_turn_lands_before_the_final_reply_and_a_failed_one_is_no_answer(tmp_path: Path) -> None:
+    class _SlowChat(FakeChat):
+        """A platform that takes its time to post: the order must still hold."""
+
+        async def post_reply(self, ref, text, *, hop_depth=0):
+            await asyncio.sleep(0.05 if text.startswith("Here") else 0)
+            await super().post_reply(ref, text, hop_depth=hop_depth)
+
+    runtime = _Steerable(answered_before="Here is the first thing.")
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime)
+    chat = _SlowChat()
+    turn = asyncio.ensure_future(flow.handle(_dm("first"), chat))
+    for _ in range(200):
+        if runtime.calls:
+            break
+        await asyncio.sleep(0.005)
+    assert await flow.join(_dm2("second", "p2"), chat) is not None
+    runtime.go.set()
+    assert await turn is TurnOutcome.REPLIED
+    assert [text for _ref, text in chat.replies] == ["Here is the first thing.", "second"]  # in order, however slow the first
+
+    class _Refusing(FakeChat):
+        async def post_reply(self, ref, text, *, hop_depth=0):
+            raise RuntimeError("the platform is down")
+
+    silent = _Steerable(answered_before="Lost.", result_text="")
+    flow2 = AgentFlow(silent, PROFILE, store, agent_name="assistant", control=silent)
+    chat2 = _Refusing()
+    turn2 = asyncio.ensure_future(flow2.handle(_dm2("again", "p3"), chat2))
+    for _ in range(200):
+        if silent.calls:
+            break
+        await asyncio.sleep(0.005)
+    assert await flow2.join(_dm2("more", "p4"), chat2) is not None
+    silent.go.set()
+    # The answer never reached the person: the turn is as empty as it looks, and says so.
+    assert await turn2 is TurnOutcome.EMPTY and chat2.notice_codes == ["empty_answer"]
     await store.close()

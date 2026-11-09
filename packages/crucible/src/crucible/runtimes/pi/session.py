@@ -10,7 +10,7 @@ from crucible.confinement import ProcessScope
 from crucible.ports.agent.events import (
     Answered,
     MessageRead,
-    ModelAnswered,
+    ModelCallEnded,
     TextProgress,
     ToolFinished,
     ToolStarted,
@@ -104,7 +104,7 @@ class _Turn:
         self.tokens_used = 0
         self.budget_told = False
         # The model's answers so far, and when the one in progress began
-        # (``turn_start``), for ``ModelAnswered`` on its ``turn_end``.
+        # (``turn_start``), for ``ModelCallEnded`` on its ``turn_end``.
         self.answers = 0
         self.answer_started: float | None = None
         # This turn's listener. Bound here, not on the session: a conversation
@@ -131,8 +131,11 @@ class _Turn:
         # out on its own. A message read mid-turn starts a new segment.
         self.wrapped_up = False
         self.segment_started = asyncio.get_running_loop().time()
-        # Messages put to the turn and not yet read by the model, as sent.
+        # Messages put to the turn and not yet read by the model, as sent; and
+        # whether an answer already went out before one of them was read — the
+        # run's messages then hold text that is not this result's.
         self.steers: list[str] = []
+        self.answered_before = False
 
 
 class PiRpcSession:
@@ -173,6 +176,7 @@ class PiRpcSession:
         self._session_id = session_id
 
         self._turn: _Turn | None = None
+        self._sends: set[asyncio.Task[None]] = set()  # commands sent as a turn ends, held until done
         self._reader_task: asyncio.Task[None] | None = None
         self._closed = False
         self._poisoned = False
@@ -478,13 +482,14 @@ class PiRpcSession:
             written = "".join(turn.text_parts).strip()
             turn.text_parts.clear()
             if written:
+                turn.answered_before = True
                 await self._notify(Answered(written))
             turn.wrapped_up = False
             turn.segment_started = asyncio.get_running_loop().time()
             await self._notify(MessageRead(read))
         if turn is not None and event.type == protocol.EV_TURN_END:
             turn.tokens_used += _tokens_of_message(event.raw.get("message"))
-            answered = _model_answered(turn, event.raw.get("message"))
+            answered = _model_call_ended(turn, event.raw.get("message"))
             if answered is not None:
                 await self._notify(answered)
         if turn is not None and event.type == protocol.EV_TOOL_EXECUTION_START and turn.text_parts:
@@ -556,7 +561,7 @@ class PiRpcSession:
         # The answer is what the model said after its last call; what it said
         # before one went out as progress.
         text = "".join(turn.text_parts).strip()
-        if not text:
+        if not text and not turn.answered_before:
             text = _final_text_from_agent_end(event)
         # An LLM/infra failure (e.g. provider unreachable) yields empty content
         # with stopReason=error. Surface it as an error instead of masquerading
@@ -593,8 +598,15 @@ class PiRpcSession:
         unread = tuple(turn.steers)
         turn.steers.clear()
         if unread:
-            asyncio.ensure_future(self._transport.send(protocol.encode_clear_queue(command_id=protocol.new_command_id())))
+            send = asyncio.ensure_future(self._transport.send(protocol.encode_clear_queue(command_id=protocol.new_command_id())))
+            self._sends.add(send)
+            send.add_done_callback(self._sent)
         return unread
+
+    def _sent(self, send: "asyncio.Task[None]") -> None:
+        self._sends.discard(send)
+        if not send.cancelled() and send.exception() is not None:
+            logger.warning("pi did not take a command sent as the turn ended: %s", send.exception())
 
     async def _handle_ui_request(self, event: PiEvent) -> None:
         """Answer a pi ``extension_ui_request``.
@@ -749,7 +761,7 @@ def _model_of_message(message: dict) -> str:
     return f"{provider}/{model}" if isinstance(provider, str) and isinstance(model, str) and provider and model else ""
 
 
-def _model_answered(turn: _Turn, message: object) -> ModelAnswered | None:
+def _model_call_ended(turn: _Turn, message: object) -> ModelCallEnded | None:
     """One answer of the model, as pi's ``turn_end`` carries it: the event
     for the flow, None for a ``turn_end`` that is not the model's."""
     if not isinstance(message, dict) or message.get("role") != "assistant":
@@ -758,7 +770,7 @@ def _model_answered(turn: _Turn, message: object) -> ModelAnswered | None:
     began = turn.answer_started
     turn.answer_started = None
     stop = message.get("stopReason")
-    answered = ModelAnswered(
+    answered = ModelCallEnded(
         index=turn.answers, model=_model_of_message(message), usage=_usage_of_message(message),
         stop_reason=stop if isinstance(stop, str) else "", duration_s=0.0 if began is None else now - began,
     )

@@ -22,7 +22,7 @@ TOOL_STARTED = "tool_started"
 TOOL_FINISHED = "tool_finished"
 TEXT_PROGRESS = "text_progress"
 CALL_AWAITING = "call_awaiting"
-MODEL_ANSWERED = "model_answered"
+MODEL_CALL_ENDED = "model_call_ended"
 MESSAGE_READ = "message_read"
 ANSWERED = "answered"
 
@@ -66,7 +66,7 @@ class TextProgress:
 
 
 @dataclass(frozen=True)
-class ModelAnswered:
+class ModelCallEnded:
     """The model answered once: one request to it and its reply, the unit a
     turn is made of — several when the model calls tools between. What that
     one answer cost (``usage``, when the runtime reports it per answer; None
@@ -80,14 +80,14 @@ class ModelAnswered:
     usage: TokenUsage | None = None
     stop_reason: str = ""
     duration_s: float = 0.0
-    type: str = field(default=MODEL_ANSWERED, init=False)
+    type: str = field(default=MODEL_CALL_ENDED, init=False)
 
 
 @dataclass(frozen=True)
 class MessageRead:
-    """The model read a message put to the turn while it ran (``steer``): the
-    text as it was put, so whoever put it knows which one. From here on the
-    turn answers that message too."""
+    """The model read a message put to the turn while it ran (a person joining
+    it): the text as it was put, so whoever put it knows which one. From here
+    on the turn answers that message too."""
 
     text: str
     type: str = field(default=MESSAGE_READ, init=False)

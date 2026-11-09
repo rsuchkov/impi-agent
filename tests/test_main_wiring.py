@@ -1188,21 +1188,21 @@ def test_a_collector_named_gets_the_traces_beside_the_log(tmp_path: Path) -> Non
     })
     assert settings.otlp_headers() == {"api_key": "k1", "x-team": "ops"}
     app = build_app(settings)
-    assert isinstance(app.tracing, OtelTelemetry) and isinstance(app.telemetry, Telemetries)
+    assert isinstance(app.trace_exporter, OtelTelemetry) and isinstance(app.telemetry, Telemetries)
     assert app.units[0].flow._telemetry is app.telemetry  # noqa: SLF001
-    exporter = app.tracing._processor.span_exporter  # type: ignore[attr-defined]  # noqa: SLF001
+    exporter = app.trace_exporter._processor.span_exporter  # type: ignore[attr-defined]  # noqa: SLF001
     headers = exporter._client._headers  # noqa: SLF001
     assert exporter._endpoint == "http://phoenix:6006/v1/traces" and (headers["api_key"], headers["x-team"]) == ("k1", "ops")  # noqa: SLF001
-    assert app.tracing._resource.attributes["service.name"] == "impi-stand"  # noqa: SLF001
-    app.tracing.close()
+    assert app.trace_exporter._resource.attributes["service.name"] == "impi-stand"  # noqa: SLF001
+    app.trace_exporter.close()
     alone = build_app(settings.model_copy(update={"telemetry_log": False}))
-    assert alone.telemetry is alone.tracing and isinstance(alone.tracing, OtelTelemetry)
-    alone.tracing.close()
+    assert alone.telemetry is alone.trace_exporter and isinstance(alone.trace_exporter, OtelTelemetry)
+    alone.trace_exporter.close()
     # TELEMETRY_CONTENT reaches the flow and the tool server; the default carries nothing.
     assert app.units[0].flow._telemetry_content == "none" and app.tool_server is not None and app.tool_server._telemetry_content == "none"  # noqa: SLF001
     telling = build_app(base.model_copy(update={"telemetry_content": "text"}))
     assert telling.units[0].flow._telemetry_content == "text" and telling.tool_server is not None and telling.tool_server._telemetry_content == "text"  # noqa: SLF001
-    assert build_app(base).tracing is None
+    assert build_app(base).trace_exporter is None
 
 
 async def test_join_running_turns_reaches_the_coalescer_and_the_http_hub(tmp_path: Path) -> None:

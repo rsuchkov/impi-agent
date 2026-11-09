@@ -5,7 +5,7 @@ serialized turns (N replies, wasted tokens). Here, messages that arrive while a
 conversation's turn is running are buffered and handed to the NEXT turn as one
 batch — so a burst yields one combined prompt and one reply. With
 ``join_running_turns`` a message that arrives mid-turn is put to that turn
-instead (``steer``), for the model to read before its next call; one the turn
+instead (``join``), for the model to read before its next call; one the turn
 ends without reading is queued as the next turn, as it would have been.
 
 Race-free by construction: submit() is synchronous (no await), and a worker has
@@ -18,7 +18,7 @@ import logging
 from collections.abc import Callable
 
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.flow import Flow, Joined, TurnOutcome, TurnSteerer, TurnStopper
+from crucible.ports.chat.flow import Flow, Joined, TurnJoiner, TurnOutcome, TurnStopper
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
 
@@ -49,18 +49,19 @@ class MessageCoalescer:
         self._tracked: dict[str, asyncio.Future[TurnOutcome]] = {}
         self._joining: set[asyncio.Task] = set()
 
-    async def steer(self, msg: IncomingMessage, chat: ChatClient) -> Joined | None:
-        """``SteerableSink``: put ``msg`` to the turn running in its conversation,
+    async def join(self, msg: IncomingMessage, chat: ChatClient) -> Joined | None:
+        """``JoinableSink``: put ``msg`` to the turn running in its conversation,
         through the flow behind. None when no turn runs there (nothing is
-        queued either — the caller decides), or the flow cannot steer."""
-        if not isinstance(self._flow, TurnSteerer):
+        queued either — the caller decides), or the flow will not take it —
+        another person's message, say: who may join is the flow's check."""
+        if not isinstance(self._flow, TurnJoiner):
             return None
         if self._on_arrival is not None and not msg.synthetic:
             self._on_arrival(msg)
         conv = self._keying.key(self._agent, msg)
         if conv not in self._workers:
             return None
-        return await self._flow.steer(msg, chat)
+        return await self._flow.join(msg, chat)
 
     async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
         """``StoppableSink``, for the flow behind: the coalescer is the sink a
@@ -75,11 +76,11 @@ class MessageCoalescer:
         conv = self._keying.key(self._agent, msg)
         if (
             self._join_running_turns and not msg.synthetic and not msg.attachments
-            and conv in self._workers and isinstance(self._flow, TurnSteerer)
+            and conv in self._workers and isinstance(self._flow, TurnJoiner)
         ):
             # A turn is running here: the message goes to it, and comes back to
             # the queue only if the turn ends without reading it.
-            task = asyncio.create_task(self._join(conv, msg, chat))
+            task = asyncio.create_task(self._join_or_queue(conv, msg, chat))
             self._joining.add(task)
             task.add_done_callback(self._joining.discard)
             return
@@ -90,12 +91,14 @@ class MessageCoalescer:
         if conv not in self._workers:
             self._workers[conv] = asyncio.create_task(self._run(conv, chat))
 
-    async def _join(self, conv: str, msg: IncomingMessage, chat: ChatClient) -> None:
-        joined = await self._flow.steer(msg, chat) if isinstance(self._flow, TurnSteerer) else None
+    async def _join_or_queue(self, conv: str, msg: IncomingMessage, chat: ChatClient) -> None:
+        joined = await self._flow.join(msg, chat) if isinstance(self._flow, TurnJoiner) else None
         if joined is None:
-            self._queue(conv, msg, chat)  # no turn to join after all
+            self._queue(conv, msg, chat)  # no turn to join after all, or not this person's
             return
         if not await joined.read:
+            # Queued as the turn ends — after whatever the worker has already
+            # taken for the next turn, since it moves on before this wakes.
             logger.info("a message joined a turn that ended before reading it; queued as the next turn")
             self._queue(conv, msg, chat)
 

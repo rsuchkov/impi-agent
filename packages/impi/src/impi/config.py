@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import os
 import re
-from typing import ClassVar, Literal
+from typing import ClassVar
 
 from pydantic import Field, field_validator, model_validator
 
 from crucible.config import Settings
 from crucible.connections.callback import CALLBACK_PATH
 from crucible.ports.agent.model_ref import check_provider_has_model
+from crucible.ports.telemetry import CONTENT_LEVELS, CONTENT_NONE
 from impi.connections_config import (
     CONNECTION_SECRET_PREFIXES,
     ConnectionProvider,
@@ -58,7 +59,21 @@ class ImpiSettings(Settings):
     # default) or ``text`` — what the person wrote, what the agent answered, a
     # tool call's arguments — scrubbed of secrets and cut, for a tracing
     # backend that shows turns. Never tool results, never the model's thinking.
-    telemetry_content: Literal["none", "text"] = "none"
+    telemetry_content: str = CONTENT_NONE
+
+    @field_validator("telemetry_content")
+    @classmethod
+    def _content_level(cls, value: str) -> str:
+        if value not in CONTENT_LEVELS:
+            raise ValueError(f"TELEMETRY_CONTENT: {value!r} is not one of {', '.join(CONTENT_LEVELS)}")
+        return value
+
+    @field_validator("telemetry_otlp_endpoint")
+    @classmethod
+    def _otlp_endpoint_is_http(cls, value: str) -> str:
+        if value and not value.startswith(("http://", "https://")):
+            raise ValueError("TELEMETRY_OTLP_ENDPOINT must be an http:// or https:// URL (the collector's /v1/traces)")
+        return value
 
     def otlp_headers(self) -> dict[str, str]:
         """``TELEMETRY_OTLP_HEADERS`` parsed: ``name=value`` pairs, CSV."""

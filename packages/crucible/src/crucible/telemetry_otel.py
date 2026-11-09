@@ -64,7 +64,7 @@ INPUT_VALUE = "input.value"
 OUTPUT_VALUE = "output.value"
 INPUT_MIME_TYPE = "input.mime_type"
 PROJECT_NAME = "openinference.project.name"  # a resource attribute: the project Phoenix files the spans under
-OWN = "crucible."
+OWN_PREFIX = "crucible."
 
 _SAMPLED = TraceFlags(TraceFlags.SAMPLED)
 _SCOPE = InstrumentationScope("crucible")
@@ -123,11 +123,11 @@ class OtelTelemetry:
     def _turn(self, event: TurnEnded) -> ReadableSpan | None:
         if not event.turn_id:
             return None
-        trace = trace_id(event.parent_turn_id or event.turn_id)
-        parent = SpanContext(trace, turn_span_id(event.parent_turn_id), is_remote=False, trace_flags=_SAMPLED) if event.parent_turn_id else None
+        trace = otel_trace_id(event.parent_turn_id or event.turn_id)
+        parent = SpanContext(trace, otel_turn_span_id(event.parent_turn_id), is_remote=False, trace_flags=_SAMPLED) if event.parent_turn_id else None
         attributes: dict[str, object] = {
             SPAN_KIND_ATTRIBUTE: SPAN_KIND_AGENT, SESSION_ID: event.conversation_id, USER_ID: event.user_id,
-            **_own(
+            **_own_attributes(
                 agent=event.agent, gateway=event.gateway, kind=event.kind, direct=event.direct, synthetic=event.synthetic,
                 messages=event.messages, attachments=event.attachments, outcome=event.outcome, notice=event.notice,
                 stop_reason=event.stop_reason, truncated=event.truncated, tool_calls=list(event.tool_calls),
@@ -142,7 +142,7 @@ class OtelTelemetry:
             attributes[OUTPUT_VALUE] = event.output_text
         failed = event.outcome in ("error", "timeout")
         return self._finished(
-            f"{event.agent}: turn", trace, turn_span_id(event.turn_id), parent, attributes,
+            f"{event.agent}: turn", trace, otel_turn_span_id(event.turn_id), parent, attributes,
             started_at=event.started_at, duration_s=event.duration_s,
             status=Status(StatusCode.ERROR, event.notice or event.outcome) if failed else Status(StatusCode.OK),
         )
@@ -152,7 +152,7 @@ class OtelTelemetry:
             return None
         attributes: dict[str, object] = {
             SPAN_KIND_ATTRIBUTE: SPAN_KIND_LLM, SESSION_ID: event.conversation_id, USER_ID: event.user_id,
-            **_own(agent=event.agent, gateway=event.gateway, index=event.index, stop_reason=event.stop_reason),
+            **_own_attributes(agent=event.agent, gateway=event.gateway, index=event.index, stop_reason=event.stop_reason),
         }
         if event.model:
             attributes[LLM_MODEL_NAME] = event.model
@@ -167,7 +167,7 @@ class OtelTelemetry:
             return None
         attributes: dict[str, object] = {
             SPAN_KIND_ATTRIBUTE: SPAN_KIND_TOOL, TOOL_NAME: event.tool, SESSION_ID: event.conversation_id, USER_ID: event.user_id,
-            **_own(agent=event.agent, gateway=event.gateway, outcome=event.outcome, confirmed=event.confirmed),
+            **_own_attributes(agent=event.agent, gateway=event.gateway, outcome=event.outcome, confirmed=event.confirmed),
         }
         if event.args:
             attributes[INPUT_VALUE] = event.args
@@ -180,7 +180,7 @@ class OtelTelemetry:
             return None
         attributes = {
             SPAN_KIND_ATTRIBUTE: SPAN_KIND_CHAIN, TOOL_NAME: event.tool,
-            **_own(agent=event.agent, event="card_answered", outcome=event.outcome, grant_s=event.grant_s),
+            **_own_attributes(agent=event.agent, event="card_answered", outcome=event.outcome, grant_s=event.grant_s),
         }
         return self._child(f"card: {event.tool}", event.turn_id, event.parent_turn_id, attributes, "", event.wait_s)
 
@@ -189,7 +189,7 @@ class OtelTelemetry:
             return None
         attributes = {
             SPAN_KIND_ATTRIBUTE: SPAN_KIND_TOOL, TOOL_NAME: f"{event.server}/{event.tool}",
-            **_own(agent=event.agent, event="mcp_called", server=event.server, outcome=event.outcome, file_bytes=event.file_bytes),
+            **_own_attributes(agent=event.agent, event="mcp_called", server=event.server, outcome=event.outcome, file_bytes=event.file_bytes),
         }
         status = Status(StatusCode.OK) if event.outcome == "ok" else Status(StatusCode.ERROR, event.outcome)
         return self._child(f"{event.server}/{event.tool}", event.turn_id, event.parent_turn_id, attributes, "", event.duration_s, status=status)
@@ -200,8 +200,8 @@ class OtelTelemetry:
     ) -> ReadableSpan:
         """A step of the turn: in the turn's trace (the asker's, for a task's
         turn), under the turn's span, with an id of its own nobody refers to."""
-        trace = trace_id(parent_turn_id or turn_id)
-        parent = SpanContext(trace, turn_span_id(turn_id), is_remote=False, trace_flags=_SAMPLED)
+        trace = otel_trace_id(parent_turn_id or turn_id)
+        parent = SpanContext(trace, otel_turn_span_id(turn_id), is_remote=False, trace_flags=_SAMPLED)
         return self._finished(
             name, trace, _fresh_span_id(), parent, attributes, started_at=started_at, duration_s=duration_s,
             status=status if status is not None else Status(StatusCode.OK),
@@ -211,7 +211,7 @@ class OtelTelemetry:
         self, name: str, trace: int, span: int, parent: SpanContext | None, attributes: Mapping[str, object],
         *, started_at: str, duration_s: float, status: Status,
     ) -> ReadableSpan:
-        end_ns = _ns(started_at, duration_s)
+        end_ns = _end_ns(started_at, duration_s)
         start_ns = end_ns - int(max(duration_s, 0.0) * 1_000_000_000)
         return ReadableSpan(
             name, context=SpanContext(trace, span, is_remote=False, trace_flags=_SAMPLED), parent=parent,
@@ -220,13 +220,13 @@ class OtelTelemetry:
         )
 
 
-def trace_id(turn_id: str) -> int:
+def otel_trace_id(turn_id: str) -> int:
     """The trace a turn's spans share, from its id: the same id, the same trace,
     on every replica and on every event, with nothing looked up."""
     return int.from_bytes(hashlib.sha256(b"trace:" + turn_id.encode()).digest()[:16], "big") or 1
 
 
-def turn_span_id(turn_id: str) -> int:
+def otel_turn_span_id(turn_id: str) -> int:
     """The id of a turn's own span, from its id, so a child can name it before
     the turn's ``TurnEnded`` has come."""
     return int.from_bytes(hashlib.sha256(b"span:" + turn_id.encode()).digest()[:8], "big") or 1
@@ -236,7 +236,7 @@ def _fresh_span_id() -> int:
     return secrets.randbits(64) or 1
 
 
-def _ns(started_at: str, duration_s: float) -> int:
+def _end_ns(started_at: str, duration_s: float) -> int:
     """When the span ended, in nanoseconds since the epoch: its start plus its
     duration when the event says when it began, else now."""
     if started_at:
@@ -255,9 +255,9 @@ def _usage(usage) -> dict[str, object]:
         return {}
     return {
         LLM_TOKENS_PROMPT: usage.input, LLM_TOKENS_COMPLETION: usage.output, LLM_TOKENS_TOTAL: usage.total,
-        **_own(cache_read=usage.cache_read, cache_write=usage.cache_write, cost_usd=usage.cost_usd),
+        **_own_attributes(cache_read=usage.cache_read, cache_write=usage.cache_write, cost_usd=usage.cost_usd),
     }
 
 
-def _own(**facts: object) -> dict[str, object]:
-    return {f"{OWN}{key}": value for key, value in facts.items()}
+def _own_attributes(**facts: object) -> dict[str, object]:
+    return {f"{OWN_PREFIX}{key}": value for key, value in facts.items()}

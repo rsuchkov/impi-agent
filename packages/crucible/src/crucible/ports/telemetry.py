@@ -81,8 +81,8 @@ class TurnEnded:
     # The turn this one was opened by, when another agent's turn handed it the
     # task (``delegate``, ``ask_agent``); "" for a turn a person or a timer began.
     parent_turn_id: str = ""
-    # With ``CONTENT_TEXT`` only: what the turn answered (the messages' text,
-    # scrubbed and cut) and what the agent replied; "" otherwise.
+    # With ``CONTENT_TEXT`` only: what the turn was asked (the messages' text,
+    # scrubbed and cut) and what the agent answered; "" otherwise.
     input_text: str = ""
     output_text: str = ""
 
@@ -222,7 +222,9 @@ class Telemetry(Protocol):
 
 class Telemetries:
     """Several receivers as one: every event goes to each, and one that raises
-    costs the others nothing (it is logged)."""
+    costs the others nothing (it is logged). A composite in the port, as
+    ``ChainedCaptions`` is in the agent port: the one way to hold several
+    receivers, defined once beside the protocol they satisfy."""
 
     def __init__(self, *receivers: Telemetry) -> None:
         self._receivers = receivers

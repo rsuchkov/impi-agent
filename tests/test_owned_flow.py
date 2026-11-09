@@ -1,5 +1,6 @@
 """A turn runs on the replica that owns the conversation; the others forward."""
 
+import asyncio
 from pathlib import Path
 
 from crucible.flows.owned import OwnedFlow
@@ -111,3 +112,35 @@ async def test_an_owner_with_no_address_is_taken_over_rather_than_served_beside(
     assert await owned.handle_batch([_msg()], FakeChat()) is TurnOutcome.REPLIED
     assert replicas.claims[-1] == ("assistant", "C1", "a1", True)
     assert replicas.owner == ConversationOwner("a1") and forwarder.sent == []
+
+
+async def test_the_owned_flow_hands_join_and_stop_to_the_flow_behind() -> None:
+    from crucible.ports.chat.flow import Joined
+
+    class _Behind:
+        def __init__(self) -> None:
+            self.joined: list[str] = []
+            self.stopped: list[str] = []
+
+        async def handle_batch(self, msgs, chat):
+            raise AssertionError("not run here")
+
+        async def join(self, msg, chat):
+            self.joined.append(msg.text)
+            return Joined(message=msg, read=asyncio.get_running_loop().create_future())
+
+        async def stop(self, conversation_id, *, gateway=""):
+            self.stopped.append(conversation_id)
+            return True
+
+    class _Plain:
+        async def handle_batch(self, msgs, chat):
+            raise AssertionError("not run here")
+
+    behind = _Behind()
+    owned = _owned(behind, _Replicas(), _Forwarder())
+    msg = _msg()
+    assert (await owned.join(msg, FakeChat())) is not None and behind.joined == ["hi"]
+    assert await owned.stop("C1") is True and behind.stopped == ["C1"]
+    plain = _owned(_Plain(), _Replicas(), _Forwarder())
+    assert await plain.join(msg, FakeChat()) is None and await plain.stop("C1") is False

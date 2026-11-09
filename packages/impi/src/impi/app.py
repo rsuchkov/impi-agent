@@ -163,7 +163,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _tracing(settings: ImpiSettings) -> "OtelTelemetry | None":
+def _trace_exporter(settings: ImpiSettings) -> "OtelTelemetry | None":
     """The trace exporter, when ``TELEMETRY_OTLP_ENDPOINT`` names a collector.
     Imported here and not at the top for the same reason the Mongo store is:
     the OpenTelemetry packages are the ``otel`` extra, and a deployment that
@@ -310,7 +310,7 @@ class App:
     telemetry: Telemetry | None = None
     # The trace exporter among the receivers, when TELEMETRY_OTLP_ENDPOINT names
     # a collector: flushed and closed at stop.
-    tracing: "OtelTelemetry | None" = None
+    trace_exporter: "OtelTelemetry | None" = None
     # The runtime's control side (its sessions, their state), for the loops
     # that read it after the build.
     control: RuntimeControl | None = None
@@ -613,10 +613,10 @@ def build_app(settings: ImpiSettings) -> App:
     # Where every event the engine tells goes (docs/telemetry.md): the log, by
     # default, and an OTLP collector when one is named — both when both are;
     # an application with a receiver of its own passes that instead.
-    tracing = _tracing(settings)
+    trace_exporter = _trace_exporter(settings)
     receivers: list[Telemetry] = [LogTelemetry()] if settings.telemetry_log else []
-    if tracing is not None:
-        receivers.append(tracing)
+    if trace_exporter is not None:
+        receivers.append(trace_exporter)
     telemetry: Telemetry | None = Telemetries(*receivers) if len(receivers) > 1 else (receivers[0] if receivers else None)
 
     # The app owns the registry of live agent presences (agent -> AgentSink); the
@@ -1087,7 +1087,7 @@ def build_app(settings: ImpiSettings) -> App:
         forwarder=forwarder,
         mcp_servers=mcp if mcp.servers else None,
         telemetry=telemetry,
-        tracing=tracing,
+        trace_exporter=trace_exporter,
         control=runtime,
         attachments=attachments,
         delegation=delegation_svc,
@@ -1277,9 +1277,9 @@ async def run(settings: ImpiSettings) -> None:
             await app.scheduler.stop()
         if app.delegation is not None:
             await app.delegation.aclose()
-        if app.tracing is not None:
+        if app.trace_exporter is not None:
             # What the last turns told is still queued; shipped before the exit.
-            await asyncio.to_thread(app.tracing.close)
+            await asyncio.to_thread(app.trace_exporter.close)
         if app.ws_hub is not None:
             await app.ws_hub.stop()
         if app.http_hub is not None:

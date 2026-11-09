@@ -694,11 +694,11 @@ async def test_steer_reaches_the_busy_session_and_nobody_else() -> None:
     rt = _runtime_with([busy, idle], max_concurrent_sessions=2)
     await rt.run_stateful(_profile(), "assistant--a", "hi")
     await rt.run_stateful(_profile(), "assistant--b", "hi")
-    assert await rt.steer("assistant--a", "and this") is False  # idle: no turn to put it to
+    assert await rt.join_turn("assistant--a", "and this") is False  # idle: no turn to put it to
     busy.busy = True
-    assert await rt.steer("assistant--a", "and this") is True and busy.steered == ["and this"]
-    assert await rt.steer("assistant--b", "x") is False and idle.steered == []
-    assert await rt.steer("assistant--nobody", "x") is False  # no session at all
+    assert await rt.join_turn("assistant--a", "and this") is True and busy.steered == ["and this"]
+    assert await rt.join_turn("assistant--b", "x") is False and idle.steered == []
+    assert await rt.join_turn("assistant--nobody", "x") is False  # no session at all
 
 
 async def test_stats_count_what_is_alive_busy_and_waiting() -> None:

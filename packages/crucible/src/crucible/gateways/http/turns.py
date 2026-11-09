@@ -68,6 +68,16 @@ class TurnInProgress(Exception):
         self.turn_id = turn_id
 
 
+@dataclass(frozen=True)
+class JoinedMessage:
+    """A message that joined a running turn: the client's id of it, the sink's
+    handle (its ``read`` says whether the model got to it) and the message."""
+
+    client_message_id: str
+    joined: Joined
+    message: IncomingMessage
+
+
 @dataclass(eq=False)
 class Turn:
     id: str
@@ -91,10 +101,9 @@ class Turn:
     calls: TurnCalls = field(default_factory=TurnCalls)
     trace_token: str = ""
     started_at: float = 0.0
-    # Messages put to the turn while it ran (``steer``): the client's id of
-    # each, the sink's handle (its ``read`` says whether the model got to it)
-    # and the message itself, to run as the next turn when it did not.
-    joined: list[tuple[str, Joined, IncomingMessage]] = field(default_factory=list)
+    # Messages put to the turn while it ran, to run as the next turn when the
+    # model never got to them.
+    joined: list["JoinedMessage"] = field(default_factory=list)
 
 
 class _Trace:

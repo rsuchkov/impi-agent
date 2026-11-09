@@ -38,8 +38,8 @@ from crucible.telemetry_otel import (
     TOOL_NAME,
     USER_ID,
     OtelTelemetry,
-    trace_id,
-    turn_span_id,
+    otel_trace_id,
+    otel_turn_span_id,
 )
 
 
@@ -97,8 +97,8 @@ def test_a_turns_events_become_one_tree_the_children_arriving_first() -> None:
     assert [s.name for s in spans] == ["openai/gpt-5.5", "jira_search", "card: jira_create", "gitlab/list_mrs", "openai/gpt-5.5", "assistant: turn"]
     turn = spans[-1]
     # One trace, derived from the turn's id; the turn's span id too, so every child named it before it came.
-    assert {_ctx(s).trace_id for s in spans} == {trace_id("t1")}
-    assert _ctx(turn).span_id == turn_span_id("t1") and turn.parent is None
+    assert {_ctx(s).trace_id for s in spans} == {otel_trace_id("t1")}
+    assert _ctx(turn).span_id == otel_turn_span_id("t1") and turn.parent is None
     assert all(_parent(s).span_id == _ctx(turn).span_id for s in spans[:-1])
     assert len({_ctx(s).span_id for s in spans}) == len(spans)  # each child an id of its own
     # Named as OpenInference reads them: an agent, its model calls, its tools.
@@ -148,9 +148,9 @@ def test_a_tasks_turn_sits_under_the_askers_in_the_askers_trace() -> None:
     telemetry.record(_turn("task9", agent="jira", gateway="trusted-delegation", conversation_id="delegated:x", parent_turn_id="t1", outcome="error", notice="agent_error"))
     telemetry.record(_turn("t1"))
     tool, task, asker = exporter.get_finished_spans()
-    assert {_ctx(s).trace_id for s in (tool, task, asker)} == {trace_id("t1")}  # one trace: the asker's
-    assert _parent(task).span_id == turn_span_id("t1") and asker.parent is None
-    assert _parent(tool).span_id == turn_span_id("task9") == _ctx(task).span_id
+    assert {_ctx(s).trace_id for s in (tool, task, asker)} == {otel_trace_id("t1")}  # one trace: the asker's
+    assert _parent(task).span_id == otel_turn_span_id("t1") and asker.parent is None
+    assert _parent(tool).span_id == otel_turn_span_id("task9") == _ctx(task).span_id
     assert task.status.status_code is StatusCode.ERROR and task.status.description == "agent_error"
     assert tool.status.status_code is StatusCode.ERROR and tool.status.description == "denied"
 
@@ -172,8 +172,8 @@ def test_what_is_not_a_step_of_a_turn_makes_no_span_and_a_bad_event_costs_nothin
 
 
 def test_ids_are_the_same_for_the_same_turn_everywhere() -> None:
-    assert trace_id("t1") == trace_id("t1") != trace_id("t2") and 0 < trace_id("t1") < 2**128
-    assert turn_span_id("t1") == turn_span_id("t1") != turn_span_id("t2") and 0 < turn_span_id("t1") < 2**64
+    assert otel_trace_id("t1") == otel_trace_id("t1") != otel_trace_id("t2") and 0 < otel_trace_id("t1") < 2**128
+    assert otel_turn_span_id("t1") == otel_turn_span_id("t1") != otel_turn_span_id("t2") and 0 < otel_turn_span_id("t1") < 2**64
 
 
 def test_several_receivers_each_get_every_event_and_one_that_fails_costs_the_others_nothing(caplog) -> None:

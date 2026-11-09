@@ -42,7 +42,7 @@ from crucible.ports.agent import (
 from crucible.ports.agent.events import (
     Answered,
     MessageRead,
-    ModelAnswered,
+    ModelCallEnded,
     ToolFinished,
     ToolStarted,
 )
@@ -164,11 +164,14 @@ class _TurnFacts:
     runs, what ``stop`` needs: the runtime session to interrupt, and whether it
     was asked to."""
 
-    def __init__(self, runtime_session_id: str = "", *, scope: TurnScope | None = None) -> None:
+    def __init__(self, runtime_session_id: str = "", *, scope: TurnScope | None = None, user_id: str = "") -> None:
         self.result: AgentResult | None = None
         self.notice: str = ""
         self.runtime_session_id = runtime_session_id
         self.stopped = False
+        # Whose message the turn answers: the only person whose message may
+        # join it — the turn was admitted and entitled for them.
+        self.user_id = user_id
         # The turn's scope: the message's own where it carried one (an http
         # caller's, a task's), else one of the flow's — every turn has an id.
         self.scope = scope if scope is not None else TurnScope(turn_id=secrets.token_hex(8))
@@ -176,8 +179,10 @@ class _TurnFacts:
         # Messages put to the turn while it runs, by the text they were put as,
         # in order: each resolved when the model reads it or the turn ends.
         self.joined: list[tuple[str, Joined]] = []
-        # The turn posted an answer before it ended (``Answered``): its silence
-        # after that is not an empty turn.
+        # The answers the turn posted before it ended (``Answered``), as the
+        # posts in flight; once one is through, the turn's silence after it is
+        # not an empty turn (``answered``).
+        self.posts: list[asyncio.Task[None]] = []
         self.answered = False
 
 
@@ -503,7 +508,7 @@ class AgentFlow:
                 await self._sessions.set_gateway_address(self._agent_name, key, anchor.gateway, address)
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         started = time.monotonic()
-        facts = _TurnFacts(record.runtime_session_id, scope=anchor.turn)
+        facts = _TurnFacts(record.runtime_session_id, scope=anchor.turn, user_id=anchor.user_id)
         refused = await self._first_not_admitted(fresh, chat) if self._admission is not None else None
         if refused is not None:
             # Nothing ran: no prompt, no process, no reaction. Each person not
@@ -600,20 +605,22 @@ class AgentFlow:
         # goes out without it.
         await chat.post_notice(msg.ref, verdict.text, code=verdict.code)
 
-    async def steer(self, msg: IncomingMessage, chat: ChatClient) -> Joined | None:
-        """Put ``msg`` to the turn running in its conversation (``TurnSteerer``):
+    async def join(self, msg: IncomingMessage, chat: ChatClient) -> Joined | None:
+        """Put ``msg`` to the turn running in its conversation (``TurnJoiner``):
         rendered as the speaker line a prompt would carry, handed to the
         runtime to be read before the model's next call. None when no turn
-        runs there, the message carries files (a turn in flight takes none), or
-        the runtime cannot take it — the caller makes a turn of it then."""
+        runs there, the message carries files (a turn in flight takes none),
+        the message is not the turn's own person's — the turn was admitted and
+        entitled for them alone, so another's words wait for a turn of their
+        own — or the runtime cannot take it: the caller makes a turn of it."""
         if msg.attachments or self._control is None:
             return None
         key = self._keying.key(self._agent_name, msg)
         facts = self._active.get(key)
-        if facts is None or not facts.runtime_session_id:
+        if facts is None or not facts.runtime_session_id or msg.user_id != facts.user_id:
             return None
         rendered = self._render_joined(msg)
-        if not await self._control.steer(facts.runtime_session_id, rendered):
+        if not await self._control.join_turn(facts.runtime_session_id, rendered):
             return None
         joined = Joined(message=msg, read=asyncio.get_running_loop().create_future())
         facts.joined.append((rendered, joined))
@@ -627,7 +634,22 @@ class AgentFlow:
         when = f" · {_format_time(msg.timestamp)}" if msg.timestamp else ""
         return f"[{author}{when}]: {quoted(msg.text, inline=True)}"
 
-    def _message_read(self, facts: _TurnFacts, text: str) -> None:
+    @staticmethod
+    async def _await_posts(facts: _TurnFacts) -> None:
+        """The answers posted mid-turn, through before the turn's own reply —
+        so they stand in order; one that failed is logged, and does not count
+        as an answer the person got."""
+        if not facts.posts:
+            return
+        outcomes = await asyncio.gather(*facts.posts, return_exceptions=True)
+        facts.posts.clear()
+        for outcome in outcomes:
+            if isinstance(outcome, BaseException):
+                logger.warning("an answer posted mid-turn did not go through: %s", outcome)
+            else:
+                facts.answered = True
+
+    def _mark_read(self, facts: _TurnFacts, text: str) -> None:
         for index, (rendered, joined) in enumerate(facts.joined):
             if rendered == text and not joined.read.done():
                 joined.read.set_result(True)
@@ -692,32 +714,32 @@ class AgentFlow:
                 truncated=result.truncated if result is not None else False,
                 usage=result.usage if result is not None else None,
                 turn_id=facts.scope.turn_id, started_at=facts.started_at, parent_turn_id=parent_turn_of(facts.scope),
-                **self._content(fresh, facts),
+                **self._content_fields(fresh, facts),
             ))
         except Exception:  # noqa: BLE001 - telemetry must never cost the turn
             logger.warning("telemetry failed to record a turn", exc_info=True)
 
-    def _content(self, fresh: list[IncomingMessage], facts: _TurnFacts) -> dict[str, str]:
+    def _content_fields(self, fresh: list[IncomingMessage], facts: _TurnFacts) -> dict[str, str]:
         """What the turn was asked and what it answered, for a receiver told to
         carry text; nothing otherwise."""
         if self._telemetry_content != CONTENT_TEXT:
             return {}
-        secrets = facts.scope.secrets
+        turn_secrets = facts.scope.secrets
         asked = "\n".join(m.text for m in fresh if m.text)
-        answered = facts.result.text if facts.result is not None else ""
+        replied = facts.result.text if facts.result is not None else ""
         return {
-            "input_text": content_text(asked, secrets=secrets) if asked else "",
-            "output_text": content_text(answered, secrets=secrets) if answered else "",
+            "input_text": content_text(asked, secrets=turn_secrets) if asked else "",
+            "output_text": content_text(replied, secrets=turn_secrets) if replied else "",
         }
 
-    def _tell_answer(self, anchor: IncomingMessage, key: str, facts: _TurnFacts, answered: ModelAnswered) -> None:
+    def _tell_answer(self, anchor: IncomingMessage, key: str, facts: _TurnFacts, call: ModelCallEnded) -> None:
         assert self._telemetry is not None
         try:
             self._telemetry.record(ModelCalled(
                 agent=self._agent_name, turn_id=facts.scope.turn_id, conversation_id=key, user_id=anchor.user_id,
-                gateway=anchor.gateway, index=answered.index, model=answered.model, usage=answered.usage,
-                stop_reason=answered.stop_reason, duration_s=answered.duration_s,
-                started_at=(datetime.now(timezone.utc) - timedelta(seconds=answered.duration_s)).isoformat(timespec="seconds"),
+                gateway=anchor.gateway, index=call.index, model=call.model, usage=call.usage,
+                stop_reason=call.stop_reason, duration_s=call.duration_s,
+                started_at=(datetime.now(timezone.utc) - timedelta(seconds=call.duration_s)).isoformat(timespec="seconds"),
                 parent_turn_id=parent_turn_of(facts.scope),
             ))
         except Exception:  # noqa: BLE001 - telemetry must never cost the turn
@@ -864,6 +886,7 @@ class AgentFlow:
                 # was in.
                 await trace.end(interrupted=interrupted)
 
+        await self._await_posts(facts)
         await self._sessions.touch(
             self._agent_name, record.conversation_id, engine_turn=anchor.engine_started,
         )
@@ -936,16 +959,16 @@ class AgentFlow:
         telemetry = self._telemetry
 
         def on_event(event: AgentEvent) -> None:
-            if isinstance(event, ModelAnswered) and telemetry is not None:
+            if isinstance(event, ModelCallEnded) and telemetry is not None:
                 self._tell_answer(anchor, key, facts, event)
             if isinstance(event, MessageRead):
-                self._message_read(facts, event.text)
+                self._mark_read(facts, event.text)
             if isinstance(event, Answered) and event.text:
                 # The model's answer to what came before the message it just
                 # read: posted now, where the turn answers; the turn goes on.
-                facts.answered = True
+                # The post is awaited before the turn's own reply (``_turn``).
                 hop = max(m.hop_depth for m in fresh) + 1
-                asyncio.ensure_future(chat.post_reply(anchor.ref, event.text, hop_depth=hop))
+                facts.posts.append(asyncio.ensure_future(chat.post_reply(anchor.ref, event.text, hop_depth=hop)))
             if captions is not None and isinstance(event, ToolStarted) and not event.caption:
                 event = replace(event, caption=captions.caption(event.tool, _named(event.args, names)))
             log.record(event)

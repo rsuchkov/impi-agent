@@ -85,8 +85,8 @@ class AgentResult(Protocol):
     model: str
     stop_reason: str | None
     usage: TokenUsage | None
-    # Messages put to the turn while it ran (``RuntimeControl.steer``) that the
-    # model never read: the run ended first. Empty for a runtime without them.
+    # Messages put to the turn while it ran (``RuntimeControl.join_turn``) that
+    # the model never read: the run ended first. Empty for a runtime without them.
     unread: tuple[str, ...]
 
 
@@ -231,7 +231,7 @@ class RuntimeControl(Protocol):
         the conversation. False when nothing was running."""
         ...
 
-    async def steer(self, session_id: str, text: str) -> bool:
+    async def join_turn(self, session_id: str, text: str) -> bool:
         """Put ``text`` to the turn in flight, for the model to read before its
         next call — a person writing into a running turn. False when nothing
         is running there, or the runtime cannot take it: the caller then

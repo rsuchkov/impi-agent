@@ -101,7 +101,7 @@ Ports are Protocol contracts under `crucible.ports`. The important ones:
 - **Chat** (`ports/chat`): `ChatClient` (reply/react/backfill + files + the widget
   verbs), `ConversationView` (a platform's view of the conversation beside its
   messages — busy or free for the turn, waiting while a card is up), `StoppableSink` (a person stops the
-  turn in flight), `SteerableSink`/`TurnSteerer` and `Joined` (a person's message
+  turn in flight), `JoinableSink`/`TurnJoiner` and `Joined` (a person's message
   joins the turn in flight: read by the model before its next call, answered in
   it; `read` says whether it was), `Gateway` (a platform connection), `ChatAdmin` (channel administration),
   `InteractionService` (the tool-facing widget/form round-trip), `FileService`
@@ -509,7 +509,7 @@ tool-server, then the interactions receiver, then N supervised gateway loops
 **Inbound message.** platform event → the gateway normalizes it to an
 `IncomingMessage` (applying the respond decision + `LoopGuard`) → `MessageCoalescer`
 (one worker per conversation; messages that arrive mid-turn are batched into the
-next turn) → `AgentFlow.handle_batch` dedups, gets/creates the session, renders a
+next turn — or, with `JOIN_RUNNING_TURNS`, put to the running one) → `AgentFlow.handle_batch` dedups, gets/creates the session, renders a
 prompt (with replayed history, below), and calls
 `AgentRuntime.run_stateful` → the `pi` subprocess runs the turn → `AgentFlow` posts
 the reply.

@@ -21,7 +21,7 @@ import logging
 from collections.abc import Collection
 
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.flow import Flow, TurnOutcome
+from crucible.ports.chat.flow import Flow, Joined, TurnJoiner, TurnOutcome, TurnStopper
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
 from crucible.ports.replica import Replica, Replicas, TurnForwarder
@@ -52,6 +52,14 @@ class OwnedFlow:
         # connection): those are forwarded. A message through any other gateway
         # is served here, and the conversation moves here with it.
         self._forwarded = frozenset(forwarded)
+
+    async def join(self, msg: IncomingMessage, chat: ChatClient) -> Joined | None:
+        """A message joins the turn running here, if the flow behind takes it;
+        a turn running on another replica is not this one's to reach."""
+        return await self._flow.join(msg, chat) if isinstance(self._flow, TurnJoiner) else None
+
+    async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
+        return await self._flow.stop(conversation_id, gateway=gateway) if isinstance(self._flow, TurnStopper) else False
 
     async def handle_batch(self, msgs: list[IncomingMessage], chat: ChatClient) -> TurnOutcome:
         anchor = msgs[-1]

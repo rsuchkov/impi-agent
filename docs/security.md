@@ -350,7 +350,7 @@ deployment configured; the engine makes no model calls itself.
 | tool **arguments** | nowhere beyond the engine | the inventory, as the [tool trace](tool-trace.md) | `TOOL_TRACE_RETENTION_DAYS`, 14 by default |
 | tool **results** | — | **never stored** by the engine | — |
 | telemetry (a turn ended, a tool ran, what it cost — names, ids, numbers, outcome words) | the log, and with `TELEMETRY_OTLP_ENDPOINT` the tracing collector named | the collector's | the collector's retention |
-| telemetry **content** — what the person wrote, what the agent answered, tool arguments — only with `TELEMETRY_CONTENT=text`, scrubbed of the turn's secrets and of what looks like one, cut at 8000 characters; tool results and the model's thinking never | the same log and collector | the collector's | the collector's retention |
+| telemetry **content** — what the person wrote, what the agent answered, tool arguments — only with `TELEMETRY_CONTENT=text`, scrubbed of the turn's secrets and of what looks like one (a heuristic, as the log scrub is: a secret in prose or under an innocent name passes), cut at 8000 characters; tool results and the model's thinking never as fields, though an answer may quote one | the same log and collector | the collector's | the collector's retention |
 | a scheduled task's prompt | the provider, at each run | the inventory | until the task is removed |
 | who said what to whom (conversation ↔ session, last user) | nowhere | the inventory | until the session is deleted |
 | the broker's ledger (which agent asked for which secret, the command, the decision) | nowhere | the broker's own database | until removed by hand; never holds a value |

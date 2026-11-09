@@ -8,14 +8,14 @@ when a release is cut, and `impi update` shows the target version's section.
 
 - **The events of one turn can be put together.** Every turn has a `turn_id`
   — an http caller's own, a task's id, one the flow mints for a chat turn —
-  and every telemetry event of the turn names it: `TurnEnded` (with
-  `started_at` and, on a turn another agent's turn opened with `delegate` or
-  `ask_agent`, `parent_turn_id`), `ToolCalled` (with `started_at`),
-  `CardAnswered`, `McpCalled`. New fields with defaults; a receiver that
+  and every telemetry event of the turn names it: `TurnEnded` and `ToolCalled`
+  (with `started_at`), `CardAnswered`, `McpCalled` — and, on a turn another
+  agent's turn opened with `delegate` or `ask_agent`, every one of them names
+  the asker's turn as `parent_turn_id`. New fields with defaults; a receiver that
   counts is not affected.
 - **`ModelCalled`: each answer of the model is an event.** A turn that calls
   tools asks the model several times; the runtime now reports each answer
-  (`ModelAnswered` on the event port — index, model, what it cost when the
+  (`ModelCallEnded` on the event port — index, model, what it cost when the
   runtime says so per answer, how it stopped, how long it took) and the flow
   tells the telemetry one `ModelCalled` per answer, under the turn's id.
   `TurnEnded.usage` remains the turn's sum.
@@ -35,19 +35,25 @@ when a release is cut, and `impi update` shows the target version's section.
 - **A person's message can join the running turn.** With
   `JOIN_RUNNING_TURNS=true` (`MessageCoalescer(join_running_turns=)`,
   `HttpHub(join_running_turns=)`) a message into a conversation whose turn is
-  running is put to that turn (`RuntimeControl.steer`, the sink's `steer` —
-  `SteerableSink`/`TurnSteerer`, `Joined`) and read by the model before its
+  running is put to that turn (`RuntimeControl.join_turn`, the sink's `join` —
+  `JoinableSink`/`TurnJoiner`, `Joined`) and read by the model before its
   next call — after the tool calls in flight, or after the answer it is
   writing — as the person's words; the turn goes on to answer it. What the
   model had written before reading it is posted as its own answer
   (`Answered`), the turn's wrap-up clock starts over at the read, and a
   message the turn ends without reading is taken back out of the runtime's
-  queue (`AgentResult.unread`) and runs as the next turn. The pi driver reports
+  queue and runs as the next turn (`Joined.read` False; the runtime's own
+  account is `AgentResult.unread`). Only the turn's own person's message
+  joins — the turn was admitted and entitled for them; another's waits for a
+  turn of its own. The pi driver reports
   `MessageRead`, sends `clear_queue`, and measures the wrap-up per segment. On
   `http`: `200 {turnId, joined: true}` instead of `409 turn_in_progress` for
   the same caller, journal events `message.joined` and `message.read`,
   `turn.finished.next` for what runs next, `409 awaiting_person` while a card
   is up, `422` for a message with files. Off by default: everything as before.
+  **Breaks:** `AgentResult` has a new attribute, `unread`, and `RuntimeControl`
+  a new method, `join_turn` — a runtime adapter of your own grows both (an
+  empty tuple and a method answering False will do).
 - **Telemetry may carry content, opt-in.** `TELEMETRY_CONTENT=text`
   (`AgentFlow(telemetry_content=)`, `build_server(telemetry_content=)`) makes
   `TurnEnded` carry what the person wrote (`input_text`) and what the agent

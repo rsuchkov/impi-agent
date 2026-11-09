@@ -18,8 +18,8 @@ people. Keep them accurate to the code.
   carries over from other tools' skill formats.
 - **[telemetry.md](telemetry.md)** — what the engine tells about itself, as
   events: turns with the model and tokens, tool calls, cards, MCP, tasks,
-  connections, the engine's state; the `Telemetry` port and `impi`'s log
-  receiver.
+  connections, the engine's state; the `Telemetry` port, `impi`'s log
+  receiver and the OTLP trace exporter (Phoenix, Langfuse).
 - **[mcp.md](mcp.md)** — tools from MCP servers, a person's file as an argument: declaring one with `impi mcp
   add`, the pinned snapshot and trust, confirmations, a person's token in a
   header, what is not supported.

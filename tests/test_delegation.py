@@ -931,7 +931,7 @@ class _Control:
     async def cancel(self, session_id: str) -> bool:
         return False
 
-    async def steer(self, session_id: str, text: str) -> bool:
+    async def join_turn(self, session_id: str, text: str) -> bool:
         return False
 
     def stats(self) -> RuntimeStats:

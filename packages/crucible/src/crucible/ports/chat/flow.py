@@ -82,28 +82,29 @@ class Joined:
     """A message put to a turn already running in its conversation. ``read``
     resolves when the turn ends: True when the model read the message within
     it (``MessageRead``), False when the turn ended first — whoever put the
-    message then makes a turn of it."""
+    message then makes a turn of it. Who may join is the flow's check (the
+    turn's own person); a sink or a gateway in front need not repeat it."""
 
     message: IncomingMessage
     read: "asyncio.Future[bool]"
 
 
 @runtime_checkable
-class TurnSteerer(Protocol):
+class TurnJoiner(Protocol):
     """What can put a person's message to a turn in flight — the flow itself,
-    or the sink in front of it (``SteerableSink``) handing it on. The message
+    or the sink in front of it (``JoinableSink``) handing it on. The message
     is read by the model before its next call, as the person's words, and the
     turn goes on to answer it too. None when no turn runs in the message's
     conversation, or the runtime cannot take it: the message is a turn of its
     own then, as always."""
 
-    async def steer(self, msg: IncomingMessage, chat: ChatClient) -> Joined | None: ...
+    async def join(self, msg: IncomingMessage, chat: ChatClient) -> Joined | None: ...
 
 
 @runtime_checkable
-class SteerableSink(MessageSink, TurnSteerer, Protocol):
+class JoinableSink(MessageSink, TurnJoiner, Protocol):
     """A sink that puts a message to the turn running in its conversation
-    (``steer``) instead of queueing it for the next one (``submit``)."""
+    (``join``) instead of queueing it for the next one (``submit``)."""
 
 
 @runtime_checkable

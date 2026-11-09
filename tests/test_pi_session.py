@@ -964,9 +964,9 @@ async def test_a_process_that_says_nothing_is_stalled_unless_a_tool_is_running()
 async def test_each_answer_of_the_model_crosses_the_port_with_what_it_cost() -> None:
     """pi brackets one answer of the model with turn_start/turn_end and puts
     usage, provider, model and stopReason on the message: a listener sees one
-    ``ModelAnswered`` per answer, counted from 0, with the driver's timing."""
+    ``ModelCallEnded`` per answer, counted from 0, with the driver's timing."""
     from crucible.ports.agent import TokenUsage
-    from crucible.ports.agent.events import ModelAnswered
+    from crucible.ports.agent.events import ModelCallEnded
 
     transport = FakeTransport()
 
@@ -990,11 +990,11 @@ async def test_each_answer_of_the_model_crosses_the_port_with_what_it_cost() -> 
     session = PiRpcSession(transport)
     session.start()
     await session.prompt("hi", timeout=1.0, on_event=seen.append)
-    answers = [e for e in seen if isinstance(e, ModelAnswered)]
+    answers = [e for e in seen if isinstance(e, ModelCallEnded)]
     assert [(a.index, a.model, a.stop_reason) for a in answers] == [(0, "openai/gpt-5.5", "toolUse"), (1, "", "stop")]
     assert answers[0].usage == TokenUsage(input=100, output=20, cache_read=50, cache_write=0, total=170, cost_usd=0.001)
     assert answers[1].usage is None and all(a.duration_s >= 0 for a in answers)
-    assert all(e.type == "model_answered" for e in answers)
+    assert all(e.type == "model_call_ended" for e in answers)
 
 
 def _user_message(text: str) -> dict:
@@ -1152,6 +1152,44 @@ async def test_a_message_the_run_ended_without_reading_is_taken_back_out_of_the_
     assert (await session2.prompt("x", timeout=1.0)).unread == ()
     await asyncio.sleep(0.01)
     assert transport2.sent_types() == ["prompt"]
+
+
+async def test_an_answer_already_out_is_not_the_result_again() -> None:
+    """The text before a read went out as ``Answered``; if the model then ends
+    without another word, the run's messages — which still hold that text —
+    are not read as the result, or the person would get it twice."""
+    from crucible.ports.agent.events import Answered
+
+    transport = FakeTransport()
+    seen: list[object] = []
+
+    def react(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport.emit({"type": "agent_start"})
+            transport.emit({"type": "turn_start"})
+            transport.emit(_text_done("The whole answer."))
+        elif command.get("type") == "steer":
+            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})
+            transport.emit({"type": "turn_start"})
+            transport.emit({"type": "message_start", "message": _user_message(command["message"])})
+            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})  # nothing more said
+            transport.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "The whole answer."}, {"role": "user", "content": "ok"}]})
+            transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    turn = asyncio.ensure_future(session.prompt("Tell me", timeout=5.0, on_event=seen.append))
+    for _ in range(200):
+        if session._turn is not None and session._turn.text_parts:  # noqa: SLF001
+            break
+        await asyncio.sleep(0.005)
+    assert await session.steer("ok") is True
+    result = await turn
+    assert [e.text for e in seen if isinstance(e, Answered)] == ["The whole answer."]
+    assert result.text == ""  # already out; not again
+    await asyncio.sleep(0.01)
+    assert "clear_queue" not in transport.sent_types()  # it was read: nothing to clear
 
 
 def _assistant_turn_end(tokens: int) -> dict:

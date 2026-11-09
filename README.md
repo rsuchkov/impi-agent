@@ -198,7 +198,7 @@ To add your own agent (its profile, tools, and personality), see
 - [docs/browsing.md](docs/browsing.md) — a real browser the agents drive, and what isolates it.
 - [docs/agent-containers.md](docs/agent-containers.md) — a container per agent, and what that isolates.
 - [docs/tool-trace.md](docs/tool-trace.md) — the progress message a turn running tools shows, and the button that lists the calls afterwards.
-- [docs/telemetry.md](docs/telemetry.md) — what the engine tells about itself as events: turns with tokens and cost, tool calls, cards, MCP, tasks, the engine's state.
+- [docs/telemetry.md](docs/telemetry.md) — what the engine tells about itself as events: turns with tokens and cost, tool calls, cards, MCP, tasks, the engine's state; as traces to Phoenix, Langfuse and the like.
 - [docs/files.md](docs/files.md) — files and photos, in both directions.
 - [docs/commands.md](docs/commands.md) — slash commands, shortcuts and reactions as commands, and how to answer one privately.
 - [docs/ws-gateway.md](docs/ws-gateway.md) — plug your own service in over WebSocket.

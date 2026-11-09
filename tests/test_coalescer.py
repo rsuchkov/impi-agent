@@ -217,7 +217,7 @@ class SteeringFlow(SlowFlow):
         self.joined: list = []
         self.reads = reads
 
-    async def steer(self, msg, chat):
+    async def join(self, msg, chat):
         from crucible.ports.chat.flow import Joined
 
         self.steered.append(msg.ref.message_id)
@@ -242,9 +242,9 @@ async def test_with_joining_on_a_message_during_a_turn_goes_to_that_turn_and_a_b
     await asyncio.sleep(0.01)
     assert flow.steered == ["p2"] and flow.batches == [["p1"]]
     # The sink's own steer, for a gateway that asks before it submits: a conversation with no turn says None.
-    assert await co.steer(_msg("q1", conv="cQ"), FakeChat()) is None
+    assert await co.join(_msg("q1", conv="cQ"), FakeChat()) is None
     assert flow.steered == ["p2"]
-    assert (await co.steer(_msg("p3"), FakeChat())) is not None and flow.steered == ["p2", "p3"]
+    assert (await co.join(_msg("p3"), FakeChat())) is not None and flow.steered == ["p2", "p3"]
     flow.release()
     await asyncio.sleep(0.02)
     assert flow.batches == [["p1"]]  # both were read in the turn: no next turn
@@ -284,3 +284,33 @@ async def test_a_joined_message_the_turn_did_not_read_becomes_the_next_turn() ->
     flow2.release()
     await asyncio.sleep(0.03)
     assert flow2.steered == [] and flow2.batches == [["b1"], ["b2", "b3"]]
+    # A flow that will not take a message (another person's, say) says None: it queues for the next turn.
+    class _Picky(SteeringFlow):
+        async def join(self, msg, chat):
+            return None if msg.user_id != "u1" else await super().join(msg, chat)
+
+    picky = _Picky()
+    co4 = MessageCoalescer(picky, join_running_turns=True)
+    co4.submit(_msg("d1"), chat=FakeChat())
+    await asyncio.sleep(0)
+    co4.submit(replace(_msg("d2"), user_id="u2"), chat=FakeChat())
+    await asyncio.sleep(0.01)
+    picky.release()
+    await asyncio.sleep(0.03)
+    assert picky.steered == [] and picky.batches == [["d1"], ["d2"]]
+
+
+async def test_messages_that_joined_and_were_never_read_all_run_once_the_turn_ends() -> None:
+    """Whatever joined the turn and was not read comes back to the queue as
+    the turn ends — none is lost, each runs; the order among them and what
+    arrived meanwhile is the loop's."""
+    flow = SteeringFlow(reads=False)
+    co = MessageCoalescer(flow, join_running_turns=True)
+    co.submit(_msg("p1"), chat=FakeChat())
+    await asyncio.sleep(0)
+    co.submit(_msg("p2"), chat=FakeChat())  # joins; the turn will not read it
+    await asyncio.sleep(0.01)
+    flow.release()
+    co.submit(_msg("p3"), chat=FakeChat())  # arrives as the turn ends
+    await asyncio.sleep(0.03)
+    assert flow.batches[0] == ["p1"] and sorted(m for b in flow.batches[1:] for m in b) == ["p2", "p3"]

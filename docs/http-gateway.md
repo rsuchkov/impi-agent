@@ -371,7 +371,8 @@ confirmation can take minutes.
   shows it while it runs, its journal reads the same, its first event says
   `startedBy: "engine"`, and it belongs to the user the request names — in
   that realm — who is the one to read it. A message posted meanwhile is
-  refused with `turn_in_progress`, like any other; `startedSince` is how a
+  refused with `turn_in_progress` — or joins it, with `join_running_turns` —
+  like any other; `startedSince` is how a
   client learns it happened without being told.
 - **Identity is the caller's claim.** `X-User-Id` is whatever the program says.
   Keep the token where only your server can read it, and never let a browser

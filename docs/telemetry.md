@@ -11,17 +11,19 @@ of its own gives the engine a receiver instead.
 ## Events
 
 Every event is a frozen record of flat fields: names, numbers, durations.
-Never an object of the engine's, never the text people wrote. `user_id` is the
+Never an object of the engine's, and never the text people wrote unless
+`TELEMETRY_CONTENT=text` (below) — and then only a turn's input, its answer
+and tool arguments, scrubbed and cut. `user_id` is the
 platform's id as the gateway gave it; a receiver that must not keep it hashes
 or maps it on the way out.
 
 | Event | When | Fields |
 |---|---|---|
-| `TurnEnded` | a turn of an agent ended | `agent`, `gateway`, `user_id`, `conversation_id` (the key), `kind`, `direct`, `synthetic`, `messages`, `attachments`, `outcome` (`replied`, `acted`, `empty`, `truncated`, `timeout`, `error`, `stopped`, `not_admitted`), `notice` (the code the person got, or `""`), `duration_s`, `model` (`provider/model` that answered — after a fallback, the one that did), `stop_reason`, `tool_calls`, `truncated`, `usage`, `turn_id`, `started_at` (ISO 8601 UTC), `parent_turn_id` (the asker's turn, on a turn another agent's turn opened with `delegate`/`ask_agent`; `""` otherwise) |
-| `ModelCalled` | the model answered once within a turn — a turn that calls tools has several | `agent`, `turn_id`, `conversation_id`, `user_id`, `gateway`, `index` (the answer's number in the turn, from 0), `model`, `usage` (what that one answer cost, when the runtime reports it per answer; `None` otherwise), `stop_reason`, `duration_s`, `started_at` |
-| `ToolCalled` | a call reached the tool server, however it ended | `agent`, `tool`, `conversation_id`, `user_id`, `gateway`, `outcome` (`ok`, `error`, `crashed`, `unauthorized`, `unknown_tool`, `not_allowed`, `no_session`, `not_in_conversation`, `not_through_gateway`, `unconfirmable`, `not_asked`, `cannot_run`, `denied`, `unanswered`, `no_approver`, `abandoned`), `duration_s`, `confirmed`, `turn_id` (`""` when the call named no known turn), `started_at` |
-| `CardAnswered` | a confirmation for a tool call ended | `agent`, `tool`, `outcome` (`reused_grant`, `allowed_once`, `allowed_for`, `denied`, `unanswered`, `no_approver`, `abandoned`), `wait_s` (how long people took), `grant_s`, `turn_id` |
-| `McpCalled` | the engine called an MCP server's tool | `server`, `tool`, `agent`, `outcome` (`ok`, `is_error`, `unreachable`, `unanswered`, `refused`, `token_refused`, `protocol`, `unsupported`, `no_file` (for a confirmed tool a stray path ends earlier, as `ToolCalled.cannot_run`), `file_gone`, `file_changed`, `file_type`, `not_connected`, `not_direct`, `no_provider`, `provider_unavailable`), `duration_s`, `file_bytes`, `turn_id` |
+| `TurnEnded` | a turn of an agent ended | `agent`, `gateway`, `user_id`, `conversation_id` (the key), `kind`, `direct`, `synthetic`, `messages`, `attachments`, `outcome` (`replied`, `acted`, `empty`, `truncated`, `timeout`, `error`, `stopped`, `not_admitted`), `notice` (the code the person got, or `""`), `duration_s`, `model` (`provider/model` that answered — after a fallback, the one that did), `stop_reason`, `tool_calls`, `truncated`, `usage`, `turn_id`, `started_at` (ISO 8601 UTC), `parent_turn_id` (the asker's turn, on a turn another agent's turn opened with `delegate`/`ask_agent`; `""` otherwise), `input_text`, `output_text` (with `TELEMETRY_CONTENT=text`: what was asked and what was answered, scrubbed and cut; else `""`) |
+| `ModelCalled` | the model answered once within a turn — a turn that calls tools has several | `agent`, `turn_id`, `conversation_id`, `user_id`, `gateway`, `index` (the answer's number in the turn, from 0), `model`, `usage` (what that one answer cost, when the runtime reports it per answer; `None` otherwise), `stop_reason`, `duration_s`, `started_at`, `parent_turn_id` |
+| `ToolCalled` | a call reached the tool server, however it ended | `agent`, `tool`, `conversation_id`, `user_id`, `gateway`, `outcome` (`ok`, `error`, `crashed`, `unauthorized`, `unknown_tool`, `not_allowed`, `no_session`, `not_in_conversation`, `not_through_gateway`, `unconfirmable`, `not_asked`, `cannot_run`, `denied`, `unanswered`, `no_approver`, `abandoned`), `duration_s`, `confirmed`, `turn_id` (`""` when the call named no known turn), `started_at`, `parent_turn_id`, `args` (with `TELEMETRY_CONTENT=text`: the call's arguments as compact JSON, scrubbed and cut; else `""`) |
+| `CardAnswered` | a confirmation for a tool call ended | `agent`, `tool`, `outcome` (`reused_grant`, `allowed_once`, `allowed_for`, `denied`, `unanswered`, `no_approver`, `abandoned`), `wait_s` (how long people took), `grant_s`, `turn_id`, `parent_turn_id` |
+| `McpCalled` | the engine called an MCP server's tool | `server`, `tool`, `agent`, `outcome` (`ok`, `is_error`, `unreachable`, `unanswered`, `refused`, `token_refused`, `protocol`, `unsupported`, `no_file` (for a confirmed tool a stray path ends earlier, as `ToolCalled.cannot_run`), `file_gone`, `file_changed`, `file_type`, `not_connected`, `not_direct`, `no_provider`, `provider_unavailable`), `duration_s`, `file_bytes`, `turn_id`, `parent_turn_id` |
 | `McpChecked` | a server's tools were compared with their snapshot | `server`, `result` — one word per server, the most specific: `restored`, `withdrawn`, `refreshed`, `unpinned`, `unreachable`, else `connected` |
 | `TaskRan` | a scheduled occurrence finished | `agent`, `task`, `outcome` (the run's status word, as [tasks.md](tasks.md) lists them: `ok`, `empty`, `timeout`, `error`, `deadline`, `no_agent`, …), `duration_s` |
 | `BudgetHit` | a turn was not admitted for the agent's budget (`runtime.budget`) | `agent`, `user_id` (`""` when nobody's), `rule` (the key hit: `tokens_per_day`, `usd_per_day`, `tokens_per_day_per_person`, `usd_per_day_per_person`), `spent`, `limit` (in the rule's unit) |
@@ -56,7 +58,8 @@ producers each take a `Telemetry`: `AgentFlow(telemetry=)`,
 `ToolWiring.build_server(telemetry=)`, `InteractionWiring(telemetry=)`,
 `McpServers(telemetry=)`, `Scheduler(telemetry=)`, `OAuthConnections(telemetry=)`,
 and `crucible.engine_state.tell_engine_state` for the timer. `impi` builds
-one receiver and hands it to all of them.
+its receivers — the log, and the trace exporter when `TELEMETRY_OTLP_ENDPOINT`
+names one — as one (`Telemetries`) and hands it to all of them.
 
 `impi`'s receiver is `LogTelemetry`: one JSON line per event on the logger
 `impi.telemetry`, `{"event": "turn_ended", "agent": …, "usage": {…}}` —
@@ -85,6 +88,7 @@ readers such as Arize Phoenix expect:
 AGENT  assistant: turn           session.id, user.id, crucible.outcome, llm.token_count.* (the sum), crucible.cost_usd
 ├─ LLM   openai/gpt-5.5          llm.model_name, llm.provider, llm.token_count.prompt/completion/total, crucible.stop_reason
 ├─ TOOL  jira_search             tool.name, crucible.outcome, crucible.confirmed
+├─ TOOL  gitlab/list_mrs         an MCP server's tool: tool.name = server/tool, crucible.server
 ├─ CHAIN card: jira_create       the wait on the person, crucible.outcome (allowed_once, denied, …)
 ├─ LLM   openai/gpt-5.5
 └─ AGENT jira: turn              a trusted agent's turn, under the asker's (parent_turn_id)
@@ -95,8 +99,8 @@ The ids are derived from `turn_id` (the trace from the asker's turn, the
 turn's span from its own), so every span is exported the moment its event
 comes — children before the parent's `TurnEnded` — into the right trace, with
 nothing remembered between events and the same ids on every replica. What
-leaves is what the events carry: names, ids, numbers, outcome words; no text of
-anybody's. Spans are batched and shipped in the background; `close()` flushes
+leaves is what the events carry: names, ids, numbers, outcome words — and text
+only with `TELEMETRY_CONTENT=text` (next). Spans are batched and shipped in the background; `close()` flushes
 what is left, and `impi` calls it at shutdown.
 
 In `impi`, name the collector's traces URL and the exporter joins the log
@@ -117,8 +121,9 @@ around them), what the agent answered (`output_text`) and a tool call's
 arguments (`ToolCalled.args`, compact JSON) — which the exporter puts on the
 spans as `input.value` and `output.value`, so Phoenix shows the conversation
 beside the tree. Each is scrubbed first (the turn's own secret values, then
-whatever looks like a secret — `crucible.redaction`) and cut at
-`CONTENT_MAX` (8000 characters). Tool **results** and the model's thinking
+whatever looks like a secret — `crucible.redaction`, a heuristic: a secret in
+prose or under an innocent name passes) and cut at `CONTENT_MAX` (8000
+characters). Tool **results** and the model's thinking
 never travel: the engine does not keep them, by its own rule. The text goes
 to every receiver, the log included, so turn it on where the collector and
 the log are both places the conversation may be read.

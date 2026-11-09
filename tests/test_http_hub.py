@@ -1701,7 +1701,7 @@ class SteeringSink(FakeSink):
         self.joined: list = []
         self.takes = True
 
-    async def steer(self, msg, chat):
+    async def join(self, msg, chat):
         from crucible.ports.chat.flow import Joined
 
         if not self.takes:
@@ -1853,3 +1853,50 @@ async def _until(release: asyncio.Event, msg, chat) -> TurnOutcome:
     await release.wait()
     await chat.post_reply(msg.ref, "done")
     return TurnOutcome.REPLIED
+
+
+async def test_a_joined_message_carries_the_callers_scope_into_the_turn_and_into_the_next_one() -> None:
+    """What the authenticator attached to the request — a credential for the
+    tools — rides with the message that joins, and with the turn that runs
+    for it should the running one never read it."""
+    release = asyncio.Event()
+    seen: list[IncomingMessage] = []
+
+    async def slow(msg, chat):
+        seen.append(msg)
+        if len(seen) == 1:
+            await release.wait()
+        await chat.post_reply(msg.ref, "ok")
+        return TurnOutcome.REPLIED
+
+    from crucible.gateways.http import Caller
+    from crucible.ports.turn import TurnScope, TurnSecrets
+
+    shared = TurnScope("", TurnSecrets({"cookie": "c"}), {"locale": "ru"})
+
+    class _Scoped:
+        async def authenticate(self, request, body):
+            return Caller(realm="portal", user_id="u-1", turn=shared)
+
+    sink = SteeringSink(slow)
+    hub = HttpHub("127.0.0.1", 8534, _Scoped(), directory=FakeDirectory(), max_wait_s=0.2, join_running_turns=True)
+    hub.register_agent("helper", sink, HttpChatClient(hub.turns, "helper"))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            headers = {"Authorization": "Bearer any"}
+            _, first = await _post(s, 8534, MESSAGES, {"clientMessageId": "m1", "text": "hi"}, headers=headers)
+            status, joined = await _post(s, 8534, MESSAGES, {"clientMessageId": "m2", "text": "and this"}, headers=headers)
+            assert status == 200 and joined["joined"] is True
+            (steered,) = sink.steered
+            assert steered.turn is not None and steered.turn.turn_id == first["turnId"]
+            assert steered.turn.secrets.get("cookie") == "c" and steered.turn.attributes == {"locale": "ru"}
+            sink.settle(False)
+            release.set()
+            events, _ = await _drain(s, 8534, first["turnId"])
+            next_id = events[-1]["next"]["turnId"]
+            await _drain(s, 8534, next_id)
+            late = seen[1]
+            assert late.turn is not None and late.turn.turn_id == next_id and late.turn.secrets.get("cookie") == "c"
+    finally:
+        await hub.stop()

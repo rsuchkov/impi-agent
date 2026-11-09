@@ -286,9 +286,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   deletes the memory; `cancel(session_id)` interrupts the turn in flight and
   keeps the session for the next one — the turn returns with what it had, or
   the session is dropped if the runtime would not stop, with memory on disk
-  untouched; `steer(session_id, text)` puts a person's message to the turn in
+  untouched; `join_turn(session_id, text)` puts a person's message to the turn in
   flight, read by the model before its next call (the turn reports
-  `MessageRead`, and what it never read as `AgentResult.unread`);
+  `MessageRead`, which is what the flow goes by; `AgentResult.unread` is the
+  runtime's own account of what it never read);
   `stats()` gives alive / busy / capacity / waiting for a readiness
   check. A flow needs none of this to run a turn, which is why it is a second
   Protocol — but see the next point for the one question a flow may ask it.
@@ -759,17 +760,22 @@ credential, is another user's credential.
   shutdown pair, and `HttpHub(readiness_probes=…)` gives your own dependencies a
   say in `/readyz` — see [http-gateway.md](http-gateway.md).
 - **A message joins the running turn.** `MessageCoalescer(join_running_turns=True)`
-  puts a message that arrives mid-turn to that turn (`steer`, `SteerableSink`)
+  puts a message that arrives mid-turn to that turn (`join`, `JoinableSink`)
   instead of queueing it: the flow renders it as the speaker line a prompt
-  would carry and hands it to `RuntimeControl.steer`; the model reads it before
+  would carry and hands it to `RuntimeControl.join_turn`; the model reads it before
   its next call (after the tool calls in flight, or after the answer it is
   writing) and the turn goes on to answer it. The flow posts what the model had
   written before the read as an answer of its own (`Answered`), restarts the
   wrap-up clock at the read, and a message the turn ends without reading comes
-  back (`Joined.read` False, `AgentResult.unread`) — the coalescer queues it as
-  the next turn. A flow of your own in front of the engine's implements
-  `steer(msg, chat) -> Joined | None` and hands on to `AgentFlow.steer`; one
-  that does not is never asked, and the message queues as before. The http hub
+  back (`Joined.read` False — the flow decides by `MessageRead`; the runtime's
+  own account is `AgentResult.unread`) — the coalescer queues it as the next
+  turn. Only the turn's own person's message joins: the turn was admitted and
+  entitled for them, so another person's words in a shared channel wait for a
+  turn of their own. A flow of your own in front of the engine's implements
+  `join(msg, chat) -> Joined | None` and hands on to `AgentFlow.join`; one
+  that does not is never asked, and the message queues as before. The check
+  of who may join is the flow's (`AgentFlow.join` compares the author with
+  the turn's), so a sink or a gateway calling it directly need not repeat it. The http hub
   has the same switch (`HttpHub(join_running_turns=True)`,
   [http-gateway.md](http-gateway.md)); `impi` reads `JOIN_RUNNING_TURNS` for
   both. Off by default.
@@ -861,9 +867,10 @@ credential, is another user's credential.
   `tools.build_server(telemetry=)`, `InteractionWiring(telemetry=)`,
   `McpServers(telemetry=)`, `Scheduler(telemetry=)`,
   `OAuthConnections(telemetry=)`, and `tell_engine_state(...)` as a supervised
-  loop for the timer. Build one receiver — `impi`'s `LogTelemetry`, or your
-  own `record(event)` that feeds an exporter or a table — and hand the same
-  instance to all of them. None of them needs one; without it nothing is told.
+  loop for the timer. Build one receiver — `impi`'s `LogTelemetry`, the
+  ready-made `OtelTelemetry` ([telemetry.md](telemetry.md)), or your own
+  `record(event)` that feeds an exporter or a table; several as one with
+  `Telemetries(a, b)` — and hand the same instance to all of them. None of them needs one; without it nothing is told.
 - **A person's file in an MCP call.** A tool whose argument the server's
   schema declares as content (`contentEncoding: base64`) takes a file the
   person attached ([mcp.md](mcp.md)). Two wires carry it: `build_server(
