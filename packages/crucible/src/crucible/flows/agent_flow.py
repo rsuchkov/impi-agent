@@ -61,7 +61,15 @@ from crucible.ports.entitlement import (
     EntitlementSource,
     shared_entitlement,
 )
-from crucible.ports.telemetry import ModelCalled, Telemetry, TurnEnded
+from crucible.ports.telemetry import (
+    CONTENT_LEVELS,
+    CONTENT_NONE,
+    CONTENT_TEXT,
+    ModelCalled,
+    Telemetry,
+    TurnEnded,
+    content_text,
+)
 from crucible.ports.turn import TurnBinding, TurnPlace, TurnScope
 from crucible.store.base import (
     GatewayAddress,
@@ -313,9 +321,12 @@ class AgentFlow:
         file_keeper: FileKeeper | None = None,
         received_files_of: Callable[[str, str], ReceivedFiles] | None = None,
         telemetry: Telemetry | None = None,
+        telemetry_content: str = CONTENT_NONE,
         ledger: UsageStore | None = None,
         envelope_tag: Callable[[], str] = _new_envelope_tag,
     ) -> None:
+        if telemetry_content not in CONTENT_LEVELS:
+            raise ValueError(f"telemetry_content must be one of {', '.join(CONTENT_LEVELS)}, not {telemetry_content!r}")
         if (entitlements is None) != (conversation_profiles is None):
             raise ValueError(
                 "AgentFlow needs entitlements and conversation_profiles together: one "
@@ -326,6 +337,7 @@ class AgentFlow:
         self._sessions = sessions
         self._agent_name = agent_name
         self._tracer = tracer
+        self._telemetry_content = telemetry_content
         # The tools whose call puts something in front of a person (a widget, a
         # form, a panel, a file, a message — ``speaks_to_user`` or
         # ``posts_to_user``): a turn that called one and wrote nothing has
@@ -625,9 +637,23 @@ class AgentFlow:
                 truncated=result.truncated if result is not None else False,
                 usage=result.usage if result is not None else None,
                 turn_id=facts.scope.turn_id, started_at=facts.started_at, parent_turn_id=parent_turn_of(facts.scope),
+                **self._content(fresh, facts),
             ))
         except Exception:  # noqa: BLE001 - telemetry must never cost the turn
             logger.warning("telemetry failed to record a turn", exc_info=True)
+
+    def _content(self, fresh: list[IncomingMessage], facts: _TurnFacts) -> dict[str, str]:
+        """What the turn was asked and what it answered, for a receiver told to
+        carry text; nothing otherwise."""
+        if self._telemetry_content != CONTENT_TEXT:
+            return {}
+        secrets = facts.scope.secrets
+        asked = "\n".join(m.text for m in fresh if m.text)
+        answered = facts.result.text if facts.result is not None else ""
+        return {
+            "input_text": content_text(asked, secrets=secrets) if asked else "",
+            "output_text": content_text(answered, secrets=secrets) if answered else "",
+        }
 
     def _tell_answer(self, anchor: IncomingMessage, key: str, facts: _TurnFacts, answered: ModelAnswered) -> None:
         assert self._telemetry is not None

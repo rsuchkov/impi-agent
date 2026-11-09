@@ -1198,6 +1198,10 @@ def test_a_collector_named_gets_the_traces_beside_the_log(tmp_path: Path) -> Non
     alone = build_app(settings.model_copy(update={"telemetry_log": False}))
     assert alone.telemetry is alone.tracing and isinstance(alone.tracing, OtelTelemetry)
     alone.tracing.close()
+    # TELEMETRY_CONTENT reaches the flow and the tool server; the default carries nothing.
+    assert app.units[0].flow._telemetry_content == "none" and app.tool_server is not None and app.tool_server._telemetry_content == "none"  # noqa: SLF001
+    telling = build_app(base.model_copy(update={"telemetry_content": "text"}))
+    assert telling.units[0].flow._telemetry_content == "text" and telling.tool_server is not None and telling.tool_server._telemetry_content == "text"  # noqa: SLF001
     assert build_app(base).tracing is None
 
 

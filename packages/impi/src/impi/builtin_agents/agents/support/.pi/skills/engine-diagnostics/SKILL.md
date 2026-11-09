@@ -485,7 +485,9 @@ answer of the model within a turn, with that answer's `usage`), `tool_called`
 `connection_changed`, and `engine_state` every `TELEMETRY_STATE_S` seconds.
 The events of one turn share a `turn_id` (`grep '"turn_id": "<id>"'` lists a
 turn's model calls, tool calls and its end); a task's turn names the asker's
-as `parent_turn_id`. They are INFO lines: with
+as `parent_turn_id`. With `TELEMETRY_OTLP_ENDPOINT` the same events go to a
+tracing collector (Phoenix) as spans; with `TELEMETRY_CONTENT=text` they also
+carry what was asked, answered and the tool arguments — otherwise never text. They are INFO lines: with
 `LOG_LEVEL=WARNING` there are none. You cannot read the log yourself (§0): to
 count turns, errors or tokens, ask the operator for
 `impi logs | grep '"event": "turn_ended"'` (a source checkout: the same grep

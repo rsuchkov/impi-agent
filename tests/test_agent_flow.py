@@ -1966,6 +1966,23 @@ async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> 
     ended = telemetry.events[-1]
     assert isinstance(ended, TurnEnded) and (ended.turn_id, ended.parent_turn_id) == ("turn-9", "turn-1")
     assert all(e.turn_id == "turn-9" for e in telemetry.events[-3:])  # the two answers and the turn
+    assert (ended.input_text, ended.output_text) == ("", "")  # facts only, by default
+    # Told to carry content, the turn's record says what was asked and what was answered — the turn's own
+    # secret values and whatever looks like one replaced, the rest cut at CONTENT_MAX.
+    from crucible.ports.telemetry import CONTENT_MAX, CONTENT_TEXT
+    from crucible.ports.turn import TurnSecrets
+
+    telling = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=telemetry, telemetry_content=CONTENT_TEXT)
+    asked = another("Use token=abc123 and my key s3cr3t-value to look at " + "x" * CONTENT_MAX, "p6")
+    await telling.handle(replace(asked, turn=TurnScope(turn_id="turn-10", secrets=TurnSecrets({"jira": "s3cr3t-value"}))), FakeChat())
+    told = telemetry.events[-1]
+    assert isinstance(told, TurnEnded) and told.output_text == "answer"
+    assert told.input_text.startswith("Use token=*** and my key *** to look at xxx") and "s3cr3t-value" not in told.input_text
+    assert len(told.input_text) < CONTENT_MAX + 40 and told.input_text.endswith("more characters]")
+    import pytest
+
+    with pytest.raises(ValueError, match="telemetry_content must be one of none, text"):
+        AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry_content="all")
     await store.close()
 
 

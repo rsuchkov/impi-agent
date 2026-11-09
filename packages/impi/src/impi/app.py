@@ -102,7 +102,7 @@ from crucible.ports.chat.gateway import (
 )
 from crucible.ports.lease import Leases
 from crucible.ports.replica import Replica, Replicas
-from crucible.ports.telemetry import Telemetries, Telemetry
+from crucible.ports.telemetry import CONTENT_NONE, Telemetries, Telemetry
 from crucible.process_scopes import AgentProcessScopes
 from crucible.profiles import CompositeProfileStore, ProfileStore
 from crucible.profiles.errors import ProfileError
@@ -417,6 +417,7 @@ def _build_unit(
     file_keeper: FileKeeper | None = None,
     received_files_of: Callable[[str, str], ReceivedFiles] | None = None,
     telemetry: Telemetry | None = None,
+    telemetry_content: str = CONTENT_NONE,
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
@@ -430,6 +431,7 @@ def _build_unit(
     flow = AgentFlow(
         runtime, profile, sessions,
         agent_name=spec.name, posting_tools=posting_tools, file_keeper=file_keeper, telemetry=telemetry,
+        telemetry_content=telemetry_content,
         received_files_of=received_files_of,
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
@@ -493,6 +495,7 @@ def _build_units(
     file_keeper: FileKeeper | None = None,
     received_files_of: Callable[[str, str], ReceivedFiles] | None = None,
     telemetry: Telemetry | None = None,
+    telemetry_content: str = CONTENT_NONE,
     profiles: ProfileBuilder,
     interactions: InteractionWiring,
     sinks_by_agent: dict[str, AgentSink],
@@ -564,6 +567,7 @@ def _build_units(
             captions=captions,
             posting_tools=_posting_tools(tools), tools=tools,
             file_keeper=file_keeper, received_files_of=received_files_of, telemetry=telemetry,
+            telemetry_content=telemetry_content,
             replica=replica, replicas=replicas, forwarder=forwarder, trusted=trusted,
         )
         for kind in handles:
@@ -906,7 +910,7 @@ def build_app(settings: ImpiSettings) -> App:
         settings=settings, runtime=runtime, control=runtime, sessions=sessions,
         gateway_factory=gateway_factory, tools=tools, file_keeper=attachments,
         received_files_of=attachments.received_files_of if attachments is not None else None,
-        telemetry=telemetry,
+        telemetry=telemetry, telemetry_content=settings.telemetry_content,
         leases=sessions, instance=f"{socket.gethostname()}:{os.getpid()}",
         # Who captions a call for the person watching: the deployment's tools
         # themselves, then the runtime's own built-ins.
@@ -1001,7 +1005,7 @@ def build_app(settings: ImpiSettings) -> App:
         # say) and its files directory, in one read of the session record.
         conversation_resolver=conversation_lookup(attachments, sessions),
         received_files_for=attachments.received_files_for if attachments is not None else None,
-        telemetry=telemetry,
+        telemetry=telemetry, telemetry_content=settings.telemetry_content,
         connections=connections.tool_access() if connections is not None else None,
         tool_gate=interactions.tool_gate,
         # While the gate waits for a person, the turn's timeout waits too.

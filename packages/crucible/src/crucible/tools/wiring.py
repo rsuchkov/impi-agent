@@ -30,7 +30,7 @@ from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver
 from crucible.ports.delegation import DelegationService
 from crucible.ports.tasks import TaskService
-from crucible.ports.telemetry import Telemetry
+from crucible.ports.telemetry import CONTENT_NONE, Telemetry
 from crucible.ports.turn import TurnScopes
 from crucible.tool_manifests import MANIFEST_ENV, manifest_path, manifests_dir
 from crucible.tools.base import (
@@ -347,6 +347,7 @@ class ToolWiring:
         turns: TurnScopes | None = None,
         session_proofs: SessionProofBook | None = None,
         telemetry: Telemetry | None = None,
+        telemetry_content: str = CONTENT_NONE,
     ) -> ToolServer | None:
         if self.registry is None:
             return None
@@ -398,5 +399,6 @@ class ToolWiring:
             clock=clock,
             turns=turns,
             telemetry=telemetry,
+            telemetry_content=telemetry_content,
             session_proofs=session_proofs,
         )

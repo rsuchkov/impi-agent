@@ -14,6 +14,7 @@ the store it opens, and an agent reaches it over mutual TLS.
 
 import asyncio
 import contextlib
+import json
 import logging
 import time
 from collections.abc import Callable, Mapping
@@ -36,7 +37,14 @@ from crucible.ports.connections import ConnectionAccessFactory
 from crucible.ports.conversation import ConversationResolver, SessionConversation
 from crucible.ports.delegation import DelegationService, parent_turn_of
 from crucible.ports.tasks import TaskService
-from crucible.ports.telemetry import Telemetry, ToolCalled
+from crucible.ports.telemetry import (
+    CONTENT_LEVELS,
+    CONTENT_NONE,
+    CONTENT_TEXT,
+    Telemetry,
+    ToolCalled,
+    content_text,
+)
 from crucible.ports.turn import TurnScopes
 from crucible.tools.base import (
     CAP_CONFIRMATION,
@@ -110,6 +118,7 @@ class _CallFacts:
         self.outcome = ""
         self.turn_id = ""
         self.parent_turn_id = ""
+        self.args = ""  # the call's arguments, when the telemetry carries content
 
 
 def _log_if_orphaned(task: "asyncio.Future[Any]") -> None:
@@ -149,6 +158,7 @@ class ToolServer:
         turns: TurnScopes | None = None,
         session_proofs: SessionProofBook | None = None,
         telemetry: Telemetry | None = None,
+        telemetry_content: str = CONTENT_NONE,
     ) -> None:
         self._registry = registry
         self._directory = directory
@@ -183,6 +193,9 @@ class ToolServer:
         # callable, so the tool layer never imports the store.
         self._conversation_resolver = conversation_resolver
         self._telemetry = telemetry  # where a call's ToolCalled goes (None = nobody listens)
+        if telemetry_content not in CONTENT_LEVELS:
+            raise ValueError(f"telemetry_content must be one of {', '.join(CONTENT_LEVELS)}, not {telemetry_content!r}")
+        self._telemetry_content = telemetry_content
         # The files a conversation received, by its files directory (the
         # attachment store's record); None when nothing keeps attachments.
         self._received_files_for = received_files_for
@@ -248,7 +261,7 @@ class ToolServer:
                     gateway=conversation.gateway if conversation is not None else "",
                     outcome=outcome, duration_s=time.monotonic() - started,
                     confirmed=bool(call.tool.requires_confirmation) if call.tool is not None else False,
-                    turn_id=call.turn_id, started_at=started_at, parent_turn_id=call.parent_turn_id,
+                    turn_id=call.turn_id, started_at=started_at, parent_turn_id=call.parent_turn_id, args=call.args,
                 ))
             except Exception:  # noqa: BLE001 - telemetry must never cost the call
                 logger.warning("telemetry failed to record a tool call", exc_info=True)
@@ -319,6 +332,10 @@ class ToolServer:
         turn = self._turns.current(runtime_session_id) if self._turns is not None else None
         call.turn_id = turn.turn_id if turn is not None else ""
         call.parent_turn_id = parent_turn_of(turn)
+        if self._telemetry_content == CONTENT_TEXT and args:
+            call.args = content_text(
+                json.dumps(args, ensure_ascii=False, separators=(",", ":")), secrets=turn.secrets if turn is not None else None,
+            )
         # The gateway the conversation is in decides what this call may do and
         # with which admin client. May be None: a gateway without channel
         # administration (e.g. Slack) has none; tools that need it raise a

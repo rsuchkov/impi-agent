@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -54,6 +54,11 @@ class ImpiSettings(Settings):
     telemetry_otlp_endpoint: str = ""
     telemetry_otlp_headers: str = ""
     telemetry_service_name: str = "impi"
+    # What of a turn's content the events carry: ``none`` (facts only, the
+    # default) or ``text`` — what the person wrote, what the agent answered, a
+    # tool call's arguments — scrubbed of secrets and cut, for a tracing
+    # backend that shows turns. Never tool results, never the model's thinking.
+    telemetry_content: Literal["none", "text"] = "none"
 
     def otlp_headers(self) -> dict[str, str]:
         """``TELEMETRY_OTLP_HEADERS`` parsed: ``name=value`` pairs, CSV."""

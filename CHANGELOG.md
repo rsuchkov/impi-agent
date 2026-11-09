@@ -32,6 +32,15 @@ when a release is cut, and `impi update` shows the target version's section.
   turn has the same ids on every replica. `Telemetries(a, b)` joins receivers.
   In `impi`: `TELEMETRY_OTLP_ENDPOINT`, `TELEMETRY_OTLP_HEADERS`,
   `TELEMETRY_SERVICE_NAME` ([telemetry.md](docs/telemetry.md)).
+- **Telemetry may carry content, opt-in.** `TELEMETRY_CONTENT=text`
+  (`AgentFlow(telemetry_content=)`, `build_server(telemetry_content=)`) makes
+  `TurnEnded` carry what the person wrote (`input_text`) and what the agent
+  answered (`output_text`), and `ToolCalled` the call's arguments (`args`,
+  compact JSON) — each with the turn's secret values and whatever looks like a
+  secret scrubbed (`crucible.redaction`) and cut at 8000 characters
+  (`content_text`). The exporter puts them on the spans as `input.value` and
+  `output.value`. The default, `none`, keeps the events to facts as before;
+  tool results and the model's thinking never travel.
 
 ## v0.49.1 — 2026-11-09
 

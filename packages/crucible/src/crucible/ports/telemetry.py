@@ -6,8 +6,10 @@ as data — a turn ended, a tool was called, a card was answered — and the
 application decides where that goes (a metrics exporter, a log line, a table
 of its own). Metrics are what the receiver derives; the engine sends the
 facts. Every event is a frozen record of flat fields: names, numbers,
-durations; never an object of the engine's, never the text people wrote.
-``user_id`` is the platform's id as the gateway gave it — a receiver that must
+durations; never an object of the engine's, and the text people wrote only
+where the producer was told to carry it (``CONTENT_TEXT``: a turn's input and
+answer, a tool call's arguments, scrubbed and cut — for a receiver that shows
+turns). ``user_id`` is the platform's id as the gateway gave it — a receiver that must
 not keep it hashes or maps it (``PersonKey``) on the way out. The events of
 one turn share its ``turn_id``, and a turn another agent's turn opened names
 that one as ``parent_turn_id`` — on its ``TurnEnded`` and on every event of
@@ -20,8 +22,34 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from crucible.ports.agent.runtime import TokenUsage
+from crucible.ports.turn import TurnSecrets
+from crucible.redaction import REDACTED, scrub
 
 logger = logging.getLogger(__name__)
+
+# What of a turn's content the events carry: nothing (the default — the
+# events are facts, never text), or the text — what the person wrote, what the
+# agent answered, a tool call's arguments — for a receiver that shows turns
+# (a tracing backend), scrubbed of secrets and cut at ``CONTENT_MAX``.
+CONTENT_NONE = "none"
+CONTENT_TEXT = "text"
+CONTENT_LEVELS = (CONTENT_NONE, CONTENT_TEXT)
+CONTENT_MAX = 8000
+
+
+def content_text(text: str, *, secrets: TurnSecrets | None = None) -> str:
+    """``text`` as an event may carry it: the turn's own secret values replaced,
+    then what looks like a secret scrubbed (``crucible.redaction``), then cut
+    at ``CONTENT_MAX`` with a mark of how much was left out."""
+    if secrets is not None:
+        for name in secrets.names():
+            value = secrets.get(name)
+            if value:
+                text = text.replace(value, REDACTED)
+    text = scrub(text)
+    if len(text) > CONTENT_MAX:
+        text = text[:CONTENT_MAX] + f"… [{len(text) - CONTENT_MAX} more characters]"
+    return text
 
 
 @dataclass(frozen=True)
@@ -53,6 +81,10 @@ class TurnEnded:
     # The turn this one was opened by, when another agent's turn handed it the
     # task (``delegate``, ``ask_agent``); "" for a turn a person or a timer began.
     parent_turn_id: str = ""
+    # With ``CONTENT_TEXT`` only: what the turn answered (the messages' text,
+    # scrubbed and cut) and what the agent replied; "" otherwise.
+    input_text: str = ""
+    output_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -72,6 +104,7 @@ class ToolCalled:
     turn_id: str = ""  # the turn the call was made in ("" when it named no known turn)
     started_at: str = ""  # when the call arrived, ISO 8601 UTC
     parent_turn_id: str = ""  # the asker's turn, when the turn is a task's (as on ``TurnEnded``)
+    args: str = ""  # with ``CONTENT_TEXT`` only: the call's arguments as compact JSON, scrubbed and cut
 
 
 @dataclass(frozen=True)

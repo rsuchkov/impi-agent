@@ -490,3 +490,4 @@ nobody at the screen is the usual case of the second.
 | `TELEMETRY_OTLP_ENDPOINT` | `` | an OTLP/http collector's traces URL (`…/v1/traces`, Arize Phoenix, Langfuse, Jaeger): every turn's events go there as a tree of spans ([telemetry.md](telemetry.md)); empty = no traces; needs the `otel` extra (in the image) |
 | `TELEMETRY_OTLP_HEADERS` | `` | headers on every request to the collector, `name=value` CSV (an API key) |
 | `TELEMETRY_SERVICE_NAME` | `impi` | the service the spans belong to |
+| `TELEMETRY_CONTENT` | `none` | `text` makes the telemetry carry a turn's input and answer and tool arguments (scrubbed of secrets, cut at 8000 characters) — on the spans as `input.value`/`output.value`, and in the log; `none` keeps the events to facts |

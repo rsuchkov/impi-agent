@@ -14,9 +14,10 @@ as ``parent_turn_id``), so a child arriving before its parent's ``TurnEnded``
 kept here between events. Each span is built finished and handed to the
 processor, which batches and ships them; ``close`` flushes what is left.
 
-What leaves: names, ids, numbers and outcome words — the facts the events
-carry (``ports.telemetry``). No text of anybody's goes, because none is in the
-events.
+What leaves is what the events carry (``ports.telemetry``): names, ids,
+numbers and outcome words — and, where the producers were told to carry
+content (``CONTENT_TEXT``), the turn's input and answer and a tool call's
+arguments, as ``input.value``/``output.value``.
 """
 
 import hashlib
@@ -59,6 +60,9 @@ LLM_TOKENS_PROMPT = "llm.token_count.prompt"
 LLM_TOKENS_COMPLETION = "llm.token_count.completion"
 LLM_TOKENS_TOTAL = "llm.token_count.total"
 TOOL_NAME = "tool.name"
+INPUT_VALUE = "input.value"
+OUTPUT_VALUE = "output.value"
+INPUT_MIME_TYPE = "input.mime_type"
 PROJECT_NAME = "openinference.project.name"  # a resource attribute: the project Phoenix files the spans under
 OWN = "crucible."
 
@@ -132,6 +136,10 @@ class OtelTelemetry:
         if event.model:
             attributes[LLM_MODEL_NAME] = event.model
         attributes.update(_usage(event.usage))
+        if event.input_text:
+            attributes[INPUT_VALUE] = event.input_text
+        if event.output_text:
+            attributes[OUTPUT_VALUE] = event.output_text
         failed = event.outcome in ("error", "timeout")
         return self._finished(
             f"{event.agent}: turn", trace, turn_span_id(event.turn_id), parent, attributes,
@@ -157,10 +165,13 @@ class OtelTelemetry:
     def _tool(self, event: ToolCalled) -> ReadableSpan | None:
         if not event.turn_id:
             return None
-        attributes = {
+        attributes: dict[str, object] = {
             SPAN_KIND_ATTRIBUTE: SPAN_KIND_TOOL, TOOL_NAME: event.tool, SESSION_ID: event.conversation_id, USER_ID: event.user_id,
             **_own(agent=event.agent, gateway=event.gateway, outcome=event.outcome, confirmed=event.confirmed),
         }
+        if event.args:
+            attributes[INPUT_VALUE] = event.args
+            attributes[INPUT_MIME_TYPE] = "application/json"
         status = Status(StatusCode.OK) if event.outcome == "ok" else Status(StatusCode.ERROR, event.outcome)
         return self._child(event.tool, event.turn_id, event.parent_turn_id, attributes, event.started_at, event.duration_s, status=status)
 

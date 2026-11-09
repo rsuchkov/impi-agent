@@ -20,11 +20,14 @@ from crucible.ports.telemetry import (
     TurnEnded,
 )
 from crucible.telemetry_otel import (
+    INPUT_MIME_TYPE,
+    INPUT_VALUE,
     LLM_MODEL_NAME,
     LLM_PROVIDER,
     LLM_TOKENS_COMPLETION,
     LLM_TOKENS_PROMPT,
     LLM_TOKENS_TOTAL,
+    OUTPUT_VALUE,
     PROJECT_NAME,
     SESSION_ID,
     SPAN_KIND_AGENT,
@@ -119,6 +122,20 @@ def test_a_turns_events_become_one_tree_the_children_arriving_first() -> None:
     assert turn.status.status_code is StatusCode.OK and tool.status.status_code is StatusCode.OK
     assert mcp.status.status_code is StatusCode.ERROR and mcp.status.description == "is_error"
     assert turn.resource.attributes["service.name"] == "impi-test" == turn.resource.attributes[PROJECT_NAME]
+
+
+def test_content_the_events_carry_goes_on_the_spans_as_input_and_output() -> None:
+    telemetry, exporter = _exporting()
+    telemetry.record(ToolCalled(
+        agent="assistant", tool="jira_search", conversation_id="c1", user_id="U1", gateway="slack", outcome="ok",
+        duration_s=0.3, confirmed=False, turn_id="t1", started_at="2026-11-09T10:00:01+00:00", args='{"jql":"project = PROJ"}',
+    ))
+    telemetry.record(_turn("t1", input_text="How many open bugs?", output_text="Twelve."))
+    telemetry.record(_turn("t2"))
+    tool, told, quiet = exporter.get_finished_spans()
+    assert tool.attributes is not None and (tool.attributes[INPUT_VALUE], tool.attributes[INPUT_MIME_TYPE]) == ('{"jql":"project = PROJ"}', "application/json")
+    assert told.attributes is not None and (told.attributes[INPUT_VALUE], told.attributes[OUTPUT_VALUE]) == ("How many open bugs?", "Twelve.")
+    assert quiet.attributes is not None and INPUT_VALUE not in quiet.attributes and OUTPUT_VALUE not in quiet.attributes
 
 
 def test_a_tasks_turn_sits_under_the_askers_in_the_askers_trace() -> None:

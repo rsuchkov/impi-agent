@@ -106,7 +106,22 @@ receiver (or replaces it, with `TELEMETRY_LOG=false`):
 TELEMETRY_OTLP_ENDPOINT=http://phoenix:6006/v1/traces
 TELEMETRY_OTLP_HEADERS=api_key=…         # optional, name=value CSV, on every request
 TELEMETRY_SERVICE_NAME=impi              # the service the spans belong to
+TELEMETRY_CONTENT=none                   # or text: what was asked and answered, on the spans
 ```
+
+**Content is opt-in.** By default the events are facts, and a trace shows
+what ran and what it cost, not what was said. `TELEMETRY_CONTENT=text` makes
+the producers carry the turn's text — what the person wrote
+(`TurnEnded.input_text`, the messages' text, not the prompt the engine built
+around them), what the agent answered (`output_text`) and a tool call's
+arguments (`ToolCalled.args`, compact JSON) — which the exporter puts on the
+spans as `input.value` and `output.value`, so Phoenix shows the conversation
+beside the tree. Each is scrubbed first (the turn's own secret values, then
+whatever looks like a secret — `crucible.redaction`) and cut at
+`CONTENT_MAX` (8000 characters). Tool **results** and the model's thinking
+never travel: the engine does not keep them, by its own rule. The text goes
+to every receiver, the log included, so turn it on where the collector and
+the log are both places the conversation may be read.
 
 Phoenix in five minutes, beside the engine: run `arizephoenix/phoenix` with
 port `6006` published (its UI and its OTLP/http endpoint are the same port),
@@ -133,3 +148,4 @@ service_name=…)` or `OtelTelemetry(exporter)` with any `SpanExporter`.
 | `TELEMETRY_OTLP_ENDPOINT` | `` | an OTLP/http collector's traces URL (`…/v1/traces`); the turns' events go there as spans; empty = none |
 | `TELEMETRY_OTLP_HEADERS` | `` | headers on every request to it, `name=value` CSV (an API key) |
 | `TELEMETRY_SERVICE_NAME` | `impi` | the service the spans belong to (`service.name`, and the Phoenix project) |
+| `TELEMETRY_CONTENT` | `none` | `text`: the events carry what was asked, what was answered and tool arguments, scrubbed and cut; `none`: facts only |

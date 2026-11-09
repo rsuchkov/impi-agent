@@ -939,7 +939,7 @@ async def test_server_resolves_conversation_into_context() -> None:
     try:
         async with turns.bind("assistant--conv", TurnScope(turn_id="turn-7")), aiohttp.ClientSession() as s:
             async with s.post(
-                "http://127.0.0.1:8470/tool/echo_ctx", json={},
+                "http://127.0.0.1:8470/tool/echo_ctx", json={"probe": "x"},
                 headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--conv"},
             ) as resp:
                 body = (await resp.json())["result"]
@@ -961,8 +961,34 @@ async def test_server_resolves_conversation_into_context() -> None:
         assert (events[0].agent, events[0].user_id, events[0].confirmed) == ("assistant", "U-resolved", False)
         assert events[0].duration_s >= 0 and events[1].agent == ""
         assert (events[0].turn_id, events[1].turn_id) == ("turn-7", "") and events[0].started_at  # the turn the call was made in
+        assert events[0].args == ""  # facts only, by default
     finally:
         await server.stop()
+    # Told to carry content, the call's arguments travel as compact JSON, the turn's secret values and what looks
+    # like one scrubbed.
+    from crucible.ports.telemetry import CONTENT_TEXT
+    from crucible.ports.turn import TurnSecrets
+
+    telling = _Telemetry()
+    server = ToolServer(
+        reg, directory=FakeDirectory(AGENTS), admins={}, tokens={"tok": "assistant"},
+        allowlists={"assistant": frozenset({"echo_ctx"})}, port=8470, conversation_resolver=resolver,
+        received_files_for=_Received, telemetry=telling, turns=turns, telemetry_content=CONTENT_TEXT,
+    )
+    await server.start()
+    try:
+        async with turns.bind("assistant--conv", TurnScope(turn_id="turn-8", secrets=TurnSecrets({"k": "hunter2"}))), aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8470/tool/echo_ctx", json={"query": "PROJ-7", "note": "pw hunter2", "api_key": "zzz"},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--conv"},
+            ) as resp:
+                assert resp.status == 200
+        (told,) = [e for e in telling.events if isinstance(e, ToolCalled)]
+        assert told.args == '{"query":"PROJ-7","note":"pw ***","api_key":"***"}'
+    finally:
+        await server.stop()
+    with pytest.raises(ValueError, match="telemetry_content must be one of"):
+        ToolServer(reg, directory=FakeDirectory(AGENTS), admins={}, tokens={}, allowlists={}, port=8470, telemetry_content="loud")
 
 
 # --- send_file ----------------------------------------------------------------
