@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.49.1 — 2026-11-09
+
 - **Fixed: a recovery pass no longer ends the tasks this process is running.**
   `recover()` took every running task that named this replica — or, without
   replicas, every running task — for one of an earlier life, which held at
