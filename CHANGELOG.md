@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.50.0 — 2026-11-09
+
 - **The events of one turn can be put together.** Every turn has a `turn_id`
   — an http caller's own, a task's id, one the flow mints for a chat turn —
   and every telemetry event of the turn names it: `TurnEnded` and `ToolCalled`
