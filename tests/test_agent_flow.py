@@ -963,7 +963,11 @@ async def test_the_flow_binds_the_messages_scope_for_exactly_the_turn(tmp_path: 
     plain = replace(plain, ref=replace(plain.ref, message_id="p2"))
     await flow.handle(plain, FakeChat())
 
-    assert seen == [scope, None]
+    # The message's own scope where it carried one; else one of the flow's, so every turn has an id.
+    assert seen[0] == scope
+    plain_scope = seen[1]
+    assert isinstance(plain_scope, TurnScope) and plain_scope.turn_id and plain_scope.turn_id != "turn-1"
+    assert dict(plain_scope.attributes) == {} and plain_scope.secrets.names() == set()
     assert registry.current("assistant--dm1") is None  # unbound once the turn ended
     await store.close()
 
@@ -1898,8 +1902,20 @@ async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> 
         def record(self, event) -> None:
             raise RuntimeError("the exporter is down")
 
+    from crucible.ports.agent.events import ModelAnswered
+    from crucible.ports.telemetry import ModelCalled
+
+    class _Answering(FakeRuntime):
+        """A runtime whose turn is two answers of the model, with a tool call between."""
+
+        async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
+            assert on_event is not None
+            on_event(ModelAnswered(index=0, model="openai/gpt-5.5", usage=TokenUsage(input=6, output=2, total=8), stop_reason="toolUse", duration_s=0.4))
+            on_event(ModelAnswered(index=1, model="openai/gpt-5.5", usage=TokenUsage(input=4, output=3, total=7, cost_usd=0.0002), stop_reason="stop", duration_s=0.6))
+            return await super().run_stateful(profile, session_id, message, on_event=on_event, cwd=cwd, images=images)
+
     usage = TokenUsage(input=10, output=5, total=15, cost_usd=0.0002)
-    runtime = FakeRuntime(result=PiResult(text="answer", tool_calls=["read"], model="openai/gpt-5.5", stop_reason="stop", usage=usage))
+    runtime = _Answering(result=PiResult(text="answer", tool_calls=["read"], model="openai/gpt-5.5", stop_reason="stop", usage=usage))
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     telemetry = _Telemetry()
     flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=telemetry, ledger=store)
@@ -1909,8 +1925,15 @@ async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> 
     # What the turn cost is in the ledger, as the person's and the agent's.
     spent = await store.usage_since("assistant", "2000-01-01T00:00:00+00:00", user_id="u1")
     assert (spent.total, spent.cost_usd) == (15, 0.0002)
-    (event,) = telemetry.events
-    assert isinstance(event, TurnEnded)
+    first, second, event = telemetry.events
+    # Each answer of the model is an event of the turn's — the same turn id as the turn's own record, which has one
+    # whether or not the message carried a scope — with what that one answer cost.
+    assert isinstance(first, ModelCalled) and isinstance(second, ModelCalled) and isinstance(event, TurnEnded)
+    assert event.turn_id and first.turn_id == second.turn_id == event.turn_id and event.parent_turn_id == ""
+    assert (first.index, first.model, first.usage, first.stop_reason, first.duration_s) == (0, "openai/gpt-5.5", TokenUsage(input=6, output=2, total=8), "toolUse", 0.4)
+    assert (second.index, second.stop_reason) == (1, "stop") and second.usage is not None and second.usage.cost_usd == 0.0002
+    assert (first.agent, first.conversation_id, first.user_id, first.gateway) == ("assistant", "dm1", "u1", "mattermost")
+    assert event.started_at and first.started_at and first.started_at <= event.started_at[:10] + "T99"  # ISO, the same day
     assert (event.agent, event.gateway, event.user_id, event.conversation_id) == ("assistant", "mattermost", "u1", "dm1")
     assert (event.kind, event.direct, event.synthetic, event.messages, event.attachments) == (KIND_DM, True, False, 1, 1)
     assert (event.outcome, event.notice, event.model, event.stop_reason) == ("replied", "", "openai/gpt-5.5", "stop")
@@ -1933,6 +1956,16 @@ async def test_a_turn_is_reported_as_data_for_whoever_counts(tmp_path: Path) -> 
     # A broken telemetry is logged, not felt.
     unhurt = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=_Broken())
     assert await unhurt.handle(another("fourth", "p4"), FakeChat()) is TurnOutcome.REPLIED
+    # A message with a scope of its own (an http caller's, a task's) keeps its turn id, and a task's turn names
+    # the asker's turn it came from.
+    from crucible.ports.delegation import DELEGATED_FROM_TURN_ATTRIBUTE
+    from crucible.ports.turn import TurnScope
+
+    scoped = AgentFlow(runtime, PROFILE, store, agent_name="assistant", telemetry=telemetry)
+    await scoped.handle(replace(another("fifth", "p5"), turn=TurnScope(turn_id="turn-9", attributes={DELEGATED_FROM_TURN_ATTRIBUTE: "turn-1"})), FakeChat())
+    ended = telemetry.events[-1]
+    assert isinstance(ended, TurnEnded) and (ended.turn_id, ended.parent_turn_id) == ("turn-9", "turn-1")
+    assert all(e.turn_id == "turn-9" for e in telemetry.events[-3:])  # the two answers and the turn
     await store.close()
 
 

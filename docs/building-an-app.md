@@ -714,8 +714,10 @@ credential, is another user's credential.
   which `InteractionWiring(turns=)` does), and the flow has bound the turn's
   event observer, so the widget's counter and the http journal say "waiting
   for you" on that call. A program reading the journal acts on
-  the code; a person reads the sentence. Chat gateways set no scope: nothing on
-  Slack or Mattermost belongs to one turn.
+  the code; a person reads the sentence. Chat gateways set no scope — nothing
+  on Slack or Mattermost belongs to one turn — so the flow binds a bare one of
+  its own, with a `turn_id` and nothing else: every turn has an id, which is
+  what its telemetry events share.
 - **An HTTP API for your own frontend** is what the `http` gateway is
   (`crucible.gateways.http`, contract in [http-gateway.md](http-gateway.md)):
   `HttpHub(host, port, callers, dispatcher=…, control=runtime,

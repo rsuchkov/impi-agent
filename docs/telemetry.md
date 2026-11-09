@@ -17,10 +17,11 @@ or maps it on the way out.
 
 | Event | When | Fields |
 |---|---|---|
-| `TurnEnded` | a turn of an agent ended | `agent`, `gateway`, `user_id`, `conversation_id` (the key), `kind`, `direct`, `synthetic`, `messages`, `attachments`, `outcome` (`replied`, `acted`, `empty`, `truncated`, `timeout`, `error`, `stopped`, `not_admitted`), `notice` (the code the person got, or `""`), `duration_s`, `model` (`provider/model` that answered — after a fallback, the one that did), `stop_reason`, `tool_calls`, `truncated`, `usage` |
-| `ToolCalled` | a call reached the tool server, however it ended | `agent`, `tool`, `conversation_id`, `user_id`, `gateway`, `outcome` (`ok`, `error`, `crashed`, `unauthorized`, `unknown_tool`, `not_allowed`, `no_session`, `not_in_conversation`, `not_through_gateway`, `unconfirmable`, `not_asked`, `cannot_run`, `denied`, `unanswered`, `no_approver`, `abandoned`), `duration_s`, `confirmed` |
-| `CardAnswered` | a confirmation for a tool call ended | `agent`, `tool`, `outcome` (`reused_grant`, `allowed_once`, `allowed_for`, `denied`, `unanswered`, `no_approver`, `abandoned`), `wait_s` (how long people took), `grant_s` |
-| `McpCalled` | the engine called an MCP server's tool | `server`, `tool`, `agent`, `outcome` (`ok`, `is_error`, `unreachable`, `unanswered`, `refused`, `token_refused`, `protocol`, `unsupported`, `no_file` (for a confirmed tool a stray path ends earlier, as `ToolCalled.cannot_run`), `file_gone`, `file_changed`, `file_type`, `not_connected`, `not_direct`, `no_provider`, `provider_unavailable`), `duration_s`, `file_bytes` |
+| `TurnEnded` | a turn of an agent ended | `agent`, `gateway`, `user_id`, `conversation_id` (the key), `kind`, `direct`, `synthetic`, `messages`, `attachments`, `outcome` (`replied`, `acted`, `empty`, `truncated`, `timeout`, `error`, `stopped`, `not_admitted`), `notice` (the code the person got, or `""`), `duration_s`, `model` (`provider/model` that answered — after a fallback, the one that did), `stop_reason`, `tool_calls`, `truncated`, `usage`, `turn_id`, `started_at` (ISO 8601 UTC), `parent_turn_id` (the asker's turn, on a turn another agent's turn opened with `delegate`/`ask_agent`; `""` otherwise) |
+| `ModelCalled` | the model answered once within a turn — a turn that calls tools has several | `agent`, `turn_id`, `conversation_id`, `user_id`, `gateway`, `index` (the answer's number in the turn, from 0), `model`, `usage` (what that one answer cost, when the runtime reports it per answer; `None` otherwise), `stop_reason`, `duration_s`, `started_at` |
+| `ToolCalled` | a call reached the tool server, however it ended | `agent`, `tool`, `conversation_id`, `user_id`, `gateway`, `outcome` (`ok`, `error`, `crashed`, `unauthorized`, `unknown_tool`, `not_allowed`, `no_session`, `not_in_conversation`, `not_through_gateway`, `unconfirmable`, `not_asked`, `cannot_run`, `denied`, `unanswered`, `no_approver`, `abandoned`), `duration_s`, `confirmed`, `turn_id` (`""` when the call named no known turn), `started_at` |
+| `CardAnswered` | a confirmation for a tool call ended | `agent`, `tool`, `outcome` (`reused_grant`, `allowed_once`, `allowed_for`, `denied`, `unanswered`, `no_approver`, `abandoned`), `wait_s` (how long people took), `grant_s`, `turn_id` |
+| `McpCalled` | the engine called an MCP server's tool | `server`, `tool`, `agent`, `outcome` (`ok`, `is_error`, `unreachable`, `unanswered`, `refused`, `token_refused`, `protocol`, `unsupported`, `no_file` (for a confirmed tool a stray path ends earlier, as `ToolCalled.cannot_run`), `file_gone`, `file_changed`, `file_type`, `not_connected`, `not_direct`, `no_provider`, `provider_unavailable`), `duration_s`, `file_bytes`, `turn_id` |
 | `McpChecked` | a server's tools were compared with their snapshot | `server`, `result` — one word per server, the most specific: `restored`, `withdrawn`, `refreshed`, `unpinned`, `unreachable`, else `connected` |
 | `TaskRan` | a scheduled occurrence finished | `agent`, `task`, `outcome` (the run's status word, as [tasks.md](tasks.md) lists them: `ok`, `empty`, `timeout`, `error`, `deadline`, `no_agent`, …), `duration_s` |
 | `BudgetHit` | a turn was not admitted for the agent's budget (`runtime.budget`) | `agent`, `user_id` (`""` when nobody's), `rule` (the key hit: `tokens_per_day`, `usd_per_day`, `tokens_per_day_per_person`, `usd_per_day_per_person`), `spent`, `limit` (in the rule's unit) |
@@ -32,6 +33,19 @@ or maps it on the way out.
 every answer of the turn, summed, and the runtime's own price estimate (pi's
 table), not a bill. `None` when the runtime reported none. Tokens per person
 per model is `usage` grouped by `user_id` and `model`.
+
+**Putting the events of one turn together.** Every turn has a `turn_id` —
+the http caller's turn id where there is one, a task's id on a task's turn,
+one the flow mints otherwise — and every event the turn produces names it:
+its `ModelCalled`s, the `ToolCalled`s of its calls, the `CardAnswered`s and
+`McpCalled`s of those calls, and its `TurnEnded` at the end, each with the
+time it began (`started_at`) and its `duration_s`. A turn one agent's turn
+opened for another (`delegate`, `ask_agent`) names that one as
+`parent_turn_id`. A receiver that draws trees — spans in a tracing backend —
+has what it needs: the turn is the root, its model calls and tool calls the
+children, the asked agent's turn a child of the asker's. A receiver that
+counts ignores both ids. The events of a turn arrive as they happen, the
+children before the parent's `TurnEnded`.
 
 ## Where the events go
 

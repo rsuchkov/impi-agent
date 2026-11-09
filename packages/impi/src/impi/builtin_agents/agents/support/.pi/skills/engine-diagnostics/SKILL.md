@@ -478,10 +478,14 @@ attaches the file again.
 The engine writes one JSON line per event on the logger `impi.telemetry`
 (`TELEMETRY_LOG`, on by default; `docs/telemetry.md`): `turn_ended` (agent,
 gateway, user, outcome, notice, duration, the model that answered, the tools
-called, `usage` with tokens and pi's cost estimate), `tool_called` (with the
-outcome word — `ok`, `error`, `denied`, `not_allowed`, …), `card_answered`,
-`mcp_called`, `mcp_checked`, `task_ran`, `connection_changed`, and
-`engine_state` every `TELEMETRY_STATE_S` seconds. They are INFO lines: with
+called, `usage` with tokens and pi's cost estimate), `model_called` (one per
+answer of the model within a turn, with that answer's `usage`), `tool_called`
+(with the outcome word — `ok`, `error`, `denied`, `not_allowed`, …),
+`card_answered`, `mcp_called`, `mcp_checked`, `task_ran`,
+`connection_changed`, and `engine_state` every `TELEMETRY_STATE_S` seconds.
+The events of one turn share a `turn_id` (`grep '"turn_id": "<id>"'` lists a
+turn's model calls, tool calls and its end); a task's turn names the asker's
+as `parent_turn_id`. They are INFO lines: with
 `LOG_LEVEL=WARNING` there are none. You cannot read the log yourself (§0): to
 count turns, errors or tokens, ask the operator for
 `impi logs | grep '"event": "turn_ended"'` (a source checkout: the same grep

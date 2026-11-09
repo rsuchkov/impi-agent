@@ -65,6 +65,7 @@ from crucible.ports.chat.types import (
 from crucible.ports.delegation import (
     ACCOUNTS_HANDED_ATTRIBUTE,
     DELEGATED_BY_ATTRIBUTE,
+    DELEGATED_FROM_TURN_ATTRIBUTE,
     DELEGATION_ANSWERED,
     DELEGATION_CANCELLED,
     DELEGATION_FAILED,
@@ -207,6 +208,7 @@ async def test_the_task_opens_the_other_agents_turn_alone_and_its_answer_comes_b
     assert message.turn is not None and message.turn.attributes == {
         "realm": "acme",  # the asker's own facts travel with the task
         DELEGATED_BY_ATTRIBUTE: "assistant", DELEGATION_TASK_ATTRIBUTE: task_id, ON_BEHALF_OF_GATEWAY_ATTRIBUTE: GATEWAY_SLACK,
+        DELEGATED_FROM_TURN_ATTRIBUTE: "t1",  # the asker's turn: the parent of the task's
     }
     assert isinstance(chat, DelegationChatClient) and message.attachments == ()
 
@@ -216,7 +218,7 @@ async def test_the_task_opens_the_other_agents_turn_alone_and_its_answer_comes_b
     assert (kept.agent, kept.to, kept.status, kept.user_id, kept.gateway) == ("assistant", "coder", DELEGATION_ANSWERED, "u-alice", GATEWAY_SLACK)
     assert (kept.channel_id, kept.conversation_id, kept.kind) == ("ch1", "root1", KIND_THREAD)
     assert kept.answer == "Done: the migration is in `0042_add_index.py`." and kept.finished_at and kept.delivered_at
-    assert json.loads(kept.attributes) == {"realm": "acme"}
+    assert json.loads(kept.attributes) == {"realm": "acme", DELEGATED_FROM_TURN_ATTRIBUTE: "t1"}
 
     # The asker's turn on the answer: in its conversation, as the person's,
     # the answer quoted as the agent's words.

@@ -69,6 +69,7 @@ from crucible.ports.chat.types import (
 from crucible.ports.delegation import (
     ACCOUNTS_HANDED_ATTRIBUTE,
     DELEGATED_BY_ATTRIBUTE,
+    DELEGATED_FROM_TURN_ATTRIBUTE,
     DELEGATION_ANSWERED,
     DELEGATION_CANCELLED,
     DELEGATION_FAILED,
@@ -306,7 +307,7 @@ class EngineDelegationService:
         record, sink = await self._resolve(agent, runtime_session_id, to)
         sources = self._attachments(agent, paths)
         scope = self._turns.current(runtime_session_id) if self._turns is not None else None
-        attributes = dict(scope.attributes) if scope is not None else {}
+        attributes = _handed_attributes(scope)
         task_id = delegation_id()
         key = self._conversation_key(to, task_id, record)
         self._require_free(to, key)
@@ -348,7 +349,7 @@ class EngineDelegationService:
         record, sink = await self._resolve(agent, runtime_session_id, to)
         sources = self._attachments(agent, paths)
         scope = self._turns.current(runtime_session_id)
-        attributes = dict(scope.attributes) if scope is not None else {}
+        attributes = _handed_attributes(scope)
         poster = self._presence.poster(agent, record.last_gateway)
         if poster is None:
             raise DelegationError("this conversation could not be resolved — nothing was handed on")
@@ -709,8 +710,12 @@ class EngineDelegationService:
             kind=ended.kind, text=text, message_id=f"{ended.id}-answer",
             user_id=ended.user_id, username=ended.to, is_from_bot=True,
             event=EventReport(source=f"{ended.to} (agent)", text=report),
-            turn=TurnScope(turn_id=f"{ended.id}-answer",
-                           attributes={**_attributes_of(ended), DELEGATION_TASK_ATTRIBUTE: ended.id}),
+            # The asker's own facts come back with the answer; the turn it asked
+            # from does not — the answer is a turn of the asker's, nobody's child.
+            turn=TurnScope(turn_id=f"{ended.id}-answer", attributes={
+                **{k: v for k, v in _attributes_of(ended).items() if k != DELEGATED_FROM_TURN_ATTRIBUTE},
+                DELEGATION_TASK_ATTRIBUTE: ended.id,
+            }),
         )
         deadline = asyncio.get_running_loop().time() + ANSWER_WAIT_S
         while True:
@@ -784,6 +789,15 @@ async def _transcript(poster: ChatClient, record: SessionRecord, ref: Conversati
             break
         kept.append(line)
     return "\n".join(reversed(kept))
+
+
+def _handed_attributes(scope: TurnScope | None) -> dict[str, str]:
+    """The asker's turn attributes as the task's turn gets them, with the
+    asker's turn named as the one the task came from."""
+    attributes = dict(scope.attributes) if scope is not None else {}
+    if scope is not None and scope.turn_id:
+        attributes[DELEGATED_FROM_TURN_ATTRIBUTE] = scope.turn_id
+    return attributes
 
 
 def _task_attributes(entry: DelegationRecord) -> dict[str, str]:

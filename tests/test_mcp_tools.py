@@ -377,6 +377,9 @@ async def test_every_way_a_call_is_turned_down_is_told_by_its_own_word() -> None
         def record(self, event) -> None:
             assert isinstance(event, McpCalled)
             self.words.append(event.outcome)
+            self.turn_ids.append(event.turn_id)
+
+        turn_ids: list[str] = []
 
     told = _Telemetry()
     personal = McpServer("gitlab", url="https://x/mcp", headers={"Authorization": "${connection:gitlab}"})

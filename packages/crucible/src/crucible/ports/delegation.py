@@ -29,6 +29,9 @@ from crucible.ports.chat.types import ConversationRef
 DELEGATED_BY_ATTRIBUTE = "delegated_by"
 DELEGATION_TASK_ATTRIBUTE = "delegation_task"
 ON_BEHALF_OF_GATEWAY_ATTRIBUTE = "on_behalf_of_gateway"
+# The id of the asker's turn that handed the task on: the parent of the task's
+# turn, for whoever puts turns together (``ports.telemetry``).
+DELEGATED_FROM_TURN_ATTRIBUTE = "delegated_from_turn"
 # Present ("1") on a trusted task's turn when the asker's trust hands the
 # person's connected accounts over: the application's owner rule then reads
 # whose accounts by ``on_behalf_of_gateway`` and the message's ``user_id``.

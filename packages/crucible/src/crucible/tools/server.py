@@ -17,6 +17,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Callable, Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -107,6 +108,7 @@ class _CallFacts:
         self.tool: Tool | None = None
         self.conversation: SessionConversation | None = None
         self.outcome = ""
+        self.turn_id = ""
 
 
 def _log_if_orphaned(task: "asyncio.Future[Any]") -> None:
@@ -231,6 +233,7 @@ class ToolServer:
         the branch left, else ``ok`` for a 200 and ``refused_<status>`` for a
         refusal no branch named (none today; a word for a branch to come)."""
         started = time.monotonic()
+        started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         call = _CallFacts()
         response = await self._serve(request, call)
         if self._telemetry is not None:
@@ -244,6 +247,7 @@ class ToolServer:
                     gateway=conversation.gateway if conversation is not None else "",
                     outcome=outcome, duration_s=time.monotonic() - started,
                     confirmed=bool(call.tool.requires_confirmation) if call.tool is not None else False,
+                    turn_id=call.turn_id, started_at=started_at,
                 ))
             except Exception:  # noqa: BLE001 - telemetry must never cost the call
                 logger.warning("telemetry failed to record a tool call", exc_info=True)
@@ -312,6 +316,7 @@ class ToolServer:
         )
         call.conversation = conversation
         turn = self._turns.current(runtime_session_id) if self._turns is not None else None
+        call.turn_id = turn.turn_id if turn is not None else ""
         # The gateway the conversation is in decides what this call may do and
         # with which admin client. May be None: a gateway without channel
         # administration (e.g. Slack) has none; tools that need it raise a

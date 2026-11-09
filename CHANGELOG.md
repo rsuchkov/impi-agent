@@ -6,7 +6,22 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The events of one turn can be put together.** Every turn has a `turn_id`
+  — an http caller's own, a task's id, one the flow mints for a chat turn —
+  and every telemetry event of the turn names it: `TurnEnded` (with
+  `started_at` and, on a turn another agent's turn opened with `delegate` or
+  `ask_agent`, `parent_turn_id`), `ToolCalled` (with `started_at`),
+  `CardAnswered`, `McpCalled`. New fields with defaults; a receiver that
+  counts is not affected.
+- **`ModelCalled`: each answer of the model is an event.** A turn that calls
+  tools asks the model several times; the runtime now reports each answer
+  (`ModelAnswered` on the event port — index, model, what it cost when the
+  runtime says so per answer, how it stopped, how long it took) and the flow
+  tells the telemetry one `ModelCalled` per answer, under the turn's id.
+  `TurnEnded.usage` remains the turn's sum.
+- Every turn now runs under a `TurnScope`: a chat gateway's turn, which has
+  none of the application's, gets a bare one with a `turn_id` from the flow.
+  `TurnScopes.current` therefore answers a scope for every running turn.
 
 ## v0.49.1 — 2026-11-09
 

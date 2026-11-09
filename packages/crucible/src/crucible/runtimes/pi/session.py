@@ -7,7 +7,12 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 
 from crucible.confinement import ProcessScope
-from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
+from crucible.ports.agent.events import (
+    ModelAnswered,
+    TextProgress,
+    ToolFinished,
+    ToolStarted,
+)
 from crucible.ports.agent.runtime import (
     BUDGET_NOTE,
     WRAP_UP_NOTE,
@@ -92,6 +97,10 @@ class _Turn:
         # ends; told once to round off when it passes the budget.
         self.tokens_used = 0
         self.budget_told = False
+        # The model's answers so far, and when the one in progress began
+        # (``turn_start``), for ``ModelAnswered`` on its ``turn_end``.
+        self.answers = 0
+        self.answer_started: float | None = None
         # This turn's listener. Bound here, not on the session: a conversation
         # has many turns and each caller wants its own events, so a callback
         # that lived as long as the process would go on reporting to whoever
@@ -435,8 +444,13 @@ class PiRpcSession:
         turn = self._turn
         if turn is not None:
             turn.last_event_at = asyncio.get_running_loop().time()
+        if turn is not None and event.type == protocol.EV_TURN_START:
+            turn.answer_started = asyncio.get_running_loop().time()
         if turn is not None and event.type == protocol.EV_TURN_END:
             turn.tokens_used += _tokens_of_message(event.raw.get("message"))
+            answered = _model_answered(turn, event.raw.get("message"))
+            if answered is not None:
+                await self._notify(answered)
         if turn is not None and event.type == protocol.EV_TOOL_EXECUTION_START and turn.text_parts:
             # Text written before a call is a remark on the way, not the answer:
             # it crosses the port as progress, ahead of the call it preceded.
@@ -654,23 +668,53 @@ def _assistant_messages(event: PiEvent) -> list[dict]:
     return [m for m in messages if isinstance(m, dict) and m.get("role") == "assistant"]
 
 
+def _usage_of_message(message: dict) -> TokenUsage | None:
+    """What one of the model's messages cost, as pi puts ``usage`` on it; None
+    when the message carries none."""
+    usage = message.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    raw_cost = usage.get("cost")
+    cost = raw_cost if isinstance(raw_cost, dict) else {}
+    return TokenUsage(
+        input=_int_or_zero(usage.get("input")), output=_int_or_zero(usage.get("output")),
+        cache_read=_int_or_zero(usage.get("cacheRead")), cache_write=_int_or_zero(usage.get("cacheWrite")),
+        total=_int_or_zero(usage.get("totalTokens")), cost_usd=_number_or_zero(cost.get("total")),
+    )
+
+
 def _usage_from_agent_end(event: PiEvent) -> TokenUsage | None:
     """What the run's answers cost, summed — pi puts ``usage`` on each
     assistant message; None when no message carried one."""
     total: TokenUsage | None = None
     for message in _assistant_messages(event):
-        usage = message.get("usage")
-        if not isinstance(usage, dict):
+        one = _usage_of_message(message)
+        if one is None:
             continue
-        raw_cost = usage.get("cost")
-        cost = raw_cost if isinstance(raw_cost, dict) else {}
-        one = TokenUsage(
-            input=_int_or_zero(usage.get("input")), output=_int_or_zero(usage.get("output")),
-            cache_read=_int_or_zero(usage.get("cacheRead")), cache_write=_int_or_zero(usage.get("cacheWrite")),
-            total=_int_or_zero(usage.get("totalTokens")), cost_usd=_number_or_zero(cost.get("total")),
-        )
         total = one if total is None else total + one
     return total
+
+
+def _model_of_message(message: dict) -> str:
+    provider, model = message.get("provider"), message.get("model")
+    return f"{provider}/{model}" if isinstance(provider, str) and isinstance(model, str) and provider and model else ""
+
+
+def _model_answered(turn: _Turn, message: object) -> ModelAnswered | None:
+    """One answer of the model, as pi's ``turn_end`` carries it: the event
+    for the flow, None for a ``turn_end`` that is not the model's."""
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        return None
+    now = asyncio.get_running_loop().time()
+    began = turn.answer_started
+    turn.answer_started = None
+    stop = message.get("stopReason")
+    answered = ModelAnswered(
+        index=turn.answers, model=_model_of_message(message), usage=_usage_of_message(message),
+        stop_reason=stop if isinstance(stop, str) else "", duration_s=0.0 if began is None else now - began,
+    )
+    turn.answers += 1
+    return answered
 
 
 def _number_or_zero(value: object) -> float:
@@ -685,9 +729,7 @@ def _int_or_zero(value: object) -> int:
 def _model_from_agent_end(event: PiEvent) -> str:
     """provider/model of the run's last answer, "" when it names none."""
     answers = _assistant_messages(event)
-    last = answers[-1] if answers else {}
-    provider, model = last.get("provider"), last.get("model")
-    return f"{provider}/{model}" if isinstance(provider, str) and isinstance(model, str) and provider and model else ""
+    return _model_of_message(answers[-1]) if answers else ""
 
 
 def _final_text_from_agent_end(event: PiEvent) -> str:

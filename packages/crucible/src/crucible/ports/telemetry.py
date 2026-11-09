@@ -8,7 +8,10 @@ of its own). Metrics are what the receiver derives; the engine sends the
 facts. Every event is a frozen record of flat fields: names, numbers,
 durations; never an object of the engine's, never the text people wrote.
 ``user_id`` is the platform's id as the gateway gave it — a receiver that must
-not keep it hashes or maps it (``PersonKey``) on the way out.
+not keep it hashes or maps it (``PersonKey``) on the way out. The events of
+one turn share its ``turn_id``, and a turn another agent's turn opened names
+that one as ``parent_turn_id``: a receiver that draws trees (spans) has what
+it needs; one that counts ignores both.
 """
 
 from dataclasses import dataclass
@@ -38,6 +41,14 @@ class TurnEnded:
     tool_calls: tuple[str, ...]  # the tools the model called, in order
     truncated: bool
     usage: TokenUsage | None  # tokens and the runtime's own cost estimate, when it reported them
+    # The turn's own id — what every event of the turn (``ToolCalled``,
+    # ``ModelCalled``, ``CardAnswered``, ``McpCalled``) names, so a receiver
+    # puts them together; the http caller's turn id where there is one.
+    turn_id: str = ""
+    started_at: str = ""  # when the batch arrived, ISO 8601 UTC
+    # The turn this one was opened by, when another agent's turn handed it the
+    # task (``delegate``, ``ask_agent``); "" for a turn a person or a timer began.
+    parent_turn_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -54,6 +65,27 @@ class ToolCalled:
     # unanswered, no_approver, abandoned
     duration_s: float
     confirmed: bool  # the tool is one a person confirms
+    turn_id: str = ""  # the turn the call was made in ("" when it named no known turn)
+    started_at: str = ""  # when the call arrived, ISO 8601 UTC
+
+
+@dataclass(frozen=True)
+class ModelCalled:
+    """One request to the model and its answer, within a turn — a turn that
+    calls tools has several. What that one cost, as the runtime reports it
+    per answer (None when it does not), and how it stopped."""
+
+    agent: str
+    turn_id: str
+    conversation_id: str
+    user_id: str
+    gateway: str
+    index: int  # the answer's number in the turn, from 0
+    model: str  # provider/model that answered, "" when the runtime did not say
+    usage: TokenUsage | None
+    stop_reason: str
+    duration_s: float
+    started_at: str  # ISO 8601 UTC
 
 
 @dataclass(frozen=True)
@@ -65,6 +97,7 @@ class CardAnswered:
     outcome: str  # reused_grant, allowed_once, allowed_for, denied, unanswered, no_approver, abandoned
     wait_s: float  # how long the call waited on people
     grant_s: int  # the window opened, when one was
+    turn_id: str = ""  # the turn whose call was asked about
 
 
 @dataclass(frozen=True)
@@ -78,6 +111,7 @@ class McpCalled:
     # no_file, file_gone, file_changed, file_type, not_connected, not_direct, no_provider, provider_unavailable
     duration_s: float
     file_bytes: int  # a person's file sent with the call, in bytes (0 for none)
+    turn_id: str = ""  # the turn the call was made in
 
 
 @dataclass(frozen=True)
@@ -133,7 +167,8 @@ class EngineState:
 
 
 TelemetryEvent = (
-    TurnEnded | ToolCalled | CardAnswered | McpCalled | McpChecked | TaskRan | ConnectionChanged | BudgetHit | EngineState
+    TurnEnded | ToolCalled | ModelCalled | CardAnswered | McpCalled | McpChecked | TaskRan | ConnectionChanged | BudgetHit
+    | EngineState
 )
 
 

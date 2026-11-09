@@ -911,8 +911,11 @@ async def test_on_a_tasks_turn_the_approver_is_the_person_on_the_gateway_they_ca
         def key(self, gateway: str, user_id: str) -> str:
             return {("slack", "U0123"): "roman"}.get((gateway, user_id), f"{gateway}:{user_id}")
 
+    from crucible.ports.telemetry import CardAnswered
+
     turns = TurnRegistry()
-    rig = await _rig(tmp_path, 8566, people=_People(), turns=turns)
+    telemetry = _Telemetry()
+    rig = await _rig(tmp_path, 8566, people=_People(), turns=turns, telemetry=telemetry)
     try:
         await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, user_id="U0123", gateway="trusted-delegation")
         async with turns.bind(rig.session, TurnScope(turn_id="t", attributes={ON_BEHALF_OF_GATEWAY_ATTRIBUTE: "slack"})):
@@ -925,6 +928,8 @@ async def test_on_a_tasks_turn_the_approver_is_the_person_on_the_gateway_they_ca
             assert rig.approvals.resolve(token, ANSWER_ONCE, "trusted-delegation:U0123") is ApprovalOutcome.NOT_ALLOWED  # the door is nobody
             assert rig.approvals.resolve(token, ANSWER_ONCE, "roman") is ApprovalOutcome.RESOLVED  # the person, as Slack knows them
             assert await pending == 200
+        (card,) = [e for e in telemetry.events if isinstance(e, CardAnswered)]
+        assert card.turn_id == "t"  # the card is the turn's
     finally:
         await _close(rig)
 

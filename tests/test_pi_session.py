@@ -961,6 +961,42 @@ async def test_a_process_that_says_nothing_is_stalled_unless_a_tool_is_running()
     assert (await session.prompt("hi", timeout=5.0, idle_timeout=0.2)).text == "done"
 
 
+async def test_each_answer_of_the_model_crosses_the_port_with_what_it_cost() -> None:
+    """pi brackets one answer of the model with turn_start/turn_end and puts
+    usage, provider, model and stopReason on the message: a listener sees one
+    ``ModelAnswered`` per answer, counted from 0, with the driver's timing."""
+    from crucible.ports.agent import TokenUsage
+    from crucible.ports.agent.events import ModelAnswered
+
+    transport = FakeTransport()
+
+    def react(command: dict) -> None:
+        if command.get("type") != "prompt":
+            return
+        transport.emit({"type": "agent_start"})
+        transport.emit({"type": "turn_start"})
+        transport.emit({"type": "turn_end", "message": {
+            "role": "assistant", "provider": "openai", "model": "gpt-5.5", "stopReason": "toolUse",
+            "usage": {"input": 100, "output": 20, "cacheRead": 50, "cacheWrite": 0, "totalTokens": 170, "cost": {"total": 0.001}},
+        }})
+        transport.emit({"type": "turn_end", "message": {"role": "user", "usage": {"totalTokens": 99999}}})  # not the model's
+        transport.emit({"type": "turn_start"})
+        transport.emit({"type": "turn_end", "message": {"role": "assistant", "content": "done", "stopReason": "stop"}})  # an older pi: no usage
+        transport.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "done"}]})
+        transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = react
+    seen: list[object] = []
+    session = PiRpcSession(transport)
+    session.start()
+    await session.prompt("hi", timeout=1.0, on_event=seen.append)
+    answers = [e for e in seen if isinstance(e, ModelAnswered)]
+    assert [(a.index, a.model, a.stop_reason) for a in answers] == [(0, "openai/gpt-5.5", "toolUse"), (1, "", "stop")]
+    assert answers[0].usage == TokenUsage(input=100, output=20, cache_read=50, cache_write=0, total=170, cost_usd=0.001)
+    assert answers[1].usage is None and all(a.duration_s >= 0 for a in answers)
+    assert all(e.type == "model_answered" for e in answers)
+
+
 def _assistant_turn_end(tokens: int) -> dict:
     return {"type": "turn_end", "message": {"role": "assistant", "usage": {"totalTokens": tokens}}, "toolResults": []}
 

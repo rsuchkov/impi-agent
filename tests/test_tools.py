@@ -918,6 +918,10 @@ async def test_server_resolves_conversation_into_context() -> None:
         def record(self, event) -> None:
             self.events.append(event)
 
+    from crucible.ports.turn import TurnScope
+    from crucible.turns import TurnRegistry
+
+    turns = TurnRegistry()
     telemetry = _Telemetry()
     server = ToolServer(
         reg,
@@ -929,10 +933,11 @@ async def test_server_resolves_conversation_into_context() -> None:
         conversation_resolver=resolver,
         received_files_for=_Received,
         telemetry=telemetry,
+        turns=turns,
     )
     await server.start()
     try:
-        async with aiohttp.ClientSession() as s:
+        async with turns.bind("assistant--conv", TurnScope(turn_id="turn-7")), aiohttp.ClientSession() as s:
             async with s.post(
                 "http://127.0.0.1:8470/tool/echo_ctx", json={},
                 headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--conv"},
@@ -955,6 +960,7 @@ async def test_server_resolves_conversation_into_context() -> None:
         assert [(e.tool, e.outcome) for e in events] == [("echo_ctx", "ok"), ("echo_ctx", "unauthorized"), ("other", "unknown_tool")]
         assert (events[0].agent, events[0].user_id, events[0].confirmed) == ("assistant", "U-resolved", False)
         assert events[0].duration_s >= 0 and events[1].agent == ""
+        assert (events[0].turn_id, events[1].turn_id) == ("turn-7", "") and events[0].started_at  # the turn the call was made in
     finally:
         await server.stop()
 

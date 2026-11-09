@@ -16,10 +16,13 @@ remark is text the model wrote for the person, a thought is not.
 from dataclasses import dataclass, field
 from typing import Any
 
+from crucible.ports.agent.runtime import TokenUsage
+
 TOOL_STARTED = "tool_started"
 TOOL_FINISHED = "tool_finished"
 TEXT_PROGRESS = "text_progress"
 CALL_AWAITING = "call_awaiting"
+MODEL_ANSWERED = "model_answered"
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,24 @@ class TextProgress:
 
     text: str
     type: str = field(default=TEXT_PROGRESS, init=False)
+
+
+@dataclass(frozen=True)
+class ModelAnswered:
+    """The model answered once: one request to it and its reply, the unit a
+    turn is made of — several when the model calls tools between. What that
+    one answer cost (``usage``, when the runtime reports it per answer; None
+    otherwise), which model gave it (``provider/model``, "" when not said),
+    how it stopped, and how long it took, measured by the driver. ``index``
+    counts the answers of the turn from 0. The answer's text does not travel:
+    the reply is in the result, a remark in ``TextProgress``."""
+
+    index: int
+    model: str = ""
+    usage: TokenUsage | None = None
+    stop_reason: str = ""
+    duration_s: float = 0.0
+    type: str = field(default=MODEL_ANSWERED, init=False)
 
 
 @dataclass(frozen=True)

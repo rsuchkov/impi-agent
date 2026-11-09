@@ -107,9 +107,9 @@ class TurnPlaces(Protocol):
 
 class SessionTurns(TurnScopes, TurnPlaces, Protocol):
     """The turn on a session as whoever acts on its behalf needs it: its scope,
-    where it answers, and whether there is one at all — a turn may be bound
-    with no scope (every chat gateway's), so ``current`` alone cannot say.
-    The registry is one."""
+    where it answers, and which turn it is — a scope names a turn, not which
+    binding of the session it is, so ``current`` alone cannot tell a turn
+    from the next one on the same session. The registry is one."""
 
     def turn_token(self, runtime_session_id: str) -> object | None:
         """The turn bound to the session right now, as an opaque token that

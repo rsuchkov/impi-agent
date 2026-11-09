@@ -12,7 +12,7 @@ import secrets
 import time
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -39,7 +39,7 @@ from crucible.ports.agent import (
     RuntimeControl,
     notice_for,
 )
-from crucible.ports.agent.events import ToolFinished, ToolStarted
+from crucible.ports.agent.events import ModelAnswered, ToolFinished, ToolStarted
 from crucible.ports.agent.runtime import TokenUsage
 from crucible.ports.attachments import FileKeeper, ReceivedFiles
 from crucible.ports.chat.client import ChatClient, ConversationView, PrivateNotices
@@ -55,13 +55,14 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     PostSnippet,
 )
+from crucible.ports.delegation import DELEGATED_FROM_TURN_ATTRIBUTE
 from crucible.ports.entitlement import (
     ConversationProfiles,
     EntitlementSource,
     shared_entitlement,
 )
-from crucible.ports.telemetry import Telemetry, TurnEnded
-from crucible.ports.turn import TurnBinding, TurnPlace
+from crucible.ports.telemetry import ModelCalled, Telemetry, TurnEnded
+from crucible.ports.turn import TurnBinding, TurnPlace, TurnScope
 from crucible.store.base import (
     GatewayAddress,
     SessionRecord,
@@ -149,11 +150,15 @@ class _TurnFacts:
     runs, what ``stop`` needs: the runtime session to interrupt, and whether it
     was asked to."""
 
-    def __init__(self, runtime_session_id: str = "") -> None:
+    def __init__(self, runtime_session_id: str = "", *, scope: TurnScope | None = None) -> None:
         self.result: AgentResult | None = None
         self.notice: str = ""
         self.runtime_session_id = runtime_session_id
         self.stopped = False
+        # The turn's scope: the message's own where it carried one (an http
+        # caller's, a task's), else one of the flow's — every turn has an id.
+        self.scope = scope if scope is not None else TurnScope(turn_id=secrets.token_hex(8))
+        self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 STOPPED_NOTE = (
@@ -474,7 +479,7 @@ class AgentFlow:
                 await self._sessions.set_gateway_address(self._agent_name, key, anchor.gateway, address)
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         started = time.monotonic()
-        facts = _TurnFacts(record.runtime_session_id)
+        facts = _TurnFacts(record.runtime_session_id, scope=anchor.turn)
         refused = await self._first_not_admitted(fresh, chat) if self._admission is not None else None
         if refused is not None:
             # Nothing ran: no prompt, no process, no reaction. Each person not
@@ -619,9 +624,23 @@ class AgentFlow:
                 tool_calls=tuple(result.tool_calls) if result is not None else (),
                 truncated=result.truncated if result is not None else False,
                 usage=result.usage if result is not None else None,
+                turn_id=facts.scope.turn_id, started_at=facts.started_at,
+                parent_turn_id=facts.scope.attributes.get(DELEGATED_FROM_TURN_ATTRIBUTE, ""),
             ))
         except Exception:  # noqa: BLE001 - telemetry must never cost the turn
             logger.warning("telemetry failed to record a turn", exc_info=True)
+
+    def _tell_answer(self, anchor: IncomingMessage, key: str, facts: _TurnFacts, answered: ModelAnswered) -> None:
+        assert self._telemetry is not None
+        try:
+            self._telemetry.record(ModelCalled(
+                agent=self._agent_name, turn_id=facts.scope.turn_id, conversation_id=key, user_id=anchor.user_id,
+                gateway=anchor.gateway, index=answered.index, model=answered.model, usage=answered.usage,
+                stop_reason=answered.stop_reason, duration_s=answered.duration_s,
+                started_at=(datetime.now(timezone.utc) - timedelta(seconds=answered.duration_s)).isoformat(timespec="seconds"),
+            ))
+        except Exception:  # noqa: BLE001 - telemetry must never cost the turn
+            logger.warning("telemetry failed to record a model call", exc_info=True)
 
     async def _turn(
         self,
@@ -692,7 +711,7 @@ class AgentFlow:
         interrupted = True  # until the runtime hands back a result
         log = _TurnLog()
         names = await self._file_names(record.conversation_id)
-        observer = self._observer(trace, log, names)
+        observer = self._observer(trace, log, names, anchor, record.conversation_id, facts)
         # The anchor's scope is the turn's: a batch is one turn, and the newest
         # message is the one whose credentials are freshest. Where the anchor
         # is answered is the turn's too — a card or a widget posted for the
@@ -701,7 +720,7 @@ class AgentFlow:
         # now waiting on the person), which goes where the runtime's events do.
         bound = (
             self._turns.bind(
-                record.runtime_session_id, anchor.turn,
+                record.runtime_session_id, facts.scope,
                 place=TurnPlace(anchor.gateway, anchor.ref.thread_root_id), events=observer,
             )
             if self._turns is not None
@@ -819,17 +838,24 @@ class AgentFlow:
             logger.debug("received files of %s could not be read for the captions", conversation_id, exc_info=True)
             return {}
 
-    def _observer(self, trace: ActiveTrace | None, log: _TurnLog, names: Mapping[str, str]) -> EventCallback:
+    def _observer(
+        self, trace: ActiveTrace | None, log: _TurnLog, names: Mapping[str, str],
+        anchor: IncomingMessage, key: str, facts: _TurnFacts,
+    ) -> EventCallback:
         """The runtime's events, captioned on their way to the trace and noted
         in the turn's own log. A tool call that the runtime reported without a
         caption gets the one the deployment knows for it, so the chat widget
         and a journal say the same thing without each asking; the log is what
         the flow tells the next turn when this one is cut short. A path among
         the arguments that is a file the person sent is captioned by the name
-        they gave it (``names``): the caption is for them."""
+        they gave it (``names``): the caption is for them. Each answer of the
+        model is told to the telemetry as the turn's (``ModelCalled``)."""
         captions = self._captions
+        telemetry = self._telemetry
 
         def on_event(event: AgentEvent) -> None:
+            if isinstance(event, ModelAnswered) and telemetry is not None:
+                self._tell_answer(anchor, key, facts, event)
             if captions is not None and isinstance(event, ToolStarted) and not event.caption:
                 event = replace(event, caption=captions.caption(event.tool, _named(event.args, names)))
             log.record(event)
