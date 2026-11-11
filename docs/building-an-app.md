@@ -948,7 +948,15 @@ credential, is another user's credential.
   never sees it. Yours: the `OAuthProvider` (one per provider), who the owner
   is, where the provider sends the person back (you call
   `finish(state, code, owner=…, facts=…)` from there — `CallbackServer(…,
-  start_again=…)` is a ready page, told what its "try again" should say), and
+  start_again=…)` is the ready route with a plain page, told what its "try
+  again" should say; your own page is `CallbackServer(…, page=)`, a
+  `CallbackPage` whose `render(outcome)` gets a `CallbackOutcome` — the
+  `Connected` record when it went through, else the word for why (`denied`,
+  `expired`, `foreign`, `rejected`, `account_refused`, `not_a_connect`,
+  `no_code`, `provider_unavailable`, `failed`) with `account`/`detail` for a
+  refused account, and `start_again` — and answers with a response of its own:
+  its words, a picture, its own content-security policy; the flow adds the
+  no-store/no-referrer/nosniff headers where the page set none), and
   an `AccountPolicy` whose `refusal(owner, provider, account, facts)` says why
   an account may not be bound to that person, or None (`account.extra`
   holds the userinfo fields the provider was asked to keep,

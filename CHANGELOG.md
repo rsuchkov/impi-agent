@@ -6,7 +6,17 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The connect callback's page is the application's to draw.**
+  `CallbackServer(…, page=)` takes a `CallbackPage` whose `render(outcome)`
+  gets how the connect ended — a `CallbackOutcome` with the `Connected` record
+  when it went through, else the word for why (the link's `denied`, `expired`,
+  `foreign`, `rejected`, `account_refused`, or `not_a_connect`, `no_code`,
+  `provider_unavailable`, `failed`), `account`/`detail` for a refused account
+  and `start_again` — and answers with a response of its own: its words, the
+  provider's picture, its own content-security policy. The flow around it
+  (the state, the refusals, the no-store/no-referrer/nosniff headers, no
+  access log) stays the engine's, so an application no longer copies it for a
+  page of its own. `DefaultCallbackPage` is the page as before.
 
 ## v0.50.1 — 2026-11-11
 

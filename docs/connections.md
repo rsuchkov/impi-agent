@@ -31,8 +31,9 @@ The panel is the other way in, and the place to see or end a connection:
    expires in ten minutes.
 3. They consent at the provider, which sends their browser back to the
    engine's callback page (`<CONNECTIONS_PUBLIC_URL>/oauth/callback`). The page
-   says how it went, and the message they clicked Connect in is redrawn to
-   say they are connected.
+   says how it went — the engine's plain one, or the application's own
+   (`CallbackServer(page=)`, [building-an-app.md](building-an-app.md)) — and the
+   message they clicked Connect in is redrawn to say they are connected.
 4. The agent can now use `connected_api_read` and `connected_api_write`.
 
 A connection belongs to the chat user on one gateway (`mattermost:<id>`): the

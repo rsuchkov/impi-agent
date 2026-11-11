@@ -6,7 +6,7 @@ import aiohttp
 import pytest
 
 from crucible.connections import OAuthConnections, ProviderAccount, ProviderUnavailable
-from crucible.connections.callback import CallbackServer
+from crucible.connections.callback import DEFAULT_START_AGAIN, CallbackServer
 from crucible.connections.sealing import FernetSealer, new_sealing_key
 from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
 from tests.test_connections import FakeProvider, Refuse
@@ -21,7 +21,7 @@ async def _serve(provider: FakeProvider, *, start_again: str | None = None, **ov
         sealer=FernetSealer([new_sealing_key()]), **over,
     )
     server = CallbackServer(
-        service, host="127.0.0.1", port=PORT, **({"start_again": start_again} if start_again else {}),
+        service, host="127.0.0.1", port=PORT, start_again=start_again if start_again else DEFAULT_START_AGAIN,
     )
     await server.start()
     return service, server
@@ -102,5 +102,69 @@ async def test_a_page_that_did_not_connect_says_where_to_start_again() -> None:
     try:
         status, page, _ = await _get({"state": "never-issued", "code": "c"})
         assert status == 400 and "Press Connect in the chat." in page
+    finally:
+        await server.stop()
+
+
+async def test_the_application_draws_the_page_and_the_flow_keeps_its_headers() -> None:
+    """A page of the application's gets how the connect ended and answers as it
+    likes — its words, its own content-security policy; the flow's safety
+    headers are added where the page set none."""
+    from aiohttp import web
+
+    from crucible.connections.callback import (
+        OUTCOME_NO_CODE,
+        OUTCOME_NOT_A_CONNECT,
+        OUTCOME_PROVIDER_UNAVAILABLE,
+        CallbackOutcome,
+    )
+    from crucible.connections.errors import LINK_DENIED, LINK_EXPIRED
+
+    outcomes: list[CallbackOutcome] = []
+
+    class _Picture:
+        def render(self, outcome: CallbackOutcome) -> web.Response:
+            outcomes.append(outcome)
+            if outcome.connected is not None:
+                text = f"<img src='data:image/gif;base64,R0lGOD'> {outcome.connected.provider} as {outcome.connected.account.name}"
+            else:
+                text = f"{outcome.refusal}: {outcome.account} {outcome.detail} {outcome.start_again}".strip()
+            return web.Response(
+                status=outcome.status, text=text, content_type="text/html",
+                headers={"Content-Security-Policy": "default-src 'none'; img-src data:", "Referrer-Policy": "same-origin"},
+            )
+
+    provider = FakeProvider()
+    service = OAuthConnections(
+        connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": provider},
+        sealer=FernetSealer([new_sealing_key()]),
+    )
+    server = CallbackServer(service, host="127.0.0.1", port=PORT, start_again="Press Connect.", page=_Picture())
+    await server.start()
+    try:
+        state, code = provider.consent(await service.begin("mattermost:u1", "gitlab"))
+        status, body, headers = await _get({"state": state, "code": code})
+        assert status == 200 and "gitlab as" in body and "<img" in body
+        # The page's own policy and referrer stand; what it did not set, the flow adds.
+        assert headers["Content-Security-Policy"] == "default-src 'none'; img-src data:"
+        assert headers["Referrer-Policy"] == "same-origin" and headers["Cache-Control"] == "no-store"
+        assert headers["X-Content-Type-Options"] == "nosniff"
+        assert outcomes[-1].connected is not None and outcomes[-1].refusal == "" and outcomes[-1].start_again == "Press Connect."
+        # Every way a connect does not go through is a word the page reads.
+        status, body, _ = await _get({})
+        assert status == 400 and body.startswith(OUTCOME_NOT_A_CONNECT)
+        state2, _code2 = provider.consent(await service.begin("mattermost:u1", "gitlab"))
+        status, body, _ = await _get({"state": state2, "error": "access_denied"})
+        assert status == 200 and body.startswith(LINK_DENIED)
+        state3, _code3 = provider.consent(await service.begin("mattermost:u1", "gitlab"))
+        status, body, _ = await _get({"state": state3})
+        assert status == 400 and body.startswith(OUTCOME_NO_CODE)
+        status, body, _ = await _get({"state": "stale", "code": "x"})
+        assert status == 400 and body.startswith(LINK_EXPIRED)
+        provider.identify_error = ProviderUnavailable("down")
+        state4, code4 = provider.consent(await service.begin("mattermost:u1", "gitlab"))
+        status, body, _ = await _get({"state": state4, "code": code4})
+        assert status == 503 and body.startswith(OUTCOME_PROVIDER_UNAVAILABLE)
+        assert [o.status for o in outcomes] == [200, 400, 200, 400, 400, 503]
     finally:
         await server.stop()
