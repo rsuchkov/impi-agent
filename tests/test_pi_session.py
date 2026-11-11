@@ -1054,54 +1054,91 @@ async def test_a_message_put_to_the_turn_is_read_after_the_calls_in_flight_and_t
 
 async def test_what_the_model_wrote_before_reading_the_message_is_its_answer_to_what_came_before(monkeypatch) -> None:
     """Probe C: a steer during a tool-less answer is read after it, and the
-    loop goes on — the text before the read goes out as ``Answered``, the
-    result is the answer to the message, and the wrap-up clock starts over
-    at the read: the note is due ``wrap_up_after`` after it, not after the
-    turn began."""
+    loop goes on — the text before the read goes out as ``Answered`` and the
+    result is the answer to the message. The wrap-up clock stays the turn's:
+    a message read past the wrap-up time brings the note again at once (the
+    model then answers it briefly), one read before it leaves the note to its
+    usual time."""
     from crucible.ports.agent.events import Answered, MessageRead
     from crucible.ports.agent.runtime import WRAP_UP_NOTE
     from crucible.runtimes.pi import session as session_module
 
     monkeypatch.setattr(session_module, "_TURN_POLL_INTERVAL", 0.02)  # the clocks are read often enough to tell
-
     transport = FakeTransport()
     seen: list[object] = []
-    read_at: list[float] = []
+    notes = 0
 
     def react(command: dict) -> None:
+        nonlocal notes
         if command.get("type") == "prompt":
             transport.emit({"type": "agent_start"})
             transport.emit({"type": "turn_start"})
             transport.emit({"type": "message_start", "message": _user_message("Count to 60")})
             transport.emit(_text_done("1\n2\n3"))
         elif command.get("type") == "steer" and command["message"] != WRAP_UP_NOTE:
-            read_at.append(asyncio.get_running_loop().time())
             transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})
             transport.emit({"type": "turn_start"})
             transport.emit({"type": "message_start", "message": _user_message(command["message"])})
-            # The model works on the message for a while — long enough for the
-            # turn's own wrap-up clock, not for a clock started at the read.
+            # The model works on the message; the wrap-up note is what ends the run.
         elif command.get("type") == "steer":
-            transport.emit(_text_done("BYE"))
-            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})
-            transport.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "BYE"}]})
-            transport.emit({"type": "agent_settled", "aborted": False})
+            notes += 1
+            if notes == 2:
+                transport.emit(_text_done("BYE"))
+                transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})
+                transport.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "BYE"}]})
+                transport.emit({"type": "agent_settled", "aborted": False})
 
     transport._reactor = react
     session = PiRpcSession(transport)
     session.start()
-    turn = asyncio.ensure_future(session.prompt("Count to 60", timeout=5.0, on_event=seen.append, wrap_up_after=0.6))
-    await asyncio.sleep(0.3)  # the model is writing
+    turn = asyncio.ensure_future(session.prompt("Count to 60", timeout=5.0, on_event=seen.append, wrap_up_after=0.3))
+    await asyncio.sleep(0.5)  # past the wrap-up time: the note went once, the run goes on
+    assert notes == 1
+    before = asyncio.get_running_loop().time()
     assert await session.steer("Stop and say BYE") is True
-    await asyncio.sleep(0.45)  # 0.75 s into the turn, 0.45 s after the read: no note yet
-    assert WRAP_UP_NOTE not in [c.get("message") for c in transport.sent]
-    result = await turn  # the note goes at 0.6 s after the read and ends the run
-    assert WRAP_UP_NOTE in [c.get("message") for c in transport.sent]
+    result = await turn  # the read past the wrap-up time brings the note again, at once
+    assert notes == 2 and asyncio.get_running_loop().time() - before < 0.25
     assert result.text == "BYE"
     answered = [e for e in seen if isinstance(e, Answered)]
     assert [a.text for a in answered] == ["1\n2\n3"]  # the answer to what came before, on its own
     read = seen.index(next(e for e in seen if isinstance(e, MessageRead)))
     assert seen.index(answered[0]) < read  # said before the read is reported
+
+
+async def test_a_message_read_before_the_wrap_up_time_leaves_the_note_to_its_time(monkeypatch) -> None:
+    from crucible.ports.agent.runtime import WRAP_UP_NOTE
+    from crucible.runtimes.pi import session as session_module
+
+    monkeypatch.setattr(session_module, "_TURN_POLL_INTERVAL", 0.02)
+    transport = FakeTransport()
+    noted_at: list[float] = []
+
+    def react(command: dict) -> None:
+        if command.get("type") == "prompt":
+            transport.emit({"type": "agent_start"})
+            transport.emit({"type": "turn_start"})
+            transport.emit({"type": "message_start", "message": _user_message("Work")})
+        elif command.get("type") == "steer" and command["message"] != WRAP_UP_NOTE:
+            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "toolUse"}})
+            transport.emit({"type": "turn_start"})
+            transport.emit({"type": "message_start", "message": _user_message(command["message"])})
+        elif command.get("type") == "steer":
+            noted_at.append(asyncio.get_running_loop().time())
+            transport.emit(_text_done("done"))
+            transport.emit({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}})
+            transport.emit({"type": "agent_end", "messages": [{"role": "assistant", "content": "done"}]})
+            transport.emit({"type": "agent_settled", "aborted": False})
+
+    transport._reactor = react
+    session = PiRpcSession(transport)
+    session.start()
+    started = asyncio.get_running_loop().time()
+    turn = asyncio.ensure_future(session.prompt("Work", timeout=5.0, wrap_up_after=0.5))
+    await asyncio.sleep(0.15)
+    assert await session.steer("also this") is True  # read early: the note is not moved later
+    result = await turn
+    assert result.text == "done" and len(noted_at) == 1
+    assert 0.45 <= noted_at[0] - started < 0.75  # at the turn's wrap-up time, not 0.5 s after the read
 
 
 async def test_a_message_the_run_ended_without_reading_is_taken_back_out_of_the_queue() -> None:

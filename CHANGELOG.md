@@ -6,7 +6,14 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: the wrap-up note after a message joined the turn.** v0.50.0 started
+  a new wrap-up stretch at the read, counted from the read but with the whole
+  turn's card waits subtracted, and under a timeout that stays the turn's —
+  so the note moved later, past the timeout for a turn with `wrap_up_after`
+  close to `timeout`, and the turn was cut off instead of rounding off. The
+  clock is the turn's again: a message read mid-turn only asks for the note
+  anew — at once when the turn is already past its wrap-up time, so the model
+  answers what joined briefly; at the usual time otherwise.
 
 ## v0.50.0 — 2026-11-09
 

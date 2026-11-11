@@ -765,8 +765,9 @@ credential, is another user's credential.
   would carry and hands it to `RuntimeControl.join_turn`; the model reads it before
   its next call (after the tool calls in flight, or after the answer it is
   writing) and the turn goes on to answer it. The flow posts what the model had
-  written before the read as an answer of its own (`Answered`), restarts the
-  wrap-up clock at the read, and a message the turn ends without reading comes
+  written before the read as an answer of its own (`Answered`), asks the
+  model to wrap up again if the turn is already past its wrap-up time (the clock
+  stays the turn's), and a message the turn ends without reading comes
   back (`Joined.read` False — the flow decides by `MessageRead`; the runtime's
   own account is `AgentResult.unread`) — the coalescer queues it as the next
   turn. Only the turn's own person's message joins: the turn was admitted and

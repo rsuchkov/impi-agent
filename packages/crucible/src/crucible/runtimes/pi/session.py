@@ -127,10 +127,10 @@ class _Turn:
         # The last moment the process said anything for this turn, by the
         # loop's clock — what the idle watchdog measures from.
         self.last_event_at = asyncio.get_running_loop().time()
-        # The wrap-up note goes once per segment; after it the segment runs
-        # out on its own. A message read mid-turn starts a new segment.
+        # The wrap-up note went: after it the turn runs out on its own. A
+        # message read mid-turn asks for it again — at once, when the turn is
+        # already past its wrap-up time, since what joined still wants an answer.
         self.wrapped_up = False
-        self.segment_started = asyncio.get_running_loop().time()
         # Messages put to the turn and not yet read by the model, as sent; and
         # whether an answer already went out before one of them was read — the
         # run's messages then hold text that is not this result's.
@@ -384,8 +384,7 @@ class PiRpcSession:
                     raise asyncio.TimeoutError
                 if idle_timeout and not turn.tool_started and now - turn.last_event_at >= idle_timeout:
                     raise _Stalled
-                segment_active = (now - turn.segment_started) - self._ui_wait_total
-                if wrap_up_after and not turn.wrapped_up and segment_active >= wrap_up_after:
+                if wrap_up_after and not turn.wrapped_up and active >= wrap_up_after:
                     turn.wrapped_up = True
                     # Steered, not followed up: a follow-up waits for the agent to
                     # stop, which is exactly too late; a steer is read after the
@@ -477,7 +476,9 @@ class PiRpcSession:
         if turn is not None and (read := protocol.user_message_text(event)) is not None and read in turn.steers:
             # The loop picked up a message put to the turn: what the model had
             # written before it is its answer to what came before, and the turn
-            # goes on in a new segment, with the wrap-up clock started afresh.
+            # goes on. The wrap-up note, if it went already, goes again for the
+            # message's sake: the clock is the turn's, so past the wrap-up time
+            # it goes at once and the model answers what joined briefly.
             turn.steers.remove(read)
             written = "".join(turn.text_parts).strip()
             turn.text_parts.clear()
@@ -485,7 +486,6 @@ class PiRpcSession:
                 turn.answered_before = True
                 await self._notify(Answered(written))
             turn.wrapped_up = False
-            turn.segment_started = asyncio.get_running_loop().time()
             await self._notify(MessageRead(read))
         if turn is not None and event.type == protocol.EV_TURN_END:
             turn.tokens_used += _tokens_of_message(event.raw.get("message"))
