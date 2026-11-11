@@ -18,7 +18,7 @@ from crucible.approvals import (
 )
 from crucible.gateways.mattermost import MattermostCallbackCodec
 from crucible.gateways.mattermost.client import MattermostChatClient
-from crucible.gateways.slack.client import SlackChatClient, whispered_post_id
+from crucible.gateways.slack.client import SlackChatClient
 from crucible.gateways.slack.interactions import SlackInteractions
 from crucible.interactions import (
     InteractionDispatcher,
@@ -200,7 +200,7 @@ class _Webhook:
 
 def _slack(web: FakeWeb) -> SlackChatClient:
     _Webhook.sent = []
-    return SlackChatClient(web, webhooks=_Webhook)  # type: ignore[arg-type]
+    return SlackChatClient(web)  # type: ignore[arg-type]
 
 
 async def test_slack_posts_the_card_to_the_person_alone_in_the_thread() -> None:
@@ -210,38 +210,18 @@ async def test_slack_posts_the_card_to_the_person_alone_in_the_thread() -> None:
     kw = web.last("chat_postEphemeral")
     assert (kw["channel"], kw["user"], kw["thread_ts"]) == ("C9", "U9", "1700.1")
     assert kw["blocks"][-1]["type"] == "actions" and "Delete" in kw["text"]
-    assert post_id == whispered_post_id("C9", "1700.9")
+    assert post_id.startswith("whispered:") and post_id.endswith("1700.9")
 
 
-async def test_slack_rewrites_a_whispered_card_through_the_url_its_click_offered_and_not_otherwise() -> None:
+async def test_slack_leaves_a_whispered_card_as_it_is() -> None:
+    """Slack keeps no such message: chat.update cannot reach it, so the
+    verbs that rewrite do nothing — the click is what tells the person."""
     web = FakeWeb(chat_postEphemeral={"message_ts": "1700.9"})
     client = _slack(web)
     post_id = await client.whisper_confirmation(_thread(), "U9", CARD, ACTIONS, callback_url="")
-    # Nobody clicked: the card stays as it was (chat.update cannot reach it).
     await client.update_confirmation(post_id, CARD)
     await client.retract(post_id, "expired")
-    assert web.all("chat_update") == [] and _Webhook.sent == []
-    # A click offered a response URL: the verdict replaces the card there, once.
-    client.card_clicked(post_id, "https://hooks.slack.test/r/1")
-    await client.update_confirmation(post_id, CARD)
-    assert len(_Webhook.sent) == 1
-    sent = _Webhook.sent[0]
-    assert sent["url"] == "https://hooks.slack.test/r/1" and sent["replace_original"] is True
-    assert sent["blocks"] and "Delete" in sent["text"]
-    await client.update_confirmation(post_id, CARD)  # the URL was spent on the verdict
-    assert len(_Webhook.sent) == 1 and web.all("chat_update") == []
-
-
-async def test_slack_keeps_a_bounded_number_of_click_urls() -> None:
-    from crucible.gateways.slack import client as module
-
-    client = _slack(FakeWeb())
-    for i in range(module._CLICKED_CARDS + 5):
-        client.card_clicked(whispered_post_id("C9", f"{i}.0"), f"https://hooks.slack.test/r/{i}")
-    client.card_clicked(whispered_post_id("C9", "0.0"), "")  # an empty URL is not kept
-    assert whispered_post_id("C9", "0.0") not in client._clicked
-    assert len(client._clicked) == module._CLICKED_CARDS
-    assert whispered_post_id("C9", f"{module._CLICKED_CARDS + 4}.0") in client._clicked
+    assert web.all("chat_update") == []
 
 
 def _ephemeral_click(value: str = ANSWER_ONCE) -> dict:
@@ -254,44 +234,60 @@ def _ephemeral_click(value: str = ANSWER_ONCE) -> dict:
     }
 
 
-def _interactions(dispatcher, poster) -> SlackInteractions:
+def _interactions(dispatcher) -> SlackInteractions:
     from slack_bolt.async_app import AsyncApp
 
+    _Webhook.sent = []
     app = AsyncApp(token="xoxb-fake", signing_secret="x" * 16)
-    return SlackInteractions(app, dispatcher, poster, agent="assistant")  # type: ignore[arg-type]
+    return SlackInteractions(app, dispatcher, _slack(FakeWeb()), agent="assistant", webhooks=_Webhook)  # type: ignore[arg-type]
 
 
-async def test_a_click_on_a_whispered_card_hands_its_url_to_the_client_before_the_answer_lands() -> None:
-    """The broker rewrites the card once it has the answer; on an ephemeral
-    message it can only do that through the URL this click offers, so the
-    client is handed it first. The click handler itself changes nothing."""
-    client = _slack(FakeWeb())
+async def test_a_click_on_a_whispered_card_replaces_it_with_the_verdict() -> None:
+    """The broker's rewrite cannot reach an ephemeral message, and it runs
+    wherever the turn runs — on another replica, maybe. The click's own URL
+    is the one way to the card, so the click handler is what tells the
+    person, in the card's place."""
     dispatcher = FakeDispatcher(approval=ApprovalOutcome.RESOLVED)
-    it = _interactions(dispatcher, client)
+    it = _interactions(dispatcher)
     await it.handle_action(_ephemeral_click())
     assert ("resolve_approval", "APR", "once", "U9") in dispatcher.calls
-    assert client._clicked == {whispered_post_id("C9", "1700.9"): "https://hooks.slack.test/r/2"}
-    assert _Webhook.sent == []
-    await client.update_confirmation(whispered_post_id("C9", "1700.9"), CARD)  # the broker, afterwards
-    assert [s["url"] for s in _Webhook.sent] == ["https://hooks.slack.test/r/2"]
+    assert len(_Webhook.sent) == 1
+    sent = _Webhook.sent[0]
+    assert sent["url"] == "https://hooks.slack.test/r/2" and sent["replace_original"] is True
+    assert sent["blocks"] == [] and sent["text"] == "Allowed once"
+    await it.handle_action(_ephemeral_click("grant:300"))
+    assert _Webhook.sent[-1]["text"] == "Allowed for 5 min"
+    await it.handle_action(_ephemeral_click(ANSWER_DENY))
+    assert _Webhook.sent[-1]["text"] == "Denied"
 
 
 async def test_a_click_on_a_whispered_card_whose_question_is_over_says_so_in_its_place() -> None:
     """Expired, withdrawn, answered on another copy: the card could not be
     retired, so the click is what tells the person — and what to do."""
-    client = _slack(FakeWeb())
-    it = _interactions(FakeDispatcher(approval=ApprovalOutcome.NOT_MINE), client)
+    it = _interactions(FakeDispatcher(approval=ApprovalOutcome.NOT_MINE))
     await it.handle_action(_ephemeral_click())
     assert len(_Webhook.sent) == 1
     sent = _Webhook.sent[0]
     assert sent["url"] == "https://hooks.slack.test/r/2" and sent["replace_original"] is True
     assert sent["blocks"] == [] and sent["text"] == CARD_OVER_TEXT
-    assert client._clicked == {}  # the URL was spent on the notice
+
+
+async def test_a_stranger_s_click_on_a_whispered_card_changes_nothing() -> None:
+    it = _interactions(FakeDispatcher(approval=ApprovalOutcome.NOT_ALLOWED))
+    whispers: list[dict] = []
+
+    async def _rec(**kwargs):
+        whispers.append(kwargs)
+        return {"ok": True}
+
+    it._app.client.chat_postEphemeral = _rec  # type: ignore[method-assign]
+    await it.handle_action(_ephemeral_click())
+    assert _Webhook.sent == [] and whispers and whispers[0]["user"] == "U9"
 
 
 async def test_a_click_on_a_card_in_the_open_is_handled_as_before() -> None:
-    client = _slack(FakeWeb())
-    it = _interactions(FakeDispatcher(approval=ApprovalOutcome.NOT_MINE), client)
+    dispatcher = FakeDispatcher(approval=ApprovalOutcome.NOT_MINE)
+    it = _interactions(dispatcher)
     updates: list[dict] = []
 
     async def _rec(**kwargs):
@@ -302,7 +298,10 @@ async def test_a_click_on_a_card_in_the_open_is_handled_as_before() -> None:
     click = {**_ephemeral_click(), "message": {"ts": "5.5"}, "container": {"message_ts": "5.5", "channel_id": "C9"}}
     await it.handle_action(click)
     assert updates and updates[0]["text"] == BUTTONS_RETIRED_TEXT and _Webhook.sent == []
-    assert client._clicked == {}
+    it = _interactions(FakeDispatcher(approval=ApprovalOutcome.RESOLVED))
+    it._app.client.chat_update = _rec  # type: ignore[method-assign]
+    await it.handle_action(click)
+    assert len(updates) == 1 and _Webhook.sent == []  # the broker rewrites its own card
 
 
 # -- Mattermost ----------------------------------------------------------------

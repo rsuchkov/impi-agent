@@ -85,8 +85,8 @@ class SlackGateway:
         self._loop_guard = loop_guard
         self._reply_to_agents = reply_to_agents
         self._attachments = attachments
-        self._keying: ConversationKey = keying or PlatformKey()
-        self._seen: OrderedDict[tuple[str, str], None] = OrderedDict()  # the conversation a file belongs to
+        self._keying: ConversationKey = keying or PlatformKey()  # the conversation a file belongs to
+        self._seen: OrderedDict[tuple[str, str], None] = OrderedDict()  # posts already taken: a mention Slack sent twice
         self._own_user_id = ""
         self._own_bot_id = ""
         # The interactive half, kept apart: clicks, modals, shortcuts and slash

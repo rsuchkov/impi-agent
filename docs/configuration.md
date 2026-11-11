@@ -55,8 +55,8 @@ HTTP receiver is needed.
 
 **Event subscriptions.** The gateway listens for `message` and `app_mention`.
 A direct message comes as `message.im`; a mention in a channel comes as
-`app_mention`, so an app that is to answer mentions alone subscribes to that
-and not to `message.channels`/`message.groups` — with those, every message of
+`app_mention` (the bot scope `app_mentions:read`), so an app that is to
+answer mentions alone subscribes to that and not to `message.channels`/`message.groups` — with those, every message of
 every channel the bot is in reaches the engine, and all but the mentions are
 dropped there. An app subscribed to both sees a mention twice, under one ts;
 the gateway takes it once. `app_mention` is about what reaches the engine, not
@@ -94,7 +94,7 @@ command in that message's conversation, as a slash command or a shortcut would
 |---|---|---|
 | `GATEWAY` | `mattermost` | the gateways agents are reached through (`mattermost` \| `slack` \| `ws` \| `http`), as a CSV when several; override per agent with `AGENTS_GATEWAY__<AGENT>` |
 | `JOIN_RUNNING_TURNS` | `false` | a person's message into a conversation whose turn is running joins that turn, on every gateway (`http` included) — read by the model before its next call, answered in it — instead of waiting for the next turn (chat) or being refused with 409 (`http`); one the turn ends without reading runs next ([http-gateway.md](http-gateway.md)) |
-| `SHARED_CONVERSATION_PER_AUTHOR` | `false` | a channel, or a thread in one, is a conversation of its own per person who speaks to the agent there (`AuthorKey`): their session and memory, the thread's replies as context either way; the answer still goes in the thread. On where an agent acts with people's own credentials ([security.md](security.md)) |
+| `CHANNEL_CONVERSATION_PER_AUTHOR` | `false` | a channel, or a thread in one, is a conversation of its own per person who speaks to the agent there (`AuthorKey`, on every gateway — a ws frame of kind `thread`/`channel` with a `user_id` too): their session and memory, the thread's replies as context either way; the answer still goes in the thread. On where an agent acts with people's own credentials ([security.md](security.md)) |
 
 Gateway kinds mix freely in one engine process — agent A on Slack, agent B on
 Mattermost, agent C on ws, each with its own connection, supervised
@@ -117,7 +117,7 @@ asked for from Slack, which has no channel administration, is refused with
 through Mattermost. Which conversation a Slack thread and an http dialog are
 the same one is the application's to say (`ConversationKey`); `impi` keeps the
 platform's own ids, so a conversation stays within its gateway — per person in
-a channel or a thread with `SHARED_CONVERSATION_PER_AUTHOR`.
+a channel or a thread with `CHANNEL_CONVERSATION_PER_AUTHOR`.
 
 ## ws gateway (custom client services)
 

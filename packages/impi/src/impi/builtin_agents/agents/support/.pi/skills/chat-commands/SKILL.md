@@ -84,7 +84,8 @@ word. Neither needs a URL or a token: the socket is already authenticated.
 In Slack's **Agents panel** (the app's manifest has `features.agent_view`, the
 scopes `assistant:write` and `chat:write`, and the events `app_home_opened`,
 `app_context_changed`, `agent_session_stopped`, `agent_session_title_changed`
-beside `message.im`, and `SLACK_AGENT_SESSIONS=true` in the engine's `.env`,
+beside `message.im` — and `app_mention`, scope `app_mentions:read`, for a bot
+that answers mentions in channels — and `SLACK_AGENT_SESSIONS=true` in the engine's `.env`,
 per agent `AGENTS_SLACK_AGENT_SESSIONS__<AGENT>`) a session shows a working
 indicator while the agent's turn runs and a native **Stop** button, which ends
 the turn as `/stop` does (§5); while a tool's confirmation card waits on the

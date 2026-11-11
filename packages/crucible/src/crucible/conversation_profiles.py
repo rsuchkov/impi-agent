@@ -28,7 +28,7 @@ from collections.abc import Callable, Collection
 
 from crucible.ports.agent.runtime import AgentProfile
 from crucible.ports.agent.spec import AgentSpec
-from crucible.ports.chat.types import KIND_DM, IncomingMessage
+from crucible.ports.chat.types import IncomingMessage
 from crucible.ports.entitlement import (
     Entitlement,
     EntitlementSource,
@@ -67,7 +67,7 @@ class GatewayEntitlements:
     """An ``EntitlementSource`` from the agent's own profile: what
     ``runtime.tools_by_gateway`` says a conversation on the message's gateway
     may use (``AgentSpec.tools_on``), narrowed again by
-    ``runtime.tools_in_shared`` where other people read the conversation — a
+    ``runtime.tools_in_channels`` where other people read the conversation — a
     channel, a thread — and nothing else: no instructions, no view of who the
     person is. Given an ``inner`` source (an application's own answer about
     the person or the place), the two are joined as several people's answers
@@ -82,8 +82,8 @@ class GatewayEntitlements:
     ) -> Entitlement:
         spec = self._spec_of(agent)
         own = Entitlement(tools=_tools_on(spec, msg.gateway) if spec is not None else None)
-        if spec is not None and spec.tools_in_shared is not None and not _is_direct(msg):
-            own = shared_entitlement([own, Entitlement(tools=spec.tools_in_shared)])
+        if spec is not None and spec.tools_in_channels is not None and not msg.direct:
+            own = shared_entitlement([own, Entitlement(tools=spec.tools_in_channels)])
         if tools is not None:
             own = shared_entitlement([own, Entitlement(tools=tools)])
         if self._inner is None:
@@ -93,12 +93,6 @@ class GatewayEntitlements:
         theirs = await self._inner.entitlement(agent, msg, tools=own.tools)
         joined = shared_entitlement([own, theirs])
         return Entitlement(tools=joined.tools, instructions=theirs.instructions, deferred=theirs.deferred)
-
-
-def _is_direct(msg: IncomingMessage) -> bool:
-    """Whether the conversation is the person's alone: a direct message, or a
-    thread answering one; a channel and its threads are read by others."""
-    return msg.is_dm or msg.kind == KIND_DM
 
 
 def _tools_on(spec: AgentSpec, gateway: str) -> tuple[str, ...] | None:

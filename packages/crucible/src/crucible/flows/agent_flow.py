@@ -54,7 +54,6 @@ from crucible.ports.chat.flow import Joined, TurnOutcome
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
-    KIND_DM,
     KIND_THREAD,
     Attachment,
     ConversationRef,
@@ -501,7 +500,7 @@ class AgentFlow:
             # started) says nothing about it and leaves the flag as it stands.
             direct = (
                 prior.direct if anchor.synthetic and prior is not None
-                else anchor.is_dm or anchor.kind == KIND_DM
+                else anchor.direct
             )
             address = GatewayAddress(anchor.channel_id, anchor.conversation_id, anchor.kind, direct=direct)
             if prior != address:
@@ -525,7 +524,7 @@ class AgentFlow:
         # application keyed the message elsewhere. A channel's name is not a
         # thread's: a /stop in a channel does not reach a thread of it.
         names = [anchor.conversation_id, anchor.ref.thread_root_id, anchor.ref.message_id]
-        if anchor.is_dm or anchor.kind == KIND_DM:
+        if anchor.direct:
             names.append(anchor.channel_id)
         addresses = {(anchor.gateway, name) for name in names if name}
         self._active[key] = facts
@@ -705,7 +704,7 @@ class AgentFlow:
         try:
             self._telemetry.record(TurnEnded(
                 agent=self._agent_name, gateway=anchor.gateway, user_id=anchor.user_id, conversation_id=key,
-                kind=anchor.kind, direct=anchor.is_dm or anchor.kind == KIND_DM, synthetic=anchor.synthetic,
+                kind=anchor.kind, direct=anchor.direct, synthetic=anchor.synthetic,
                 messages=len(fresh), attachments=sum(len(m.attachments) for m in fresh),
                 outcome=outcome.name.lower(), notice=facts.notice, duration_s=duration_s,
                 model=result.model if result is not None else "",

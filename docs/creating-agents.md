@@ -54,7 +54,7 @@ runtime:
   tools_by_gateway:       # optional; a gateway named here gets only these of `tools`
     slack: [read]         #   (a subset), or {except: [bash]} for all but some;
     http: {except: [bash]} #   one not named gets them all
-  tools_in_shared: [read] # optional; a channel or a thread, on any gateway, gets
+  tools_in_channels: [read] # optional; a channel or a thread, on any gateway, gets
                           #   only these (same forms) — a direct message, all of `tools`
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
   env: [MYSERVICE_*]      # optional; engine environment variables its process inherits
@@ -159,7 +159,7 @@ checked when the profile loads — or to `{except: [names]}`, every entry of
 included), which is the form to take a few tools away from one gateway: a
 tool added to `tools` later reaches that gateway without a second edit. A
 gateway not named gets the agent's whole list, `[]` gives a gateway no tool at
-all. `runtime.tools_in_shared`, in the same forms, narrows what a conversation
+all. `runtime.tools_in_channels`, in the same forms, narrows what a conversation
 other people read — a channel, a thread in one — may use, on every gateway:
 the turn there gets the tools on both lists, the gateway's and this one's,
 while a direct message (and a thread answering one) keeps the gateway's list.
@@ -202,7 +202,11 @@ Two rules to remember:
     `create_post_ephemeral` permission**, which a bot account lacks by default —
     grant it to the bot's role (e.g. `mmctl permissions add system_user
     create_post_ephemeral`, or via the System Console) or the tool returns a
-    permission error. Slack bots can post ephemeral messages out of the box.
+    permission error. The engine's own whispers in a channel need it too — a
+    tool's confirmation card and a notice meant for one person: without it the
+    card is asked in the open and the log says `tool gate: could not ask …
+    alone … asking in the open`. Slack bots can post ephemeral messages out
+    of the box.
 - Every tool also says whether its work can be undone (`destructive`, true
   unless its author says otherwise; the engine's own widgets, listings and
   reads say false, an MCP tool follows its trusted server's hint). The engine
@@ -594,7 +598,10 @@ steps:
      scopes (`chat:write`, the `*:history` of the conversations it reads,
      `users:read`, `commands`), the engine asks `conversations.info` of a
      direct message a slash command came from, to tell its own from another's
-     — `im:read`. For the bot to be an
+     — `im:read`. A bot that answers in channels subscribes to the
+     `app_mention` event (scope `app_mentions:read`) and reads the thread it
+     was mentioned in with `channels:history`/`groups:history`
+     ([configuration.md](configuration.md#slack-gateway)). For the bot to be an
      agent in Slack's Agents panel — a working indicator and a Stop button
      while it works — the manifest needs `features.agent_view`, the scopes
      `assistant:write` and `chat:write`, and the events `message.im`,

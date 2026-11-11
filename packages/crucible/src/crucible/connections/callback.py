@@ -38,16 +38,19 @@ logger = logging.getLogger(__name__)
 
 CALLBACK_PATH = "/oauth/callback"
 
-# On every answer, whoever draws the page: the query carried the state and the
-# code, and the page must neither be kept nor send them on.
+# The plain page's content-security policy: nothing loads but its inline
+# style. A page of the application's that set no policy of its own gets it.
+_DEFAULT_CSP = "default-src 'none'; style-src 'unsafe-inline'"
+# On every answer, whoever draws the page, where the page set none: the query
+# carried the state and the code, and the page must neither be kept nor send
+# them on.
 _SAFE_HEADERS = {
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": _DEFAULT_CSP,
 }
-# The plain page's own: nothing loads but its inline style.
-_DEFAULT_CSP = "default-src 'none'; style-src 'unsafe-inline'"
-_HEADERS = {**_SAFE_HEADERS, "Content-Security-Policy": _DEFAULT_CSP}
+_HEADERS = dict(_SAFE_HEADERS)
 
 # How a connect that did not go through ended, beside the link's own words
 # (``connections.errors``: expired, foreign, denied, rejected, account_refused).
@@ -86,9 +89,11 @@ class CallbackOutcome:
 class CallbackPage(Protocol):
     """What the person sees when they come back: the application's page for
     the outcome. Its response gets the flow's safety headers added where it
-    set none (no-store, no-referrer, nosniff); the content-security policy is
-    the page's own — the plain page allows nothing but inline style, one with
-    a picture allows what it needs."""
+    set none (no-store, no-referrer, nosniff, and the strict content-security
+    policy — nothing but inline style — where the page set no policy of its
+    own; one with a picture sets what it needs). The outcome's ``account``,
+    ``detail`` and the connected account's names are the provider's words:
+    a page that puts them in HTML escapes them."""
 
     def render(self, outcome: CallbackOutcome) -> web.Response: ...
 _PAGE = """<!doctype html>

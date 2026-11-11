@@ -14,15 +14,11 @@ from collections.abc import Awaitable, Callable
 
 from slack_bolt.async_app import AsyncApp
 from slack_sdk.errors import SlackApiError
+from slack_sdk.webhook.async_client import AsyncWebhookClient
 
-from crucible.approvals import ApprovalOutcome
+from crucible.approvals import ApprovalOutcome, decide, verdict_of
 from crucible.gateways.dispatch import GatewayDispatcher
-from crucible.gateways.slack.client import (
-    MESSAGE_ID_SEP,
-    WHISPER_LINK_ACTION_ID,
-    SlackChatClient,
-    whispered_post_id,
-)
+from crucible.gateways.slack.client import MESSAGE_ID_SEP, WHISPER_LINK_ACTION_ID
 from crucible.gateways.slack.events import conversation_of, is_direct_channel
 from crucible.gateways.slack.rendering import (
     FORM_CALLBACK,
@@ -51,16 +47,20 @@ from crucible.ports.chat.types import (
 logger = logging.getLogger(__name__)
 
 
-def _whispered_card(body: dict) -> str:
-    """The id of the clicked message when Slack shows it to the clicker alone
-    (an ephemeral message: the payload's container says so, and carries the
-    message's address, which such a payload has nowhere else), "" otherwise."""
-    container = body.get("container") or {}
-    if not container.get("is_ephemeral"):
-        return ""
-    channel = str(container.get("channel_id") or (body.get("channel") or {}).get("id") or "")
-    ts = str(container.get("message_ts") or "")
-    return whispered_post_id(channel, ts) if channel and ts else ""
+def _whispered(body: dict) -> bool:
+    """Whether Slack shows the clicked message to the clicker alone (an
+    ephemeral message: the payload's container says so)."""
+    return bool((body.get("container") or {}).get("is_ephemeral"))
+
+
+async def _replace_from_click(webhook: AsyncWebhookClient, text: str) -> None:
+    """Rewrite the message a click came from through the click's response URL
+    — the one way to a message Slack shows to one person alone. Best-effort:
+    the URL is good for half an hour and a handful of uses."""
+    try:
+        await webhook.send(text=text, blocks=[], replace_original=True)
+    except Exception:
+        logger.debug("response_url rewrite failed", exc_info=True)
 
 
 # Shown on the clicked message once its buttons are stripped. Slack doesn't retire
@@ -93,9 +93,11 @@ class SlackInteractions:
         command_prefix: str = DEFAULT_COMMAND_SHORTCUT_PREFIX,
         dm_thread: bool = False,
         check_direct_message: bool = False,
+        webhooks: Callable[[str], AsyncWebhookClient] = AsyncWebhookClient,
     ) -> None:
         self._app = app
         self._dispatcher = dispatcher
+        self._webhooks = webhooks  # opens a click's response URL
         self._dm_thread = dm_thread  # a top-level DM message is answered in a thread under it
         self._poster = poster  # opens modals on a form-open click (same account)
         self._agent = agent  # our own name; a command names the agent to run
@@ -114,7 +116,7 @@ class SlackInteractions:
         self._app.action(re.compile(f"^{WIDGET_ACTION_PREFIX}"))(self._on_action)
         # The link button of a whispered notice opens its URL in the person's
         # browser; the click Slack reports beside that is acked and nothing more.
-        self._app.action(WHISPER_LINK_ACTION_ID)(self._on_private_link)
+        self._app.action(WHISPER_LINK_ACTION_ID)(self._on_whisper_link)
         self._app.view(FORM_CALLBACK)(self._on_view)
         # Message shortcuts are the thread-aware command entry (Slack forbids
         # custom slash commands in threads); one handler for the whole family.
@@ -134,7 +136,7 @@ class SlackInteractions:
         except Exception:
             logger.exception("failed to handle Slack block action")
 
-    async def _on_private_link(self, ack) -> None:
+    async def _on_whisper_link(self, ack) -> None:
         await ack()
 
     async def _on_view(self, ack, body: dict) -> None:
@@ -178,22 +180,22 @@ class SlackInteractions:
             # buttons are stripped from here only when the click landed on a
             # request that no longer exists.
             #
-            # A card shown to the clicker alone (ephemeral) can be rewritten
-            # only through the URL this click offers: the client is handed it
-            # before the answer lands, so the broker's rewrite finds it. A
-            # click on such a card after the question closed is answered in
-            # its place — the card itself could not be retired.
-            whispered = _whispered_card(body)
-            if whispered and isinstance(self._poster, SlackChatClient):
-                self._poster.card_clicked(whispered, str(body.get("response_url") or ""))
+            # A card shown to the clicker alone (ephemeral) is kept by nobody:
+            # the broker's rewrite cannot reach it, and it runs wherever the
+            # turn runs — not necessarily here. The one way to the card is the
+            # URL this click offers, so this click is what tells the person:
+            # the verdict in place of the card, or that the question is over.
+            whispered = _whispered(body)
+            response_url = str(body.get("response_url") or "")
             outcome = await self._dispatcher.resolve_approval(approval, value, user_id, gateway=GATEWAY_SLACK)
             if outcome is ApprovalOutcome.NOT_MINE:
-                if whispered:
-                    # Retired through the URL just handed over: the one way
-                    # to the card, spent on telling the person.
-                    await self._poster.retract(whispered, CARD_OVER_TEXT)
+                if whispered and response_url:
+                    await _replace_from_click(self._webhooks(response_url), CARD_OVER_TEXT)
                 else:
                     await self._strip_buttons(body, BUTTONS_RETIRED_TEXT)
+            elif outcome is ApprovalOutcome.RESOLVED and whispered and response_url:
+                _, words = verdict_of(decide(value, user_id))
+                await _replace_from_click(self._webhooks(response_url), words)
             elif outcome is ApprovalOutcome.NOT_ALLOWED:
                 # Told off privately; the card stays live for the person it is
                 # addressed to — the same answer the HTTP receiver gives.

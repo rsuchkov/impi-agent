@@ -166,9 +166,9 @@ logger = logging.getLogger(__name__)
 
 def _keying(settings: ImpiSettings) -> ConversationKey:
     """How a conversation is keyed: the platform's id, or — with
-    SHARED_CONVERSATION_PER_AUTHOR — a channel's and a thread's per person
+    CHANNEL_CONVERSATION_PER_AUTHOR — a channel's and a thread's per person
     who speaks to the agent there."""
-    return AuthorKey() if settings.shared_conversation_per_author else PlatformKey()
+    return AuthorKey() if settings.channel_conversation_per_author else PlatformKey()
 
 
 def _trace_exporter(settings: ImpiSettings) -> "OtelTelemetry | None":

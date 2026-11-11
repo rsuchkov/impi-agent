@@ -1234,7 +1234,7 @@ def test_shared_conversation_per_author_picks_the_author_key_everywhere(tmp_path
     off = build_app(base)
     sink = next(iter(off.sinks_by_agent.values())).sink
     assert isinstance(sink._keying, PlatformKey) and isinstance(off.units[0].flow._keying, PlatformKey)  # type: ignore[attr-defined]  # noqa: SLF001
-    on = build_app(base.model_copy(update={"shared_conversation_per_author": True}))
+    on = build_app(base.model_copy(update={"channel_conversation_per_author": True}))
     sink = next(iter(on.sinks_by_agent.values())).sink
     assert isinstance(sink._keying, AuthorKey) and isinstance(on.units[0].flow._keying, AuthorKey)  # type: ignore[attr-defined]  # noqa: SLF001
 

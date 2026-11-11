@@ -263,13 +263,13 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   it. Where other people read — a channel, a thread in one — the gate puts
   the card in front of the asker alone instead, on the gateway they spoke
   through, where the client implements `WhisperedCards`
-  (`whisper_confirmation(ref, user_id, card, actions)`; the bundled
+  (`whisper_confirmation(ref, user_id, card, actions, *, callback_url)`; the bundled
   Slack and Mattermost clients do, as an ephemeral post in the thread). Such
-  a post is kept by nobody, so `update_confirmation` and `retract` on its id
-  rewrite it where the platform can — Slack, through the URL a click on it
-  offers — and leave it as it is where it cannot (Mattermost: the click's
-  reply says the verdict, `ActionCallback.whispered`); a click on it once the
-  question is over is answered with `CARD_OVER_TEXT`. A direct message, a
+  a post is kept by nobody: `update_confirmation` and `retract` on its id do
+  nothing, and the click is what tells the person — on Slack it replaces the
+  card with the verdict through the click's own URL, on Mattermost the
+  click's reply says it beside the card (`ActionCallback.whispered`); a
+  click on it once the question is over is answered with `CARD_OVER_TEXT`. A direct message, a
   card addressed to `TOOL_APPROVERS`, a copy on another gateway and a client
   without the verb get the card in the open as before, and so does one whose
   platform refuses the whisper (a Mattermost bot without the
@@ -437,7 +437,7 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   through (`msg.gateway`), so a source can entitle a conversation on Slack to
   fewer tools than one on Mattermost; `GatewayEntitlements`
   (`crucible.conversation_profiles`) is that source over the agent's own
-  `runtime.tools_by_gateway`, and takes an `inner` source to join with — the
+  `runtime.tools_by_gateway` and `runtime.tools_in_channels`, and takes an `inner` source to join with — the
   tools both allow, the inner's instructions — for an application with rules of
   its own as well. The inner source is called with `tools=` the gateway's
   ceiling (`entitlement(agent, msg, *, tools=None)`), so instructions that
@@ -973,7 +973,9 @@ credential, is another user's credential.
   `no_code`, `provider_unavailable`, `failed`) with `account`/`detail` for a
   refused account, and `start_again` — and answers with a response of its own:
   its words, a picture, its own content-security policy; the flow adds the
-  no-store/no-referrer/nosniff headers where the page set none), and
+  no-store/no-referrer/nosniff headers, and the strict policy, where the page
+  set none; `account`, `detail` and the connected account's names are the
+  provider's words — escape them), and
   an `AccountPolicy` whose `refusal(owner, provider, account, facts)` says why
   an account may not be bound to that person, or None (`account.extra`
   holds the userinfo fields the provider was asked to keep,

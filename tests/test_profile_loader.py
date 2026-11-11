@@ -384,14 +384,14 @@ def test_tools_in_shared_narrows_what_a_room_may_use_in_the_same_forms(tmp_path:
         _write_agent(root, name, f"name: {name}\nrole: r\nruntime:\n" + block)
         return FsProfileStore(root, library=None).get(name)
 
-    assert spec_of("  tools: [read, bash, write]\n  tools_in_shared: [read]\n", "a1").tools_in_shared == ("read",)
-    assert spec_of("  tools: [read, bash, write]\n  tools_in_shared: {except: [bash, write]}\n", "a2").tools_in_shared == ("read",)
-    assert spec_of("  tools: [read]\n", "a3").tools_in_shared is None  # not named: no narrowing
-    assert spec_of("  tools: [read]\n  tools_in_shared: []\n", "a4").tools_in_shared == ()  # named empty: no tool in a room
+    assert spec_of("  tools: [read, bash, write]\n  tools_in_channels: [read]\n", "a1").tools_in_channels == ("read",)
+    assert spec_of("  tools: [read, bash, write]\n  tools_in_channels: {except: [bash, write]}\n", "a2").tools_in_channels == ("read",)
+    assert spec_of("  tools: [read]\n", "a3").tools_in_channels is None  # not named: no narrowing
+    assert spec_of("  tools: [read]\n  tools_in_channels: []\n", "a4").tools_in_channels == ()  # named empty: no tool in a room
     for n, (block, said) in enumerate([
-        ("  tools: [read]\n  tools_in_shared: [bash]\n", "runtime.tools_in_shared names 'bash', which runtime.tools does not"),
-        ("  tools: [read]\n  tools_in_shared: {except: [bash]}\n", "runtime.tools_in_shared.except names 'bash'"),
-        ("  tools: [read]\n  tools_in_shared: read\n", "runtime.tools_in_shared must be a list of tool names"),
+        ("  tools: [read]\n  tools_in_channels: [bash]\n", "runtime.tools_in_channels names 'bash', which runtime.tools does not"),
+        ("  tools: [read]\n  tools_in_channels: {except: [bash]}\n", "runtime.tools_in_channels.except names 'bash'"),
+        ("  tools: [read]\n  tools_in_channels: read\n", "runtime.tools_in_channels must be a list of tool names"),
     ]):
         with pytest.raises(ProfileError, match=said):
             spec_of(block, name=f"bad{n}")

@@ -52,7 +52,7 @@ runtime:
   #                          #   stopped at tokens_per_turn, a day's rules (UTC) let no turn run once spent (budget_spent)
   # thinking: medium         # optional; off | minimal | low | medium | high | xhigh | max — lower it when answers get truncated
   tools: [read, bash]        # the ONE allowlist (see "Tool gating")
-  # tools_in_shared: [...]   # optional; a channel or a thread, on any gateway, gets only these of `tools` ({except: [...]} too)
+  # tools_in_channels: [...]   # optional; a channel or a thread, on any gateway, gets only these of `tools` ({except: [...]} too)
   # tools_by_gateway:        # optional; an agent on several gateways allowed less on one:
   #   slack: [read]          #   a gateway named here gets only these of `tools`, or
   #   http: {except: [bash]} #   all but these; one not named gets them all

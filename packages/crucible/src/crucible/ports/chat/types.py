@@ -440,3 +440,10 @@ class IncomingMessage:
     @property
     def conversation_id(self) -> str:
         return self.ref.conversation_id
+
+    @property
+    def direct(self) -> bool:
+        """Whether the conversation is the person's and the agent's alone: a
+        direct message, by the gateway's word or the conversation's kind. A
+        channel and its threads are read by others."""
+        return self.is_dm or self.kind == KIND_DM

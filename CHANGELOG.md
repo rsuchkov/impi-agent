@@ -19,17 +19,20 @@ when a release is cut, and `impi update` shows the target version's section.
   message, which this is not. A direct message, a card addressed to
   `TOOL_APPROVERS`, a copy on another gateway and a client without the verb
   are asked as before — as is a conversation whose platform refuses the
-  private post (a Mattermost bot without `create_post_ephemeral`), with a
-  warning in the log. The platform keeps no such post, so what becomes of
-  the card afterwards is the platform's: on Slack a click offers a URL the
-  verdict is written through (`SlackChatClient.card_clicked`), and a card
-  nobody clicked stays as it was when the question closed; on Mattermost the
-  card cannot be rewritten at all, and the click's reply says what it
-  decided ("Allowed once", "Denied"), seen by the clicker alone. A click on
-  such a card after the question closed — expired, withdrawn, answered
-  elsewhere — is answered in its place with `CARD_OVER_TEXT`: ask the agent
-  again. A Mattermost click says it came from such a card by
-  `ActionCallback.whispered` (`WHISPERED_KEY` in the action's context).
+  whisper (a Mattermost bot without `create_post_ephemeral`), with a
+  warning in the log. The platform keeps no such post, so the gate's rewrite
+  cannot reach it, and the click is what tells the person: on Slack the
+  click replaces the card with its verdict ("Allowed once", "Denied")
+  through the URL the click offers, on Mattermost the click's reply says it
+  beside the card, seen by the clicker alone; a card nobody clicked stays as
+  it was when the question closed. A click on such a card after the
+  question closed — expired, withdrawn, answered elsewhere — is answered in
+  its place with `CARD_OVER_TEXT`: ask the agent again. A Mattermost click
+  says it came from such a card by `ActionCallback.whispered`
+  (`WHISPERED_KEY` in the action's context); a Slack one by its container.
+  `IncomingMessage.direct` says whether a conversation is the person's and
+  the agent's alone, the one spelling of what the flow, the keying and the
+  entitlements each wrote out before.
 - **A thread's conversation per person, where other people read.**
   `AuthorKey` (`crucible.ports.chat.keying`) keys a channel, or a thread in
   one, by the platform's id and the author: each person who speaks to the
@@ -38,11 +41,11 @@ when a release is cut, and `impi update` shows the target version's section.
   words, and what the model learned with one person's rights stays with them;
   the thread's replies — everyone's — reach the session as context as they
   always have, and the answer goes in the thread. A direct message keeps the
-  platform's id. `impi`: `SHARED_CONVERSATION_PER_AUTHOR` (off by default).
-- **`runtime.tools_in_shared`: fewer tools where other people read.** A
-  channel, or a thread in one, on any gateway, gets only the tools this list
+  platform's id. `impi`: `CHANNEL_CONVERSATION_PER_AUTHOR` (off by default).
+- **`runtime.tools_in_channels`: fewer tools in a channel.** A channel, or
+  a thread in one, on any gateway, gets only the tools this list
   names (or all but `except`), joined with the gateway's own list; a direct
-  message keeps the gateway's. `AgentSpec.tools_in_shared`.
+  message keeps the gateway's. `AgentSpec.tools_in_channels`.
 - **Slack: a mention in a channel comes as `app_mention`.** The gateway
   listens for it beside `message`, so an app that answers mentions alone
   subscribes to `app_mention` and not to every channel message; a post that
@@ -55,10 +58,12 @@ when a release is cut, and `impi update` shows the target version's section.
   `foreign`, `rejected`, `account_refused`, or `not_a_connect`, `no_code`,
   `provider_unavailable`, `failed`), `account`/`detail` for a refused account
   and `start_again` — and answers with a response of its own: its words, the
-  provider's picture, its own content-security policy. The flow around it
-  (the state, the refusals, the no-store/no-referrer/nosniff headers, no
-  access log) stays the engine's, so an application no longer copies it for a
-  page of its own. `DefaultCallbackPage` is the page as before.
+  provider's picture, its own content-security policy (the strict one where
+  it set none). The flow around it (the state, the refusals, the
+  no-store/no-referrer/nosniff headers, no access log) stays the engine's, so
+  an application no longer copies it for a page of its own; `account`,
+  `detail` and the connected account's names are the provider's words, for
+  the page to escape. `DefaultCallbackPage` is the page as before.
 
 ## v0.50.1 — 2026-11-11
 
@@ -412,7 +417,7 @@ when a release is cut, and `impi update` shows the target version's section.
   sign-in at an identity provider the application knows and the engine does
   not; the recipe is in building-an-app.md and connections.md.
 - **A word to one person in a conversation.** Chat clients may implement
-  `WhisperedNotices.whisper_notice(ref, user_id, text, *, code, link,
+  `PrivateNotices.post_private_notice(ref, user_id, text, *, code, link,
   label)`; the bundled four do — an ephemeral post with a URL button on Slack,
   with a markdown link on Mattermost, a journal event and a frame with `link`
   and `label` on http and ws. The flow uses it for a turn not admitted; a

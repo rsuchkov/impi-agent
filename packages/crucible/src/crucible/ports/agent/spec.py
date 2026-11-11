@@ -94,9 +94,9 @@ class AgentSpec:
     # (a subset of ``tools``, checked when the profile loads); one not named
     # gets them all. Empty: every gateway gets every tool.
     tools_by_gateway: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    # The tools a conversation other people can read — a channel, a thread —
-    # may use, on any gateway (``runtime.tools_in_shared``); None = no narrowing.
-    tools_in_shared: tuple[str, ...] | None = None
+    # The tools a channel's conversation — the channel, a thread in it — may
+    # use, on any gateway (``runtime.tools_in_channels``); None = no narrowing.
+    tools_in_channels: tuple[str, ...] | None = None
     # Skill references this agent gets: absolute paths (resolved by the store) or
     # bare names the runtime resolves to its own skill layout. No ambient
     # discovery — an agent gets exactly these.

@@ -219,9 +219,9 @@ class FsProfileStore:
                     "(but `mcp__<server>__*`), no +/- edits of the runtime's defaults"
                 )
         tools_by_gateway = _tools_by_gateway(manifest, runtime.get("tools_by_gateway"), tuple(tools))
-        tools_in_shared = (
-            _narrowing_list(manifest, "runtime.tools_in_shared", runtime.get("tools_in_shared"), tuple(tools))
-            if runtime.get("tools_in_shared") is not None else None
+        tools_in_channels = (
+            _narrowing_list(manifest, "runtime.tools_in_channels", runtime.get("tools_in_channels"), tuple(tools))
+            if runtime.get("tools_in_channels") is not None else None
         )
         skills = runtime.get("skills") or []
         if not isinstance(skills, list) or not all(isinstance(s, str) for s in skills):
@@ -308,7 +308,7 @@ class FsProfileStore:
             thinking=thinking,
             tools=tuple(tools),
             tools_by_gateway=tools_by_gateway,
-            tools_in_shared=tools_in_shared,
+            tools_in_channels=tools_in_channels,
             skills=skill_paths,
             inherit=inherit,
             confinement=confinement,

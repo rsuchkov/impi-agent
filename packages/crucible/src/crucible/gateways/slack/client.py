@@ -4,13 +4,10 @@ verbs (post_actions/retract/open_dialog)."""
 
 import logging
 import re
-from collections import OrderedDict
-from collections.abc import Callable
 
 import aiohttp
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
-from slack_sdk.webhook.async_client import AsyncWebhookClient
 
 from crucible.approvals.card import card_markdown
 from crucible.gateways.slack.events import ts_time
@@ -41,11 +38,10 @@ logger = logging.getLogger(__name__)
 MESSAGE_ID_SEP = "\x1f"
 # The id of a card posted to one person alone (whisper_confirmation)
 # carries this mark: Slack keeps no such message, so chat.update cannot reach
-# it — only the response URL a click on it offers can, for a while.
+# it — the verbs that rewrite leave it. Only a click on it offers a way to
+# it, a response URL, and the click handler (slack/interactions) spends that
+# on the verdict.
 _WHISPERED_PREFIX = "whispered:"
-# How many whispered cards' click URLs are kept. A URL is good for half an hour
-# and the card is rewritten once; the cap is against a leak, not a budget.
-_CLICKED_CARDS = 64
 
 
 def _shared_files(message: dict) -> str:
@@ -80,23 +76,7 @@ def chunk_text(text: str, limit: int) -> list[str]:
 
 # The action id of the link button in a whispered notice: Slack reports the click
 # of a URL button like any other, and the app acks it and does nothing else.
-WHISPER_LINK_ACTION_ID = "private_link"
-
-
-def whispered_post_id(channel: str, ts: str) -> str:
-    """The id of a message shown to one person alone: marked, so the verbs
-    that rewrite know chat.update cannot reach it."""
-    return f"{_WHISPERED_PREFIX}{channel}{MESSAGE_ID_SEP}{ts}"
-
-
-async def _respond(webhook: AsyncWebhookClient, text: str, blocks: list) -> None:
-    """Rewrite the message a click came from through its response URL — the
-    one way to a message Slack shows to one person alone. Best-effort: the
-    URL is good for half an hour and a handful of uses."""
-    try:
-        await webhook.send(text=text, blocks=blocks, replace_original=True)
-    except Exception:
-        logger.debug("response_url rewrite failed", exc_info=True)
+WHISPER_LINK_ACTION_ID = "whisper_link"
 
 
 class SlackChatClient:
@@ -106,14 +86,9 @@ class SlackChatClient:
         *,
         max_post_chars: int = 3500,
         agent_sessions: bool = False,
-        webhooks: Callable[[str], AsyncWebhookClient] = AsyncWebhookClient,
     ) -> None:
         self._client = client
         self._max_post_chars = max_post_chars
-        # Opens a response URL: the one way to a message shown to one person.
-        self._webhooks = webhooks
-        # whispered card id -> the response URL its last click offered
-        self._clicked: OrderedDict[str, str] = OrderedDict()
         # Whether this bot is an agent in Slack's Agents panel (the app has
         # ``agent_view``): then a turn's conversation is marked ``processing``
         # and gets Slack's Stop button. A plain bot has no session to mark.
@@ -296,8 +271,8 @@ class SlackChatClient:
         self, ref: ConversationRef, user_id: str, card: ApprovalCard, actions: list[Action], *, callback_url: str
     ) -> str:
         # An ephemeral message in the thread, seen by user_id alone, drawn as
-        # a card is. Slack keeps no such message: it is rewritten through the
-        # response URL a click on it offers (card_clicked), and not otherwise.
+        # a card is. Slack keeps no such message: nothing here can rewrite it
+        # afterwards; a click on it is answered by the click handler.
         resp = await self._client.chat_postEphemeral(
             channel=ref.channel_id,
             user=user_id,
@@ -305,17 +280,7 @@ class SlackChatClient:
             text=markdown_to_mrkdwn(card_markdown(card)),
             blocks=build_confirmation_blocks(card, actions),
         )
-        return whispered_post_id(ref.channel_id, str(resp.get("message_ts", "")))
-
-    def card_clicked(self, post_id: str, response_url: str) -> None:
-        """A click on a whispered card offered ``response_url``: the way the
-        verdict reaches the card once whoever asked has it."""
-        if not response_url:
-            return
-        self._clicked[post_id] = response_url
-        self._clicked.move_to_end(post_id)
-        while len(self._clicked) > _CLICKED_CARDS:
-            self._clicked.popitem(last=False)
+        return f"{_WHISPERED_PREFIX}{ref.channel_id}{MESSAGE_ID_SEP}{resp.get('message_ts', '')}"
 
     async def update_confirmation(
         self,
@@ -367,12 +332,7 @@ class SlackChatClient:
 
     async def _rewrite(self, post_id: str, text: str, blocks: list) -> None:
         if post_id.startswith(_WHISPERED_PREFIX):
-            # Seen by one person: reached through the URL their click offered,
-            # or not at all — a card nobody clicked stays as it was.
-            response_url = self._clicked.pop(post_id, "")
-            if response_url:
-                await _respond(self._webhooks(response_url), text, blocks)
-            return
+            return  # seen by one person, kept by nobody: nothing to rewrite
         channel, _, ts = post_id.partition(MESSAGE_ID_SEP)
         if not ts:
             return

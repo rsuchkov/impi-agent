@@ -251,12 +251,28 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
 - **In a channel or a thread the card was seen by the asker alone** (an
   ephemeral post, "only visible to you") — working as designed: where other
   people read, the question goes to the person whose message the turn
-  answers. On Slack the verdict replaces the card once it is clicked; a card
+  answers. The platform keeps no such post, so the click is what tells the
+  person: on Slack the click replaces the card with "Allowed once" /
+  "Denied", on Mattermost the click's reply says it beside the card; a card
   nobody clicked keeps its buttons after the question closed, and a click
-  then says "This card is no longer live — ask the agent again". On
-  Mattermost the card is never rewritten (the platform keeps no such post):
-  the click's reply says "Allowed once" / "Denied", or that the card is no
-  longer live. A card addressed to `TOOL_APPROVERS` stays in the open.
+  then says "This card is no longer live — ask the agent again". A card
+  addressed to `TOOL_APPROVERS` stays in the open. **The card appeared in the
+  open in a channel instead**, log `tool gate: could not ask … alone on
+  mattermost; asking in the open` — the bot lacks the `create_post_ephemeral`
+  permission (`mmctl permissions add system_user create_post_ephemeral`).
+- **Slack: the bot does not answer a mention in a channel** — the app lacks
+  the `app_mention` event subscription (scope `app_mentions:read`; or
+  `message.channels`, which brings every channel message to the engine);
+  a mention posted by a workflow or another app is a bot's and is not
+  answered by design.
+- **In a thread the agent answers one person as if another had not spoken to
+  it** — `CHANNEL_CONVERSATION_PER_AUTHOR=true` (off by default): in a channel or
+  a thread each person who speaks to the agent has a session of their own, so
+  what the model did with one person's rights is not retold to another; the
+  thread's replies — everyone's — still reach each session as context, and the
+  session id carries the person's id (`<agent>--<thread>-<user>-…` in the log).
+  Working as designed; turn it off where one shared memory per thread is wanted
+  and nobody's own credentials are in play.
 
 In order:
 

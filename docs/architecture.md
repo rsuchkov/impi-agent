@@ -244,7 +244,7 @@ text for a channel — that is the adapter's call.
 | `post_confirmation` | an `ApprovalCard` — who asks, what for, fields, a verbatim block, danger, deadline | adapter: Markdown on Mattermost, Block Kit fields on Slack, a `confirmation` event on http | the tool gate; the secret broker's request and its auto-grant notice (no actions: told, not asked) |
 | `update_confirmation` | the same card rewritten — a verdict, a folded notice | same adapter, same message | a confirmation answered, expired or withdrawn (the tool gate's and the broker's alike); a run of auto-grants folded into one message |
 | `retract` | one sentence in place of the controls | adapter | a model question (`post_actions`) that is no longer open |
-| `whisper_confirmation` (`WhisperedCards`, optional) | the same `ApprovalCard`, to one person | adapter: an ephemeral post in the thread on Slack and Mattermost | the tool gate where other people read — the asker alone sees the question; rewritten afterwards only where the platform can |
+| `whisper_confirmation` (`WhisperedCards`, optional) | the same `ApprovalCard`, to one person | adapter: an ephemeral post in the thread on Slack and Mattermost | the tool gate where other people read — the asker alone sees the question; the platform keeps no such post, so the click answers it (the verdict in its place on Slack, beside it on Mattermost) |
 | `post_cards` / `update_cards` | `Card`s with Markdown text, actions and, for a turn in flight, `steps` (Slack: a plan block; Mattermost: lines) | adapter | screens (`ScreenRegistry`); the tool trace's progress message |
 | `delete_post` | a post the engine made, now over | adapter | the progress message when the turn ends (`TOOL_TRACE_AFTER=nothing`) |
 
