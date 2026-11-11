@@ -22,7 +22,7 @@ from collections.abc import Awaitable, Callable
 from aiohttp import web
 from aiohttp.abc import AbstractAccessLogger
 
-from crucible.approvals import ApprovalOutcome
+from crucible.approvals import ApprovalOutcome, decide, verdict_of
 from crucible.constant_time import matches_any
 from crucible.interactions.callbacks import CallbackCodec, CommandCallback
 from crucible.interactions.dispatcher import InteractionDispatcher
@@ -31,6 +31,7 @@ from crucible.interactions.results import ActionResult
 from crucible.ports.chat.types import (
     AGENT_UNAVAILABLE_TEXT,
     BUTTONS_RETIRED_TEXT,
+    CARD_OVER_TEXT,
     COMMAND_ACK_TEXT,
     KIND_CHANNEL,
     KIND_DM,
@@ -209,7 +210,9 @@ class InteractionsServer:
         # because it is the only click whose answer may depend on WHO sent it;
         # the blocking confirm below takes any click that carries its token and
         # leaves nothing behind. Whatever raised the request rewrites its own
-        # card once it has the answer, so nothing is replaced from here.
+        # card once it has the answer, so nothing is replaced from here — except
+        # a card shown to the clicker alone, which the platform cannot rewrite:
+        # the reply says what the click decided, or that the question is over.
         if cb.approval:
             outcome = await self._dispatcher.resolve_approval(
                 cb.approval, cb.value, cb.user_id, gateway=self._codec.gateway
@@ -217,7 +220,12 @@ class InteractionsServer:
             if outcome is ApprovalOutcome.NOT_ALLOWED:
                 return web.json_response(self._codec.reply_notice(NOT_AN_APPROVER_TEXT))
             if outcome is ApprovalOutcome.RESOLVED:
+                if cb.whispered:
+                    _, words = verdict_of(decide(cb.value, cb.user_id))
+                    return web.json_response(self._codec.reply_notice(words))
                 return web.json_response(self._codec.reply_none())
+            if cb.whispered:
+                return web.json_response(self._codec.reply_notice(CARD_OVER_TEXT))
             return web.json_response(self._codec.reply_replace(BUTTONS_RETIRED_TEXT))
 
         # A screen redraws itself in place: no turn, and the message it came from

@@ -48,7 +48,7 @@ from crucible.ports.agent.events import (
 )
 from crucible.ports.agent.runtime import TokenUsage
 from crucible.ports.attachments import FileKeeper, ReceivedFiles
-from crucible.ports.chat.client import ChatClient, ConversationView, PrivateNotices
+from crucible.ports.chat.client import ChatClient, ConversationView, WhisperedNotices
 from crucible.ports.chat.context import ContextSource, HistorySource
 from crucible.ports.chat.flow import Joined, TurnOutcome
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
@@ -585,9 +585,9 @@ class AgentFlow:
     async def _tell_not_admitted(self, chat: ChatClient, msg: IncomingMessage, verdict: NotAdmitted) -> None:
         # A message with no author (an engine-started turn from a dispatcher
         # that named nobody) has nobody to be told alone.
-        if msg.user_id and isinstance(chat, PrivateNotices):
+        if msg.user_id and isinstance(chat, WhisperedNotices):
             try:
-                await chat.post_private_notice(
+                await chat.whisper_notice(
                     msg.ref, msg.user_id, verdict.text, code=verdict.code, link=verdict.link, label=verdict.label,
                 )
                 return

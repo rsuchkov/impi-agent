@@ -2471,7 +2471,7 @@ class _PrivateChat(FakeChat):
         super().__init__()
         self.private: list[tuple[str, str, str, str, str, str]] = []  # (message id, user, text, code, link, label)
 
-    async def post_private_notice(self, ref, user_id, text, *, code="", link="", label=""):
+    async def whisper_notice(self, ref, user_id, text, *, code="", link="", label=""):
         self.private.append((ref.message_id, user_id, text, code, link, label))
 
 
@@ -2561,7 +2561,7 @@ async def test_a_verdict_with_a_code_of_its_own_is_told_and_recorded_under_it(tm
         assert code == "budget_spent"  # the verdict's word, not the engine's generic one
         (event,) = telemetry.events
         assert isinstance(event, TurnEnded) and event.notice == "budget_spent"
-        # Without a private word the notice goes out in the open under the same code.
+        # Without a whisper the notice goes out in the open under the same code.
         plain = FakeChat()
         assert await flow.handle(_dm2("hi again", "m-again"), plain) is TurnOutcome.NOT_ADMITTED
         assert plain.notice_codes[-1] == "budget_spent"
@@ -2591,7 +2591,7 @@ async def test_a_client_that_cannot_speak_to_one_person_is_told_in_the_open_with
     verdict = NotAdmitted("Sign in first.", link="https://idp.example/s")
     flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", admission=_Admission({"u1": verdict}))
     try:
-        chat = FakeChat()  # no PrivateNotices
+        chat = FakeChat()  # no WhisperedNotices
         with caplog.at_level("WARNING"):
             assert await flow.handle(_dm("hello"), chat) is TurnOutcome.NOT_ADMITTED
         assert chat.notices == [(_dm().ref, "Sign in first.")] and chat.notice_codes == [NOTICE_NOT_ADMITTED]
@@ -2625,7 +2625,7 @@ async def test_a_private_word_that_fails_is_said_in_the_open_without_the_link(tm
     # A bot without the platform's permission for an ephemeral post: the person
     # still gets the sentence, the link stays back, the turn is not an error.
     class _Deaf(_PrivateChat):
-        async def post_private_notice(self, ref, user_id, text, *, code="", link="", label=""):
+        async def whisper_notice(self, ref, user_id, text, *, code="", link="", label=""):
             raise RuntimeError("create_post_ephemeral: permission denied")
 
     runtime = FakeRuntime()

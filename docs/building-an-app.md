@@ -260,7 +260,21 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   native Block Kit fields, the http gateway as a `confirmation` event. Once
   answered, expired or withdrawn, the same post is rewritten with the verdict
   as a card again (`update_confirmation`, no actions left), its facts still on
-  it. The preview's `title` is the card's `title` (drawn as the `Action` row,
+  it. Where other people read — a channel, a thread in one — the gate puts
+  the card in front of the asker alone instead, on the gateway they spoke
+  through, where the client implements `WhisperedCards`
+  (`whisper_confirmation(ref, user_id, card, actions)`; the bundled
+  Slack and Mattermost clients do, as an ephemeral post in the thread). Such
+  a post is kept by nobody, so `update_confirmation` and `retract` on its id
+  rewrite it where the platform can — Slack, through the URL a click on it
+  offers — and leave it as it is where it cannot (Mattermost: the click's
+  reply says the verdict, `ActionCallback.whispered`); a click on it once the
+  question is over is answered with `CARD_OVER_TEXT`. A direct message, a
+  card addressed to `TOOL_APPROVERS`, a copy on another gateway and a client
+  without the verb get the card in the open as before, and so does one whose
+  platform refuses the whisper (a Mattermost bot without the
+  `create_post_ephemeral` permission): the question is asked either way.
+  The preview's `title` is the card's `title` (drawn as the `Action` row,
   the first), not part of the headline: the headline is the engine's sentence,
   every value is the tool's text and takes the channel's hardening. A program
   reading the card gets `title` and `tool` as fields of their own and `fields`
@@ -460,7 +474,7 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   there is somewhere to go, the URL for them alone (a sign-in) and the word on
   its button. The flow then runs nothing — no prompt, no process, no reaction —
   and tells the person privately where the platform lets one person be told
-  (`PrivateNotices`, below), with the link; the turn's outcome is
+  (`WhisperedNotices`, below), with the link; the turn's outcome is
   `TurnOutcome.NOT_ADMITTED`, its notice code `not_admitted` (or the verdict's own
   `NotAdmitted.code`), and a scheduled
   run ends as `not_admitted`. The engine's own rule of this kind is the budget
@@ -488,8 +502,8 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   compares the account the provider names with the chat user's own facts (an
   email) so the sign-in is bound to the person who wrote. Nothing of the
   provider's name reaches the engine ([connections.md](connections.md)).
-- **A word to one person.** A chat client may implement `PrivateNotices`
-  (`crucible.ports.chat.client`): `post_private_notice(ref, user_id, text, *,
+- **A word to one person.** A chat client may implement `WhisperedNotices`
+  (`crucible.ports.chat.client`): `whisper_notice(ref, user_id, text, *,
   code, link, label)` — a notice seen by that person alone, with a link they
   alone may follow. The bundled clients do: an ephemeral post with a URL button
   on Slack, an ephemeral post with a markdown link on Mattermost, a `notice`
@@ -497,7 +511,7 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   frame (each reaches one program anyway). A client without it is never asked;
   the flow then says the text in the open with `post_notice` and keeps the
   link to itself, with a warning in the log — and does the same when the
-  private word fails: on Mattermost the bot needs the `create_post_ephemeral`
+  whisper fails: on Mattermost the bot needs the `create_post_ephemeral`
   permission ([creating-agents.md](creating-agents.md)), and without it the
   person still gets the sentence, in the open. `ChatAdmin.post_ephemeral` is
   the tools' plain ephemeral post and knows neither code nor link.

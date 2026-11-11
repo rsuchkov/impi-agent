@@ -2,6 +2,7 @@
 
 import logging
 import re
+from dataclasses import replace
 from typing import Any, BinaryIO, cast
 
 from mattermostautodriver import AsyncTypedDriver
@@ -9,8 +10,9 @@ from mattermostautodriver import AsyncTypedDriver
 from crucible.approvals.card import card_markdown
 from crucible.gateways.mattermost.dialogs import build_dialog
 from crucible.gateways.mattermost.events import PROPS_KEY, post_time
+from crucible.interactions.callbacks import WHISPERED_KEY
 from crucible.ports.chat.admin import ChannelMember
-from crucible.ports.chat.client import PRIVATE_LINK_LABEL
+from crucible.ports.chat.client import WHISPER_LINK_LABEL
 from crucible.ports.chat.types import (
     ACTION_CHANNEL_SELECT,
     ACTION_SELECT,
@@ -38,6 +40,11 @@ _MENU_KINDS = frozenset({ACTION_SELECT, *PICKER_KINDS})
 _MM_MENU = "select"
 _MM_BUTTON = "button"
 _MM_DATA_SOURCES = {ACTION_USER_SELECT: "users", ACTION_CHANNEL_SELECT: "channels"}
+# The id of a card posted to one person alone (whisper_confirmation)
+# carries this mark: Mattermost keeps no such post, so a rewrite by its id
+# is refused by the API and fails in a click's reply alike — the mark is how
+# the verbs that rewrite know to leave it.
+_WHISPERED_PREFIX = "whispered:"
 
 
 def chunk_text(text: str, limit: int) -> list[str]:
@@ -259,6 +266,25 @@ class MattermostChatClient:
         # answers as the message's attachment buttons.
         return await self.post_actions(ref, card_markdown(card), actions, callback_url=callback_url)
 
+    async def whisper_confirmation(
+        self, ref: ConversationRef, user_id: str, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        # An ephemeral post in the thread, seen by user_id alone. Its buttons
+        # work (the click carries what the post said), but the post itself is
+        # kept by nobody: each action is marked whispered, so the click's reply
+        # says what it decided, and the id comes back marked so a rewrite
+        # leaves it as it is.
+        marked = [replace(a, context={**a.context, WHISPERED_KEY: "1"}) for a in actions]
+        post: dict[str, Any] = {
+            "channel_id": ref.channel_id,
+            "message": card_markdown(card),
+            "props": {"attachments": [{"actions": _attachment_actions(marked, callback_url)}]},
+        }
+        if ref.thread_root_id:
+            post["root_id"] = ref.thread_root_id
+        created = await self._driver.posts.create_post_ephemeral(user_id=user_id, post=post)
+        return f"{_WHISPERED_PREFIX}{created['id']}"
+
     async def update_confirmation(
         self,
         post_id: str,
@@ -267,6 +293,8 @@ class MattermostChatClient:
         *,
         callback_url: str = "",
     ) -> None:
+        if post_id.startswith(_WHISPERED_PREFIX):
+            return  # seen by one person, kept by nobody: nothing to rewrite
         attachments = (
             [{"actions": _attachment_actions(list(actions), callback_url)}] if actions else []
         )
@@ -314,6 +342,8 @@ class MattermostChatClient:
         # error on a stale click). props is a JSON object here — the driver
         # mistypes patch_post's props as str (create_post types it dict), so the
         # ignore is a library-typing gap, not our bug.
+        if post_id.startswith(_WHISPERED_PREFIX):
+            return  # seen by one person, kept by nobody: nothing to rewrite
         await self._driver.posts.patch_post(
             post_id,
             message=text,
@@ -407,13 +437,13 @@ class MattermostChatClient:
             user_id=user_id, post={"channel_id": channel_id, "message": message}
         )
 
-    async def post_private_notice(
+    async def whisper_notice(
         self, ref: ConversationRef, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "",
     ) -> None:
         # An ephemeral post where the person wrote — in the thread when they
         # did. Mattermost has no button that opens a URL, so the link is a
         # markdown link under the text.
-        message = f"{text}\n\n[{label or PRIVATE_LINK_LABEL}]({link})" if link else text
+        message = f"{text}\n\n[{label or WHISPER_LINK_LABEL}]({link})" if link else text
         post: dict[str, str] = {"channel_id": ref.channel_id, "message": message}
         if ref.thread_root_id:
             post["root_id"] = ref.thread_root_id

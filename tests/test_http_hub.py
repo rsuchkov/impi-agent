@@ -1664,10 +1664,10 @@ async def test_a_private_notice_reaches_the_callers_journal_with_its_link() -> N
     # The journal is the caller's alone, so the notice is private as it is;
     # the link and its label ride beside the text, for the program to show.
     async def refused(msg, chat):
-        await chat.post_private_notice(
+        await chat.whisper_notice(
             msg.ref, msg.user_id, "Sign in to go on.", code="not_admitted", link="https://idp.example/s", label="Sign in",
         )
-        await chat.post_private_notice(msg.ref, msg.user_id, "Plain.", code="not_admitted")
+        await chat.whisper_notice(msg.ref, msg.user_id, "Plain.", code="not_admitted")
         return TurnOutcome.NOT_ADMITTED
 
     hub, _ = _hub(8487, script=refused)

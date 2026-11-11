@@ -36,6 +36,16 @@ class ActionCallback:
     # the conversation and leaves nothing behind, while these are answered with
     # a duration and may open a window.
     approval: str = ""
+    # Set when the card clicked was shown to the clicker alone and its platform
+    # cannot rewrite it by its id (``WHISPERED_KEY`` in the action's context, put
+    # there at post time): nothing retires the card, so the click's own reply
+    # says what it decided.
+    whispered: bool = False
+
+
+# The context key a client marks a whispered card's actions with — Mattermost,
+# whose click says nothing else about the post it came from.
+WHISPERED_KEY = "whispered"
 
 
 @dataclass(frozen=True)

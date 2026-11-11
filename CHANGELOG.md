@@ -6,6 +6,30 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A tool's card where other people read is whispered to the asker.** In a
+  channel, or a thread in one, the gate shows the confirmation to the person
+  whose message the turn answers and to nobody else — an ephemeral post in
+  the thread, on the gateway they spoke through — where the chat client can
+  (`WhisperedCards`, `crucible.ports.chat.client`: `whisper_confirmation`;
+  the Slack and Mattermost clients do). **Breaks:** the word for "to one
+  person inside a conversation" is *whisper* throughout: `PrivateNotices` is
+  `WhisperedNotices`, `post_private_notice` is `whisper_notice`,
+  `PRIVATE_LINK_LABEL`/`PRIVATE_LINK_ACTION_ID` are
+  `WHISPER_LINK_LABEL`/`WHISPER_LINK_ACTION_ID` — "private" read as a direct
+  message, which this is not. A direct message, a card addressed to
+  `TOOL_APPROVERS`, a copy on another gateway and a client without the verb
+  are asked as before — as is a conversation whose platform refuses the
+  private post (a Mattermost bot without `create_post_ephemeral`), with a
+  warning in the log. The platform keeps no such post, so what becomes of
+  the card afterwards is the platform's: on Slack a click offers a URL the
+  verdict is written through (`SlackChatClient.card_clicked`), and a card
+  nobody clicked stays as it was when the question closed; on Mattermost the
+  card cannot be rewritten at all, and the click's reply says what it
+  decided ("Allowed once", "Denied"), seen by the clicker alone. A click on
+  such a card after the question closed — expired, withdrawn, answered
+  elsewhere — is answered in its place with `CARD_OVER_TEXT`: ask the agent
+  again. A Mattermost click says it came from such a card by
+  `ActionCallback.whispered` (`WHISPERED_KEY` in the action's context).
 - **A thread's conversation per person, where other people read.**
   `AuthorKey` (`crucible.ports.chat.keying`) keys a channel, or a thread in
   one, by the platform's id and the author: each person who speaks to the
@@ -388,7 +412,7 @@ when a release is cut, and `impi update` shows the target version's section.
   sign-in at an identity provider the application knows and the engine does
   not; the recipe is in building-an-app.md and connections.md.
 - **A word to one person in a conversation.** Chat clients may implement
-  `PrivateNotices.post_private_notice(ref, user_id, text, *, code, link,
+  `WhisperedNotices.whisper_notice(ref, user_id, text, *, code, link,
   label)`; the bundled four do — an ephemeral post with a URL button on Slack,
   with a markdown link on Mattermost, a journal event and a frame with `link`
   and `label` on http and ws. The flow uses it for a turn not admitted; a

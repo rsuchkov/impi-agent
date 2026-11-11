@@ -418,8 +418,8 @@ async def test_a_private_notice_is_a_notice_frame_with_its_link() -> None:
         async with aiohttp.ClientSession() as session:
             ws = await _connect(session, 8476, "tok-1")
             ref = ConversationRef("one:user-7", "one:user-7", "m")
-            await chat.post_private_notice(ref, "user-7", "Sign in first.", code="not_admitted", link="https://idp.example/s", label="Sign in")
-            await chat.post_private_notice(ref, "user-7", "Not now.", code="not_admitted")
+            await chat.whisper_notice(ref, "user-7", "Sign in first.", code="not_admitted", link="https://idp.example/s", label="Sign in")
+            await chat.whisper_notice(ref, "user-7", "Not now.", code="not_admitted")
             assert await ws.receive_json(timeout=2) == {
                 "type": "notice", "agent": "helper", "conversation_id": "user-7", "text": "Sign in first.",
                 "code": "not_admitted", "link": "https://idp.example/s", "label": "Sign in",

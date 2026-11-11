@@ -248,6 +248,15 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   clicking from another gateway is another id to the engine unless the
   application maps them (`PersonKey`); impi does not, so answer the copy on the
   gateway the turn was asked from.
+- **In a channel or a thread the card was seen by the asker alone** (an
+  ephemeral post, "only visible to you") — working as designed: where other
+  people read, the question goes to the person whose message the turn
+  answers. On Slack the verdict replaces the card once it is clicked; a card
+  nobody clicked keeps its buttons after the question closed, and a click
+  then says "This card is no longer live — ask the agent again". On
+  Mattermost the card is never rewritten (the platform keeps no such post):
+  the click's reply says "Allowed once" / "Denied", or that the card is no
+  longer live. A card addressed to `TOOL_APPROVERS` stays in the open.
 
 In order:
 

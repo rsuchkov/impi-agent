@@ -50,9 +50,10 @@ from crucible.approvals import (
 from crucible.interactions.presence import AgentPresence
 from crucible.interactions.service import turn_ref
 from crucible.ports.agent.events import CallAwaiting
-from crucible.ports.chat.client import ChatClient, ConversationView
+from crucible.ports.chat.client import ChatClient, ConversationView, WhisperedCards
 from crucible.ports.chat.keying import PersonKey, PlatformPerson
 from crucible.ports.chat.types import (
+    KIND_DM,
     VERDICT_EXPIRED,
     VERDICT_WITHDRAWN,
     ApprovalCard,
@@ -246,8 +247,9 @@ class ToolGate:
         # in no gateway yet is asked where it last spoke.
         place = self._places.place(runtime_session_id) if self._places is not None else None
         posters: list[tuple[str, ChatClient]] = []
+        addresses = gateway_addresses(record) if record is not None else {}
         if record is not None:
-            for gateway in sorted(gateway_addresses(record)) or [record.last_gateway]:
+            for gateway in sorted(addresses) or [record.last_gateway]:
                 poster = self._presence.poster(agent, gateway)
                 if poster is not None:
                     posters.append((gateway, poster))
@@ -286,10 +288,33 @@ class ToolGate:
         # in a conversation with no turn there, whose status is nobody's to
         # change (it would be left "working" with nothing working).
         running_on = place.gateway if place is not None else record.last_gateway
+        # Where other people read — a channel, a thread in one — the question
+        # is put in front of the asker alone, on the gateway they are on and
+        # where the platform can do that (WhisperedCards): the people around
+        # could not answer it anyway, and need not watch it. A card addressed
+        # to named approvers stays in the open: they are not the asker.
+        whisper_to = record.last_user_id if not self._approvers else ""
         for gateway, poster in posters:
             ref = turn_ref(record, gateway, place)
+            address = addresses.get(gateway)
+            direct = address.direct if address is not None else record.kind == KIND_DM
             try:
-                post_id = await poster.post_confirmation(ref, card, actions, callback_url=self._callback_url)
+                post_id = ""
+                if whisper_to and not direct and gateway == person_gateway and isinstance(poster, WhisperedCards):
+                    try:
+                        post_id = await poster.whisper_confirmation(
+                            ref, whisper_to, card, actions, callback_url=self._callback_url
+                        )
+                    except Exception:
+                        # The platform would not (a bot without the permission
+                        # to address one person): the question still has to be
+                        # asked, so it is asked in the open, as it always was.
+                        logger.warning(
+                            "tool gate: could not ask %s alone on %s; asking in the open",
+                            whisper_to, gateway or "-", exc_info=True,
+                        )
+                if not post_id:
+                    post_id = await poster.post_confirmation(ref, card, actions, callback_url=self._callback_url)
             except Exception:
                 logger.warning(
                     "tool gate: could not post the question on %s", gateway or "-", exc_info=True

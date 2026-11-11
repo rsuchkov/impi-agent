@@ -28,6 +28,10 @@ COMMAND_ACK_TEXT = "Working on it — the answer will appear in this conversatio
 AGENT_UNAVAILABLE_TEXT = "The agent is currently unavailable."
 NOT_AN_APPROVER_TEXT = "Only an approver can answer that request."
 BUTTONS_RETIRED_TEXT = "These buttons are no longer active."
+# A click on a card its platform could not retire — one shown to one person
+# alone, left as it was when the question closed: the click is what tells
+# them, and what to do next.
+CARD_OVER_TEXT = "This card is no longer live — ask the agent again if it still needs an answer."
 
 
 @dataclass(frozen=True)

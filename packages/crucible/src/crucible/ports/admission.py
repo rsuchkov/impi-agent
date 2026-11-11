@@ -8,7 +8,7 @@ in expect a person to sign in again every few hours — answers from the message
 that opens the turn: admitted, or not, with a word for the person and a link
 only they may follow (a sign-in). The flow then runs no turn: nothing is
 rendered, no process starts, and the person is told privately
-(``ports.chat.client.PrivateNotices``); the turn's outcome is
+(``ports.chat.client.WhisperedNotices``); the turn's outcome is
 ``TurnOutcome.NOT_ADMITTED`` and its notice code ``NOTICE_NOT_ADMITTED``.
 
 Asked once per author of the turn's messages, every turn, synthetic messages

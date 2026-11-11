@@ -9,6 +9,7 @@ ephemeral shapes. This is the ONLY place that shape lives.
 """
 
 from crucible.interactions.callbacks import (
+    WHISPERED_KEY,
     ActionCallback,
     CommandCallback,
     DialogCallback,
@@ -35,6 +36,7 @@ class MattermostCallbackCodec:
             # Set by the engine at post time: MM echoes the whole context back, so
             # a picker's own context says what kind of id came back.
             pick=str(context.get("pick") or ""),
+            whispered=bool(context.get(WHISPERED_KEY)),
             # A screen's click carries its own routing in the same context, and MM
             # names the post it came from — that's the message to redraw.
             screen=str(context.get("screen") or ""),

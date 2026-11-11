@@ -166,13 +166,13 @@ class ConversationView(Protocol):
         ...
 
 
-# The word on a private notice's link where the platform draws a button and
+# The word on a whispered notice's link where the platform draws a button and
 # the notice names none.
-PRIVATE_LINK_LABEL = "Open"
+WHISPER_LINK_LABEL = "Open"
 
 
 @runtime_checkable
-class PrivateNotices(Protocol):
+class WhisperedNotices(Protocol):
     """A word to one person in a conversation, seen by them alone. A client
     implements this where its platform can address one person inside a
     conversation (an ephemeral post, on Slack and Mattermost) or where the
@@ -182,7 +182,7 @@ class PrivateNotices(Protocol):
     (a sign-in). A client without it is never asked; the flow then says in the
     open what it can, and keeps the link to itself."""
 
-    async def post_private_notice(
+    async def whisper_notice(
         self, ref: ConversationRef, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "",
     ) -> None:
         """``text`` to ``user_id`` in the conversation ``ref`` names — markdown,
@@ -190,6 +190,30 @@ class PrivateNotices(Protocol):
         it is; this is a sentence the application wrote); ``code`` as for
         ``post_notice``; ``link`` a URL for that person alone, shown as a
         button where the platform has one (``label`` its word,
-        ``PRIVATE_LINK_LABEL`` when "") and as a link in the text where it has
+        ``WHISPER_LINK_LABEL`` when "") and as a link in the text where it has
         not."""
+        ...
+
+
+@runtime_checkable
+class WhisperedCards(Protocol):
+    """A request for one person's yes, shown to them alone where other people
+    read. A client implements this where its platform can put a message with
+    buttons in front of one person inside a conversation (an ephemeral post,
+    on Slack and Mattermost). The tool gate uses it in a channel or a thread:
+    the question goes to the person who asked, not to everyone there. A
+    client without it is asked the way it always was, ``post_confirmation``.
+
+    What such a card can become afterwards is the platform's: a message only
+    one person sees is kept by nobody, so the platform may have no way to
+    rewrite it by its id. ``update_confirmation`` and ``retract`` on the id
+    returned here rewrite the card where the platform can — Slack can, once
+    the person has clicked it — and leave it as it is where it cannot; the
+    click's own reply then says what was decided."""
+
+    async def whisper_confirmation(
+        self, ref: ConversationRef, user_id: str, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        """As ``post_confirmation``, to ``user_id`` alone, in the conversation
+        ``ref`` names. Returns the posted message id."""
         ...
