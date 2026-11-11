@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.50.1 — 2026-11-11
+
 - **Fixed: the wrap-up note after a message joined the turn.** v0.50.0 started
   a new wrap-up stretch at the read, counted from the read but with the whole
   turn's card waits subtracted, and under a timeout that stays the turn's —
