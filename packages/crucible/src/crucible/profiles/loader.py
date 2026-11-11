@@ -219,6 +219,10 @@ class FsProfileStore:
                     "(but `mcp__<server>__*`), no +/- edits of the runtime's defaults"
                 )
         tools_by_gateway = _tools_by_gateway(manifest, runtime.get("tools_by_gateway"), tuple(tools))
+        tools_in_shared = (
+            _narrowing_list(manifest, "runtime.tools_in_shared", runtime.get("tools_in_shared"), tuple(tools))
+            if runtime.get("tools_in_shared") is not None else None
+        )
         skills = runtime.get("skills") or []
         if not isinstance(skills, list) or not all(isinstance(s, str) for s in skills):
             raise ProfileError(f"{manifest}: runtime.skills must be a list of strings")
@@ -304,6 +308,7 @@ class FsProfileStore:
             thinking=thinking,
             tools=tuple(tools),
             tools_by_gateway=tools_by_gateway,
+            tools_in_shared=tools_in_shared,
             skills=skill_paths,
             inherit=inherit,
             confinement=confinement,
@@ -485,29 +490,30 @@ def _tools_by_gateway(
                 f"{manifest}: runtime.tools_by_gateway names {gateway!r}; a gateway is one of "
                 f"{', '.join((*GATEWAY_KINDS, GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION))}"
             )
-        if isinstance(names, dict):
-            if set(names) != {"except"} or not isinstance(names["except"], list) or not all(isinstance(n, str) for n in names["except"]):
-                raise ProfileError(
-                    f"{manifest}: runtime.tools_by_gateway.{gateway} is a list of tool names, or {{except: [names]}}"
-                )
-            for name in names["except"]:
-                if name not in tools:
-                    raise ProfileError(
-                        f"{manifest}: runtime.tools_by_gateway.{gateway}.except names {name!r}, which runtime.tools does "
-                        "not list as written"
-                    )
-            names = [t for t in tools if t not in names["except"]]
-        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
-            raise ProfileError(f"{manifest}: runtime.tools_by_gateway.{gateway} must be a list of tool names, or {{except: [names]}}")
-        for name in names:
-            if name in tools:
-                continue
-            of_server = _MCP_TOOL_OF.match(name)
-            if of_server and f"mcp__{of_server.group(1)}__*" in tools:
-                continue
-            raise ProfileError(
-                f"{manifest}: runtime.tools_by_gateway.{gateway} names {name!r}, which runtime.tools does not: "
-                "a gateway's list narrows the agent's, it cannot add to it"
-            )
-        out.append((gateway, tuple(names)))
+        out.append((gateway, _narrowing_list(manifest, f"runtime.tools_by_gateway.{gateway}", names, tools)))
     return tuple(out)
+
+
+def _narrowing_list(manifest: Path, where: str, raw: object, tools: tuple[str, ...]) -> tuple[str, ...]:
+    """A list that narrows ``runtime.tools``: names from it (or of an MCP
+    server's tools whose ``mcp__<server>__*`` is there), or ``{except:
+    [names]}`` for every entry but those, unrolled here so a tool added to
+    ``runtime.tools`` later is in the narrowed list too."""
+    names = raw
+    if isinstance(names, dict):
+        if set(names) != {"except"} or not isinstance(names["except"], list) or not all(isinstance(n, str) for n in names["except"]):
+            raise ProfileError(f"{manifest}: {where} is a list of tool names, or {{except: [names]}}")
+        for name in names["except"]:
+            if name not in tools:
+                raise ProfileError(f"{manifest}: {where}.except names {name!r}, which runtime.tools does not list as written")
+        names = [t for t in tools if t not in names["except"]]
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        raise ProfileError(f"{manifest}: {where} must be a list of tool names, or {{except: [names]}}")
+    for name in names:
+        if name in tools:
+            continue
+        of_server = _MCP_TOOL_OF.match(name)
+        if of_server and f"mcp__{of_server.group(1)}__*" in tools:
+            continue
+        raise ProfileError(f"{manifest}: {where} names {name!r}, which runtime.tools does not: a narrowing list cannot add to it")
+    return tuple(names)

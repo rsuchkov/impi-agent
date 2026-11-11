@@ -6,6 +6,24 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **A thread's conversation per person, where other people read.**
+  `AuthorKey` (`crucible.ports.chat.keying`) keys a channel, or a thread in
+  one, by the platform's id and the author: each person who speaks to the
+  agent there has a session of their own, so a batch is never several
+  people's, the turn never runs with one person's credentials for another's
+  words, and what the model learned with one person's rights stays with them;
+  the thread's replies — everyone's — reach the session as context as they
+  always have, and the answer goes in the thread. A direct message keeps the
+  platform's id. `impi`: `SHARED_CONVERSATION_PER_AUTHOR` (off by default).
+- **`runtime.tools_in_shared`: fewer tools where other people read.** A
+  channel, or a thread in one, on any gateway, gets only the tools this list
+  names (or all but `except`), joined with the gateway's own list; a direct
+  message keeps the gateway's. `AgentSpec.tools_in_shared`.
+- **Slack: a mention in a channel comes as `app_mention`.** The gateway
+  listens for it beside `message`, so an app that answers mentions alone
+  subscribes to `app_mention` and not to every channel message; a post that
+  arrives by both subscriptions is taken once; a mention from a workflow or
+  another app is a bot's and is not answered.
 - **The connect callback's page is the application's to draw.**
   `CallbackServer(…, page=)` takes a `CallbackPage` whose `render(outcome)`
   gets how the connect ended — a `CallbackOutcome` with the `Connected` record

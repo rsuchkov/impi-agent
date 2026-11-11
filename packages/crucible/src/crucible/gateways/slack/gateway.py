@@ -8,6 +8,7 @@ transport-neutral InteractionDispatcher over the WebSocket instead of HTTP.
 """
 
 import logging
+from collections import OrderedDict
 from dataclasses import replace
 
 from aiohttp import ClientSession
@@ -34,6 +35,9 @@ from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
 
 logger = logging.getLogger(__name__)
+
+# How many posts the gateway remembers having taken, for a mention that arrives twice.
+_SEEN_POSTS = 512
 
 __all__ = ["DEFAULT_COMMAND_SHORTCUT_PREFIX", "SlackGateway"]
 
@@ -81,7 +85,8 @@ class SlackGateway:
         self._loop_guard = loop_guard
         self._reply_to_agents = reply_to_agents
         self._attachments = attachments
-        self._keying: ConversationKey = keying or PlatformKey()  # the conversation a file belongs to
+        self._keying: ConversationKey = keying or PlatformKey()
+        self._seen: OrderedDict[tuple[str, str], None] = OrderedDict()  # the conversation a file belongs to
         self._own_user_id = ""
         self._own_bot_id = ""
         # The interactive half, kept apart: clicks, modals, shortcuts and slash
@@ -127,13 +132,17 @@ class SlackGateway:
 
     def _register(self) -> None:
         """What this gateway takes from the app: the ``message`` event, the
-        agent panel's events, and — through ``interactions`` and ``reactions``
-        — engine widgets (``cruxw…`` actions, the ``crux_form`` view), the
-        prefixed shortcuts, every slash command and ``reaction_added``. Bolt
-        gives a request to the first listener that matches, in order of
-        registration: an application that registers its own listeners on the
-        app before handing it over keeps them."""
+        ``app_mention`` event (a mention in a channel, for an app subscribed
+        to mentions alone rather than to every channel message; one that is
+        subscribed to both sees a mention twice and the gateway takes it
+        once), the agent panel's events, and — through ``interactions`` and
+        ``reactions`` — engine widgets (``cruxw…`` actions, the ``crux_form``
+        view), the prefixed shortcuts, every slash command and
+        ``reaction_added``. Bolt gives a request to the first listener that
+        matches, in order of registration: an application that registers its
+        own listeners on the app before handing it over keeps them."""
         self._app.event("message")(self._on_message)
+        self._app.event("app_mention")(self._on_message)
         self._app.event("app_home_opened")(self._on_home_opened)
         self._app.event("app_context_changed")(self._on_context_changed)
         self._app.event("agent_session_stopped")(self._on_session_stopped)
@@ -188,13 +197,25 @@ class SlackGateway:
 
     async def _handle_message(self, event: dict) -> None:
         msg = event_to_incoming(event, self._own_user_id, self._own_bot_id, dm_thread=self._dm_thread)
-        if msg is None:
+        if msg is None or self._seen_before(msg):
             return
         decided = self._decide(msg)
         if decided is None:
             return
         decided = await self._with_attachments(decided)
         self._sink.submit(decided, self._chat)
+
+    def _seen_before(self, msg: IncomingMessage) -> bool:
+        """The same post again — a mention Slack sent as ``app_mention`` and as
+        ``message`` both, to an app subscribed to both. Known by channel and
+        ts; the last few hundred are remembered."""
+        key = (msg.channel_id, msg.ref.message_id)
+        if key in self._seen:
+            return True
+        self._seen[key] = None
+        while len(self._seen) > _SEEN_POSTS:
+            self._seen.popitem(last=False)
+        return False
 
     async def _with_attachments(self, msg: IncomingMessage) -> IncomingMessage:
         """Download whatever the sender attached, so the message carries local

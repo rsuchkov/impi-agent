@@ -1227,6 +1227,18 @@ async def test_join_running_turns_reaches_the_coalescer_and_the_http_hub(tmp_pat
             os.environ["HTTP_CALLER_TOKEN__PORTAL"] = saved
 
 
+def test_shared_conversation_per_author_picks_the_author_key_everywhere(tmp_path: Path) -> None:
+    from crucible.ports.chat.keying import AuthorKey, PlatformKey
+
+    base = _settings(tmp_path)
+    off = build_app(base)
+    sink = next(iter(off.sinks_by_agent.values())).sink
+    assert isinstance(sink._keying, PlatformKey) and isinstance(off.units[0].flow._keying, PlatformKey)  # type: ignore[attr-defined]  # noqa: SLF001
+    on = build_app(base.model_copy(update={"shared_conversation_per_author": True}))
+    sink = next(iter(on.sinks_by_agent.values())).sink
+    assert isinstance(sink._keying, AuthorKey) and isinstance(on.units[0].flow._keying, AuthorKey)  # type: ignore[attr-defined]  # noqa: SLF001
+
+
 def test_impi_hands_one_telemetry_to_every_producer(tmp_path: Path) -> None:
     from impi.telemetry import LogTelemetry
 

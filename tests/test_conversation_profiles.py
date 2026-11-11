@@ -175,6 +175,20 @@ async def test_the_gateway_source_entitles_a_conversation_to_what_its_gateway_ma
     assert inner.ceilings[-1] is None and on_mm.tools == ("read", "bash")  # no ceiling there; the inner's answer stands
     with_ceiling = await GatewayEntitlements(lambda _: spec).entitlement("assistant", msg("mattermost"), tools=("read",))
     assert with_ceiling.tools == ("read",)  # a ceiling handed in narrows the gateway's answer too
+    # Where other people read — a channel, a thread — ``tools_in_shared`` narrows again, on any gateway;
+    # a direct message, and a thread answering one, keeps the gateway's list.
+    from crucible.ports.chat.types import KIND_DM, KIND_THREAD
+
+    shared_spec = dataclasses.replace(spec, tools_in_shared=("read", "bash"))
+    in_rooms = GatewayEntitlements(lambda _: shared_spec)
+    channel = dataclasses.replace(msg("slack"), kind="channel")
+    thread = dataclasses.replace(msg("mattermost"), kind=KIND_THREAD)
+    direct = dataclasses.replace(msg("slack"), kind=KIND_DM, is_dm=True)
+    dm_thread = dataclasses.replace(msg("slack"), kind=KIND_DM, is_dm=True)
+    assert (await in_rooms.entitlement("assistant", channel)).tools == ("read",)  # slack's list and the shared one
+    assert (await in_rooms.entitlement("assistant", thread)).tools == ("read", "bash")  # no gateway list: the shared one
+    assert (await in_rooms.entitlement("assistant", direct)).tools == ("read", "ask_user_buttons")  # the gateway's alone
+    assert (await in_rooms.entitlement("assistant", dm_thread)).tools == ("read", "ask_user_buttons")
     # And the profile a Slack conversation runs with is the narrowed one.
     scoped = EntitledProfiles(wiring, narrow_pi_profile).build(
         "assistant", _agent_profile(wiring, spec), await source.entitlement("assistant", msg("slack")), "assistant--slack1",

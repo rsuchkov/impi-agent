@@ -378,6 +378,25 @@ def test_runtime_idle_timeout_and_wrap_up_after_are_read_and_checked(tmp_path: P
         FsProfileStore(bad, library=None)
 
 
+def test_tools_in_shared_narrows_what_a_room_may_use_in_the_same_forms(tmp_path: Path) -> None:
+    def spec_of(block: str, name: str = "assistant"):
+        root = tmp_path / name  # a directory each: the store reads every manifest in one
+        _write_agent(root, name, f"name: {name}\nrole: r\nruntime:\n" + block)
+        return FsProfileStore(root, library=None).get(name)
+
+    assert spec_of("  tools: [read, bash, write]\n  tools_in_shared: [read]\n", "a1").tools_in_shared == ("read",)
+    assert spec_of("  tools: [read, bash, write]\n  tools_in_shared: {except: [bash, write]}\n", "a2").tools_in_shared == ("read",)
+    assert spec_of("  tools: [read]\n", "a3").tools_in_shared is None  # not named: no narrowing
+    assert spec_of("  tools: [read]\n  tools_in_shared: []\n", "a4").tools_in_shared == ()  # named empty: no tool in a room
+    for n, (block, said) in enumerate([
+        ("  tools: [read]\n  tools_in_shared: [bash]\n", "runtime.tools_in_shared names 'bash', which runtime.tools does not"),
+        ("  tools: [read]\n  tools_in_shared: {except: [bash]}\n", "runtime.tools_in_shared.except names 'bash'"),
+        ("  tools: [read]\n  tools_in_shared: read\n", "runtime.tools_in_shared must be a list of tool names"),
+    ]):
+        with pytest.raises(ProfileError, match=said):
+            spec_of(block, name=f"bad{n}")
+
+
 def test_tools_by_gateway_narrows_the_agents_list_per_gateway_and_never_widens_it(tmp_path: Path) -> None:
     """A gateway named in the map gets its list, one not named gets the agent's
     whole; a name the agent's list lacks is a profile error, as is a gateway

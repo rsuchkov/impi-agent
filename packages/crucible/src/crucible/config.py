@@ -625,6 +625,13 @@ class Settings(BaseSettings):
     # it — instead of waiting for the next one (chat gateways) or being
     # refused with 409 (http). One the turn ends without reading runs next.
     join_running_turns: bool = False
+    # Whether a conversation other people read — a channel, a thread in one —
+    # is kept per person who speaks to the agent there (``AuthorKey``): their
+    # own session, what the model learned with their rights theirs alone; the
+    # thread's replies reach it as context either way. Off: one session per
+    # thread, as before. Turn it on where an agent acts with people's own
+    # credentials.
+    shared_conversation_per_author: bool = False
     # How often (seconds) the engine's state — sessions alive and busy, turns
     # waiting — is told as telemetry; 0 = never.
     telemetry_state_s: float = Field(default=60.0, ge=0)

@@ -54,6 +54,8 @@ runtime:
   tools_by_gateway:       # optional; a gateway named here gets only these of `tools`
     slack: [read]         #   (a subset), or {except: [bash]} for all but some;
     http: {except: [bash]} #   one not named gets them all
+  tools_in_shared: [read] # optional; a channel or a thread, on any gateway, gets
+                          #   only these (same forms) — a direct message, all of `tools`
   skills: [<name>, ...]   # optional; bare names -> .pi/skills/<name>, or paths
   env: [MYSERVICE_*]      # optional; engine environment variables its process inherits
   confinement: agent      # optional; conversation | agent | off (default: RUNTIME_CONFINEMENT)
@@ -157,7 +159,12 @@ checked when the profile loads — or to `{except: [names]}`, every entry of
 included), which is the form to take a few tools away from one gateway: a
 tool added to `tools` later reaches that gateway without a second edit. A
 gateway not named gets the agent's whole list, `[]` gives a gateway no tool at
-all. A conversation on such a gateway
+all. `runtime.tools_in_shared`, in the same forms, narrows what a conversation
+other people read — a channel, a thread in one — may use, on every gateway:
+the turn there gets the tools on both lists, the gateway's and this one's,
+while a direct message (and a thread answering one) keeps the gateway's list.
+It is where a channel bot keeps to the few tools whose output the room may
+see. A conversation on such a gateway
 runs with a profile narrowed to that list — the runtime's allowlist, the
 manifest the process advertises and the tool server's door all agree — and a
 tool outside it is refused there whatever the process claims. The engine does

@@ -790,7 +790,10 @@ credential, is another user's credential.
   the flow each identity (`add_identity`). When a thread in one chat and a
   dialog in another are one conversation to the person, say so with a
   `ConversationKey` (`ports.chat.keying`) given to the flow, the coalescer and
-  the gateways (`GatewayFactory(keying=…)`, `InternalRoutes(keying=…)`); the
+  the gateways (`GatewayFactory(keying=…)`, `InternalRoutes(keying=…)`) —
+  `AuthorKey` is the ready one that makes a channel or a thread a conversation
+  per person who speaks there, where an agent acts with people's own
+  credentials; the
   engine then runs them through one runtime session, keeps the conversation's
   address on each gateway and saves what people attach under that key, where a
   tool's files directory is. The same person also carries a

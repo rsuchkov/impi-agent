@@ -88,11 +88,11 @@ async def test_the_interactive_half_is_the_shared_one_and_only_with_a_dispatcher
     nobody to route them to, and only the message handler is registered."""
     routed = _gateway(FakeSink(), dispatcher=FakeDispatcher())
     assert isinstance(routed.interactions, SlackInteractions)
-    # message + the agent panel's four events + action + private link + view + shortcut + command
-    assert len(routed._app._async_listeners) == 10
+    # message + app_mention + the agent panel's four events + action + private link + view + shortcut + command
+    assert len(routed._app._async_listeners) == 11
     silent = _gateway(FakeSink(), dispatcher=None)
     assert silent.interactions is None
-    assert len(silent._app._async_listeners) == 5
+    assert len(silent._app._async_listeners) == 6
 
 
 async def test_channel_mention_is_submitted() -> None:
@@ -102,6 +102,28 @@ async def test_channel_mention_is_submitted() -> None:
         {"channel": "C1", "channel_type": "channel", "ts": "1.0", "user": "U2", "text": f"<@{OWN}> hi"}
     )
     assert len(sink.submitted) == 1
+
+
+async def test_an_app_mention_event_is_a_channel_mention_and_the_same_post_twice_is_taken_once() -> None:
+    """An app subscribed to ``app_mention`` alone gets a mention without the
+    channel's every message; the event names no channel type and carries the
+    mention in its text. One subscribed to ``message.channels`` too sees the
+    post twice, with one ts: the second is dropped here. A mention from a
+    workflow or another app is a bot's, and not answered."""
+    sink = FakeSink()
+    gw = _gateway(sink)
+    await gw._handle_message({"type": "app_mention", "channel": "C1", "ts": "2.0", "user": "U2", "text": f"<@{OWN}> create the issue", "thread_ts": "1.5"})
+    (msg,) = sink.submitted
+    assert (msg.mentioned, msg.is_dm, msg.kind, msg.conversation_id, msg.ref.thread_root_id) == (True, False, "thread", "1.5", "1.5")
+    assert msg.text == f"<@{OWN}> create the issue" and msg.user_id == "U2"
+    await gw._handle_message({"type": "message", "channel": "C1", "channel_type": "channel", "ts": "2.0", "user": "U2", "text": f"<@{OWN}> create the issue", "thread_ts": "1.5"})
+    assert len(sink.submitted) == 1  # the same post, by the other subscription
+    await gw._handle_message({"type": "app_mention", "channel": "C1", "ts": "3.0", "bot_id": "B9", "text": f"<@{OWN}> from a workflow"})
+    assert len(sink.submitted) == 1  # a bot's mention is not a person's
+    await gw._handle_message({"type": "app_mention", "channel": "C2", "ts": "2.0", "user": "U2", "text": f"<@{OWN}> elsewhere"})
+    assert len(sink.submitted) == 2  # the same ts in another channel is another post
+    # The gateway listens for both events.
+    assert "app_mention" in str(gw._app._async_listeners) or len(gw._app._async_listeners) >= 6
 
 
 # -- incoming attachments ----------------------------------------------------

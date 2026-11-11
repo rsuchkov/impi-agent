@@ -35,7 +35,7 @@ from crucible.ports.chat.types import (
     QuotedMessage,
 )
 from crucible.ports.entitlement import Entitlement
-from crucible.ports.turn import TurnScope
+from crucible.ports.turn import TurnScope, TurnSecrets
 from crucible.runtimes.pi.errors import PiProcessError, PiStalled, PiTimeout
 from crucible.runtimes.pi.profiles import PiProfile
 from crucible.runtimes.pi.session import PiResult
@@ -2815,4 +2815,42 @@ async def test_the_answer_posted_mid_turn_lands_before_the_final_reply_and_a_fai
     silent.go.set()
     # The answer never reached the person: the turn is as empty as it looks, and says so.
     assert await turn2 is TurnOutcome.EMPTY and chat2.notice_codes == ["empty_answer"]
+    await store.close()
+
+
+async def test_with_the_author_key_each_person_in_a_thread_has_a_session_and_the_threads_replies_are_their_context(tmp_path: Path) -> None:
+    """Two people speak to the agent in one thread: with ``AuthorKey`` each
+    runs in a session of their own — never one batch, never one person's
+    credentials for another's words — while the thread's replies, everyone's,
+    reach each session as context."""
+    from crucible.ports.chat.keying import AuthorKey
+    from crucible.ports.chat.types import KIND_THREAD, PostSnippet
+
+    def in_thread(text: str, user: str, post: str) -> IncomingMessage:
+        return IncomingMessage(
+            ref=ConversationRef(channel_id="C1", conversation_id="1.5", message_id=post, thread_root_id="1.5"),
+            text=text, user_id=user, username=user.lower(), kind=KIND_THREAD, mentioned=True, gateway="slack",
+            turn=TurnScope(turn_id=post, secrets=TurnSecrets({"jira": f"token-of-{user}"})),
+        )
+
+    runtime = FakeRuntime()
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    chat = FakeChat()
+    chat.thread_posts["1.5"] = [
+        PostSnippet(message_id="1.5", username="alice", text="Let us discuss PROJ-7", user_id="U1"),
+        PostSnippet(message_id="1.6", username="bob", text="I think it is a bug", user_id="U2"),
+    ]
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", keying=AuthorKey())
+    await flow.handle(in_thread("create the issue", "U1", "1.7"), chat)
+    await flow.handle(in_thread("and link it to mine", "U2", "1.8"), chat)
+    (alice_session, alice_prompt), (bob_session, bob_prompt) = runtime.calls
+    assert alice_session != bob_session and "1.5-U1" in alice_session and "1.5-U2" in bob_session  # the key, as the runtime spells it
+    # Each first turn replayed the thread — the other person's words included — as context.
+    assert "I think it is a bug" in alice_prompt and "Let us discuss PROJ-7" in bob_prompt
+    assert "create the issue" in alice_prompt and "and link it to mine" in bob_prompt
+    # Both answered in the thread, where the messages are.
+    assert [ref.thread_root_id for ref, _ in chat.replies] == ["1.5", "1.5"]
+    # One record each, under its own key, at the thread's address.
+    records = {r.conversation_id: r for r in await store.list("assistant")}
+    assert set(records) == {"1.5:U1", "1.5:U2"}
     await store.close()

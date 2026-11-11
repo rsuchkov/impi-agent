@@ -100,6 +100,7 @@ from crucible.ports.chat.gateway import (
     GATEWAY_WS,
     AgentIdentity,
 )
+from crucible.ports.chat.keying import AuthorKey, ConversationKey, PlatformKey
 from crucible.ports.lease import Leases
 from crucible.ports.replica import Replica, Replicas
 from crucible.ports.telemetry import CONTENT_NONE, Telemetries, Telemetry
@@ -161,6 +162,13 @@ if TYPE_CHECKING:
     from crucible.telemetry_otel import OtelTelemetry
 
 logger = logging.getLogger(__name__)
+
+
+def _keying(settings: ImpiSettings) -> ConversationKey:
+    """How a conversation is keyed: the platform's id, or — with
+    SHARED_CONVERSATION_PER_AUTHOR — a channel's and a thread's per person
+    who speaks to the agent there."""
+    return AuthorKey() if settings.shared_conversation_per_author else PlatformKey()
 
 
 def _trace_exporter(settings: ImpiSettings) -> "OtelTelemetry | None":
@@ -419,6 +427,7 @@ def _build_unit(
     telemetry: Telemetry | None = None,
     telemetry_content: str = CONTENT_NONE,
     join_running_turns: bool = False,
+    keying: ConversationKey | None = None,
     replica: Replica | None = None,
     replicas: Replicas | None = None,
     forwarder: HubForwarder | None = None,
@@ -432,7 +441,7 @@ def _build_unit(
     flow = AgentFlow(
         runtime, profile, sessions,
         agent_name=spec.name, posting_tools=posting_tools, file_keeper=file_keeper, telemetry=telemetry,
-        telemetry_content=telemetry_content,
+        telemetry_content=telemetry_content, keying=keying,
         received_files_of=received_files_of,
         inline_image_max_bytes=inline_image_max_bytes,
         tracer=tracer,
@@ -456,11 +465,11 @@ def _build_unit(
         # the batch over its hub; a message through a gateway nothing else can
         # answer from takes the conversation here.
         served = OwnedFlow(
-            flow, replicas, replica, forwarder, agent=spec.name, forwarded=CONNECTION_GATEWAYS,
+            flow, replicas, replica, forwarder, agent=spec.name, forwarded=CONNECTION_GATEWAYS, keying=keying,
         )
     coalescer = MessageCoalescer(
         served, on_arrival=interactions.on_arrival_for(spec.name), agent=spec.name,
-        join_running_turns=join_running_turns,
+        join_running_turns=join_running_turns, keying=keying,
     )
     # Record the agent's live presence in the app-owned registry; interactions read
     # it lazily through MappingPresence. One sink, a chat client per gateway, the
@@ -571,7 +580,7 @@ def _build_units(
             captions=captions,
             posting_tools=_posting_tools(tools), tools=tools,
             file_keeper=file_keeper, received_files_of=received_files_of, telemetry=telemetry,
-            telemetry_content=telemetry_content, join_running_turns=settings.join_running_turns,
+            telemetry_content=telemetry_content, join_running_turns=settings.join_running_turns, keying=_keying(settings),
             replica=replica, replicas=replicas, forwarder=forwarder, trusted=trusted,
         )
         for kind in handles:
@@ -850,7 +859,7 @@ def build_app(settings: ImpiSettings) -> App:
             )
         ws_hub = WsHub(
             settings.ws_host, settings.ws_port, ws_services,
-            directory=registry, attachments=attachments,
+            directory=registry, attachments=attachments, keying=_keying(settings),
         )
     # The http hub likewise: a request/turn API for programs that cannot hold a
     # socket; callers authenticate with their own tokens (HTTP_CALLER_TOKEN__*).
@@ -868,7 +877,7 @@ def build_app(settings: ImpiSettings) -> App:
         internal = (
             InternalRoutes(
                 settings.replica_token.strip(), presence,
-                dispatcher=interactions.dispatcher, attachments=attachments,
+                dispatcher=interactions.dispatcher, attachments=attachments, keying=_keying(settings),
             )
             if replica is not None
             else None
@@ -884,7 +893,7 @@ def build_app(settings: ImpiSettings) -> App:
             directory=registry, attachments=attachments,
             dispatcher=interactions.dispatcher, control=runtime,
             max_wait_s=settings.http_max_wait_s,
-            join_running_turns=settings.join_running_turns,
+            join_running_turns=settings.join_running_turns, keying=_keying(settings),
             # `startedSince`: which of a person's conversations the engine
             # started a turn in — a scheduled task, an event — from the inventory.
             engine_turns=engine_turns_lookup(sessions),
@@ -892,7 +901,7 @@ def build_app(settings: ImpiSettings) -> App:
         )
     gateway_factory = GatewayFactory(
         directory=registry, loop_guard=loop_guard, dispatcher=interactions.dispatcher,
-        ws_hub=ws_hub, http_hub=http_hub, attachments=attachments,
+        ws_hub=ws_hub, http_hub=http_hub, attachments=attachments, keying=_keying(settings),
     )
 
     # Only with a dispatcher to route the click to: with interactivity off the

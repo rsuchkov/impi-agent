@@ -403,6 +403,7 @@ decisions an operator makes.
 | server-side confirmation (`requires_confirmation`) | asked in the engine, before the tool runs; fails closed with no gate |
 | per-agent token + per-session proof | a call names an agent and proves a conversation; constant-time checks; a call naming no session is refused |
 | a tool's confirmation is addressed to the person who asked | a stranger who talked the model into a call in a shared channel cannot approve it; `TOOL_APPROVERS` names people instead |
+| a shared conversation per person (`SHARED_CONVERSATION_PER_AUTHOR`, `AuthorKey`) | in a channel or a thread each person who speaks to the agent has a session of their own: a batch is never several people's, a turn never runs with one person's credentials for another's words, and what the model learned with one person's rights is not retold to another. Off by default; turn it on wherever an agent acts with people's own credentials — connected accounts, turn secrets — in rooms others read |
 | the model credential is read-only to every agent process | `pi` runs a key beginning with `!` on every model request, so no confined process or agent container can write the file; the engine refreshes an OAuth login an hour before it expires |
 | the shared-process warning | at startup and in `impi doctor`: which user agents with a shell run unconfined in the engine's process space, and each agent's confinement level |
 | `returns_untrusted` wrapping | other people's text arrives marked as such |

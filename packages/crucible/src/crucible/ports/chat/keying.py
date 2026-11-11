@@ -15,7 +15,7 @@ who may answer a request for authorization.
 
 from typing import Protocol
 
-from crucible.ports.chat.types import IncomingMessage
+from crucible.ports.chat.types import KIND_DM, IncomingMessage
 
 
 class ConversationKey(Protocol):
@@ -32,6 +32,23 @@ class PlatformKey:
 
     def key(self, agent: str, msg: IncomingMessage) -> str:
         return msg.conversation_id
+
+
+class AuthorKey:
+    """A conversation other people read — a channel, a thread in one — is the
+    author's own: keyed by the platform's id and the author, so each person
+    who speaks to the agent there has a session of their own, and what the
+    model learned with one person's rights stays with that person; a direct
+    message (and a thread answering one) is the person's already and keeps the
+    platform's id. The turn still answers in the thread, where the message
+    is, and the thread's replies — everyone's — reach the session as context
+    the way they always have. Nobody's message (no author) keeps the
+    platform's id too."""
+
+    def key(self, agent: str, msg: IncomingMessage) -> str:
+        if msg.is_dm or msg.kind == KIND_DM or not msg.user_id:
+            return msg.conversation_id
+        return f"{msg.conversation_id}:{msg.user_id}"
 
 
 class PersonKey(Protocol):
