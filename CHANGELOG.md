@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.51.0 — 2026-11-11
+
 - **A tool's card where other people read is whispered to the asker.** In a
   channel, or a thread in one, the gate shows the confirmation to the person
   whose message the turn answers and to nobody else — an ephemeral post in
