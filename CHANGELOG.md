@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.52.0 — 2026-11-12
+
 - **Which agents a conversation may ask is the application's to say.**
   `Entitlement(agents=…)` (`crucible.ports.entitlement`) names the agents a
   conversation may hand a task to with `ask_agent` or `delegate` — the
