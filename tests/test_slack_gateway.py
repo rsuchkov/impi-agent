@@ -293,6 +293,7 @@ async def test_the_stop_button_of_the_agent_session_stops_the_threads_turn() -> 
     gw = _gateway(FakeSink(), dispatcher=dispatcher, agent="assistant")
     await gw._on_session_stopped({"channel": "D1", "thread_ts": "1782234671.392669", "user": "U2"})
     assert dispatcher.stopped == [("assistant", "1782234671.392669")]  # the thread is the conversation
+    assert dispatcher.stoppers == ["U2"]  # whoever pressed: the turn is its person's to stop
     await gw._on_session_stopped({"channel": "D1", "user": "U2"})  # no thread: nothing to stop
     assert len(dispatcher.stopped) == 1
     quiet = _gateway(FakeSink(), dispatcher=None)

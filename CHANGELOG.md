@@ -6,7 +6,24 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A stop is the turn's person's word.** `/stop`, a stop reaction and
+  Slack's Stop button name who pressed, and in a channel or a thread only the
+  person whose message the turn answers ends it — anyone else is told "Only
+  the person whose message started this turn can stop it"
+  (`TurnStop.NOT_THEIRS`) and nothing changes; a word nobody signs (a ws
+  `cancel`, the engine's own) still ends it. The Slack agent session's status
+  (`SLACK_AGENT_SESSIONS`) is set in a direct message only: in a channel's
+  thread "processing" and the Stop button were everyone's who read it.
+  **Breaks:** `TurnStopper.stop`/`StoppableSink.stop(conversation_id, *,
+  gateway="", user_id="")` return `TurnStop` (`crucible.ports.chat.flow`,
+  re-exported by `crucible.interactions.results`) instead of a bool;
+  `GatewayDispatcher.stop_turn` takes `user_id=`.
+- **Slack: a whisper goes beside the message until its thread has a reply.**
+  Slack shows an ephemeral message in a thread only once the thread is active;
+  a tool's card or a sign-in notice whispered under a message nobody had
+  answered yet was invisible until the thread was opened by hand, and the
+  message wore no sign of it. The client asks `conversations.replies` first and
+  whispers at the top of the channel while the thread is empty.
 
 ## v0.51.1 — 2026-11-12
 

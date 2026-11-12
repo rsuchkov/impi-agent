@@ -260,6 +260,15 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   open in a channel instead**, log `tool gate: could not ask … alone on
   mattermost; asking in the open` — the bot lacks the `create_post_ephemeral`
   permission (`mmctl permissions add system_user create_post_ephemeral`).
+- **A whisper in Slack (a tool's card, a sign-in notice) appeared beside the
+  message in the channel, not in its thread** — the thread had no reply yet;
+  Slack shows an ephemeral message in a thread only once the thread is active,
+  so the engine whispers at the top of the channel until then. Working as
+  designed.
+- **`/stop`, a stop reaction or Slack's Stop button answered "Only the person
+  whose message started this turn can stop it"** — in a channel or a thread
+  the turn is its person's to end; log `a stop by <user> refused, the turn
+  answers <user>`. Working as designed; a direct message has one person anyway.
 - **Slack: the bot does not answer a mention in a channel** — the app lacks
   the `app_mention` event subscription (scope `app_mentions:read`; or
   `message.channels`, which brings every channel message to the engine);

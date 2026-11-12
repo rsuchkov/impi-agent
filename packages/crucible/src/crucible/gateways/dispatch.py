@@ -63,8 +63,9 @@ class GatewayDispatcher(Protocol):
         to it stops the turn instead of starting one."""
         ...
 
-    async def stop_turn(self, agent: str, conversation_id: str, *, gateway: str = "") -> TurnStop:
-        """Stop the agent's turn in the conversation as ``gateway`` names it."""
+    async def stop_turn(self, agent: str, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
+        """Stop the agent's turn in the conversation as ``gateway`` names it;
+        ``user_id`` is who asks — the turn is its person's to stop."""
         ...
     async def redraw_screen(
         self, state_raw: str, value: str, *, post_id: str, user_id: str

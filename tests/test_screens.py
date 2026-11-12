@@ -443,11 +443,13 @@ async def test_the_stop_command_ends_the_turn_and_answers_privately(tmp_path: Pa
             self.running = running
             self.stopped: list[str] = []
             self.gateways: list[str] = []
+            self.stoppers: list[str] = []
 
-        async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
+        async def stop(self, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
             self.stopped.append(conversation_id)
             self.gateways.append(gateway)
-            return self.running
+            self.stoppers.append(user_id)
+            return TurnStop.STOPPED if self.running else TurnStop.NOTHING_RUNNING
 
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     chat = FakeChat()
@@ -461,6 +463,7 @@ async def test_the_stop_command_ends_the_turn_and_answers_privately(tmp_path: Pa
         )
         assert (opened.owned, opened.answer) == (True, TURN_STOP_ANSWERS[TurnStop.STOPPED])
         assert spy.stopped == ["th1"] and spy.gateways == ["mattermost"] and spy.submitted == []  # the sink does the keying
+        assert spy.stoppers == ["u1"]  # who typed it: the turn is its person's to stop
         assert chat.posted_cards == [] and chat.replies == []  # nothing drawn: the turn says so itself
         idle = StoppableSpy(running=False)
         dispatcher = InteractionDispatcher(store, presence_of(chat, sink=idle), PendingUiRequests(), store, stop_command="stop")

@@ -50,7 +50,7 @@ from crucible.ports.agent.runtime import TokenUsage
 from crucible.ports.attachments import FileKeeper, ReceivedFiles
 from crucible.ports.chat.client import ChatClient, ConversationView, WhisperedNotices
 from crucible.ports.chat.context import ContextSource, HistorySource
-from crucible.ports.chat.flow import Joined, TurnOutcome
+from crucible.ports.chat.flow import Joined, TurnOutcome, TurnStop
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
@@ -663,25 +663,31 @@ class AgentFlow:
                 joined.read.set_result(False)
         facts.joined.clear()
 
-    async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
+    async def stop(self, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
         """Stop the turn running in this conversation (``StoppableSink``): the
         runtime is told to interrupt it, and the turn ends as stopped — what it
         had posted, a notice, a note for the next turn. The conversation is
         named by its key, or with ``gateway`` by the platform's id the turn's
-        message carried. False when no turn is running here or the runtime
-        cannot be told."""
+        message carried. ``NOTHING_RUNNING`` when no turn is running here or
+        the runtime cannot be told; ``NOT_THEIRS`` when ``user_id`` is somebody
+        other than the person the turn answers — in a channel, a thread, the
+        turn is theirs to stop and nobody else's."""
         facts = self._active.get(conversation_id)
         if facts is None and gateway:
             facts = self._active_at.get((gateway, conversation_id))
         if facts is None or self._control is None or not facts.runtime_session_id:
-            return False
+            return TurnStop.NOTHING_RUNNING
+        if user_id and facts.user_id and user_id != facts.user_id:
+            logger.info("turn in %s/%s: a stop by %s refused, the turn answers %s",
+                        self._agent_name, conversation_id, user_id, facts.user_id)
+            return TurnStop.NOT_THEIRS
         cancelled = await self._control.cancel(facts.runtime_session_id)
         # Only a turn the runtime did interrupt ends as stopped: one it had not
         # yet begun runs on and ends on its own terms.
         facts.stopped = cancelled
         logger.info("turn in %s/%s stopped by request (%s)", self._agent_name, conversation_id,
                     "interrupted" if cancelled else "nothing was running")
-        return cancelled
+        return TurnStop.STOPPED if cancelled else TurnStop.NOTHING_RUNNING
 
     async def _end_stopped(
         self, anchor: IncomingMessage, chat: ChatClient, facts: _TurnFacts, text: str,

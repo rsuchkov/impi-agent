@@ -181,8 +181,11 @@ class SlackGateway:
         thread_ts = str(event.get("thread_ts") or "")
         if self._dispatcher is None or not thread_ts:
             return
-        stop = await self._dispatcher.stop_turn(self._agent, thread_ts, gateway=GATEWAY_SLACK)
-        logger.info("Slack agent session %s stopped by %s: %s", thread_ts, event.get("user", "?"), stop.name.lower())
+        # Whoever pressed it: the turn is its person's to stop, and a session
+        # that reached a channel's thread is read by more than them.
+        user_id = str(event.get("user") or "")
+        stop = await self._dispatcher.stop_turn(self._agent, thread_ts, gateway=GATEWAY_SLACK, user_id=user_id)
+        logger.info("Slack agent session %s stopped by %s: %s", thread_ts, user_id or "?", stop.name.lower())
 
     async def _on_session_title_changed(self, event: dict) -> None:
         logger.debug("Slack agent session %s renamed by %s", event.get("thread_ts", "?"), event.get("user", "?"))

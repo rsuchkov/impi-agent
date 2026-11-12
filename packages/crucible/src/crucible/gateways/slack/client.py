@@ -10,7 +10,7 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from crucible.approvals.card import card_markdown
-from crucible.gateways.slack.events import ts_time
+from crucible.gateways.slack.events import is_direct_channel, ts_time
 from crucible.gateways.slack.formatter import markdown_to_mrkdwn
 from crucible.gateways.slack.rendering import (
     build_action_blocks,
@@ -152,8 +152,11 @@ class SlackChatClient:
         message, the one Slack opens under the person's message. Nothing
         without ``agent_sessions``; an app without the feature gets an error
         here, which is logged and nothing else."""
+        # A session is a person's direct message with the bot: in a channel's
+        # thread the status, and the Stop button, would be everyone's who
+        # reads it — the session is not set there.
         thread = ref.thread_root_id or ref.message_id
-        if not self._agent_sessions or not thread:
+        if not self._agent_sessions or not thread or not is_direct_channel(ref.channel_id):
             return
         try:
             await self._client.api_call(
@@ -276,7 +279,7 @@ class SlackChatClient:
         resp = await self._client.chat_postEphemeral(
             channel=ref.channel_id,
             user=user_id,
-            thread_ts=ref.thread_root_id or None,
+            thread_ts=await self._whisper_thread(ref),
             text=markdown_to_mrkdwn(card_markdown(card)),
             blocks=build_confirmation_blocks(card, actions),
         )
@@ -434,10 +437,28 @@ class SlackChatClient:
             }]})
         await self._client.chat_postEphemeral(
             channel=ref.channel_id, user=user_id, text=mrkdwn, blocks=blocks,
-            thread_ts=ref.thread_root_id or None,
+            thread_ts=await self._whisper_thread(ref),
         )
 
     # -- internals ----------------------------------------------------------
+
+    async def _whisper_thread(self, ref: ConversationRef) -> str | None:
+        """Where a whisper goes: the thread the conversation is in, when
+        Slack would show it there — an ephemeral message in a thread is shown
+        only once the thread has a reply; under a message nobody has answered
+        yet it is invisible until the thread is opened by hand, and the message
+        wears no sign of it. Such a whisper goes beside the message, at the
+        top of the channel. A thread the API would not tell about is taken
+        as active, as before."""
+        root = ref.thread_root_id
+        if not root:
+            return None
+        try:
+            resp = await self._client.conversations_replies(channel=ref.channel_id, ts=root, limit=2)
+        except SlackApiError:
+            logger.debug("conversations_replies %s failed; whispering into the thread", root, exc_info=True)
+            return root
+        return root if len(resp.get("messages") or []) > 1 else None
 
     async def _to_snippets(self, messages: list[dict]) -> list[PostSnippet]:
         """Replayed history. A message with files but no text is still something

@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 from crucible.flows.owned import OwnedFlow
-from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.flow import TurnOutcome, TurnStop
 from crucible.ports.chat.types import KIND_DM, ConversationRef, IncomingMessage
 from crucible.ports.replica import ConversationOwner, Replica
 from tests.fakes.fake_chat import FakeChat
@@ -129,9 +129,9 @@ async def test_the_owned_flow_hands_join_and_stop_to_the_flow_behind() -> None:
             self.joined.append(msg.text)
             return Joined(message=msg, read=asyncio.get_running_loop().create_future())
 
-        async def stop(self, conversation_id, *, gateway=""):
+        async def stop(self, conversation_id, *, gateway="", user_id=""):
             self.stopped.append(conversation_id)
-            return True
+            return TurnStop.STOPPED
 
     class _Plain:
         async def handle_batch(self, msgs, chat):
@@ -141,6 +141,6 @@ async def test_the_owned_flow_hands_join_and_stop_to_the_flow_behind() -> None:
     owned = _owned(behind, _Replicas(), _Forwarder())
     msg = _msg()
     assert (await owned.join(msg, FakeChat())) is not None and behind.joined == ["hi"]
-    assert await owned.stop("C1") is True and behind.stopped == ["C1"]
+    assert await owned.stop("C1") is TurnStop.STOPPED and behind.stopped == ["C1"]
     plain = _owned(_Plain(), _Replicas(), _Forwarder())
-    assert await plain.join(msg, FakeChat()) is None and await plain.stop("C1") is False
+    assert await plain.join(msg, FakeChat()) is None and await plain.stop("C1") is TurnStop.UNAVAILABLE

@@ -22,7 +22,7 @@ from crucible.ports.agent.errors import (
     TIMEOUT_MESSAGE,
 )
 from crucible.ports.agent.events import CallAwaiting, ToolFinished, ToolStarted
-from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.flow import TurnOutcome, TurnStop
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
     KIND_DM,
@@ -2045,10 +2045,10 @@ async def test_a_person_stops_the_turn_and_the_next_one_is_told(tmp_path: Path) 
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime, telemetry=telemetry)
     chat = FakeChat()
-    assert await flow.stop("dm1") is False  # nothing running yet
+    assert await flow.stop("dm1") is TurnStop.NOTHING_RUNNING  # nothing running yet
     turn = asyncio.ensure_future(flow.handle(_dm("do a long thing"), chat))
     await asyncio.wait_for(runtime.started.wait(), 1.0)
-    assert await flow.stop("dm1") is True
+    assert await flow.stop("dm1") is TurnStop.STOPPED
     assert await turn is TurnOutcome.STOPPED
     assert runtime.cancelled == ["assistant--dm1"]
     assert chat.replies == [(_dm().ref, "half an answer")]  # what it had
@@ -2057,7 +2057,7 @@ async def test_a_person_stops_the_turn_and_the_next_one_is_told(tmp_path: Path) 
     assert "stopped by the person" in record.cut_short
     (event,) = [e for e in telemetry.events if isinstance(e, TurnEnded)]
     assert (event.outcome, event.notice, event.stop_reason) == ("stopped", NOTICE_STOPPED, "aborted")
-    assert await flow.stop("dm1") is False  # over: nothing to stop
+    assert await flow.stop("dm1") is TurnStop.NOTHING_RUNNING  # over: nothing to stop
     # A runtime that words the interruption as an error: still the person's stop.
     runtime.ended.clear()
 
@@ -2071,12 +2071,12 @@ async def test_a_person_stops_the_turn_and_the_next_one_is_told(tmp_path: Path) 
     chat2 = FakeChat()
     turn = asyncio.ensure_future(flow.handle(dataclasses.replace(_dm("again"), ref=dataclasses.replace(_dm().ref, message_id="p2")), chat2))
     await asyncio.wait_for(runtime.started.wait(), 1.0)
-    assert await flow.stop("dm1") is True
+    assert await flow.stop("dm1") is TurnStop.STOPPED
     assert await turn is TurnOutcome.STOPPED
     assert chat2.replies == [] and chat2.notice_codes == [NOTICE_STOPPED]
     # Without a control there is nothing to stop with.
     plain = AgentFlow(FakeRuntime(), PROFILE, store, agent_name="assistant")
-    assert await plain.stop("dm1") is False
+    assert await plain.stop("dm1") is TurnStop.NOTHING_RUNNING
     await store.close()
 
 
@@ -2173,9 +2173,9 @@ async def test_a_stop_finds_the_turn_by_the_address_its_gateway_knows_and_only_a
     chat = FakeChat()
     turn = asyncio.ensure_future(flow.handle(msg, chat))
     await asyncio.wait_for(runtime.started.wait(), 1.0)
-    assert await flow.stop("dm1") is False  # not the key, and no gateway to read it as an address
-    assert await flow.stop("dm1", gateway="slack") is False  # another gateway's address
-    assert await flow.stop("dm1", gateway="mattermost") is True
+    assert await flow.stop("dm1") is TurnStop.NOTHING_RUNNING  # not the key, and no gateway to read it as an address
+    assert await flow.stop("dm1", gateway="slack") is TurnStop.NOTHING_RUNNING  # another gateway's address
+    assert await flow.stop("dm1", gateway="mattermost") is TurnStop.STOPPED
     assert await turn is TurnOutcome.STOPPED  # a timeout the runtime worded, read as the stop it was
     assert chat.notice_codes == ["stopped"]
     # Nothing to interrupt: the runtime says so, and the turn is not told it was stopped.
@@ -2185,7 +2185,7 @@ async def test_a_stop_finds_the_turn_by_the_address_its_gateway_knows_and_only_a
     again = dataclasses.replace(_dm("again"), ref=dataclasses.replace(_dm().ref, message_id="p2"))
     turn = asyncio.ensure_future(flow2.handle(again, chat2))
     await asyncio.wait_for(runtime2.started.wait(), 1.0)
-    assert await flow2.stop("dm1") is False
+    assert await flow2.stop("dm1") is TurnStop.NOTHING_RUNNING
     assert await turn is TurnOutcome.REPLIED and chat2.replies == [(again.ref, "done anyway")]
     assert (await store.list())[0].cut_short == ""
     await store.close()
@@ -2288,8 +2288,8 @@ async def test_a_stop_finds_the_turn_by_the_thread_or_the_channel_the_anchor_car
     )
     turn = asyncio.ensure_future(flow.handle(msg, FakeChat()))
     await asyncio.wait_for(runtime.started.wait(), 1.0)
-    assert await flow.stop("nowhere", gateway="slack") is False
-    assert await flow.stop("D1", gateway="slack") is True  # the channel, as a /stop typed in the DM names it: the DM is the conversation
+    assert await flow.stop("nowhere", gateway="slack") is TurnStop.NOTHING_RUNNING
+    assert await flow.stop("D1", gateway="slack") is TurnStop.STOPPED  # the channel, as a /stop typed in the DM names it: the DM is the conversation
     assert await turn is TurnOutcome.STOPPED
     assert flow._active_at == {}  # every name let go — the conversation's, the thread's, the channel's
     # A turn answered at the top of a direct message: Slack's session is the message itself.
@@ -2301,7 +2301,7 @@ async def test_a_stop_finds_the_turn_by_the_thread_or_the_channel_the_anchor_car
     )
     turn = asyncio.ensure_future(flow.handle(top, FakeChat()))
     await asyncio.wait_for(runtime.started.wait(), 1.0)
-    assert await flow.stop("1800.1", gateway="slack") is True  # agent_session_stopped names the message's thread_ts
+    assert await flow.stop("1800.1", gateway="slack") is TurnStop.STOPPED  # agent_session_stopped names the message's thread_ts
     assert await turn is TurnOutcome.STOPPED
     await store.close()
 
@@ -2347,8 +2347,8 @@ async def test_a_stop_in_a_channel_does_not_reach_a_thread_of_it(tmp_path: Path)
     )
     turn = asyncio.ensure_future(flow.handle(thread, FakeChat()))
     await asyncio.wait_for(runtime.started.wait(), 1.0)
-    assert await flow.stop("C1", gateway="mattermost") is False  # the channel: not a name of this thread's
-    assert await flow.stop("root1", gateway="mattermost") is True  # the thread itself
+    assert await flow.stop("C1", gateway="mattermost") is TurnStop.NOTHING_RUNNING  # the channel: not a name of this thread's
+    assert await flow.stop("root1", gateway="mattermost") is TurnStop.STOPPED  # the thread itself
     assert await turn is TurnOutcome.STOPPED
     await store.close()
 
@@ -2853,4 +2853,56 @@ async def test_with_the_author_key_each_person_in_a_thread_has_a_session_and_the
     # One record each, under its own key, at the thread's address.
     records = {r.conversation_id: r for r in await store.list("assistant")}
     assert set(records) == {"1.5:U1", "1.5:U2"}
+    await store.close()
+
+
+async def test_a_stop_is_the_turns_persons_word_alone(tmp_path: Path) -> None:
+    """In a channel's thread anyone could press Stop (Slack's session button,
+    a reaction, /stop): the turn answers one person, and only they end it;
+    a word nobody signs — the engine's own — still does."""
+    import asyncio
+
+    class _Interruptible(FakeRuntime):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.cancelled: list[str] = []
+            self.ended = asyncio.Event()
+
+        async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
+            self.calls.append((session_id, message))
+            self.started.set()
+            await self.ended.wait()
+            return PiResult(text="half an answer", stop_reason="aborted")
+
+        async def cancel(self, session_id: str) -> bool:
+            self.cancelled.append(session_id)
+            self.ended.set()
+            return True
+
+        def has_memory(self, agent: str, session_id: str) -> bool:
+            return True
+
+        def memory_updated_at(self, agent: str, session_id: str):
+            return None
+
+        async def reset(self, agent: str, session_id: str) -> None:
+            pass
+
+        def stats(self):
+            raise AssertionError("not asked here")
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    runtime = _Interruptible()
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", control=runtime)
+    msg = IncomingMessage(
+        ref=ConversationRef(channel_id="C1", conversation_id="root1", message_id="m1", thread_root_id="root1"),
+        text="go", user_id="u1", username="roman", kind=KIND_THREAD, gateway="slack",
+    )
+    turn = asyncio.ensure_future(flow.handle(msg, FakeChat()))
+    await asyncio.wait_for(runtime.started.wait(), 1.0)
+    assert await flow.stop("root1", gateway="slack", user_id="u2") is TurnStop.NOT_THEIRS
+    assert runtime.cancelled == []
+    assert await flow.stop("root1", gateway="slack", user_id="u1") is TurnStop.STOPPED
+    assert await turn is TurnOutcome.STOPPED
     await store.close()

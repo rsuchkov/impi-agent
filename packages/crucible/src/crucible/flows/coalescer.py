@@ -18,7 +18,14 @@ import logging
 from collections.abc import Callable
 
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.flow import Flow, Joined, TurnJoiner, TurnOutcome, TurnStopper
+from crucible.ports.chat.flow import (
+    Flow,
+    Joined,
+    TurnJoiner,
+    TurnOutcome,
+    TurnStop,
+    TurnStopper,
+)
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
 
@@ -63,12 +70,12 @@ class MessageCoalescer:
             return None
         return await self._flow.join(msg, chat)
 
-    async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
+    async def stop(self, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
         """``StoppableSink``, for the flow behind: the coalescer is the sink a
         gateway holds, the flow is what runs the turn and can end it."""
         if not isinstance(self._flow, TurnStopper):
-            return False
-        return await self._flow.stop(conversation_id, gateway=gateway)
+            return TurnStop.UNAVAILABLE
+        return await self._flow.stop(conversation_id, gateway=gateway, user_id=user_id)
 
     def submit(self, msg: IncomingMessage, chat: ChatClient) -> None:
         if self._on_arrival is not None and not msg.synthetic:

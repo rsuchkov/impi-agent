@@ -85,7 +85,7 @@ class SlackReactions:
         )
         if command == self._dispatcher.stop_command:
             # The reaction says stop: no turn is started, the one running ends.
-            await self._dispatcher.stop_turn(self._agent, conversation_id, gateway=GATEWAY_SLACK)
+            await self._dispatcher.stop_turn(self._agent, conversation_id, gateway=GATEWAY_SLACK, user_id=reaction.user_id)
             return
         quoted = None
         text = str(message.get("text") or "")

@@ -133,14 +133,14 @@ class InteractionDispatcher:
     def stop_command(self) -> str:
         return self._stop_command
 
-    async def stop_turn(self, agent: str, conversation_id: str, *, gateway: str = "") -> TurnStop:
+    async def stop_turn(self, agent: str, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
         """Stop ``agent``'s turn in flight in ``conversation_id`` — the
-        conversation as ``gateway`` names it; the sink does the keying."""
+        conversation as ``gateway`` names it; the sink does the keying.
+        ``user_id`` is who asks: the turn is its person's to stop."""
         target = self._presence.sink(agent)
         if target is None or not isinstance(target.sink, StoppableSink):
             return TurnStop.UNAVAILABLE
-        stopped = await target.sink.stop(conversation_id, gateway=gateway)
-        return TurnStop.STOPPED if stopped else TurnStop.NOTHING_RUNNING
+        return await target.sink.stop(conversation_id, gateway=gateway, user_id=user_id)
 
     async def resolve_approval(
         self, token: str, value: str, user_id: str, *, gateway: str = ""
@@ -350,7 +350,7 @@ class InteractionDispatcher:
         if self._stop_command and command.lstrip("/") == self._stop_command:
             # Acts, draws nothing: the conversation hears from the turn itself
             # as it ends; the person who asked hears whether there was one.
-            stop = await self.stop_turn(agent, conversation_id, gateway=gateway)
+            stop = await self.stop_turn(agent, conversation_id, gateway=gateway, user_id=user_id)
             logger.info("stop asked for %s in %s by %s: %s", agent, conversation_id, user_id, stop.name.lower())
             return ScreenOpened(owned=True, answer=TURN_STOP_ANSWERS[stop])
         screen = self._screens.get(command) if self._screens else None

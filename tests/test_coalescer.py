@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from crucible.flows.coalescer import MessageCoalescer
-from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.flow import TurnOutcome, TurnStop
 from crucible.ports.chat.types import KIND_DM, ConversationRef, IncomingMessage
 from tests.fakes.fake_chat import FakeChat
 
@@ -197,14 +197,14 @@ async def test_the_coalescer_stops_the_turn_through_its_flow_when_the_flow_can()
             super().__init__()
             self.stopped: list[tuple[str, str]] = []
 
-        async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
+        async def stop(self, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
             self.stopped.append((conversation_id, gateway))
-            return True
+            return TurnStop.STOPPED
 
     flow = StoppingFlow()
-    assert await MessageCoalescer(flow).stop("dm1", gateway="slack") is True
+    assert await MessageCoalescer(flow).stop("dm1", gateway="slack") is TurnStop.STOPPED
     assert flow.stopped == [("dm1", "slack")]
-    assert await MessageCoalescer(OutcomeFlow()).stop("dm1") is False
+    assert await MessageCoalescer(OutcomeFlow()).stop("dm1") is TurnStop.UNAVAILABLE  # a flow that cannot stop
 
 
 class SteeringFlow(SlowFlow):

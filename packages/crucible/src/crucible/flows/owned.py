@@ -21,7 +21,14 @@ import logging
 from collections.abc import Collection
 
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.flow import Flow, Joined, TurnJoiner, TurnOutcome, TurnStopper
+from crucible.ports.chat.flow import (
+    Flow,
+    Joined,
+    TurnJoiner,
+    TurnOutcome,
+    TurnStop,
+    TurnStopper,
+)
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
 from crucible.ports.replica import Replica, Replicas, TurnForwarder
@@ -58,8 +65,10 @@ class OwnedFlow:
         a turn running on another replica is not this one's to reach."""
         return await self._flow.join(msg, chat) if isinstance(self._flow, TurnJoiner) else None
 
-    async def stop(self, conversation_id: str, *, gateway: str = "") -> bool:
-        return await self._flow.stop(conversation_id, gateway=gateway) if isinstance(self._flow, TurnStopper) else False
+    async def stop(self, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
+        if not isinstance(self._flow, TurnStopper):
+            return TurnStop.UNAVAILABLE
+        return await self._flow.stop(conversation_id, gateway=gateway, user_id=user_id)
 
     async def handle_batch(self, msgs: list[IncomingMessage], chat: ChatClient) -> TurnOutcome:
         anchor = msgs[-1]

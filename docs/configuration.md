@@ -64,7 +64,13 @@ about reading: replaying a thread before the turn still needs
 `channels:history` (and `groups:history` for private channels). The turn
 reads the thread its message is in and nothing else — the channel and the
 thread come from the event, never from the text — and a mention posted by a
-workflow or another app is a bot's and is not answered.
+workflow or another app is a bot's and is not answered. A whisper to the
+person — a tool's card, a sign-in notice — goes into the thread only once the
+thread has a reply: Slack shows an ephemeral message in a thread only then,
+so under a message nobody has answered yet it goes beside the message, at
+the top of the channel. The agent session's status and its Stop button
+(`SLACK_AGENT_SESSIONS`) are set in a direct message only: in a channel's
+thread they would be everyone's who reads it.
 
 | Variable | Default | Purpose |
 |---|---|---|

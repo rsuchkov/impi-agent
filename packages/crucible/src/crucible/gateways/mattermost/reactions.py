@@ -78,7 +78,7 @@ class MattermostReactions:
         conversation_id, kind, thread_root = conversation_of(reaction.message_id, root_id, channel_id, is_dm=is_dm, dm_thread=self._dm_thread)
         if command == self._dispatcher.stop_command:
             # The reaction says stop: no turn is started, the one running ends.
-            await self._dispatcher.stop_turn(self._agent, conversation_id, gateway=GATEWAY_MATTERMOST)
+            await self._dispatcher.stop_turn(self._agent, conversation_id, gateway=GATEWAY_MATTERMOST, user_id=reaction.user_id)
             return
         quoted = None
         text = str(post.get("message") or "")

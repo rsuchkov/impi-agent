@@ -3,6 +3,8 @@ can name the outcome without importing the store-backed dispatcher."""
 
 from enum import Enum, auto
 
+from crucible.ports.chat.flow import TurnStop
+
 
 class ActionResult(Enum):
     FED = auto()  # the value was fed back into the conversation as a new turn
@@ -10,17 +12,12 @@ class ActionResult(Enum):
     UNAVAILABLE = auto()  # the agent has no sink to route to
 
 
-class TurnStop(Enum):
-    """What asking to stop a conversation's turn came to."""
-
-    STOPPED = auto()  # a turn was running and was told to end
-    NOTHING_RUNNING = auto()  # no turn in this conversation right now
-    UNAVAILABLE = auto()  # the agent has no sink, or its sink cannot stop a turn
-
-
 # What the person who asked is told, privately.
 TURN_STOP_ANSWERS = {
     TurnStop.STOPPED: "Stopping.",
     TurnStop.NOTHING_RUNNING: "Nothing is running here right now.",
+    TurnStop.NOT_THEIRS: "Only the person whose message started this turn can stop it.",
     TurnStop.UNAVAILABLE: "This agent cannot be stopped here.",
 }
+
+__all__ = ["TURN_STOP_ANSWERS", "ActionResult", "TurnStop"]

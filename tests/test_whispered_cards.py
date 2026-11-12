@@ -204,7 +204,7 @@ def _slack(web: FakeWeb) -> SlackChatClient:
 
 
 async def test_slack_posts_the_card_to_the_person_alone_in_the_thread() -> None:
-    web = FakeWeb(chat_postEphemeral={"message_ts": "1700.9"})
+    web = FakeWeb(chat_postEphemeral={"message_ts": "1700.9"}, conversations_replies={"messages": [{"ts": "1700.1"}, {"ts": "1700.2"}]})
     client = _slack(web)
     post_id = await client.whisper_confirmation(_thread(), "U9", CARD, ACTIONS, callback_url="")
     kw = web.last("chat_postEphemeral")

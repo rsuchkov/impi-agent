@@ -69,12 +69,24 @@ class TrackedSink(MessageSink, Protocol):
     ) -> Awaitable[TurnOutcome]: ...
 
 
+class TurnStop(Enum):
+    """What asking to stop a conversation's turn came to."""
+
+    STOPPED = auto()  # a turn was running and was told to end
+    NOTHING_RUNNING = auto()  # no turn in this conversation right now
+    NOT_THEIRS = auto()  # a turn is running, but the person asking is not the one it answers
+    UNAVAILABLE = auto()  # the agent has no sink, or its sink cannot stop a turn
+
+
 @runtime_checkable
 class TurnStopper(Protocol):
     """What can end a turn in flight on a person's word — the flow itself, or
-    the sink in front of it (``StoppableSink``) handing the word on."""
+    the sink in front of it (``StoppableSink``) handing the word on. The turn
+    is the person's whose message it answers: with ``user_id`` the word is
+    theirs alone to say (``NOT_THEIRS`` otherwise); "" is a word nobody signs
+    — the engine's own, a platform that does not say who pressed."""
 
-    async def stop(self, conversation_id: str, *, gateway: str = "") -> bool: ...
+    async def stop(self, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop: ...
 
 
 @dataclass(eq=False)
@@ -113,8 +125,9 @@ class StoppableSink(MessageSink, TurnStopper, Protocol):
 
     ``conversation_id`` is the conversation as the sink keys it — or, with
     ``gateway``, as that gateway names it (the platform's id), which is what a
-    slash command or a reaction knows; the sink does the keying. True when a
-    turn was running there and was told to end; False when nothing was. The
+    slash command or a reaction knows; the sink does the keying. ``STOPPED``
+    when a turn was running there and was told to end; ``NOTHING_RUNNING``
+    when nothing was; ``NOT_THEIRS`` when the turn answers somebody else. The
     turn then ends with what it had, says so in the conversation, and the next
     one is told it was stopped — all the sink's doing, whoever asked.
 

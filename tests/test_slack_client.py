@@ -296,7 +296,7 @@ async def test_waiting_suspends_the_agent_session_and_processing_resumes_it() ->
 
 
 async def test_a_private_notice_is_an_ephemeral_post_with_the_link_as_a_button() -> None:
-    web = FakeWeb()
+    web = FakeWeb(conversations_replies={"messages": [{"ts": "100.1"}, {"ts": "100.2"}]})  # an active thread
     await _sc(web).whisper_notice(
         _ref(channel="C1", root="100.1"), "U9", "Sign in to **Okta** to go on.",
         code="not_admitted", link="https://idp.example/s?x=1", label="Sign in",
@@ -321,3 +321,33 @@ def test_a_mention_is_by_id_where_one_is_known_and_by_name_where_not() -> None:
     client = _sc(FakeWeb())
     assert client.format_mention("corp-coder", user_id="U123") == "<@U123>"
     assert client.format_mention("corp-coder") == "@corp-coder"
+
+
+async def test_a_whisper_goes_beside_the_message_until_its_thread_has_a_reply() -> None:
+    """Slack shows an ephemeral message in a thread only once the thread is
+    active; under an unanswered message it is invisible and unannounced."""
+    web = FakeWeb(conversations_replies={"messages": [{"ts": "100.1", "text": "root"}]})
+    await _sc(web).whisper_notice(_ref(root="100.1"), "U9", "Sign in first.")
+    assert web.last("chat_postEphemeral")["thread_ts"] is None
+    assert web.last("conversations_replies") == {"channel": "C1", "ts": "100.1", "limit": 2}
+    web = FakeWeb(conversations_replies={"messages": [{"ts": "100.1"}, {"ts": "100.2"}]}, chat_postEphemeral={"message_ts": "100.9"})
+    client = _sc(web)
+    await client.whisper_notice(_ref(root="100.1"), "U9", "Sign in first.")
+    assert web.last("chat_postEphemeral")["thread_ts"] == "100.1"
+    from crucible.ports.chat.types import ApprovalCard
+
+    await client.whisper_confirmation(_ref(root="100.1"), "U9", ApprovalCard(agent="a", headline="h", title="", tool="t"), [], callback_url="")
+    assert web.last("chat_postEphemeral")["thread_ts"] == "100.1"
+    web = FakeWeb()
+    web.raise_on["conversations_replies"] = SlackApiError("x", {"error": "missing_scope"})
+    await _sc(web).whisper_notice(_ref(root="100.1"), "U9", "Sign in first.")
+    assert web.last("chat_postEphemeral")["thread_ts"] == "100.1"  # the API would not tell: as before
+
+
+async def test_the_agent_session_status_is_set_in_a_direct_message_only() -> None:
+    web = FakeWeb()
+    client = SlackChatClient(web, agent_sessions=True)  # type: ignore[arg-type]
+    await client.set_busy(_ref(channel="D1", root="100.1"), True)
+    assert web.last("api_call")["json"]["thread_ts"] == "100.1"
+    await client.set_busy(_ref(channel="C9", root="100.1"), True)  # a channel's thread: everyone would see it
+    assert len(web.all("api_call")) == 1
