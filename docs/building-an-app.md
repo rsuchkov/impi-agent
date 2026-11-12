@@ -529,8 +529,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   one per asking conversation) on the `delegation`
   gateway, run as the person whose message the asker's turn answered, with
   the asker's `TurnScope.attributes` beside `DELEGATED_BY_ATTRIBUTE`,
-  `DELEGATION_TASK_ATTRIBUTE` and `ON_BEHALF_OF_GATEWAY_ATTRIBUTE`
-  (`crucible.ports.delegation`) — your `TurnAdmission` and
+  `DELEGATION_TASK_ATTRIBUTE`, `ON_BEHALF_OF_GATEWAY_ATTRIBUTE` and, on a
+  trusted ask, `ON_BEHALF_OF_DIRECT_ATTRIBUTE` — whether the person's
+  conversation is theirs alone, which decides whether a card the task's turn
+  asks is whispered (`crucible.ports.delegation`) — your `TurnAdmission` and
   `EntitlementSource` see them on the message. The turn posts into a
   `DelegatedTurnChat` the gateway provides (`DelegationChatClient`: replies
   become the answer, a card raises `NobodyToAnswer`); the files go as copies

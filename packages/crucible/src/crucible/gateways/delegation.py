@@ -20,7 +20,12 @@ import logging
 from dataclasses import replace
 
 from crucible.ports.agent.errors import TURN_END_NOTICES
-from crucible.ports.chat.client import ChatClient, ConversationView, NobodyToAnswer
+from crucible.ports.chat.client import (
+    ChatClient,
+    ConversationView,
+    NobodyToAnswer,
+    WhisperedCards,
+)
 from crucible.ports.chat.types import (
     Action,
     ApprovalCard,
@@ -133,7 +138,9 @@ class TrustedDelegationChatClient(DelegationChatClient):
     conversation, through the asker's own clients, under the asked agent's
     name (``links`` says whose task a conversation is). A card goes to every
     gateway the asker's conversation is live in, as the asker's own card
-    does; a notice goes where the asker's turn answers, unless it says how
+    does — whispered to the person where other people read, through the
+    asker's client on the gateway they spoke through (``WhisperedCards``);
+    a notice goes where the asker's turn answers, unless it says how
     the task's turn ended — that is the asker's to read (``notice_code``)
     and to put in words; and while a card waits, the asker's conversation is
     shown waiting (``ConversationView``), the asker's turn being the one the
@@ -167,13 +174,39 @@ class TrustedDelegationChatClient(DelegationChatClient):
     async def post_confirmation(
         self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str
     ) -> str:
+        return await self._post_copies(ref, card, actions, callback_url=callback_url, whisper_to="")
+
+    async def whisper_confirmation(
+        self, ref: ConversationRef, user_id: str, card: ApprovalCard, actions: list[Action], *, callback_url: str
+    ) -> str:
+        # As the asker's own card where other people read: whispered to the
+        # person through the asker's client on the gateway they spoke through,
+        # where that client can (else in the open there, as the gate itself
+        # would), and in the open on the asker's other gateways.
+        return await self._post_copies(ref, card, actions, callback_url=callback_url, whisper_to=user_id)
+
+    async def _post_copies(
+        self, ref: ConversationRef, card: ApprovalCard, actions: list[Action], *, callback_url: str, whisper_to: str
+    ) -> str:
         link = self._link(ref, "confirm")
         named = _named_for(card, link.to)
         copies: list[tuple[ChatClient, str]] = []
         failure: Exception | None = None
         for poster, where in ((link.poster, link.ref), *link.elsewhere):
             try:
-                post_id = await poster.post_confirmation(where, named, actions, callback_url=callback_url)
+                post_id = ""
+                if whisper_to and poster is link.poster and isinstance(poster, WhisperedCards):
+                    try:
+                        post_id = await poster.whisper_confirmation(
+                            where, whisper_to, named, actions, callback_url=callback_url
+                        )
+                    except Exception:  # noqa: BLE001 - the question is still asked, in the open
+                        logger.warning(
+                            "a trusted task's card could not be whispered to %s in %s; asking in the open",
+                            whisper_to, where.channel_id or "-", exc_info=True,
+                        )
+                if not post_id:
+                    post_id = await poster.post_confirmation(where, named, actions, callback_url=callback_url)
             except Exception as error:  # noqa: BLE001 - one gateway down must not cost the others their copy
                 logger.warning("a trusted task's card could not be posted in %s", where.channel_id or "-", exc_info=True)
                 failure = failure or error

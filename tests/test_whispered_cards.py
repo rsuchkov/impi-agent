@@ -388,3 +388,100 @@ async def test_the_receiver_tells_the_verdict_of_a_whispered_card_in_the_click_s
     finally:
         await server.stop()
         await store.close()
+
+
+# -- a trusted agent's turn (K98) --------------------------------------------------
+
+
+async def test_a_trusted_agents_card_where_other_people_read_is_whispered_through_the_askers_client(tmp_path: Path) -> None:
+    """The door is the task's gateway; it reaches the person through the
+    asker's own client on the gateway they spoke through. Where that
+    conversation is read by others (the scope says so — the task's own
+    conversation is nobody's and would say "direct" of every card), the card
+    is whispered there and copied in the open on the asker's other gateways."""
+    from crucible.gateways.delegation import TrustedDelegationChatClient
+    from crucible.interactions.delegation import TrustedLinkRegistry
+    from crucible.ports.delegation import (
+        ON_BEHALF_OF_DIRECT_ATTRIBUTE,
+        ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
+        TrustedLink,
+    )
+    from crucible.ports.turn import TurnScope
+    from crucible.turns import TurnRegistry
+
+    links = TrustedLinkRegistry()
+    slack, panel = PrivatePoster(), PrivatePoster()
+    links.register("dm1", TrustedLink(
+        asker="assistant", asker_session_id="assistant--asker", to="jira", poster=slack, ref=_thread(),  # type: ignore[arg-type]
+        elsewhere=((panel, _thread("issue-7", "")),),  # type: ignore[arg-type]
+    ))
+    turns = TurnRegistry()
+    rig = await _rig(tmp_path, 8577, by_gateway={"trusted-delegation": TrustedDelegationChatClient(links, keeps=False)}, turns=turns)
+    try:
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, user_id=CLICKER, gateway="trusted-delegation")
+        scope = TurnScope(turn_id="t", attributes={ON_BEHALF_OF_GATEWAY_ATTRIBUTE: "slack", ON_BEHALF_OF_DIRECT_ATTRIBUTE: "0"})
+        async with turns.bind(rig.session, scope):
+            pending = asyncio.create_task(_call(rig, "dangerous"))
+            await _answer(rig, ANSWER_ONCE, slack)
+            assert await pending == 200
+        assert [(who, ref.channel_id) for who, ref in slack.whispered] == [(CLICKER, "C9")]
+        assert panel.whispered == [] and len(panel.posts) == 1  # the copy elsewhere, in the open
+        assert len(slack.updated) == 1 and len(panel.updated) == 1
+    finally:
+        await _close(rig)
+
+
+async def test_a_trusted_agents_card_in_the_askers_direct_message_is_asked_in_the_open(tmp_path: Path) -> None:
+    from crucible.gateways.delegation import TrustedDelegationChatClient
+    from crucible.interactions.delegation import TrustedLinkRegistry
+    from crucible.ports.delegation import (
+        ON_BEHALF_OF_DIRECT_ATTRIBUTE,
+        ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
+        TrustedLink,
+    )
+    from crucible.ports.turn import TurnScope
+    from crucible.turns import TurnRegistry
+
+    links = TrustedLinkRegistry()
+    slack = PrivatePoster()
+    links.register("dm1", TrustedLink(asker="assistant", asker_session_id="assistant--asker", to="jira", poster=slack, ref=_thread("D1")))  # type: ignore[arg-type]
+    turns = TurnRegistry()
+    rig = await _rig(tmp_path, 8578, by_gateway={"trusted-delegation": TrustedDelegationChatClient(links, keeps=False)}, turns=turns)
+    try:
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, user_id=CLICKER, gateway="trusted-delegation")
+        scope = TurnScope(turn_id="t", attributes={ON_BEHALF_OF_GATEWAY_ATTRIBUTE: "slack", ON_BEHALF_OF_DIRECT_ATTRIBUTE: "1"})
+        async with turns.bind(rig.session, scope):
+            pending = asyncio.create_task(_call(rig, "dangerous"))
+            await _answer(rig, ANSWER_ONCE, slack)
+            assert await pending == 200
+        assert slack.whispered == [] and len(slack.posts) == 1
+    finally:
+        await _close(rig)
+
+
+async def test_the_door_asks_in_the_open_where_the_askers_client_cannot_whisper(tmp_path: Path) -> None:
+    from crucible.gateways.delegation import TrustedDelegationChatClient
+    from crucible.interactions.delegation import TrustedLinkRegistry
+    from crucible.ports.delegation import (
+        ON_BEHALF_OF_DIRECT_ATTRIBUTE,
+        ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
+        TrustedLink,
+    )
+    from crucible.ports.turn import TurnScope
+    from crucible.turns import TurnRegistry
+
+    links = TrustedLinkRegistry()
+    plain = FakePoster()  # no WhisperedCards
+    links.register("dm1", TrustedLink(asker="assistant", asker_session_id="assistant--asker", to="jira", poster=plain, ref=_thread()))  # type: ignore[arg-type]
+    turns = TurnRegistry()
+    rig = await _rig(tmp_path, 8579, by_gateway={"trusted-delegation": TrustedDelegationChatClient(links, keeps=False)}, turns=turns)
+    try:
+        await rig.store.get_or_create("assistant", "dm1", "dm1", KIND_DM, user_id=CLICKER, gateway="trusted-delegation")
+        scope = TurnScope(turn_id="t", attributes={ON_BEHALF_OF_GATEWAY_ATTRIBUTE: "slack", ON_BEHALF_OF_DIRECT_ATTRIBUTE: "0"})
+        async with turns.bind(rig.session, scope):
+            pending = asyncio.create_task(_call(rig, "dangerous"))
+            await _answer(rig, ANSWER_ONCE, plain)
+            assert await pending == 200
+        assert len(plain.posts) == 1
+    finally:
+        await _close(rig)

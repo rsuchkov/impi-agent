@@ -74,6 +74,7 @@ from crucible.ports.delegation import (
     DELEGATION_TIMED_OUT,
     NOTICE_ASKER_TURN_ENDED,
     NOTICE_CONVERSATION_FORGOTTEN,
+    ON_BEHALF_OF_DIRECT_ATTRIBUTE,
     ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
     DelegationError,
     DelegationView,
@@ -801,6 +802,7 @@ async def test_a_trusted_agent_is_asked_with_no_card_as_the_person_with_what_the
         assert message.turn is not None
         assert message.turn.secrets.names() == {"jira_token"} and message.turn.secrets.get("jira_token") == "s3cret"
         assert message.turn.attributes[ACCOUNTS_HANDED_ATTRIBUTE] == "1"  # their accounts go too
+        assert message.turn.attributes[ON_BEHALF_OF_DIRECT_ATTRIBUTE] == "0"  # asked from a thread others read
         assert message.turn.attributes["realm"] == "acme" and message.turn.attributes[DELEGATED_BY_ATTRIBUTE] == "assistant"
         assert message.event is None  # the task alone: context is the default
         waiting = asyncio.ensure_future(svc.await_answers("assistant", rsid, [task_id]))

@@ -6,7 +6,20 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: a trusted agent's card where other people read was in the open.**
+  v0.51.0 whispered a card only where the turn's own chat client could, and
+  on a trusted agent's turn (`ask_agent`) that client is the engine's door,
+  which could not — the card went through the asker's clients in the open,
+  in the channel, for everyone; and the gate read "direct" off the task's
+  own conversation, which is nobody's and says so of every card. The door
+  now whispers (`TrustedDelegationChatClient` is `WhisperedCards`): through
+  the asker's client on the gateway the person spoke through, where it can,
+  in the open there where it cannot, and in the open on the asker's other
+  gateways, as the asker's own card is; a trusted ask hands the task's turn
+  `ON_BEHALF_OF_DIRECT_ATTRIBUTE` (`on_behalf_of_direct`, "1"/"0") beside
+  `on_behalf_of_gateway`, and the gate reads whether the person's
+  conversation is theirs alone from it, deciding on the gateway the turn came
+  through — the door, on a task's turn.
 
 ## v0.51.0 — 2026-11-11
 

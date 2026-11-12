@@ -60,7 +60,11 @@ from crucible.ports.chat.types import (
     CallPreview,
     ConversationRef,
 )
-from crucible.ports.delegation import ON_BEHALF_OF_GATEWAY_ATTRIBUTE, parent_turn_of
+from crucible.ports.delegation import (
+    ON_BEHALF_OF_DIRECT_ATTRIBUTE,
+    ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
+    parent_turn_of,
+)
 from crucible.ports.replica import tag_token
 from crucible.ports.telemetry import CardAnswered, Telemetry
 from crucible.ports.turn import TurnFeed, TurnPlaces, TurnScopes
@@ -289,18 +293,25 @@ class ToolGate:
         # change (it would be left "working" with nothing working).
         running_on = place.gateway if place is not None else record.last_gateway
         # Where other people read — a channel, a thread in one — the question
-        # is put in front of the asker alone, on the gateway they are on and
-        # where the platform can do that (WhisperedCards): the people around
-        # could not answer it anyway, and need not watch it. A card addressed
-        # to named approvers stays in the open: they are not the asker.
+        # is put in front of the asker alone, on the gateway the turn came
+        # through (where they spoke; on a task's turn the door, which reaches
+        # them through the asker's own client) and where the platform can do
+        # that (WhisperedCards): the people around could not answer it anyway,
+        # and need not watch it. A card addressed to named approvers stays in
+        # the open: they are not the asker. On a task's turn the scope says
+        # whether the person's conversation is theirs alone — the task's own,
+        # the door's, is nobody's to read and would say so of every card.
         whisper_to = record.last_user_id if not self._approvers else ""
+        on_behalf_direct = scope.attributes.get(ON_BEHALF_OF_DIRECT_ATTRIBUTE, "") if scope is not None else ""
         for gateway, poster in posters:
             ref = turn_ref(record, gateway, place)
             address = addresses.get(gateway)
             direct = address.direct if address is not None else record.kind == KIND_DM
+            if on_behalf_direct:
+                direct = on_behalf_direct == "1"
             try:
                 post_id = ""
-                if whisper_to and not direct and gateway == person_gateway and isinstance(poster, WhisperedCards):
+                if whisper_to and not direct and gateway == running_on and isinstance(poster, WhisperedCards):
                     try:
                         post_id = await poster.whisper_confirmation(
                             ref, whisper_to, card, actions, callback_url=self._callback_url

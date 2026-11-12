@@ -78,6 +78,7 @@ from crucible.ports.delegation import (
     DELEGATION_TIMED_OUT,
     NOTICE_ASKER_TURN_ENDED,
     NOTICE_CONVERSATION_FORGOTTEN,
+    ON_BEHALF_OF_DIRECT_ATTRIBUTE,
     ON_BEHALF_OF_GATEWAY_ATTRIBUTE,
     DelegatedTurnChat,
     DelegationError,
@@ -384,6 +385,11 @@ class EngineDelegationService:
             handed = {**attributes, **_task_attributes(entry)}
             if trust.connections:
                 handed[ACCOUNTS_HANDED_ATTRIBUTE] = "1"
+            # Where the person spoke: the asker's address on the gateway the
+            # turn came through, or its kind for a record from before the flag.
+            address = gateway_addresses(record).get(record.last_gateway)
+            direct = address.direct if address is not None else record.kind == KIND_DM
+            handed[ON_BEHALF_OF_DIRECT_ATTRIBUTE] = "1" if direct else "0"
             secrets = TurnSecrets({
                 name: value for name in trust.secrets
                 if scope is not None and (value := scope.secrets.get(name)) is not None

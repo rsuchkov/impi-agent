@@ -264,8 +264,9 @@ trusted task's asker is not: its turn is gone with the process).
 
 The turn on a task runs **as the person behind it** — the one whose message
 the asker's turn answered, who read the card — with the asker's turn
-attributes beside `delegated_by`, `delegation_task` and
-`on_behalf_of_gateway`, so an application's admission or entitlement rule
+attributes beside `delegated_by`, `delegation_task`, `on_behalf_of_gateway`
+and `on_behalf_of_direct` (whether the person's conversation is theirs
+alone), so an application's admission or entitlement rule
 decides for that person, and telemetry counts the turn as theirs. It runs
 through the engine's own door, the `delegation` gateway, with less than the
 agent's other conversations have: nothing that needs a person who could

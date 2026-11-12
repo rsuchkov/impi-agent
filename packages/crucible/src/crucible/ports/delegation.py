@@ -30,6 +30,11 @@ from crucible.ports.turn import TurnScope
 DELEGATED_BY_ATTRIBUTE = "delegated_by"
 DELEGATION_TASK_ATTRIBUTE = "delegation_task"
 ON_BEHALF_OF_GATEWAY_ATTRIBUTE = "on_behalf_of_gateway"
+# Whether the conversation the person spoke in is theirs and the asker's alone
+# ("1") or one other people read ("0"): a card the task's turn asks is shown
+# to the person alone where others read, as the asker's own would be — and
+# the task's own conversation, the door's, says nothing of that.
+ON_BEHALF_OF_DIRECT_ATTRIBUTE = "on_behalf_of_direct"
 # The id of the asker's turn that handed the task on: the parent of the task's
 # turn, for whoever puts turns together (``ports.telemetry``).
 DELEGATED_FROM_TURN_ATTRIBUTE = "delegated_from_turn"
