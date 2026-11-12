@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.53.0 — 2026-11-12
+
 - **A system with no OAuth: the person enters a credential.** A second kind
   of provider beside OAuth — `CredentialProvider` (`crucible.connections`),
   for a system whose people make a credential themselves, a personal token
