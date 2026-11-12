@@ -27,7 +27,7 @@ or maps it on the way out.
 | `McpChecked` | a server's tools were compared with their snapshot | `server`, `result` — one word per server, the most specific: `restored`, `withdrawn`, `refreshed`, `unpinned`, `unreachable`, else `connected` |
 | `TaskRan` | a scheduled occurrence finished | `agent`, `task`, `outcome` (the run's status word, as [tasks.md](tasks.md) lists them: `ok`, `empty`, `timeout`, `error`, `deadline`, `no_agent`, …), `duration_s` |
 | `BudgetHit` | a turn was not admitted for the agent's budget (`runtime.budget`) | `agent`, `user_id` (`""` when nobody's), `rule` (the key hit: `tokens_per_day`, `usd_per_day`, `tokens_per_day_per_person`, `usd_per_day_per_person`), `spent`, `limit` (in the rule's unit) |
-| `ConnectionChanged` | a person's connected account moved | `provider`, `event` (`connect_start`, `connect`, `refresh`, `forget`, `disconnect`, `grant`), `result` (`ok`, `unavailable`, `rejected`, `not_connected`, `revoke_failed`; on `connect` also the link's word: `expired`, `foreign`, `denied`, `account_refused`) |
+| `ConnectionChanged` | a person's connected account moved | `provider`, `event` (`connect_start`, `connect`, `refresh`, `forget`, `disconnect`, `grant`), `result` (`ok`, `unavailable`, `rejected`, `not_connected`, `revoke_failed`; on `connect` also the link's word: `expired`, `foreign`, `denied`, `rejected`, `account_refused`, `forged`, `credential_rejected`) |
 | `EngineState` | every `TELEMETRY_STATE_S` seconds | `agents`, `sessions_alive`, `sessions_busy`, `capacity`, `turns_waiting`, `http_turns_active` |
 
 `usage` on a turn is a `TokenUsage`: `input`, `output`, `cache_read`,

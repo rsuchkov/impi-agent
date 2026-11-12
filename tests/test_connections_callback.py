@@ -140,7 +140,7 @@ async def test_the_application_draws_the_page_and_the_flow_keeps_its_headers() -
             )
 
         def form(self, form) -> web.Response:
-            raise AssertionError("no token provider here")
+            raise AssertionError("no credential provider here")
 
     provider = FakeProvider()
     service = Connections(
@@ -221,6 +221,7 @@ async def test_a_credential_is_entered_into_the_form_and_connects(caplog: pytest
         with caplog.at_level(logging.DEBUG):
             status, page, headers = await _get_form(url)
             assert status == 200 and provider.hint in page and 'type="password"' in page and 'autocomplete="off"' in page
+            assert "This link was made for mattermost:u1" in page  # whom it is for, so a forwarded link is seen for what it is
             assert headers["Cache-Control"] == "no-store" and "form-action 'self'" in headers["Content-Security-Policy"]
             status, page = await _post_form(url, {"credential": "tok-alice", "csrf": _csrf_of(page)})
         assert status == 200 and "account alice is connected" in page
@@ -273,7 +274,7 @@ async def test_the_applications_page_draws_the_form_too() -> None:
         url = await service.begin("mattermost:u1", "graylog")
         status, page, headers = await _get_form(url)
         assert status == 200 and page == "own form for graylog: Press Connect." and headers["Referrer-Policy"] == "no-referrer"
-        assert drawn[0].post_url == url and drawn[0].csrf
+        assert drawn[0].post_url == url and drawn[0].csrf and drawn[0].owner == "mattermost:u1"
         status, page = await _post_form(url, {"credential": "tok-alice", "csrf": drawn[0].csrf})
         assert (status, page) == (200, "own: ok")
     finally:

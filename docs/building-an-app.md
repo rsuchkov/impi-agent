@@ -985,7 +985,7 @@ credential, is another user's credential.
   never sees it. Yours: the `OAuthProvider` (one per provider) — or a
   `CredentialProvider` for a system with no OAuth, whose people make a
   credential themselves (a personal token, an API key): `hint` says where,
-  `validate(credential)` asks the system whose it is;
+  `identify(credential)` asks the system whose it is;
   `HttpCredentialProvider(CredentialConfig(whoami_url, hint, auth))` covers one
   that answers an HTTP "who am I", the credential as a bearer or as basic auth —
   who the owner is, where the provider sends the person back (you call
@@ -998,7 +998,9 @@ credential, is another user's credential.
   the secret the form hands back) and `finish_with_credential(state, credential, csrf,
   owner=…, facts=…)` finishes it; your own page is `CallbackServer(…, page=)`, a
   `CallbackPage` whose `form(CredentialForm)` draws that form (a password field
-  named `credential`, a hidden `csrf`, autocomplete off) and whose `render(outcome)` gets a `CallbackOutcome` — the
+  named `credential`, a hidden `csrf`, autocomplete off, and `owner` — whom
+  the link was made for — said on the page, so a forwarded link is seen for
+  what it is) and whose `render(outcome)` gets a `CallbackOutcome` — the
   `Connected` record when it went through, else the word for why (`denied`,
   `expired`, `foreign`, `rejected`, `forged`, `credential_rejected`,
   `account_refused`, `not_a_connect`, `no_code`, `provider_unavailable`,

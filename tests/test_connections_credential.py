@@ -32,7 +32,7 @@ async def test_a_token_is_asked_about_as_a_bearer_and_names_the_account() -> Non
 
     provider = _provider(handler, account_fields={"id": "id", "username": "username", "name": "full_name", "email": "email"}, account_extra=("roles",))
     assert isinstance(provider, CredentialProvider) and provider.hint == "Profile → Tokens"
-    account = await provider.validate("tok-1")
+    account = await provider.identify("tok-1")
     assert (account.id, account.username, account.name, account.email, account.extra) == ("7", "alice", "Alice", "a@example.com", {"roles": ["Reader"]})
     assert seen[0].headers["Authorization"] == "Bearer tok-1" and str(seen[0].url) == "https://logs.example/api/users/me"
 
@@ -44,23 +44,35 @@ async def test_a_system_that_takes_the_token_as_basic_auth_gets_it_so() -> None:
         seen.append(request)
         return httpx.Response(200, json={"id": "u1", "username": "alice"})
 
-    await _provider(handler, auth=AUTH_BASIC).validate("tok-1")
+    await _provider(handler, auth=AUTH_BASIC).identify("tok-1")
     assert seen[0].headers["Authorization"] == "Basic " + base64.b64encode(b"tok-1:token").decode()
     assert credential_header("t", "bearer") == "Bearer t"
 
 
 async def test_a_refused_token_is_rejected_and_a_broken_system_is_unavailable() -> None:
     with pytest.raises(ProviderRejected):
-        await _provider(lambda r: httpx.Response(401)).validate("bad")
+        await _provider(lambda r: httpx.Response(401)).identify("bad")
     with pytest.raises(ProviderRejected):
-        await _provider(lambda r: httpx.Response(403)).validate("bad")
+        await _provider(lambda r: httpx.Response(403)).identify("bad")
     with pytest.raises(ProviderUnavailable):
-        await _provider(lambda r: httpx.Response(500)).validate("tok")
+        await _provider(lambda r: httpx.Response(500)).identify("tok")
     with pytest.raises(ProviderUnavailable):
-        await _provider(lambda r: httpx.Response(200, text="not json")).validate("tok")
+        await _provider(lambda r: httpx.Response(200, text="not json")).identify("tok")
 
     def down(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("down")
 
     with pytest.raises(ProviderUnavailable):
-        await _provider(down).validate("tok")
+        await _provider(down).identify("tok")
+
+
+async def test_a_credential_a_header_cannot_carry_is_refused_before_any_call() -> None:
+    called: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        called.append(request)
+        return httpx.Response(200, json={"id": "u1"})
+
+    with pytest.raises(ProviderRejected):
+        await _provider(handler).identify("tokén")
+    assert called == []

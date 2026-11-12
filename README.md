@@ -26,7 +26,8 @@ conversations between people and agents — and between agents.
 - **Many agents, one deployment.** Each with its own personality, its own tool
   allowlist, and its own model if it needs one. → [creating-agents.md](docs/creating-agents.md)
 - **Acting as the person.** Someone connects their own GitLab (or any OAuth
-  2.0) account once, in a direct message, and the agent's tools act with their
+  2.0) account — or a system with no OAuth, by entering a credential of their
+  own — once, in a direct message, and the agent's tools act with their
   rights — the token never reaches the model. → [connections.md](docs/connections.md)
 - **Answers you can click.** Buttons, forms and approval cards in the chat
   itself, so a turn can ask before it acts. → [creating-agents.md](docs/creating-agents.md)

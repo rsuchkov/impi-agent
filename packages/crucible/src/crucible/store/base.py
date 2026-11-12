@@ -649,8 +649,10 @@ class ConnectionLinkRecord:
     state_digest: str
     owner: str
     provider: str
-    # The PKCE verifier of an OAuth connect, or the secret the credential
-    # form must hand back (CSRF) — sealed like the tokens.
+    # Sealed like the tokens: the PKCE verifier of an OAuth connect
+    # (``Connections.finish`` opens it for the exchange), or the secret the
+    # credential form must hand back (``form_of`` draws it, ``finish_with_credential``
+    # compares it) — one slot, written by ``begin`` for either kind.
     verifier_sealed: str
     expires_at: str
     # Where the application wants to say it went once the connect finishes —

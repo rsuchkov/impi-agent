@@ -454,7 +454,7 @@ def test_the_report_says_what_keeps_a_connect_from_working(tmp_path: Path) -> No
 
     assert [e.split(" ")[0] for e in report.errors] == ["CONNECTIONS_KEYS"]
     text = "\n".join(report.warnings)
-    assert "travels in clear" in text and "INTEGRATIONS_ENABLED" in text and "TOOL_ENABLED" in text
+    assert "travel in clear" in text and "INTEGRATIONS_ENABLED" in text and "TOOL_ENABLED" in text
     assert "does not run: gone" in text and "gitlab is not offered to assistant" in text
     assert len(report.warnings) == 5
     assert "CONNECTIONS_PUBLIC_URL" in "\n".join(
@@ -651,3 +651,13 @@ def test_a_profile_may_not_name_them_either(tmp_path: Path) -> None:
             _settings(tmp_path, agents_path=str(tmp_path / "profiles")), SkillLibrary(tmp_path / "skills"),
         )
         user_store.get("assistant")
+
+
+def test_health_warns_when_a_credential_provider_does_not_match_emails(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, connections_keys="k", connections_public_url="https://e.example.com")
+    providers = connection_providers({**GRAYLOG, "CONNECTION_MATCH_EMAIL__GRAYLOG": "false"})
+    report = connections_report(settings, providers, {"assistant": MM}, tools_on=True, widgets_on=True)
+    assert any("CONNECTION_MATCH_EMAIL__GRAYLOG is off for a credential provider" in w for w in report.warnings)
+    assert report.line is not None and "a credential is entered at https://e.example.com/connect/<link>" in report.line
+    quiet = connections_report(settings, connection_providers(GRAYLOG), {"assistant": MM}, tools_on=True, widgets_on=True)
+    assert not any("credential provider" in w for w in quiet.warnings)

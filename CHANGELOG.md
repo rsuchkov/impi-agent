@@ -9,9 +9,9 @@ when a release is cut, and `impi update` shows the target version's section.
 - **A system with no OAuth: the person enters a credential.** A second kind
   of provider beside OAuth — `CredentialProvider` (`crucible.connections`),
   for a system whose people make a credential themselves, a personal token
-  or an API key: `hint` says where one comes from, `validate(credential)`
+  or an API key: `hint` says where one comes from, `identify(credential)`
   asks the system whose it is; `HttpCredentialProvider(CredentialConfig(...))`
-  covers one that answers an HTTP "who am I", the credential carried as a
+  (`crucible.connections.credential`) covers one that answers an HTTP "who am I", the credential carried as a
   bearer or as basic auth (as the user name, `token` as the password, a log
   store's way). `begin` for
   such a provider answers with the address of a form the engine serves
@@ -21,10 +21,13 @@ when a release is cut, and `impi update` shows the target version's section.
   person's, handed to tools as the token of their grant, forgotten on a
   refusal — never refreshed and never revoked by the engine
   (`Disconnection.revocable` is False: it goes on working at the system until
-  the person ends it there). The form hands back a secret
-  bound to the link (`forged` otherwise), posts nowhere but to the engine,
-  takes a small body, and the credential is never logged, audited or shown
-  again.
+  the person ends it there). The form names whom the link was made for (a person handed
+  somebody else's link sees it is not theirs), carries back a secret of its
+  own (a post without it did not come from a form the engine drew: `forged`,
+  and the link is spent), posts nowhere but to the engine, takes a small
+  body, and the credential is never logged, audited or shown again; `impi
+  doctor` warns when a credential provider has `CONNECTION_MATCH_EMAIL__`
+  off, the form's word being the only guard then.
   The form is the application's to draw beside the outcome page
   (`CallbackPage.form(CredentialForm)`; the plain page draws one). `impi`:
   `CONNECTION_KIND__<NAME>=credential` with `CONNECTION_WHOAMI_URL__`,

@@ -395,10 +395,13 @@ serve both consumers, and revoking one is the same operation whichever it was.
 
 ## Connected accounts (`crucible.connections`)
 
-A person's own account at an OAuth provider, connected once and used by tools
-acting as them. `Connections` runs the round — a single-use link with a
+A person's own account at a provider — an OAuth one, or a system that takes a
+credential the person enters — connected once and used by tools acting as them. `Connections` runs the round — a single-use link with a
 PKCE verifier, the code exchanged on a callback page that listens on a port of
-its own (`CallbackServer`; the page drawn by the application's `CallbackPage`
+its own — or, for a system with no OAuth (`CredentialProvider`), a form the
+same listener serves at `/connect/{state}`, the credential identified at the
+system and kept as a grant that is never refreshed or revoked
+(`CallbackServer`; the pages drawn by the application's `CallbackPage`
 when it has one), the account checked against the application's
 `AccountPolicy`, tokens sealed at rest (`FernetSealer`) in two store slices,
 refreshed once across replicas under a lease, revoked when nobody may keep

@@ -299,8 +299,9 @@ class App:
     # Keeps the runtime's OAuth login fresh, so a confined process — which may
     # only read the credential — never has to refresh it itself.
     auth_refresher: AuthRefresher | None = None
-    # People's own accounts at OAuth providers, and the page a provider sends
-    # them back to. None when no provider is configured.
+    # People's own accounts at a provider — an OAuth one, or a system that
+    # takes a credential the person enters — and the pages their browser
+    # reaches. None when no provider is configured.
     connections: ConnectedAccounts | None = None
     # Each agent's own user id on its platform, filled as the gateways log in:
     # what tells a command typed in the agent's direct message from one typed

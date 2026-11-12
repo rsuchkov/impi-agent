@@ -378,7 +378,7 @@ engine use it at every start.
 | the operator's broker certificate | `~/.impi/operator`, mounted into nothing an agent runs in | the operator |
 | the store's unseal key and the broker's credential | `~/.impi/ward-recovery.txt` on the host, mode 600, mounted into nothing | the operator |
 | the tool token and session proof | the runtime's environment, minted at spawn | the process; an unconfined neighbour with a shell |
-| people's connected accounts (access and refresh tokens, and a credential the person entered on the engine's form — once, in the form's body over TLS, never through the chat) | the inventory, sealed with `CONNECTIONS_KEYS` (Fernet) | the engine; the database alone reads whose and which account and the userinfo fields kept beside it, not the tokens. The key is in `conf/.env`, so an unconfined agent with `read` has both — the tokens never enter an agent's process otherwise ([connections.md](connections.md)) |
+| people's connected accounts (access and refresh tokens, and a credential the person entered on the engine's form — once, in the form's body, over the TLS the operator terminates in front of `CONNECTIONS_PORT`, never through the chat) | the inventory, sealed with `CONNECTIONS_KEYS` (Fernet) | the engine; the database alone reads whose and which account and the userinfo fields kept beside it, not the tokens. The key is in `conf/.env`, so an unconfined agent with `read` has both — the tokens never enter an agent's process otherwise ([connections.md](connections.md)) |
 | the OAuth applications' secrets (`CONNECTION_CLIENT_SECRET__*`) | `conf/.env`, in the clear | the engine; an unconfined agent with `read` |
 
 The engine's own configuration is the soft spot of an unconfined agent: one
@@ -441,6 +441,7 @@ decisions an operator makes.
 
 Things the design does not solve, stated so nobody relies on them by accident.
 
+- **A connect link forwarded to somebody else.** Whoever holds a connect link within its ten minutes finishes it under the person it was made for. For an OAuth provider the lure is the provider's own consent page; for a credential provider it is the engine's form, on the deployment's domain — so the form names whom the link was made for, and `CONNECTION_MATCH_EMAIL__<NAME>` refuses an account whose email is not the person's. A system whose "who am I" names no email leaves the form's word as the only guard; `impi doctor` warns when the match is off for such a provider.
 - **An MCP server on stdio runs as the engine.** It is a child of the engine
   process with the engine's rights and no confinement of its own — a service
   the deployment installed, trusted like the engine's code. A server that

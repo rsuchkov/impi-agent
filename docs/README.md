@@ -46,7 +46,8 @@ people. Keep them accurate to the code.
   the runtime's own files and does not move; how to switch, and what a switch
   does not carry across.
 - **[connections.md](connections.md)** — people's own accounts at an OAuth
-  provider (GitLab, or any standard one), connected once in a direct message
+  provider (GitLab, or any standard one), or at a system with no OAuth where
+  they enter a credential of their own, connected once in a direct message
   and used by tools acting as them: setting a provider up, the panel, the
   tools, keys and their rotation, and what it does not do yet.
 - **[tool-trace.md](tool-trace.md)** — the progress message a turn running

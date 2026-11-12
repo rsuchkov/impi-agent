@@ -1,5 +1,5 @@
 """The providers a deployment lets people connect, from its settings: OAuth
-ones, and systems that take a token the person makes themselves.
+ones, and systems that take a credential the person makes themselves.
 
 One family of keys per field, the provider's name last — the shape of the
 per-agent families (``AGENTS_MM_TOKEN__<AGENT>``), keyed by a provider the

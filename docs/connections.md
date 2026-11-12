@@ -85,10 +85,11 @@ a provider allows that run there.
    `CONNECTION_CREDENTIAL_HINT__` (where one comes from, for the form) — no
    client, no secret; see "A credential the person enters" below. Every key is listed in [configuration.md](configuration.md#connected-accounts).
 4. **Publish the callback listener.** It is a listener of its own
-   (`CONNECTIONS_PORT`, 8429), serving that one page, so only it faces
-   browsers. A person's browser must reach it at `CONNECTIONS_PUBLIC_URL`; put
-   it behind TLS (a reverse proxy) — the code the provider sends back travels
-   in its address. In compose, publish the port in an overlay of your own, a
+   (`CONNECTIONS_PORT`, 8429), serving the callback page and the credential
+   form, so only it faces browsers. A person's browser must reach it at
+   `CONNECTIONS_PUBLIC_URL`; put it behind TLS (a reverse proxy) — the code
+   the provider sends back travels in its address, and a credential a person
+   enters travels in the form's body. In compose, publish the port in an overlay of your own, a
    file in `~/.impi/compose.d/` ([installation.md](installation.md)):
 
    ```yaml
@@ -146,7 +147,13 @@ again), never logged, never in the audit. The form and the outcome page are
 the application's to draw (`CallbackPage`,
 [building-an-app.md](building-an-app.md)) — the plain ones serve a
 deployment with none of its own. Keep the link private: the form cannot tell
-whose browser opened it, so the engine shows it only where one person reads.
+whose browser opened it, so the engine shows it only where one person reads,
+and the form names whom the link was made for — a person handed somebody
+else's link sees it is not theirs, since what they entered would be the
+other's to use (`CONNECTION_MATCH_EMAIL__` refuses the account when the
+system names an email; a system that names none leaves that to the person).
+A browser may offer to remember what was pasted into the password field, as
+browsers do; the engine itself keeps it sealed and never shows it again.
 
 The bundled `connected_api_read`/`connected_api_write` carry a credential as
 a bearer; a system that takes it otherwise (`basic`) gets a tool of the

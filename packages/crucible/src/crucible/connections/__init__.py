@@ -1,5 +1,6 @@
-"""People's own accounts at OAuth providers, connected once and used by tools
-acting as them — the token never reaching the model.
+"""People's own accounts at a provider — an OAuth one, or a system that takes
+a credential the person enters — connected once and used by tools acting as
+them, the token never reaching the model.
 
 ``Connections`` is the service; the stores are ``crucible.store`` slices,
 sealing at rest is ``connections.sealing`` (``crucible[connections]``), and
@@ -45,29 +46,29 @@ from crucible.ports.connections import (
 __all__ = [
     "ACCOUNT_REFUSED",
     "AUDIT_LOGGER",
+    "AccessToken",
+    "AccountPolicy",
+    "CREDENTIAL_REJECTED",
+    "Connected",
+    "Connections",
+    "ConnectionsAudit",
+    "ConnectionsError",
+    "CredentialForm",
+    "CredentialProvider",
+    "Disconnection",
     "LINK_DENIED",
     "LINK_EXPIRED",
     "LINK_FOREIGN",
     "LINK_FORGED",
     "LINK_REJECTED",
-    "CREDENTIAL_REJECTED",
-    "AccessToken",
-    "AccountPolicy",
-    "Connected",
-    "ConnectionsAudit",
-    "ConnectionsError",
-    "Disconnection",
     "LinkRefused",
     "LoggingAudit",
     "NotConnected",
-    "Connections",
     "OAuthProvider",
     "OAuthTokens",
     "ProviderAccount",
     "ProviderRejected",
     "ProviderUnavailable",
-    "CredentialForm",
-    "TokenGrant",
-    "CredentialProvider",
     "Sealer",
+    "TokenGrant",
 ]

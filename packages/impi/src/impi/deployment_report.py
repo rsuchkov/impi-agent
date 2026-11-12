@@ -205,8 +205,15 @@ def connections_report(
         url = urlsplit(settings.connections_public_url)
         if url.scheme != "https" and (url.hostname or "") not in _LOOPBACK:
             report.warnings.append(
-                f"CONNECTIONS_PUBLIC_URL is {url.scheme}:// — the code a provider sends back "
-                "travels in clear; put the callback behind TLS"
+                f"CONNECTIONS_PUBLIC_URL is {url.scheme}:// — the code a provider sends back, and a "
+                "credential a person enters on the form, travel in clear; put the callback behind TLS"
+            )
+    for name, p in sorted(providers.items()):
+        if p.takes_credential and not p.match_email:
+            report.warnings.append(
+                f"CONNECTION_MATCH_EMAIL__{name.upper().replace('-', '_')} is off for a credential provider: the form "
+                "cannot tell who pastes, so a link forwarded to somebody else connects their credential under the "
+                "person the link was made for; the form names that person, and nothing else stands in the way"
             )
     if not widgets_on:
         report.warnings.append(

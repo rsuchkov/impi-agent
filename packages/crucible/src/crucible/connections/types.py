@@ -57,12 +57,17 @@ class Disconnection:
 @dataclass(frozen=True)
 class CredentialForm:
     """The form that asks a person for a credential, as the application
-    draws it: which provider, the provider's word on where a credential comes
-    from, where the form posts to, the secret it must hand back (``csrf``,
-    bound to the link), and what to tell a person who should start over."""
+    draws it: which provider, whom the link was made for (``owner``, the
+    chat's id of the person — the form names them, so a person handed
+    somebody else's link sees it is not theirs), the provider's word on where
+    a credential comes from, where the form posts to, the secret the form
+    carries back (``csrf``: a post without it did not come from a form the
+    engine drew, and spends the link), and what to tell a person who should
+    start over."""
 
     provider: str
     hint: str
     post_url: str
     csrf: str
+    owner: str = ""
     start_again: str = ""

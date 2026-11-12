@@ -201,7 +201,8 @@ Consult them instead of reciting steps from memory; they load on demand.
 - **browsing** — the browser axis: give an agent a real Chrome to drive.
 - **agent-containers** — a container per agent: what it isolates, what it costs.
 - **connections** — let an agent act as a person at their own GitLab (or any
-  OAuth 2.0) account, and why a connect failed.
+  OAuth 2.0) account, or at a system with no OAuth where they enter a
+  credential of their own; and why a connect failed.
 
 ## Scope & safety
 

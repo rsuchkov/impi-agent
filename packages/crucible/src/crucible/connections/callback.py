@@ -121,7 +121,9 @@ class CallbackPage(Protocol):
         """The form that asks the person for a credential: a password field
         named ``credential`` with autocomplete off, a hidden field ``csrf``
         with the form's secret, posting to ``form.post_url``; the provider's
-        ``hint`` says where a credential comes from."""
+        ``hint`` says where a credential comes from, and ``form.owner`` whom
+        the link was made for — say it, so a person handed somebody else's
+        link sees it is not theirs."""
         ...
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -135,7 +137,7 @@ _FORM = """<!doctype html>
 <title>{title}</title>
 <style>body{{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#222}}
 h1{{font-size:1.3rem}} input{{font:inherit;width:100%;box-sizing:border-box;padding:.4rem}} button{{font:inherit;margin-top:.8rem;padding:.4rem 1rem}}</style></head>
-<body><h1>{title}</h1><p>{hint}</p>
+<body><h1>{title}</h1><p>{whom}</p><p>{hint}</p>
 <form method="post" action="{action}" autocomplete="off">
 <input type="hidden" name="csrf" value="{csrf}">
 <label>Credential <input type="password" name="credential" autocomplete="off" autofocus required></label>
@@ -165,6 +167,10 @@ class DefaultCallbackPage:
     def form(self, form: CredentialForm) -> web.Response:
         body = _FORM.format(
             title=html.escape(f"Connect your {form.provider} account"),
+            whom=html.escape(
+                f"This link was made for {form.owner}. If that is not you, close this page: what you enter here "
+                "would be theirs to use." if form.owner else ""
+            ),
             hint=html.escape(form.hint or f"Enter a token or key from {form.provider}. It is kept sealed and never shown again."),
             action=html.escape(form.post_url, quote=True), csrf=html.escape(form.csrf, quote=True),
         )

@@ -686,14 +686,14 @@ class FakeCredentialProvider:
 
     def __init__(self) -> None:
         self.tokens: dict[str, ProviderAccount] = {"tok-alice": ALICE}
-        self.validate_error: Exception | None = None
-        self.validated: list[str] = []
+        self.identify_error: Exception | None = None
+        self.identified: list[str] = []
         self.revoked: list[str] = []
 
-    async def validate(self, credential: str) -> ProviderAccount:
-        self.validated.append(credential)
-        if self.validate_error is not None:
-            raise self.validate_error
+    async def identify(self, credential: str) -> ProviderAccount:
+        self.identified.append(credential)
+        if self.identify_error is not None:
+            raise self.identify_error
         if credential not in self.tokens:
             raise ProviderRejected("unknown token")
         return self.tokens[credential]
@@ -718,8 +718,8 @@ def _state_of(url: str) -> str:
 
 
 async def test_a_credential_connect_is_a_form_the_person_fills_and_a_grant_without_refresh() -> None:
-    provider = FakeCredentialProvider()
-    service = _credential_service(provider)
+    provider, store = FakeCredentialProvider(), MemoryConnectionStore()
+    service = _credential_service(provider, store=store)
     url = await service.begin(OWNER, "graylog", return_to="post-1")
     assert url.startswith("https://engine.example/connect/") and len(_state_of(url)) > 20
     state = _state_of(url)
@@ -728,12 +728,12 @@ async def test_a_credential_connect_is_a_form_the_person_fills_and_a_grant_witho
     assert await service.form_of(state) is not None  # drawn, not spent
     connected = await service.finish_with_credential(state, "tok-alice", form.csrf)
     assert (connected.owner, connected.provider, connected.account, connected.return_to) == (OWNER, "graylog", ALICE, "post-1")
-    assert provider.validated == ["tok-alice"]
+    assert provider.identified == ["tok-alice"]
     grant = await service.grant(OWNER, "graylog")
     assert grant.token.reveal() == "tok-alice" and grant.account == ALICE
     assert await service.form_of(state) is None  # spent
     # Never refreshed: the token has no end, and no refresh token to turn.
-    record = await service._connections.get_connection(OWNER, "graylog")
+    record = await store.get_connection(OWNER, "graylog")
     assert record is not None and (record.refresh_sealed, record.expires_at) == ("", "")
     assert (await service.grant(OWNER, "graylog")).token.reveal() == "tok-alice"
 
@@ -760,7 +760,7 @@ async def test_a_credential_the_system_refuses_connects_nothing() -> None:
     with pytest.raises(LinkRefused) as refused:
         await service.finish_with_credential(state, "tok-nobody", form.csrf)
     assert refused.value.reason == CREDENTIAL_REJECTED and await service.account(OWNER, "graylog") is None
-    provider.validate_error = ProviderUnavailable("down")
+    provider.identify_error = ProviderUnavailable("down")
     state = _state_of(await service.begin(OWNER, "graylog"))
     form = await service.form_of(state)
     assert form is not None

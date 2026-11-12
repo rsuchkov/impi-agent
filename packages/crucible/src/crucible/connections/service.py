@@ -237,8 +237,8 @@ class Connections:
         ``return_to`` is kept with the link and handed back in ``Connected``."""
         source = self._provider(provider)
         if isinstance(source, CredentialProvider) and not self._credential_form_url:
-            raise ProviderUnavailable(f"{provider} takes a token, and this application serves no form for one")
-        # The verifier proves the OAuth exchange; for a token provider the
+            raise ProviderUnavailable(f"{provider} takes a credential the person enters, and this application serves no form for one")
+        # The verifier proves the OAuth exchange; for a credential provider the
         # same slot keeps the secret the form must hand back.
         state, verifier = new_state(), new_code_verifier()
         await self._links.put_link(ConnectionLinkRecord(
@@ -263,17 +263,21 @@ class Connections:
         csrf = self._sealer.open(link.verifier_sealed)
         if not isinstance(source, CredentialProvider) or csrf is None:
             return None
-        return CredentialForm(provider=link.provider, hint=source.hint, post_url=f"{self._credential_form_url}/{state}", csrf=csrf)
+        return CredentialForm(
+            provider=link.provider, hint=source.hint, post_url=f"{self._credential_form_url}/{state}", csrf=csrf,
+            owner=link.owner,
+        )
 
     async def finish_with_credential(
         self, state: str, credential: str, csrf: str, *, owner: str | None = None,
         facts: Mapping[str, str] | None = None,
     ) -> Connected:
         """Finish the connect ``state`` names with the credential the person
-        entered into its form, and the secret the form handed back (a post
-        without it is forged, and spends the link). ``owner`` and ``facts``
-        as for ``finish``. The credential is never written down: not in the
-        audit, not in the log."""
+        entered into its form, and the secret the form carried back (a post
+        without it did not come from a form the engine drew: forged, and it
+        spends the link — the state alone is what lets anyone this far).
+        ``owner`` and ``facts`` as for ``finish``. The credential is never
+        written down: not in the audit, not in the log."""
         link = await self._take_link(state, owner)
         source = self._providers.get(link.provider)
         secret = self._sealer.open(link.verifier_sealed)
@@ -285,7 +289,7 @@ class Connections:
             self._audit_and_tell(EVENT_CONNECT, LINK_FORGED, **where)
             raise LinkRefused(LINK_FORGED, provider=link.provider)
         try:
-            account = await source.validate(credential)
+            account = await source.identify(credential)
         except ProviderRejected as exc:
             self._audit_and_tell(EVENT_CONNECT, CREDENTIAL_REJECTED, **where)
             raise LinkRefused(CREDENTIAL_REJECTED, provider=link.provider) from exc
@@ -492,7 +496,7 @@ class Connections:
             if await self._connections.delete_connection(
                 owner, provider, connect_id=record.connect_id, version=record.version,
             ):
-                revocable = isinstance(self._providers.get(provider), OAuthProvider)
+                revocable = not isinstance(self._providers.get(provider), CredentialProvider)
                 revoked = await self._revoke_stored(record) if revocable else False
                 self._audit_and_tell(
                     EVENT_DISCONNECT, RESULT_OK if revoked or not revocable else RESULT_REVOKE_FAILED,

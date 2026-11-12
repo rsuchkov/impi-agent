@@ -20,6 +20,7 @@ from urllib.parse import urlencode
 
 import httpx
 
+from crucible.connections.account import ACCOUNT_FIELDS, account_of
 from crucible.connections.errors import (
     ProviderRejected,
 )
@@ -29,7 +30,6 @@ from crucible.ports.connections import ProviderAccount, ProviderUnavailable
 _TIMEOUT_S = 15.0
 # Which userinfo field fills each part of a ProviderAccount, by default: the
 # names most providers use.
-_ACCOUNT_FIELDS = {"id": "id", "username": "username", "name": "name", "email": "email"}
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,7 @@ class OAuth2Config:
     # How the client proves itself at the token endpoint: in the form body
     # (client_secret_post) or as HTTP Basic (client_secret_basic).
     client_auth: Literal["post", "basic"] = "post"
-    account_fields: Mapping[str, str] = field(default_factory=lambda: dict(_ACCOUNT_FIELDS))
+    account_fields: Mapping[str, str] = field(default_factory=lambda: dict(ACCOUNT_FIELDS))
     # Fields of the userinfo answer kept beside the four, by the provider's
     # names (``groups``, say) — in ``ProviderAccount.extra`` as they came.
     account_extra: tuple[str, ...] = ()
@@ -150,22 +150,6 @@ class OAuth2Provider:
             return await self._http.post(url, data={**form, **secret}, headers=headers)
         except httpx.HTTPError as exc:
             raise ProviderUnavailable(f"{url} unreachable: {type(exc).__name__}") from exc
-
-
-def account_of(response: httpx.Response, fields: Mapping[str, str], extra: tuple[str, ...]) -> ProviderAccount:
-    """The account a "who am I" answer names, by the field names the provider
-    uses for the four the engine keeps, with ``extra`` kept beside them."""
-    try:
-        data = response.json()
-        return ProviderAccount(
-            id=str(data[fields["id"]]),
-            username=str(data.get(fields["username"]) or ""),
-            name=str(data.get(fields["name"]) or ""),
-            email=str(data.get(fields["email"]) or ""),
-            extra={name: data[name] for name in extra if name in data},
-        )
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
-        raise ProviderUnavailable("the account answer does not parse") from exc
 
 
 def _error_of(response: httpx.Response) -> str:

@@ -1,6 +1,6 @@
 """A ``CredentialProvider`` over HTTP: a system whose people make a credential
 themselves — a personal token, an API key — and whose API says whose it is
-when asked with it: a self-hosted log store, a dashboard. ``validate`` asks
+when asked with it: a self-hosted log store, a dashboard. ``identify`` asks
 that one endpoint; how the credential is carried is the system's rule
 (``CredentialConfig.auth``): as a bearer, or as the user name of HTTP basic
 auth with the word ``token`` for a password, which is how a log store that
@@ -13,12 +13,11 @@ from typing import Literal
 
 import httpx
 
+from crucible.connections.account import ACCOUNT_FIELDS, account_of
 from crucible.connections.errors import ProviderRejected
-from crucible.connections.oauth2 import account_of
 from crucible.ports.connections import ProviderAccount, ProviderUnavailable
 
 _TIMEOUT_S = 15.0
-_ACCOUNT_FIELDS = {"id": "id", "username": "username", "name": "name", "email": "email"}
 
 AUTH_BEARER = "bearer"
 AUTH_BASIC = "basic"  # the credential as the user name, "token" as the password
@@ -35,7 +34,7 @@ class CredentialConfig:
     whoami_url: str
     hint: str = ""
     auth: Literal["bearer", "basic"] = AUTH_BEARER
-    account_fields: Mapping[str, str] = field(default_factory=lambda: dict(_ACCOUNT_FIELDS))
+    account_fields: Mapping[str, str] = field(default_factory=lambda: dict(ACCOUNT_FIELDS))
     account_extra: tuple[str, ...] = ()
 
 
@@ -58,7 +57,11 @@ class HttpCredentialProvider:
     def hint(self) -> str:
         return self._config.hint
 
-    async def validate(self, credential: str) -> ProviderAccount:
+    async def identify(self, credential: str) -> ProviderAccount:
+        if not credential.isascii():
+            # A header carries ASCII; anything else is not a credential this
+            # system issued — refused here, so nothing of it reaches a log.
+            raise ProviderRejected("the system takes ASCII credentials")
         try:
             response = await self._http.get(
                 self._config.whoami_url,

@@ -355,9 +355,9 @@ program's word. Neither family may be handed to an agent by a pattern in
 | Variable | Default | Purpose |
 |---|---|---|
 | `CONNECTIONS_KEYS` | `""` | Fernet keys, CSV: the first seals, every one opens. `impi connections key` puts a new one first |
-| `CONNECTIONS_PUBLIC_URL` | `""` | where a person's browser reaches the callback listener; each provider is given `<this>/oauth/callback` as its redirect URI. Use `https://` |
+| `CONNECTIONS_PUBLIC_URL` | `""` | where a person's browser reaches the callback listener; each provider is given `<this>/oauth/callback` as its redirect URI, and a credential provider's form is `<this>/connect/<link>`. Use `https://` |
 | `CONNECTIONS_HOST` | `0.0.0.0` | callback listener bind host |
-| `CONNECTIONS_PORT` | `8429` | callback listener port — its own, serving `GET /oauth/callback` and nothing else |
+| `CONNECTIONS_PORT` | `8429` | callback listener port — its own, serving `GET /oauth/callback` and the credential form at `/connect/<link>`, nothing else |
 | `CONNECTIONS_COMMAND` | `connections` | the command that opens the panel (a direct message only) |
 
 ### Per-provider keys (dynamic)
@@ -370,15 +370,15 @@ over `.env`, like every other key.
 |---|---|---|
 | `CONNECTION_CLIENT_ID__<NAME>` | — | the OAuth application's ID; its presence configures an OAuth provider |
 | `CONNECTION_CLIENT_SECRET__<NAME>` | — | required for an OAuth provider |
-| `CONNECTION_KIND__<NAME>` | `gitlab` | `gitlab`, `oauth2`, or `token` — a system with no OAuth, where the person enters a token they made themselves; `token` names the provider by itself, with no client |
-| `CONNECTION_WHOAMI_URL__<NAME>` | — | `token`: where the system says whose a token is (required) |
-| `CONNECTION_CREDENTIAL_AUTH__<NAME>` | `bearer` | `token`: how the token is carried to the system — `bearer`, or `basic` (the token as the user name, `token` as the password) |
-| `CONNECTION_CREDENTIAL_HINT__<NAME>` | `""` | `token`: where a token comes from, shown on the form |
+| `CONNECTION_KIND__<NAME>` | `gitlab` | `gitlab`, `oauth2`, or `credential` — a system with no OAuth, where the person enters a credential they made themselves (a personal token, an API key); `credential` names the provider by itself, with no client |
+| `CONNECTION_WHOAMI_URL__<NAME>` | — | `credential`: where the system says whose a credential is (required) |
+| `CONNECTION_CREDENTIAL_AUTH__<NAME>` | `bearer` | `credential`: how it is carried to the system — `bearer`, or `basic` (the credential as the user name, `token` as the password) |
+| `CONNECTION_CREDENTIAL_HINT__<NAME>` | `""` | `credential`: where one comes from, shown on the form |
 | `CONNECTION_BASE_URL__<NAME>` | — | GitLab's address; required for `gitlab` |
 | `CONNECTION_AUTHORIZE_URL__<NAME>`, `CONNECTION_TOKEN_URL__<NAME>`, `CONNECTION_USERINFO_URL__<NAME>` | — | required for `oauth2` |
 | `CONNECTION_REVOKE_URL__<NAME>` | `""` | `oauth2`: RFC 7009 revocation, when the provider has it |
 | `CONNECTION_SCOPE__<NAME>` | gitlab: `read_api` | scopes asked for at consent |
-| `CONNECTION_API_URL__<NAME>` | gitlab: `<base>/api/v4` | where the tools call; a path never leaves it |
+| `CONNECTION_API_URL__<NAME>` | gitlab: `<base>/api/v4` | where the tools call; a path never leaves it; required for `oauth2` and `credential` |
 | `CONNECTION_MATCH_EMAIL__<NAME>` | `true` | the account's email must be the chat profile's |
 | `CONNECTION_AGENTS__<NAME>` | unset = every agent | CSV of agents that may use it; empty = none |
 | `CONNECTION_ACCOUNT_EXTRA__<NAME>` | `""` | CSV of fields of the provider's userinfo answer kept beside the account's id, username, name and email (`groups`, say), as the provider sends them; the application's account rule and owner rule see them as `account.extra` (impi's own rule reads the email only); `connected_accounts` does not list them. As of the connect: a reconnect refreshes them |

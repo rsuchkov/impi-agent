@@ -57,9 +57,10 @@ class CredentialProvider(Protocol):
         form: the page of the system that makes one."""
         ...
 
-    async def validate(self, credential: str) -> ProviderAccount:
+    async def identify(self, credential: str) -> ProviderAccount:
         """Whose the credential is, asked of the system — the account the
-        connection is shown as."""
+        connection is shown as; the same question ``OAuthProvider.identify``
+        asks of an access token."""
         ...
 
 

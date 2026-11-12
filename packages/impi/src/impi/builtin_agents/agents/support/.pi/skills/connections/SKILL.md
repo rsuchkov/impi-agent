@@ -1,6 +1,6 @@
 ---
 name: connections
-description: Let an agent act as the person at their own GitLab (or any OAuth 2.0 provider) account, and explain why a connect or a connected-account tool failed. Use when the operator wants an agent to read or change things in someone's own account, or someone reports that /connections, the consent page or connected_api_* does not work.
+description: Let an agent act as the person at their own GitLab (or any OAuth 2.0 provider) account, or at a system with no OAuth where they enter a credential of their own, and explain why a connect or a connected-account tool failed. Use when the operator wants an agent to read or change things in someone's own account, or someone reports that /connections, the consent page or connected_api_* does not work.
 ---
 
 # Connected accounts
@@ -51,7 +51,8 @@ them to you for that; they are credentials.
 ## 2. Why it does not work
 
 `impi health` says most of it — a `connections:` line (providers, agents, the
-redirect URI to register) and `!` lines for what is wrong.
+redirect URI to register, and where a credential is entered when a provider
+takes one) and `!` lines for what is wrong.
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -75,6 +76,9 @@ redirect URI to register) and `!` lines for what is wrong.
 | Connected, but the button message did not change | the chat refused the edit (`impi logs`: `on_connected hook failed`) | harmless: the connection is stored; `/connections` shows it |
 | Tool: "give a path under the provider's API, not a URL" / "may not step up out of the provider's API" / "the path leaves the provider's API" | the model passed a full URL, a `..`, or a path that resolves elsewhere | the path is relative to `CONNECTION_API_URL__<NAME>` |
 | Panel: "did not confirm the revoke" | the provider did not answer the revoke | the person removes the application in their account there |
+| Page: "did not accept that credential" (a `credential` provider) | the system's `CONNECTION_WHOAMI_URL__<NAME>` answered 401/403 for it — a wrong or expired token, or `CONNECTION_CREDENTIAL_AUTH__<NAME>` is not the scheme that system takes (a log store that wants `basic`) | make a fresh credential; check the auth scheme |
+| Page: "not the one the link opened" | the form was posted without the link's secret — an old tab, a copied form; the link is spent | Connect again |
+| `impi doctor`: `MATCH_EMAIL … is off for a credential provider` | the system names no email, so a forwarded link would connect a stranger's credential under the person it was made for; the form names that person | keep links private; turn the match on if the system does name an email |
 
 Audit lines are on the logger `crucible.connections.audit` (`impi logs`): each
 connect, refresh, refusal and disconnect, with whose and which provider — never

@@ -1,4 +1,5 @@
-"""People's own accounts at OAuth providers, as this engine wires them.
+"""People's own accounts at a provider — an OAuth one, or a system that takes
+a credential the person enters — as this engine wires them.
 
 ``crucible.connections`` is the machinery; what is decided here is impi's:
 
