@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.51.1 — 2026-11-12
+
 - **Fixed: a trusted agent's card where other people read was in the open.**
   v0.51.0 whispered a card only where the turn's own chat client could, and
   on a trusted agent's turn (`ask_agent`) that client is the engine's door,
