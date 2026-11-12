@@ -368,9 +368,12 @@ over `.env`, like every other key.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `CONNECTION_CLIENT_ID__<NAME>` | — | the OAuth application's ID; its presence configures the provider |
-| `CONNECTION_CLIENT_SECRET__<NAME>` | — | required |
-| `CONNECTION_KIND__<NAME>` | `gitlab` | `gitlab` or `oauth2` |
+| `CONNECTION_CLIENT_ID__<NAME>` | — | the OAuth application's ID; its presence configures an OAuth provider |
+| `CONNECTION_CLIENT_SECRET__<NAME>` | — | required for an OAuth provider |
+| `CONNECTION_KIND__<NAME>` | `gitlab` | `gitlab`, `oauth2`, or `token` — a system with no OAuth, where the person enters a token they made themselves; `token` names the provider by itself, with no client |
+| `CONNECTION_WHOAMI_URL__<NAME>` | — | `token`: where the system says whose a token is (required) |
+| `CONNECTION_CREDENTIAL_AUTH__<NAME>` | `bearer` | `token`: how the token is carried to the system — `bearer`, or `basic` (the token as the user name, `token` as the password) |
+| `CONNECTION_CREDENTIAL_HINT__<NAME>` | `""` | `token`: where a token comes from, shown on the form |
 | `CONNECTION_BASE_URL__<NAME>` | — | GitLab's address; required for `gitlab` |
 | `CONNECTION_AUTHORIZE_URL__<NAME>`, `CONNECTION_TOKEN_URL__<NAME>`, `CONNECTION_USERINFO_URL__<NAME>` | — | required for `oauth2` |
 | `CONNECTION_REVOKE_URL__<NAME>` | `""` | `oauth2`: RFC 7009 revocation, when the provider has it |

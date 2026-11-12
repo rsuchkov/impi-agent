@@ -1,4 +1,4 @@
-"""OAuthConnections: connecting an account, handing a tool its token, refreshing
+"""Connections: connecting an account, handing a tool its token, refreshing
 it across replicas, and ending it — against a scripted provider."""
 
 import asyncio
@@ -13,13 +13,15 @@ import pytest
 
 from crucible.connections import (
     ACCOUNT_REFUSED,
+    CREDENTIAL_REJECTED,
     LINK_EXPIRED,
     LINK_FOREIGN,
+    LINK_FORGED,
     LINK_REJECTED,
     AccessToken,
+    Connections,
     LinkRefused,
     NotConnected,
-    OAuthConnections,
     OAuthTokens,
     ProviderAccount,
     ProviderRejected,
@@ -124,8 +126,8 @@ class Refuse:
         return self.reason
 
 
-def _service(provider=None, *, store=None, links=None, clock=None, keys=None, **over) -> OAuthConnections:
-    return OAuthConnections(
+def _service(provider=None, *, store=None, links=None, clock=None, keys=None, **over) -> Connections:
+    return Connections(
         connections=store if store is not None else MemoryConnectionStore(),
         links=links if links is not None else MemoryLinkStore(),
         providers={"gitlab": provider or FakeProvider()},
@@ -139,7 +141,7 @@ def _service(provider=None, *, store=None, links=None, clock=None, keys=None, **
 KEY = new_sealing_key()
 
 
-async def _connect(service: OAuthConnections, provider: FakeProvider, *, owner: str = OWNER) -> None:
+async def _connect(service: Connections, provider: FakeProvider, *, owner: str = OWNER) -> None:
     state, code = provider.consent(await service.begin(owner, "gitlab"))
     await service.finish(state, code, owner=owner)
 
@@ -672,3 +674,151 @@ async def test_what_else_the_provider_said_is_kept_with_the_connection_and_seen_
     assert (await service.account(OWNER, "gitlab")).extra == {}  # type: ignore[union-attr]
     await store.save_connection(replace(record, account_extra="[1]"))
     assert (await service.account(OWNER, "gitlab")).extra == {}  # type: ignore[union-attr]
+
+
+# -- a credential the person enters ----------------------------------------------------
+
+
+class FakeCredentialProvider:
+    """A system with no OAuth: a token is whose the table says, or refused."""
+
+    hint = "Make a token under Profile → Tokens."
+
+    def __init__(self) -> None:
+        self.tokens: dict[str, ProviderAccount] = {"tok-alice": ALICE}
+        self.validate_error: Exception | None = None
+        self.validated: list[str] = []
+        self.revoked: list[str] = []
+
+    async def validate(self, credential: str) -> ProviderAccount:
+        self.validated.append(credential)
+        if self.validate_error is not None:
+            raise self.validate_error
+        if credential not in self.tokens:
+            raise ProviderRejected("unknown token")
+        return self.tokens[credential]
+
+    async def revoke(self, token: str) -> None:  # never called: a token is the person's to end
+        self.revoked.append(token)
+
+
+def _credential_service(provider=None, **over) -> Connections:
+    return Connections(
+        connections=over.pop("store", None) or MemoryConnectionStore(),
+        links=over.pop("links", None) or MemoryLinkStore(),
+        providers={"graylog": provider or FakeCredentialProvider()},
+        sealer=FernetSealer([KEY]), clock=over.pop("clock", None) or Clock(), poll_s=0.001,
+        credential_form_url=over.pop("credential_form_url", "https://engine.example/connect/"),
+        **over,
+    )
+
+
+def _state_of(url: str) -> str:
+    return url.rsplit("/", 1)[1]
+
+
+async def test_a_credential_connect_is_a_form_the_person_fills_and_a_grant_without_refresh() -> None:
+    provider = FakeCredentialProvider()
+    service = _credential_service(provider)
+    url = await service.begin(OWNER, "graylog", return_to="post-1")
+    assert url.startswith("https://engine.example/connect/") and len(_state_of(url)) > 20
+    state = _state_of(url)
+    form = await service.form_of(state)
+    assert form is not None and (form.provider, form.hint, form.post_url) == ("graylog", provider.hint, url)
+    assert await service.form_of(state) is not None  # drawn, not spent
+    connected = await service.finish_with_credential(state, "tok-alice", form.csrf)
+    assert (connected.owner, connected.provider, connected.account, connected.return_to) == (OWNER, "graylog", ALICE, "post-1")
+    assert provider.validated == ["tok-alice"]
+    grant = await service.grant(OWNER, "graylog")
+    assert grant.token.reveal() == "tok-alice" and grant.account == ALICE
+    assert await service.form_of(state) is None  # spent
+    # Never refreshed: the token has no end, and no refresh token to turn.
+    record = await service._connections.get_connection(OWNER, "graylog")
+    assert record is not None and (record.refresh_sealed, record.expires_at) == ("", "")
+    assert (await service.grant(OWNER, "graylog")).token.reveal() == "tok-alice"
+
+
+async def test_a_credential_form_posted_without_its_secret_is_forged_and_spends_the_link() -> None:
+    service = _credential_service()
+    state = _state_of(await service.begin(OWNER, "graylog"))
+    with pytest.raises(LinkRefused) as refused:
+        await service.finish_with_credential(state, "tok-alice", "not-the-secret")
+    assert refused.value.reason == LINK_FORGED
+    assert await service.form_of(state) is None
+    with pytest.raises(LinkRefused) as again:
+        await service.finish_with_credential(state, "tok-alice", "whatever")
+    assert again.value.reason == LINK_EXPIRED
+    assert await service.account(OWNER, "graylog") is None
+
+
+async def test_a_credential_the_system_refuses_connects_nothing() -> None:
+    provider = FakeCredentialProvider()
+    service = _credential_service(provider)
+    state = _state_of(await service.begin(OWNER, "graylog"))
+    form = await service.form_of(state)
+    assert form is not None
+    with pytest.raises(LinkRefused) as refused:
+        await service.finish_with_credential(state, "tok-nobody", form.csrf)
+    assert refused.value.reason == CREDENTIAL_REJECTED and await service.account(OWNER, "graylog") is None
+    provider.validate_error = ProviderUnavailable("down")
+    state = _state_of(await service.begin(OWNER, "graylog"))
+    form = await service.form_of(state)
+    assert form is not None
+    with pytest.raises(ProviderUnavailable):
+        await service.finish_with_credential(state, "tok-alice", form.csrf)
+
+
+async def test_a_credential_form_expires_and_belongs_to_its_person() -> None:
+    clock = Clock()
+    service = _credential_service(clock=clock)
+    state = _state_of(await service.begin(OWNER, "graylog"))
+    with pytest.raises(LinkRefused) as foreign:
+        await service.finish_with_credential(state, "tok-alice", "x", owner="slack:U9")
+    assert foreign.value.reason == LINK_FOREIGN
+    state = _state_of(await service.begin(OWNER, "graylog"))
+    clock.advance(601)
+    assert await service.form_of(state) is None
+    with pytest.raises(LinkRefused) as expired:
+        await service.finish_with_credential(state, "tok-alice", "x")
+    assert expired.value.reason == LINK_EXPIRED
+
+
+async def test_the_rule_on_the_account_holds_for_a_credential_too() -> None:
+    service = _credential_service(policy=Refuse("its email is not yours"))
+    state = _state_of(await service.begin(OWNER, "graylog"))
+    form = await service.form_of(state)
+    assert form is not None
+    with pytest.raises(LinkRefused) as refused:
+        await service.finish_with_credential(state, "tok-alice", form.csrf)
+    assert (refused.value.reason, refused.value.account, refused.value.detail) == (ACCOUNT_REFUSED, "alice", "its email is not yours")
+
+
+async def test_a_credential_is_the_persons_to_end_so_a_disconnect_revokes_nothing() -> None:
+    provider = FakeCredentialProvider()
+    service = _credential_service(provider)
+    state = _state_of(await service.begin(OWNER, "graylog"))
+    form = await service.form_of(state)
+    assert form is not None
+    await service.finish_with_credential(state, "tok-alice", form.csrf)
+    # A second connect replaces the first without revoking it either.
+    provider.tokens["tok-alice-2"] = ALICE
+    state = _state_of(await service.begin(OWNER, "graylog"))
+    form = await service.form_of(state)
+    assert form is not None
+    await service.finish_with_credential(state, "tok-alice-2", form.csrf)
+    assert (await service.grant(OWNER, "graylog")).token.reveal() == "tok-alice-2"
+    ended = await service.disconnect(OWNER, "graylog")
+    assert ended is not None and (ended.revoked, ended.revocable) == (False, False)
+    assert provider.revoked == [] and await service.account(OWNER, "graylog") is None
+
+
+async def test_a_credential_provider_without_a_form_cannot_be_begun_and_an_oauth_link_has_no_form() -> None:
+    with pytest.raises(ProviderUnavailable, match="serves no form"):
+        await _credential_service(credential_form_url="").begin(OWNER, "graylog")
+    oauth = FakeProvider()
+    service = _service(oauth)
+    state, _ = oauth.consent(await service.begin(OWNER, "gitlab"))
+    assert await service.form_of(state) is None
+    with pytest.raises(LinkRefused) as refused:
+        await service.finish_with_credential(state, "tok", "csrf")
+    assert refused.value.reason == LINK_EXPIRED

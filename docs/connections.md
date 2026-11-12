@@ -77,7 +77,13 @@ a provider allows that run there.
    Any other provider: `CONNECTION_KIND__<NAME>=oauth2` with
    `CONNECTION_AUTHORIZE_URL__`, `_TOKEN_URL__`, `_USERINFO_URL__` (and
    `_REVOKE_URL__` if it has one) and `CONNECTION_API_URL__` — where the tools
-   call. Every key is listed in [configuration.md](configuration.md#connected-accounts).
+   call. A system with no OAuth, where people make a credential themselves:
+   `CONNECTION_KIND__<NAME>=credential` with `CONNECTION_WHOAMI_URL__` (where
+   it says whose a credential is), `CONNECTION_API_URL__`,
+   `CONNECTION_CREDENTIAL_AUTH__` (`bearer`, or `basic` for a system that
+   takes it as the user name with `token` for a password) and
+   `CONNECTION_CREDENTIAL_HINT__` (where one comes from, for the form) — no
+   client, no secret; see "A credential the person enters" below. Every key is listed in [configuration.md](configuration.md#connected-accounts).
 4. **Publish the callback listener.** It is a listener of its own
    (`CONNECTIONS_PORT`, 8429), serving that one page, so only it faces
    browsers. A person's browser must reach it at `CONNECTIONS_PUBLIC_URL`; put
@@ -111,10 +117,46 @@ a provider allows that run there.
    which agents, the redirect URI to register, and what would keep a connect
    from working.
 
+## A credential the person enters
+
+Some systems have no OAuth — a self-hosted log store, a dashboard — only
+credentials their people make themselves, a personal token or an API key,
+with the rights of their own account. Such a system is a provider of the
+`credential` kind, and connecting to it goes
+the same way as far as the person is concerned: **Connect** in the panel (or
+the agent's offer) gives them a link, theirs alone, that works once and
+expires in ten minutes — only it opens a form on the engine's own page
+(`<CONNECTIONS_PUBLIC_URL>/connect/<link>`) instead of the provider's consent
+page. The form says where a credential comes from
+(`CONNECTION_CREDENTIAL_HINT__`), the person pastes one, and the engine asks
+the system whose it is
+(`CONNECTION_WHOAMI_URL__`); the account it names is shown as the connection,
+and the application's rule on accounts (the email match) applies as to any.
+A credential the system refuses connects nothing. From then on it is a connection
+like any other: `grant()` hands it to tools, a refusal by the system makes the
+tool `forget` it, the panel shows and ends it.
+
+What differs is the engine's hands off the credential itself. It is never
+refreshed (it has no end the engine knows of) and never revoked: it is the
+person's — or a service account's, shared with others — and goes on working
+at the system until they end it there, which a disconnect says. It travels
+once, in the form's body, to the engine and on to the system, and is kept
+sealed like an OAuth token; it is never shown again (to replace it, connect
+again), never logged, never in the audit. The form and the outcome page are
+the application's to draw (`CallbackPage`,
+[building-an-app.md](building-an-app.md)) — the plain ones serve a
+deployment with none of its own. Keep the link private: the form cannot tell
+whose browser opened it, so the engine shows it only where one person reads.
+
+The bundled `connected_api_read`/`connected_api_write` carry a credential as
+a bearer; a system that takes it otherwise (`basic`) gets a tool of the
+application's own, which reads `grant()` and shapes the request as the
+system wants ([building-an-app.md](building-an-app.md)).
+
 ## A sign-in before a turn
 
 A connection is also a sign-in: the person proved who they are at the
-provider, at a moment the engine keeps (`OAuthConnections.connected_at(owner,
+provider, at a moment the engine keeps (`Connections.connected_at(owner,
 provider)` — the connect, not the latest refresh, which a tool does without
 them). An application that wants the chat held to a provider's own bar — a
 chat session lives for months, the provider signs people in every day — asks
@@ -172,8 +214,9 @@ token does not.
   whoever wrote it) and cut at 20 000 characters, saying so.
 - Not connected: the engine posts the provider's Connect offer in the
   conversation, and the model is told to ask the person to press it — and
-  never to ask for a token. A 401 ends the connection and asks them to connect
-  again.
+  never to ask for a token in the chat (a `credential` provider's credential
+  is entered on the engine's own page, never told to the agent). A 401 ends the
+  connection and asks them to connect again.
 - **Connecting needs interactivity.** With `INTEGRATIONS_ENABLED=false` there
   is no button and no panel, so nobody can connect; `impi doctor` warns.
 
@@ -189,10 +232,13 @@ token does not.
   GitLab does; for a provider that does not, keep the old key until those
   people have connected again.
 - **Refresh** happens when a tool asks for a token that is about to end, once
-  per connection however many tools ask, across replicas too.
+  per connection however many tools ask, across replicas too. A credential
+  the person entered is never refreshed.
 - **Disconnect** in the panel ends it here and revokes it at the provider; if
   the provider does not confirm the revoke, the panel says so and the person
-  removes the application in their account there.
+  removes the application in their account there. A credential the person
+  entered is not revoked: the panel says it still works at the system, for
+  them to end there.
 - **Someone leaves.** Their connection is not ended by leaving the chat. They
   disconnect, or the provider's administrator revokes the application for
   them. There is no `impi` command for it yet.

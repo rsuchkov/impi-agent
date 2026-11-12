@@ -7,12 +7,13 @@ where the audit trail goes.
 """
 
 from collections.abc import Mapping
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from crucible.connections.types import OAuthTokens
 from crucible.ports.connections import ProviderAccount
 
 
+@runtime_checkable
 class OAuthProvider(Protocol):
     """One OAuth 2.0 provider, configured for this application (its client,
     its redirect, its scope). A code or refresh token the provider refuses
@@ -35,6 +36,30 @@ class OAuthProvider(Protocol):
 
     async def identify(self, access_token: str) -> ProviderAccount:
         """Who the token belongs to."""
+        ...
+
+
+@runtime_checkable
+class CredentialProvider(Protocol):
+    """A system with no OAuth, only credentials its people make themselves —
+    a personal token, an API key — and enter into a form the engine serves
+    (a self-hosted log store, a dashboard). The credential is kept as an
+    OAuth grant is — sealed, the person's, handed to tools as the token of
+    their grant — but never refreshed and never revoked by the engine: it
+    goes on working at the system until the person ends it there (a service
+    account's credential is shared, and ending it would end it for everyone).
+    A credential the system refuses raises ``ProviderRejected``; anything
+    else that goes wrong raises ``ProviderUnavailable``."""
+
+    @property
+    def hint(self) -> str:
+        """Where a credential comes from, in the operator's words, for the
+        form: the page of the system that makes one."""
+        ...
+
+    async def validate(self, credential: str) -> ProviderAccount:
+        """Whose the credential is, asked of the system — the account the
+        connection is shown as."""
         ...
 
 

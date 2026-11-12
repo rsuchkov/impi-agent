@@ -378,7 +378,7 @@ engine use it at every start.
 | the operator's broker certificate | `~/.impi/operator`, mounted into nothing an agent runs in | the operator |
 | the store's unseal key and the broker's credential | `~/.impi/ward-recovery.txt` on the host, mode 600, mounted into nothing | the operator |
 | the tool token and session proof | the runtime's environment, minted at spawn | the process; an unconfined neighbour with a shell |
-| people's connected accounts (access and refresh tokens) | the inventory, sealed with `CONNECTIONS_KEYS` (Fernet) | the engine; the database alone reads whose and which account and the userinfo fields kept beside it, not the tokens. The key is in `conf/.env`, so an unconfined agent with `read` has both — the tokens never enter an agent's process otherwise ([connections.md](connections.md)) |
+| people's connected accounts (access and refresh tokens, and a credential the person entered on the engine's form — once, in the form's body over TLS, never through the chat) | the inventory, sealed with `CONNECTIONS_KEYS` (Fernet) | the engine; the database alone reads whose and which account and the userinfo fields kept beside it, not the tokens. The key is in `conf/.env`, so an unconfined agent with `read` has both — the tokens never enter an agent's process otherwise ([connections.md](connections.md)) |
 | the OAuth applications' secrets (`CONNECTION_CLIENT_SECRET__*`) | `conf/.env`, in the clear | the engine; an unconfined agent with `read` |
 
 The engine's own configuration is the soft spot of an unconfined agent: one

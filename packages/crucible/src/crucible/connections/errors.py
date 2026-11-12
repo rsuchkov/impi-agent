@@ -11,6 +11,8 @@ LINK_FOREIGN = "foreign"  # started by somebody else
 LINK_DENIED = "denied"  # the person declined at the provider
 LINK_REJECTED = "rejected"  # the provider would not exchange the code
 ACCOUNT_REFUSED = "account_refused"  # the application's rule refused that account
+LINK_FORGED = "forged"  # the credential form came back without the secret the link carries
+CREDENTIAL_REJECTED = "credential_rejected"  # the system would not accept the credential the person entered
 
 
 class LinkRefused(ConnectionsError):

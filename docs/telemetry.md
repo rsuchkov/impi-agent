@@ -56,7 +56,7 @@ The port is `crucible.ports.telemetry.Telemetry`: one method,
 turn's own path, and a receiver that fails is logged, never felt. The engine's
 producers each take a `Telemetry`: `AgentFlow(telemetry=)`,
 `ToolWiring.build_server(telemetry=)`, `InteractionWiring(telemetry=)`,
-`McpServers(telemetry=)`, `Scheduler(telemetry=)`, `OAuthConnections(telemetry=)`,
+`McpServers(telemetry=)`, `Scheduler(telemetry=)`, `Connections(telemetry=)`,
 and `crucible.engine_state.tell_engine_state` for the timer. `impi` builds
 its receivers — the log, and the trace exporter when `TELEMETRY_OTLP_ENDPOINT`
 names one — as one (`Telemetries`) and hands it to all of them.

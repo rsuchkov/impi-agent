@@ -649,7 +649,9 @@ class ConnectionLinkRecord:
     state_digest: str
     owner: str
     provider: str
-    verifier_sealed: str  # the PKCE verifier, sealed like the tokens
+    # The PKCE verifier of an OAuth connect, or the secret the credential
+    # form must hand back (CSRF) — sealed like the tokens.
+    verifier_sealed: str
     expires_at: str
     # Where the application wants to say it went once the connect finishes —
     # opaque here (a message to redraw, say), handed back in ``Connected``.
@@ -715,6 +717,11 @@ class ConnectionLinkStore(Protocol):
     """Connects in progress."""
 
     async def put_link(self, link: ConnectionLinkRecord) -> None: ...
+
+    async def peek_link(self, state_digest: str) -> ConnectionLinkRecord | None:
+        """The link as it is, left in place — for the form that asks a person
+        for a credential to know whose it is before anything is entered."""
+        ...
 
     async def take_link(self, state_digest: str) -> ConnectionLinkRecord | None:
         """The link, removed in the same step: a second take finds nothing."""

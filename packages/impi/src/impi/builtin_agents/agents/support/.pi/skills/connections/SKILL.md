@@ -26,7 +26,16 @@ You hold none of these tools and connect nobody: you set it up and diagnose it.
 3. In `.env`: `CONNECTION_CLIENT_ID__<NAME>`, `CONNECTION_CLIENT_SECRET__<NAME>`,
    `CONNECTION_BASE_URL__<NAME>` (GitLab) — or `CONNECTION_KIND__<NAME>=oauth2`
    with the authorize/token/userinfo/API URLs — and `CONNECTIONS_PUBLIC_URL`.
-   `CONNECTION_AGENTS__<NAME>` narrows which agents may use it.
+   `CONNECTION_AGENTS__<NAME>` narrows which agents may use it. A system with
+   no OAuth (a self-hosted log store), where people make a credential
+   themselves — a personal token, an API key:
+   `CONNECTION_KIND__<NAME>=credential` with `CONNECTION_WHOAMI_URL__<NAME>`
+   (where it says whose a credential is), `CONNECTION_API_URL__<NAME>`,
+   `CONNECTION_CREDENTIAL_AUTH__<NAME>` (`bearer`, or `basic` when the system takes
+   the credential as the user name with `token` for a password) and
+   `CONNECTION_CREDENTIAL_HINT__<NAME>` (where one comes from) — no client,
+   no secret, no redirect URI: the person pastes the credential into a form the engine
+   serves at `<CONNECTIONS_PUBLIC_URL>/connect/<link>`.
 4. Publish `CONNECTIONS_PORT` (8429) where browsers reach it, behind TLS.
 5. The agent's `runtime.tools`: `connected_accounts`, `connected_api_read`,
    `connected_api_write` — you can edit that (agent-builder), and say in its
@@ -83,3 +92,8 @@ a token or a code.
 - Channels and shared threads: not designed yet. A thread inside the person's DM works (only they and the agent read it).
 - Someone who leaves keeps their connection until they disconnect or the
   provider revokes the application; there is no `impi` command for it yet.
+- A credential the person entered (a `credential` provider) is never
+  refreshed and never revoked by the engine: a disconnect forgets the engine's
+  copy and says it still works at the system — they end it there. The bundled
+  `connected_api_*` tools carry it as a bearer; a system that takes it as
+  basic auth needs a tool of the application's own.

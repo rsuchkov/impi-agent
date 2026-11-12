@@ -44,7 +44,25 @@ class Connected:
 @dataclass(frozen=True)
 class Disconnection:
     """A connection ended. ``revoked`` False = the provider did not confirm the
-    revoke, and the person should revoke the application there themselves."""
+    revoke, and the person should revoke the application there themselves.
+    ``revocable`` False = there was nothing to revoke: a credential the
+    person entered is theirs and goes on working at the system until they
+    end it there (``revoked`` is False then too)."""
 
     account: ProviderAccount
     revoked: bool
+    revocable: bool = True
+
+
+@dataclass(frozen=True)
+class CredentialForm:
+    """The form that asks a person for a credential, as the application
+    draws it: which provider, the provider's word on where a credential comes
+    from, where the form posts to, the secret it must hand back (``csrf``,
+    bound to the link), and what to tell a person who should start over."""
+
+    provider: str
+    hint: str
+    post_url: str
+    csrf: str
+    start_again: str = ""

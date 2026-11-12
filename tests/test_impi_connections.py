@@ -9,8 +9,8 @@ import pytest
 
 from crucible.connections import (
     Connected,
+    Connections,
     ConnectionsError,
-    OAuthConnections,
     ProviderAccount,
 )
 from crucible.connections.sealing import FernetSealer, new_sealing_key
@@ -30,7 +30,7 @@ from impi import cli
 from impi.config import ImpiSettings
 from impi.connections import (
     ChatEmailPolicy,
-    Connections,
+    ConnectedAccounts,
     NarrowedConnections,
     RedrawOnConnect,
     build_connections,
@@ -100,6 +100,37 @@ def test_a_name_is_the_suffix_and_each_field_is_read_under_it() -> None:
     assert provider.allows("helper") and not provider.allows("support")
     assert provider.oauth2_config("r").token_url == "https://id.example.com/token"
     assert provider.oauth2_config("r").scope == "read"
+
+
+GRAYLOG = {
+    "CONNECTION_KIND__GRAYLOG": "credential",
+    "CONNECTION_API_URL__GRAYLOG": "https://logs.example/api",
+    "CONNECTION_WHOAMI_URL__GRAYLOG": "https://logs.example/api/users/me",
+    "CONNECTION_CREDENTIAL_AUTH__GRAYLOG": "basic",
+    "CONNECTION_CREDENTIAL_HINT__GRAYLOG": "Profile → Tokens",
+}
+
+
+def test_a_credential_provider_is_named_by_its_kind_and_needs_no_client() -> None:
+    providers = connection_providers({**GITLAB, **GRAYLOG, "CONNECTION_AGENTS__GRAYLOG": "sre"})
+    assert sorted(providers) == ["gitlab", "graylog"]
+    graylog = providers["graylog"]
+    assert graylog.takes_credential and not providers["gitlab"].takes_credential
+    assert (graylog.client_id, graylog.client_secret, graylog.api_url) == ("", "", "https://logs.example/api")
+    config = graylog.credential_config()
+    assert (config.whoami_url, config.auth, config.hint) == ("https://logs.example/api/users/me", "basic", "Profile → Tokens")
+    assert graylog.allows("sre") and not graylog.allows("assistant")
+    assert connection_providers({**GRAYLOG, "CONNECTION_CREDENTIAL_AUTH__GRAYLOG": ""})["graylog"].credential_config().auth == "bearer"
+
+
+@pytest.mark.parametrize(("change", "names"), [
+    ({"CONNECTION_WHOAMI_URL__GRAYLOG": ""}, "CONNECTION_WHOAMI_URL__GRAYLOG"),
+    ({"CONNECTION_API_URL__GRAYLOG": ""}, "CONNECTION_API_URL__GRAYLOG"),
+    ({"CONNECTION_CREDENTIAL_AUTH__GRAYLOG": "digest"}, "CONNECTION_CREDENTIAL_AUTH__GRAYLOG"),
+])
+def test_a_credential_provider_that_cannot_work_names_the_key(change: dict, names: str) -> None:
+    with pytest.raises(ValueError, match=names):
+        connection_providers({**GRAYLOG, **change})
 
 
 def test_an_empty_agents_list_lets_no_agent_use_it() -> None:
@@ -296,7 +327,7 @@ def _text(view) -> str:
 
 
 def _screen(provider: FakeProvider, *, providers=("gitlab",), owner="mattermost:u1"):
-    service = OAuthConnections(
+    service = Connections(
         connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": provider},
         sealer=FernetSealer([new_sealing_key()]),
     )
@@ -364,6 +395,28 @@ async def test_disconnect_says_whether_the_provider_confirmed(revoke_error, says
 
     assert says in _text(view) and "**gitlab** — not connected" in _text(view)
     assert "Not connected" in _text(await screen.render(_state("disconnect:gitlab"), user_id="u1"))
+
+
+async def test_a_disconnect_from_a_credential_provider_says_it_still_works_there() -> None:
+    from tests.test_connections import FakeCredentialProvider
+
+    provider = FakeCredentialProvider()
+    service = Connections(
+        connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"graylog": provider},
+        sealer=FernetSealer([new_sealing_key()]), credential_form_url="https://e.example/connect",
+    )
+    screen = ConnectionsScreen(
+        service, owner_for=lambda agent, user: "mattermost:u1" if user else None,
+        providers_for=lambda agent: ("graylog",), command="/Accounts",
+    )
+    view = await screen.render(_state("connect:graylog"), user_id="u1")
+    assert "https://e.example/connect/" in view.private_note and "yours alone" in view.private_note
+    state = view.private_note.rsplit("/", 1)[1].split()[0]
+    form = await service.form_of(state)
+    assert form is not None
+    await service.finish_with_credential(state, "tok-alice", form.csrf)
+    view = await screen.render(_state("disconnect:graylog"), user_id="u1")
+    assert "the credential itself still works there" in _text(view) and provider.revoked == []
 
 
 async def test_a_provider_that_does_not_answer_is_a_note_not_a_crash() -> None:
@@ -513,11 +566,11 @@ async def test_a_connect_is_redrawn_where_it_started_and_nowhere_else() -> None:
 
 
 def _connections(**gateways: str):
-    service = OAuthConnections(
+    service = Connections(
         connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": FakeProvider()},
         sealer=FernetSealer([new_sealing_key()]),
     )
-    return Connections(
+    return ConnectedAccounts(
         service=service, callback=None,  # type: ignore[arg-type]  # not started here
         providers=connection_providers(GITLAB), gateways=gateways,
     )

@@ -6,7 +6,36 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A system with no OAuth: the person enters a credential.** A second kind
+  of provider beside OAuth — `CredentialProvider` (`crucible.connections`),
+  for a system whose people make a credential themselves, a personal token
+  or an API key: `hint` says where one comes from, `validate(credential)`
+  asks the system whose it is; `HttpCredentialProvider(CredentialConfig(...))`
+  covers one that answers an HTTP "who am I", the credential carried as a
+  bearer or as basic auth (as the user name, `token` as the password, a log
+  store's way). `begin` for
+  such a provider answers with the address of a form the engine serves
+  (`Connections(credential_form_url=)`, `CallbackServer` at `/connect/{state}`):
+  the person pastes the credential, `finish_with_credential(state,
+  credential, csrf)` validates it and keeps it as any grant — sealed, the
+  person's, handed to tools as the token of their grant, forgotten on a
+  refusal — never refreshed and never revoked by the engine
+  (`Disconnection.revocable` is False: it goes on working at the system until
+  the person ends it there). The form hands back a secret
+  bound to the link (`forged` otherwise), posts nowhere but to the engine,
+  takes a small body, and the credential is never logged, audited or shown
+  again.
+  The form is the application's to draw beside the outcome page
+  (`CallbackPage.form(CredentialForm)`; the plain page draws one). `impi`:
+  `CONNECTION_KIND__<NAME>=credential` with `CONNECTION_WHOAMI_URL__`,
+  `CONNECTION_API_URL__`, `CONNECTION_CREDENTIAL_AUTH__` (`bearer`|`basic`) and
+  `CONNECTION_CREDENTIAL_HINT__`, no client. The bundled `connected_api_*` tools
+  carry a credential as a bearer; a system that takes it otherwise gets a tool of
+  the application's own, which reads `grant()`. **Breaks:** `OAuthConnections`
+  is `Connections`, now holding both kinds; `CallbackPage` has a second
+  method, `form(CredentialForm)`, which a page of the application's must
+  implement; a `ConnectionLinkStore` of the application's needs `peek_link`
+  beside `take_link`.
 
 ## v0.52.0 — 2026-11-12
 

@@ -120,18 +120,7 @@ class OAuth2Provider:
             raise ProviderRejected("userinfo refused the token")
         if response.status_code != 200:
             raise ProviderUnavailable(f"userinfo answered {response.status_code}")
-        try:
-            data = response.json()
-            names = self._config.account_fields
-            return ProviderAccount(
-                id=str(data[names["id"]]),
-                username=str(data.get(names["username"]) or ""),
-                name=str(data.get(names["name"]) or ""),
-                email=str(data.get(names["email"]) or ""),
-                extra={name: data[name] for name in self._config.account_extra if name in data},
-            )
-        except (ValueError, KeyError, TypeError, AttributeError) as exc:
-            raise ProviderUnavailable("userinfo answer does not parse") from exc
+        return account_of(response, self._config.account_fields, self._config.account_extra)
 
     async def _token(self, form: dict[str, str]) -> OAuthTokens:
         response = await self._post(self._config.token_url, form)
@@ -161,6 +150,22 @@ class OAuth2Provider:
             return await self._http.post(url, data={**form, **secret}, headers=headers)
         except httpx.HTTPError as exc:
             raise ProviderUnavailable(f"{url} unreachable: {type(exc).__name__}") from exc
+
+
+def account_of(response: httpx.Response, fields: Mapping[str, str], extra: tuple[str, ...]) -> ProviderAccount:
+    """The account a "who am I" answer names, by the field names the provider
+    uses for the four the engine keeps, with ``extra`` kept beside them."""
+    try:
+        data = response.json()
+        return ProviderAccount(
+            id=str(data[fields["id"]]),
+            username=str(data.get(fields["username"]) or ""),
+            name=str(data.get(fields["name"]) or ""),
+            email=str(data.get(fields["email"]) or ""),
+            extra={name: data[name] for name in extra if name in data},
+        )
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise ProviderUnavailable("the account answer does not parse") from exc
 
 
 def _error_of(response: httpx.Response) -> str:

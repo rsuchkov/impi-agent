@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from crucible.confinement import NET_ABI
+from crucible.connections.callback import CONNECT_PATH
 from crucible.gateways import GatewayConfig, needs_http_receiver
 from crucible.ports.agent import AgentSpec
 from crucible.profiles import ProfileStore
@@ -183,8 +184,12 @@ def connections_report(
             f"{name} (agents: {', '.join(p.agents) if p.agents is not None else 'all'})"
             for name, p in sorted(providers.items())
         )
-        + f" — register {settings.connections_redirect_uri} as the redirect URI with each; "
-        f"people connect with /{settings.connections_command} in a direct message"
+        + f" — register {settings.connections_redirect_uri} as the redirect URI with each"
+        + (
+            f"; a credential is entered at {settings.connections_public_url.rstrip('/')}{CONNECT_PATH}/<link>"
+            if any(p.takes_credential for p in providers.values()) else ""
+        )
+        + f"; people connect with /{settings.connections_command} in a direct message"
     )
     if not settings.sealing_keys():
         report.errors.append(

@@ -511,7 +511,7 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   through two gateways may need the bar on one and not the other:
   `AdmissionByGateway({"slack": rule})` (`crucible.flows.admission`) asks the
   rule for the gateway named and admits the rest. The recipe for a sign-in:
-  the rule asks `OAuthConnections.connected_at(owner, provider)` for the
+  the rule asks `Connections.connected_at(owner, provider)` for the
   identity provider and admits a connect younger than its working day; when
   not, it calls `begin(owner, provider)` for the person's own link and
   answers `NotAdmitted("Sign in to go on.", link=url, label="Sign in")`; the
@@ -904,7 +904,7 @@ credential, is another user's credential.
   [telemetry.md](telemetry.md)): `AgentFlow(telemetry=)`,
   `tools.build_server(telemetry=)`, `InteractionWiring(telemetry=)`,
   `McpServers(telemetry=)`, `Scheduler(telemetry=)`,
-  `OAuthConnections(telemetry=)`, and `tell_engine_state(...)` as a supervised
+  `Connections(telemetry=)`, and `tell_engine_state(...)` as a supervised
   loop for the timer. Build one receiver — `impi`'s `LogTelemetry`, the
   ready-made `OtelTelemetry` ([telemetry.md](telemetry.md)), or your own
   `record(event)` that feeds an exporter or a table; several as one with
@@ -982,15 +982,27 @@ credential, is another user's credential.
 - **Acting as the person, at their own provider.** `crucible.connections`
   connects a person's account at an OAuth provider once and hands a tool
   their token on every turn, refreshed when it is about to end; the model
-  never sees it. Yours: the `OAuthProvider` (one per provider), who the owner
-  is, where the provider sends the person back (you call
+  never sees it. Yours: the `OAuthProvider` (one per provider) — or a
+  `CredentialProvider` for a system with no OAuth, whose people make a
+  credential themselves (a personal token, an API key): `hint` says where,
+  `validate(credential)` asks the system whose it is;
+  `HttpCredentialProvider(CredentialConfig(whoami_url, hint, auth))` covers one
+  that answers an HTTP "who am I", the credential as a bearer or as basic auth —
+  who the owner is, where the provider sends the person back (you call
   `finish(state, code, owner=…, facts=…)` from there — `CallbackServer(…,
   start_again=…)` is the ready route with a plain page, told what its "try
-  again" should say; your own page is `CallbackServer(…, page=)`, a
-  `CallbackPage` whose `render(outcome)` gets a `CallbackOutcome` — the
+  again" should say; for a credential provider `begin` answers with the form's
+  address instead, `Connections(credential_form_url=)` — `<public>/connect` —
+  which `CallbackServer` serves at `/connect/{state}`: `form_of(state)` gives
+  the page what to draw (`CredentialForm`: the provider, its hint, where to post,
+  the secret the form hands back) and `finish_with_credential(state, credential, csrf,
+  owner=…, facts=…)` finishes it; your own page is `CallbackServer(…, page=)`, a
+  `CallbackPage` whose `form(CredentialForm)` draws that form (a password field
+  named `credential`, a hidden `csrf`, autocomplete off) and whose `render(outcome)` gets a `CallbackOutcome` — the
   `Connected` record when it went through, else the word for why (`denied`,
-  `expired`, `foreign`, `rejected`, `account_refused`, `not_a_connect`,
-  `no_code`, `provider_unavailable`, `failed`) with `account`/`detail` for a
+  `expired`, `foreign`, `rejected`, `forged`, `credential_rejected`,
+  `account_refused`, `not_a_connect`, `no_code`, `provider_unavailable`,
+  `failed`) with `account`/`detail` for a
   refused account, and `start_again` — and answers with a response of its own:
   its words, a picture, its own content-security policy; the flow adds the
   no-store/no-referrer/nosniff headers, and the strict policy, where the page
@@ -1004,7 +1016,7 @@ credential, is another user's credential.
   realm), passed as plain strings rather than through a context variable
   around the call. When whom a connection belongs to is known only once the
   provider has named the account — one person reached through several chats,
-  keyed by that account — a `ConnectionOwner` (`OAuthConnections(owners=)`)
+  keyed by that account — a `ConnectionOwner` (`Connections(owners=)`)
   answers `owner_of(started_by, provider, account, facts)` with the owner to
   save it under; `Connected.started_by` still says whom `begin` started it
   for, so the application can bind the chat user to the person. A connection
@@ -1031,7 +1043,7 @@ credential, is another user's credential.
   by a pattern.
   To tell the person where they started that it worked, pass
   `begin(owner, provider, return_to=…)` — opaque to the library, kept with
-  the link — and `OAuthConnections(on_connected=…)`, which is handed a
+  the link — and `Connections(on_connected=…)`, which is handed a
   `Connected` carrying it once the connect is stored. A screen that started
   it knows its own message from `ScreenState.post_id` (set on every click)
   and redraws it through `redraw_screen`. A screen that shows a person's own

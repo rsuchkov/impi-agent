@@ -24,7 +24,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from crucible.connections import ConnectionsError, OAuthConnections, ProviderAccount
+from crucible.connections import Connections, ConnectionsError, ProviderAccount
 from crucible.interactions.screens import ScreenState, View, screen_action
 from crucible.ports.chat.types import Card
 from impi.connections_config import DEFAULT_COMMAND, command_word
@@ -69,7 +69,7 @@ class ConnectionsScreen:
 
     def __init__(
         self,
-        connections: OAuthConnections,
+        connections: Connections,
         *,
         owner_for: Callable[[str, str], str | None],
         providers_for: Callable[[str], tuple[str, ...]],
@@ -114,6 +114,8 @@ class ConnectionsScreen:
                     note = (
                         f"Not connected to {provider}." if ended is None
                         else f"Disconnected from {provider}." if ended.revoked
+                        else f"Disconnected from {provider} here; the credential itself still works there — "
+                             f"revoke it in {provider} if you no longer want it." if not ended.revocable
                         else f"Disconnected from {provider} here, but {provider} did not confirm the "
                              "revoke — remove the application in your account settings there."
                     )

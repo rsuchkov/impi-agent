@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from aiohttp import web
 
-from crucible.connections import OAuthConnections
+from crucible.connections import Connections
 from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.ports.chat.types import KIND_CHANNEL, KIND_DM, CallPreview, CannotRun
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
@@ -81,8 +81,8 @@ def _settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **extra: str) -> 
     return ConnectedApiSettings(_env_file=str(env))  # type: ignore[call-arg]
 
 
-async def _connected(provider: FakeProvider, *, connect: bool = True) -> OAuthConnections:
-    service = OAuthConnections(
+async def _connected(provider: FakeProvider, *, connect: bool = True) -> Connections:
+    service = Connections(
         connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": provider},
         sealer=FernetSealer([new_sealing_key()]),
     )
@@ -92,7 +92,7 @@ async def _connected(provider: FakeProvider, *, connect: bool = True) -> OAuthCo
     return service
 
 
-def _ctx(service: OAuthConnections, settings: ConnectedApiSettings, *, kind: str = KIND_DM,
+def _ctx(service: Connections, settings: ConnectedApiSettings, *, kind: str = KIND_DM,
          allowed: tuple[str, ...] = ("gitlab",)) -> ToolContext:
     return ToolContext(
         agent_name="assistant", directory=FakeDirectory(AGENTS), settings=settings,
@@ -328,7 +328,7 @@ async def test_not_connected_posts_the_connect_offer_and_the_connect_redraws_it(
 
     store = SqliteSessionStore(tmp_path / "db.sqlite")
     provider, chat, redraw = FakeProvider(), FakeChat(), RedrawOnConnect()
-    service = OAuthConnections(
+    service = Connections(
         connections=store, links=store, providers={"gitlab": provider},
         sealer=FernetSealer([new_sealing_key()]), on_connected=redraw,
     )

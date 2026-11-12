@@ -9,8 +9,8 @@ import httpx
 import pytest
 
 from crucible.connections import (
+    Connections,
     NotConnected,
-    OAuthConnections,
     ProviderAccount,
     ProviderRejected,
     ProviderUnavailable,
@@ -169,7 +169,7 @@ async def test_a_tool_is_handed_the_connections_of_the_person_its_turn_acts_for(
     from tests.test_connections import FakeProvider
 
     provider = FakeProvider()
-    service = OAuthConnections(
+    service = Connections(
         connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": provider},
         sealer=FernetSealer([new_sealing_key()]),
     )

@@ -110,6 +110,7 @@ async def test_a_link_can_be_taken_once(links) -> None:
         return_to='{"p":"post-1"}',
     )
     await links.put_link(link)
+    assert await links.peek_link("d1") == link and await links.peek_link("nope") is None  # a peek leaves it
     assert await links.take_link("d1") == link
     assert await links.take_link("d1") is None
     assert await links.take_link("nope") is None
@@ -120,15 +121,15 @@ async def test_two_replicas_over_one_store_refresh_once(opened) -> None:
     second replica from spending the refresh token the first one holds."""
     import asyncio
 
-    from crucible.connections import OAuthConnections
+    from crucible.connections import Connections
     from crucible.connections.sealing import FernetSealer, new_sealing_key
     from tests.test_connections import Clock, FakeProvider
 
     connections, links = opened
     provider, clock, sealer = FakeProvider(), Clock(), FernetSealer([new_sealing_key()])
 
-    def replica() -> OAuthConnections:
-        return OAuthConnections(
+    def replica() -> Connections:
+        return Connections(
             connections=connections, links=links, providers={"gitlab": provider},
             sealer=sealer, clock=clock, poll_s=0.001,
         )

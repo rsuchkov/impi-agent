@@ -187,6 +187,13 @@ class ConnectionStoreMixin(SqliteBase):
             )
             self._conn.commit()
 
+    def peek_link_sync(self, state_digest: str) -> ConnectionLinkRecord | None:
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT {_LINK_COLUMNS} FROM connection_links WHERE state_digest = ?", (state_digest,),
+            ).fetchone()
+        return _link(row) if row is not None else None
+
     def take_link_sync(self, state_digest: str) -> ConnectionLinkRecord | None:
         with self._lock:
             row = self._conn.execute(
@@ -240,6 +247,9 @@ class ConnectionStoreMixin(SqliteBase):
 
     async def put_link(self, link: ConnectionLinkRecord) -> None:
         await asyncio.to_thread(self.put_link_sync, link)
+
+    async def peek_link(self, state_digest: str) -> ConnectionLinkRecord | None:
+        return await asyncio.to_thread(self.peek_link_sync, state_digest)
 
     async def take_link(self, state_digest: str) -> ConnectionLinkRecord | None:
         return await asyncio.to_thread(self.take_link_sync, state_digest)

@@ -24,11 +24,12 @@ from dataclasses import dataclass
 
 from crucible.connections import (
     Connected,
+    Connections,
     ConnectionsError,
-    OAuthConnections,
     ProviderAccount,
 )
-from crucible.connections.callback import CallbackServer
+from crucible.connections.callback import CONNECT_PATH, CallbackServer
+from crucible.connections.credential import HttpCredentialProvider
 from crucible.connections.oauth2 import OAuth2Provider
 from crucible.connections.service import connection_access
 from crucible.gateways import GatewayConfig
@@ -146,12 +147,12 @@ class NarrowedConnections:
 
 
 @dataclass
-class Connections:
+class ConnectedAccounts:
     """Connected accounts as this deployment built them: the service, the
     callback page's listener, the configured providers, and each agent's
     gateway — which decides whose a turn's connections are."""
 
-    service: OAuthConnections
+    service: Connections
     callback: CallbackServer
     providers: dict[str, ConnectionProvider]
     gateways: Mapping[str, str]  # agent -> its gateway kind
@@ -201,7 +202,7 @@ def build_connections(
     *,
     on_connected: Callable[[Connected], Awaitable[None]] | None = None,
     telemetry: Telemetry | None = None,
-) -> Connections | None:
+) -> ConnectedAccounts | None:
     """None when no provider is configured. ``chat_of_agent(agent)`` is that
     agent's chat client, read when an email is checked; ``on_connected`` hears
     of every connect stored."""
@@ -232,15 +233,19 @@ def build_connections(
                 return client
         return None
 
-    service = OAuthConnections(
+    service = Connections(
         connections=sessions, links=sessions,
-        providers={name: OAuth2Provider(p.oauth2_config(redirect)) for name, p in providers.items()},
+        providers={
+            name: HttpCredentialProvider(p.credential_config()) if p.takes_credential else OAuth2Provider(p.oauth2_config(redirect))
+            for name, p in providers.items()
+        },
         sealer=FernetSealer(keys),
+        credential_form_url=settings.connections_public_url.rstrip("/") + CONNECT_PATH,
         policy=ChatEmailPolicy(providers, chat_on_gateway),
         on_connected=on_connected,
         telemetry=telemetry,
     )
-    return Connections(
+    return ConnectedAccounts(
         service=service,
         callback=CallbackServer(
             service, host=settings.connections_host, port=settings.connections_port,

@@ -396,7 +396,7 @@ serve both consumers, and revoking one is the same operation whichever it was.
 ## Connected accounts (`crucible.connections`)
 
 A person's own account at an OAuth provider, connected once and used by tools
-acting as them. `OAuthConnections` runs the round — a single-use link with a
+acting as them. `Connections` runs the round — a single-use link with a
 PKCE verifier, the code exchanged on a callback page that listens on a port of
 its own (`CallbackServer`; the page drawn by the application's `CallbackPage`
 when it has one), the account checked against the application's

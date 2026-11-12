@@ -106,6 +106,11 @@ class MongoConnectionMixin(MongoBase):
             to_doc(link, _id=link.state_digest, expire_at=datetime.fromisoformat(link.expires_at)),
         )
 
+    async def peek_link(self, state_digest: str) -> ConnectionLinkRecord | None:
+        db = await self._ready()
+        doc = await db[CONNECTION_LINKS].find_one({"_id": state_digest})
+        return from_doc(ConnectionLinkRecord, doc) if doc else None
+
     async def take_link(self, state_digest: str) -> ConnectionLinkRecord | None:
         db = await self._ready()
         doc = await db[CONNECTION_LINKS].find_one_and_delete({"_id": state_digest})

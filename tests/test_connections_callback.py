@@ -4,9 +4,14 @@ import logging
 
 import aiohttp
 import pytest
+from aiohttp import web
 
-from crucible.connections import OAuthConnections, ProviderAccount, ProviderUnavailable
-from crucible.connections.callback import DEFAULT_START_AGAIN, CallbackServer
+from crucible.connections import Connections, ProviderAccount, ProviderUnavailable
+from crucible.connections.callback import (
+    DEFAULT_START_AGAIN,
+    CallbackOutcome,
+    CallbackServer,
+)
 from crucible.connections.sealing import FernetSealer, new_sealing_key
 from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
 from tests.test_connections import FakeProvider, Refuse
@@ -15,8 +20,8 @@ PORT = 8606
 URL = f"http://127.0.0.1:{PORT}/oauth/callback"
 
 
-async def _serve(provider: FakeProvider, *, start_again: str | None = None, **over) -> tuple[OAuthConnections, CallbackServer]:
-    service = OAuthConnections(
+async def _serve(provider: FakeProvider, *, start_again: str | None = None, **over) -> tuple[Connections, CallbackServer]:
+    service = Connections(
         connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": provider},
         sealer=FernetSealer([new_sealing_key()]), **over,
     )
@@ -134,8 +139,11 @@ async def test_the_application_draws_the_page_and_the_flow_keeps_its_headers() -
                 headers={"Content-Security-Policy": "default-src 'none'; img-src data:", "Referrer-Policy": "same-origin"},
             )
 
+        def form(self, form) -> web.Response:
+            raise AssertionError("no token provider here")
+
     provider = FakeProvider()
-    service = OAuthConnections(
+    service = Connections(
         connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": provider},
         sealer=FernetSealer([new_sealing_key()]),
     )
@@ -166,5 +174,107 @@ async def test_the_application_draws_the_page_and_the_flow_keeps_its_headers() -
         status, body, _ = await _get({"state": state4, "code": code4})
         assert status == 503 and body.startswith(OUTCOME_PROVIDER_UNAVAILABLE)
         assert [o.status for o in outcomes] == [200, 400, 200, 400, 400, 503]
+    finally:
+        await server.stop()
+
+
+# -- the credential form --------------------------------------------------------------
+
+
+async def _serve_credential(provider, *, page=None) -> tuple[Connections, CallbackServer]:
+    service = Connections(
+        connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"graylog": provider},
+        sealer=FernetSealer([new_sealing_key()]), credential_form_url=f"http://127.0.0.1:{PORT}/connect",
+    )
+    server = CallbackServer(service, host="127.0.0.1", port=PORT, start_again="Press Connect.", page=page)
+    await server.start()
+    return service, server
+
+
+async def _get_form(url: str) -> tuple[int, str, dict]:
+    async with aiohttp.ClientSession() as s:
+        async with s.get(url, allow_redirects=False) as resp:
+            return resp.status, await resp.text(), dict(resp.headers)
+
+
+async def _post_form(url: str, fields: dict) -> tuple[int, str]:
+    async with aiohttp.ClientSession() as s:
+        async with s.post(url, data=fields, allow_redirects=False) as resp:
+            return resp.status, await resp.text()
+
+
+def _csrf_of(page: str) -> str:
+    import re
+
+    found = re.search(r'name="csrf" value="([^"]+)"', page)
+    assert found
+    return found.group(1)
+
+
+async def test_a_credential_is_entered_into_the_form_and_connects(caplog: pytest.LogCaptureFixture) -> None:
+    from tests.test_connections import FakeCredentialProvider
+
+    provider = FakeCredentialProvider()
+    service, server = await _serve_credential(provider)
+    try:
+        url = await service.begin("mattermost:u1", "graylog")
+        with caplog.at_level(logging.DEBUG):
+            status, page, headers = await _get_form(url)
+            assert status == 200 and provider.hint in page and 'type="password"' in page and 'autocomplete="off"' in page
+            assert headers["Cache-Control"] == "no-store" and "form-action 'self'" in headers["Content-Security-Policy"]
+            status, page = await _post_form(url, {"credential": "tok-alice", "csrf": _csrf_of(page)})
+        assert status == 200 and "account alice is connected" in page
+        assert await service.connected("mattermost:u1") == {"graylog": provider.tokens["tok-alice"]}
+        assert "tok-alice" not in caplog.text and "tok-alice" not in page
+        status, page, _ = await _get_form(url)  # spent
+        assert status == 400 and "expired or was already used" in page
+    finally:
+        await server.stop()
+
+
+async def test_a_form_without_a_credential_is_drawn_again_and_one_without_its_secret_is_refused() -> None:
+    from tests.test_connections import FakeCredentialProvider
+
+    service, server = await _serve_credential(FakeCredentialProvider())
+    try:
+        url = await service.begin("mattermost:u1", "graylog")
+        status, page = await _post_form(url, {"credential": "", "csrf": "x"})
+        assert status == 200 and 'name="credential"' in page  # the form again, the link intact
+        status, page = await _post_form(url, {"credential": "tok-alice", "csrf": "not-it"})
+        assert status == 403 and "not the one the link opened" in page
+        status, page = await _post_form(url, {"credential": "tok-alice", "csrf": "not-it"})
+        assert status == 400 and "expired or was already used" in page  # spent by the forged post
+        url = await service.begin("mattermost:u1", "graylog")
+        _, page, _ = await _get_form(url)
+        status, page = await _post_form(url, {"credential": "tok-nobody", "csrf": _csrf_of(page)})
+        assert status == 400 and "did not accept that credential" in page
+        status, _ = await _post_form(url, {"credential": "x" * 20000, "csrf": "y"})
+        assert status == 413
+    finally:
+        await server.stop()
+
+
+async def test_the_applications_page_draws_the_form_too() -> None:
+    from crucible.connections import CredentialForm
+    from tests.test_connections import FakeCredentialProvider
+
+    drawn: list[CredentialForm] = []
+
+    class _Own:
+        def render(self, outcome: CallbackOutcome) -> web.Response:
+            return web.Response(status=outcome.status, text=f"own: {outcome.refusal or 'ok'}", content_type="text/html")
+
+        def form(self, form: CredentialForm) -> web.Response:
+            drawn.append(form)
+            return web.Response(status=200, text=f"own form for {form.provider}: {form.start_again}", content_type="text/html")
+
+    service, server = await _serve_credential(FakeCredentialProvider(), page=_Own())
+    try:
+        url = await service.begin("mattermost:u1", "graylog")
+        status, page, headers = await _get_form(url)
+        assert status == 200 and page == "own form for graylog: Press Connect." and headers["Referrer-Policy"] == "no-referrer"
+        assert drawn[0].post_url == url and drawn[0].csrf
+        status, page = await _post_form(url, {"credential": "tok-alice", "csrf": drawn[0].csrf})
+        assert (status, page) == (200, "own: ok")
     finally:
         await server.stop()

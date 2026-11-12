@@ -1,46 +1,63 @@
-"""The page a provider sends the person back to: ``GET /oauth/callback``.
+"""The pages a person's browser reaches: ``GET /oauth/callback``, where a
+provider sends them back, and ``/connect/{state}``, the form that asks them
+for a credential where a system has no OAuth.
 
 A listener of its own, on its own port — the one part of the application a
 person's browser reaches. It finishes the connect the state names (the state
 is the proof: it was handed to one person, privately, and works once) and
 answers with a short page saying how it went. Nothing else is served here.
-The page is the application's to draw (``CallbackPage``): it gets how the
-connect ended (``CallbackOutcome``) and answers with a response of its own —
-its words, its picture of the provider, its own content-security policy; the
-flow around it — the state, the refusals, the headers that keep the query out
-of caches and referrers — stays here. ``DefaultCallbackPage`` is the plain one.
+The pages are the application's to draw (``CallbackPage``): the outcome page
+gets how the connect ended (``CallbackOutcome``), the form gets what to draw
+(``CredentialForm``), and each answers with a response of its own — its words,
+its picture of the provider, its own content-security policy; the flow around
+them — the state, the secret the form hands back, the refusals, the headers
+that keep the query out of caches and referrers — stays here.
+``DefaultCallbackPage`` is the plain one.
 
 What the request carries is never written down: the access log is off, since
 aiohttp's would print the query — the state and the code — and the page
 neither repeats them nor lets a browser send them on (no referrer, no cache).
+A credential the person enters travels in the form's body once, to the
+provider that validates it, and is kept sealed; it is never echoed, logged
+or audited.
 """
 
 import html
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from aiohttp import web
 
 from crucible.connections.errors import (
     ACCOUNT_REFUSED,
+    CREDENTIAL_REJECTED,
     LINK_DENIED,
     LINK_EXPIRED,
     LINK_FOREIGN,
+    LINK_FORGED,
     LINK_REJECTED,
     LinkRefused,
 )
-from crucible.connections.service import OAuthConnections
-from crucible.connections.types import Connected
+from crucible.connections.service import Connections
+from crucible.connections.types import Connected, CredentialForm
 from crucible.ports.connections import ProviderUnavailable
 
 logger = logging.getLogger(__name__)
 
 CALLBACK_PATH = "/oauth/callback"
+# The credential form's path, the state after it;
+# ``Connections(credential_form_url=)`` is the public address up to and
+# including this.
+CONNECT_PATH = "/connect"
+# A credential form's body: the credential and the form's secret, nothing
+# that needs more.
+_FORM_MAX_BYTES = 16 * 1024
 
 # The plain page's content-security policy: nothing loads but its inline
-# style. A page of the application's that set no policy of its own gets it.
-_DEFAULT_CSP = "default-src 'none'; style-src 'unsafe-inline'"
+# style, and a form posts nowhere but here. A page of the application's that
+# set no policy of its own gets it.
+_DEFAULT_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'"
 # On every answer, whoever draws the page, where the page set none: the query
 # carried the state and the code, and the page must neither be kept nor send
 # them on.
@@ -62,6 +79,7 @@ OUTCOME_FAILED = "failed"  # something on our side; the log has it
 OUTCOME_STATUS = {
     OUTCOME_NOT_A_CONNECT: 400, OUTCOME_NO_CODE: 400, LINK_DENIED: 200, LINK_EXPIRED: 400, LINK_FOREIGN: 403,
     LINK_REJECTED: 400, ACCOUNT_REFUSED: 403, OUTCOME_PROVIDER_UNAVAILABLE: 503, OUTCOME_FAILED: 500,
+    LINK_FORGED: 403, CREDENTIAL_REJECTED: 400,
 }
 
 
@@ -87,21 +105,41 @@ class CallbackOutcome:
 
 
 class CallbackPage(Protocol):
-    """What the person sees when they come back: the application's page for
-    the outcome. Its response gets the flow's safety headers added where it
-    set none (no-store, no-referrer, nosniff, and the strict content-security
-    policy — nothing but inline style — where the page set no policy of its
-    own; one with a picture sets what it needs). The outcome's ``account``,
-    ``detail`` and the connected account's names are the provider's words:
-    a page that puts them in HTML escapes them."""
+    """What the person sees in their browser: the application's page for the
+    outcome of a connect, and its form that asks for a credential. Each response
+    gets the flow's safety headers added where it set none (no-store,
+    no-referrer, nosniff, and the strict content-security policy — nothing
+    but inline style, a form posting nowhere but here — where the page set no
+    policy of its own; one with a picture sets what it needs). The outcome's
+    ``account``, ``detail``, the connected account's names and the form's
+    ``hint`` are the provider's or the operator's words: a page that puts them
+    in HTML escapes them."""
 
     def render(self, outcome: CallbackOutcome) -> web.Response: ...
+
+    def form(self, form: CredentialForm) -> web.Response:
+        """The form that asks the person for a credential: a password field
+        named ``credential`` with autocomplete off, a hidden field ``csrf``
+        with the form's secret, posting to ``form.post_url``; the provider's
+        ``hint`` says where a credential comes from."""
+        ...
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title>
 <style>body{{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#222}}
 h1{{font-size:1.3rem}}</style></head>
 <body><h1>{title}</h1><p>{text}</p></body></html>
+"""
+_FORM = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+<style>body{{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#222}}
+h1{{font-size:1.3rem}} input{{font:inherit;width:100%;box-sizing:border-box;padding:.4rem}} button{{font:inherit;margin-top:.8rem;padding:.4rem 1rem}}</style></head>
+<body><h1>{title}</h1><p>{hint}</p>
+<form method="post" action="{action}" autocomplete="off">
+<input type="hidden" name="csrf" value="{csrf}">
+<label>Credential <input type="password" name="credential" autocomplete="off" autofocus required></label>
+<button type="submit">Connect</button></form></body></html>
 """
 # What a page that did not connect says to do next. The application knows
 # where a connect starts; this default names nowhere in particular.
@@ -113,9 +151,24 @@ def _page(status: int, title: str, text: str) -> web.Response:
     return web.Response(status=status, text=body, content_type="text/html", headers=_HEADERS)
 
 
+def _safe(response: web.Response) -> web.Response:
+    """The flow's headers, where the page set none."""
+    for name, value in _SAFE_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 class DefaultCallbackPage:
     """The plain page: a title and a sentence, the provider by its id, the
     account by its username — what a deployment with no page of its own gets."""
+
+    def form(self, form: CredentialForm) -> web.Response:
+        body = _FORM.format(
+            title=html.escape(f"Connect your {form.provider} account"),
+            hint=html.escape(form.hint or f"Enter a token or key from {form.provider}. It is kept sealed and never shown again."),
+            action=html.escape(form.post_url, quote=True), csrf=html.escape(form.csrf, quote=True),
+        )
+        return web.Response(status=200, text=body, content_type="text/html", headers=_HEADERS)
 
     def render(self, outcome: CallbackOutcome) -> web.Response:
         connected, again = outcome.connected, outcome.start_again
@@ -146,12 +199,16 @@ class DefaultCallbackPage:
             return _page(status, "Not connected", "This connect was started by somebody else. " + again)
         if word == LINK_REJECTED:
             return _page(status, "Not connected", "The provider would not confirm the sign-in. " + again)
+        if word == CREDENTIAL_REJECTED:
+            return _page(status, "Not connected", "The system did not accept that credential. " + again)
+        if word == LINK_FORGED:
+            return _page(status, "Not connected", "This form was not the one the link opened. " + again)
         return _page(status, "Link expired", "This link has expired or was already used. " + again)
 
 
 class CallbackServer:
     def __init__(
-        self, connections: OAuthConnections, *, host: str = "0.0.0.0", port: int = 8429,
+        self, connections: Connections, *, host: str = "0.0.0.0", port: int = 8429,
         start_again: str = DEFAULT_START_AGAIN, page: CallbackPage | None = None,
     ) -> None:
         self._connections = connections
@@ -162,12 +219,14 @@ class CallbackServer:
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
-        app = web.Application()
+        app = web.Application(client_max_size=_FORM_MAX_BYTES)
         app.router.add_get(CALLBACK_PATH, self._callback)
+        app.router.add_get(CONNECT_PATH + "/{state}", self._form)
+        app.router.add_post(CONNECT_PATH + "/{state}", self._credential)
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
         await web.TCPSite(self._runner, self._host, self._port).start()
-        logger.info("connections callback on %s:%d%s", self._host, self._port, CALLBACK_PATH)
+        logger.info("connections callback on %s:%d%s (%s/{state} for a credential)", self._host, self._port, CALLBACK_PATH, CONNECT_PATH)
 
     async def stop(self) -> None:
         if self._runner is not None:
@@ -175,11 +234,43 @@ class CallbackServer:
             self._runner = None
 
     async def _callback(self, request: web.Request) -> web.Response:
-        outcome = await self._outcome(request)
-        response = self._page.render(outcome)
-        for name, value in _SAFE_HEADERS.items():
-            response.headers.setdefault(name, value)
-        return response
+        return _safe(self._page.render(await self._outcome(request)))
+
+    async def _form(self, request: web.Request) -> web.Response:
+        """The form the link names, or why not: a link that expired, was
+        used, or never was gets the outcome page for an expired one."""
+        form = await self._connections.form_of(request.match_info["state"])
+        if form is None:
+            return _safe(self._page.render(CallbackOutcome(refusal=LINK_EXPIRED, start_again=self._start_again)))
+        return _safe(self._page.form(replace(form, start_again=self._start_again)))
+
+    async def _credential(self, request: web.Request) -> web.Response:
+        """What the person entered. An empty credential draws the form again;
+        a post without the form's secret is forged and spends the link."""
+        state = request.match_info["state"]
+        try:
+            posted = await request.post()
+        except web.HTTPRequestEntityTooLarge:
+            raise
+        except Exception:
+            posted = {}
+        credential = str(posted.get("credential") or "")
+        csrf = str(posted.get("csrf") or "")
+        if not credential:
+            return await self._form(request)
+        again = self._start_again
+        try:
+            connected = await self._connections.finish_with_credential(state, credential, csrf)
+        except LinkRefused as exc:
+            return _safe(self._page.render(
+                CallbackOutcome(refusal=exc.reason, account=exc.account or "", detail=exc.detail or "", start_again=again),
+            ))
+        except ProviderUnavailable:
+            return _safe(self._page.render(CallbackOutcome(refusal=OUTCOME_PROVIDER_UNAVAILABLE, start_again=again)))
+        except Exception:
+            logger.exception("a connect by credential could not be finished")
+            return _safe(self._page.render(CallbackOutcome(refusal=OUTCOME_FAILED, start_again=again)))
+        return _safe(self._page.render(CallbackOutcome(connected=connected, start_again=again)))
 
     async def _outcome(self, request: web.Request) -> CallbackOutcome:
         """Finish the connect the request names, or say why it did not."""

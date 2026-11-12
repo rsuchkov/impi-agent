@@ -1,11 +1,24 @@
-"""OAuthConnections: people connect their accounts at a provider, and tools act
+"""Connections: people connect their accounts at a provider, and tools act
 as them.
+
+Two kinds of provider. An OAuth one (``OAuthProvider``): the person consents
+at the provider, tokens come back, are refreshed and revoked. A credential
+one (``CredentialProvider``): a system with no OAuth, where the person makes
+a credential themselves — a personal token, an API key — and enters it into
+a form the application serves; it is kept exactly as a grant is, never
+refreshed, and never revoked by the engine — it is the person's, or a
+service account's shared with others, and goes on working at the system
+until they end it there.
 
 A connect is two halves. ``begin`` stores a single-use link (a state and a
 PKCE verifier, ten minutes) and answers with the provider's consent URL; the
 person consents there and the provider sends them back to the application,
 which calls ``finish`` with the state and the code. Only then is anything
-stored: the tokens, sealed, and who the account is.
+stored: the tokens, sealed, and who the account is. For a credential provider
+``begin`` answers with the form's address instead (``credential_form_url`` and
+the state), the link keeping the secret the form must hand back; the
+application serves the form (``form_of``) and calls ``finish_with_credential``
+with what the person entered.
 
 A tool asks ``grant`` for the person of its turn. A token close to its end is
 refreshed first — and a provider that issues a new refresh token on every
@@ -53,9 +66,11 @@ from crucible.connections.audit import (
 )
 from crucible.connections.errors import (
     ACCOUNT_REFUSED,
+    CREDENTIAL_REJECTED,
     LINK_DENIED,
     LINK_EXPIRED,
     LINK_FOREIGN,
+    LINK_FORGED,
     LINK_REJECTED,
     LinkRefused,
     ProviderRejected,
@@ -70,10 +85,16 @@ from crucible.connections.ports import (
     AccountPolicy,
     ConnectionOwner,
     ConnectionsAudit,
+    CredentialProvider,
     OAuthProvider,
     Sealer,
 )
-from crucible.connections.types import Connected, Disconnection, OAuthTokens
+from crucible.connections.types import (
+    Connected,
+    CredentialForm,
+    Disconnection,
+    OAuthTokens,
+)
 from crucible.ports.connections import (
     AccessToken,
     ConnectionAccessFactory,
@@ -107,7 +128,7 @@ def _parse(value: str) -> datetime:
     return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
-def _credential(record: ConnectionRecord) -> tuple[str, int]:
+def _grant_identity(record: ConnectionRecord) -> tuple[str, int]:
     return record.connect_id, record.version
 
 
@@ -141,13 +162,13 @@ async def _revoke(oauth: OAuthProvider, token: str) -> bool:
     return True
 
 
-class OAuthConnections:
+class Connections:
     def __init__(
         self,
         *,
         connections: ConnectionStore,
         links: ConnectionLinkStore,
-        providers: Mapping[str, OAuthProvider],
+        providers: Mapping[str, OAuthProvider | CredentialProvider],
         sealer: Sealer,
         policy: AccountPolicy | None = None,
         owners: ConnectionOwner | None = None,
@@ -160,11 +181,16 @@ class OAuthConnections:
         clock: Callable[[], datetime] = _utcnow,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         on_connected: Callable[[Connected], Awaitable[None]] | None = None,
+        credential_form_url: str = "",
     ) -> None:
         self._connections = connections
         self._links = links
         self._providers = dict(providers)
         self._sealer = sealer
+        # Where the form that asks a person for a credential is served, without
+        # the state — the application's listener (``CallbackServer``); "" when
+        # no credential provider is wired, and a begin for one is then refused.
+        self._credential_form_url = credential_form_url.rstrip("/")
         self._policy = policy
         # Who a finished connect is saved for, when that is known only once the
         # provider has named the account (None: whom begin() started it for).
@@ -204,11 +230,16 @@ class OAuthConnections:
     # -- connecting ---------------------------------------------------------
 
     async def begin(self, owner: str, provider: str, *, return_to: str = "") -> str:
-        """Start a connect for ``owner``: the provider's consent URL to send
-        them to. The URL is the person's alone — whoever holds it can finish
-        the connect within its time, so it goes to them privately.
+        """Start a connect for ``owner``: the URL to send them to — the
+        provider's consent page, or, for a credential provider, the form that
+        asks them for a credential. The URL is the person's alone — whoever holds it can
+        finish the connect within its time, so it goes to them privately.
         ``return_to`` is kept with the link and handed back in ``Connected``."""
-        oauth = self._provider(provider)
+        source = self._provider(provider)
+        if isinstance(source, CredentialProvider) and not self._credential_form_url:
+            raise ProviderUnavailable(f"{provider} takes a token, and this application serves no form for one")
+        # The verifier proves the OAuth exchange; for a token provider the
+        # same slot keeps the secret the form must hand back.
         state, verifier = new_state(), new_code_verifier()
         await self._links.put_link(ConnectionLinkRecord(
             state_digest=state_digest(state), owner=owner, provider=provider,
@@ -217,7 +248,52 @@ class OAuthConnections:
             return_to=return_to,
         ))
         self._audit_and_tell(EVENT_CONNECT_START, RESULT_OK, owner=owner, provider=provider)
-        return oauth.authorize_url(state=state, code_challenge=code_challenge(verifier))
+        if isinstance(source, CredentialProvider):
+            return f"{self._credential_form_url}/{state}"
+        return source.authorize_url(state=state, code_challenge=code_challenge(verifier))
+
+    async def form_of(self, state: str) -> CredentialForm | None:
+        """The form the link ``state`` names, to draw for the person: None
+        when there is no such link, it has expired, or it is an OAuth
+        connect's. The link stays: the form is drawn, then posted."""
+        link = await self._links.peek_link(state_digest(state))
+        if link is None or _parse(link.expires_at) <= self._clock():
+            return None
+        source = self._providers.get(link.provider)
+        csrf = self._sealer.open(link.verifier_sealed)
+        if not isinstance(source, CredentialProvider) or csrf is None:
+            return None
+        return CredentialForm(provider=link.provider, hint=source.hint, post_url=f"{self._credential_form_url}/{state}", csrf=csrf)
+
+    async def finish_with_credential(
+        self, state: str, credential: str, csrf: str, *, owner: str | None = None,
+        facts: Mapping[str, str] | None = None,
+    ) -> Connected:
+        """Finish the connect ``state`` names with the credential the person
+        entered into its form, and the secret the form handed back (a post
+        without it is forged, and spends the link). ``owner`` and ``facts``
+        as for ``finish``. The credential is never written down: not in the
+        audit, not in the log."""
+        link = await self._take_link(state, owner)
+        source = self._providers.get(link.provider)
+        secret = self._sealer.open(link.verifier_sealed)
+        where = {"owner": link.owner, "provider": link.provider}
+        if not isinstance(source, CredentialProvider) or secret is None:
+            self._audit_and_tell(EVENT_CONNECT, LINK_EXPIRED, **where)
+            raise LinkRefused(LINK_EXPIRED, provider=link.provider)
+        if not secrets.compare_digest(csrf.encode(), secret.encode()):
+            self._audit_and_tell(EVENT_CONNECT, LINK_FORGED, **where)
+            raise LinkRefused(LINK_FORGED, provider=link.provider)
+        try:
+            account = await source.validate(credential)
+        except ProviderRejected as exc:
+            self._audit_and_tell(EVENT_CONNECT, CREDENTIAL_REJECTED, **where)
+            raise LinkRefused(CREDENTIAL_REJECTED, provider=link.provider) from exc
+        except ProviderUnavailable:
+            self._audit_and_tell(EVENT_CONNECT, RESULT_UNAVAILABLE, **where)
+            raise
+        # Kept as the token of a grant that never refreshes and never ends.
+        return await self._settle(link, account, OAuthTokens(access_token=credential), issued_by=None, facts=facts)
 
     async def finish(
         self, state: str, code: str, *, owner: str | None = None,
@@ -229,17 +305,11 @@ class OAuthConnections:
         is then refused. Without it the link's own owner is taken, and holding
         the state is the proof. ``facts`` is what else the application knows
         about who came back, for its ``AccountPolicy`` to decide by."""
-        link = await self._links.take_link(state_digest(state))
-        if link is None or _parse(link.expires_at) <= self._clock():
-            self._audit_and_tell(EVENT_CONNECT, LINK_EXPIRED, owner=owner or "")
-            raise LinkRefused(LINK_EXPIRED)
+        link = await self._take_link(state, owner)
         where = {"owner": link.owner, "provider": link.provider}
-        if owner is not None and link.owner != owner:
-            self._audit_and_tell(EVENT_CONNECT, LINK_FOREIGN, **where)
-            raise LinkRefused(LINK_FOREIGN, provider=link.provider)
         oauth = self._providers.get(link.provider)
         verifier = self._sealer.open(link.verifier_sealed)
-        if oauth is None or verifier is None:
+        if not isinstance(oauth, OAuthProvider) or verifier is None:
             self._audit_and_tell(EVENT_CONNECT, LINK_EXPIRED, **where)
             raise LinkRefused(LINK_EXPIRED, provider=link.provider)
         try:
@@ -250,9 +320,38 @@ class OAuthConnections:
         except ProviderUnavailable:
             self._audit_and_tell(EVENT_CONNECT, RESULT_UNAVAILABLE, **where)
             raise
-        known = dict(facts or {})
         try:
             account = await oauth.identify(tokens.access_token)
+        except BaseException:
+            # Issued, and about to be dropped: nobody may keep using them.
+            await self._revoke_tokens(oauth, tokens)
+            self._audit_and_tell(EVENT_CONNECT, RESULT_UNAVAILABLE, **where)
+            raise
+        return await self._settle(link, account, tokens, issued_by=oauth, facts=facts)
+
+    async def _take_link(self, state: str, owner: str | None) -> ConnectionLinkRecord:
+        """Spend the link ``state`` names: a second take finds nothing."""
+        link = await self._links.take_link(state_digest(state))
+        if link is None or _parse(link.expires_at) <= self._clock():
+            self._audit_and_tell(EVENT_CONNECT, LINK_EXPIRED, owner=owner or "")
+            raise LinkRefused(LINK_EXPIRED)
+        if owner is not None and link.owner != owner:
+            self._audit_and_tell(EVENT_CONNECT, LINK_FOREIGN, owner=link.owner, provider=link.provider)
+            raise LinkRefused(LINK_FOREIGN, provider=link.provider)
+        return link
+
+    async def _settle(
+        self, link: ConnectionLinkRecord, account: ProviderAccount, tokens: OAuthTokens, *,
+        issued_by: OAuthProvider | None, facts: Mapping[str, str] | None,
+    ) -> Connected:
+        """Store what a connect came to, once the account is known: the
+        application's rule on the account, whose it is saved as, the record,
+        the grant it replaces. ``issued_by`` is the provider that issued the
+        tokens, to revoke them when they are not kept — None for a credential
+        the person entered, which is theirs to keep whatever happens here."""
+        where = {"owner": link.owner, "provider": link.provider}
+        known = dict(facts or {})
+        try:
             refusal = (
                 await self._policy.refusal(link.owner, link.provider, account, known)
                 if self._policy else None
@@ -263,12 +362,13 @@ class OAuthConnections:
                 await self._owners.owner_of(link.owner, link.provider, account, known) if self._owners else ""
             ) or link.owner
         except BaseException:
-            # Issued, and about to be dropped: nobody may keep using them.
-            await self._revoke_tokens(oauth, tokens)
+            if issued_by is not None:
+                await self._revoke_tokens(issued_by, tokens)
             self._audit_and_tell(EVENT_CONNECT, RESULT_UNAVAILABLE, **where)
             raise
         if refusal is not None:
-            await self._revoke_tokens(oauth, tokens)
+            if issued_by is not None:
+                await self._revoke_tokens(issued_by, tokens)
             self._audit_and_tell(EVENT_CONNECT, ACCOUNT_REFUSED, account=account.username, **where)
             raise LinkRefused(ACCOUNT_REFUSED, provider=link.provider, account=account.username, detail=refusal)
         if saved_for != link.owner:
@@ -277,7 +377,8 @@ class OAuthConnections:
         try:
             await self._connections.save_connection(self._record(saved_for, link.provider, tokens, account))
         except BaseException:
-            await self._revoke_tokens(oauth, tokens)
+            if issued_by is not None:
+                await self._revoke_tokens(issued_by, tokens)
             raise
         if previous is not None:
             await self._revoke_stored(previous)  # the grant this connect replaced
@@ -356,7 +457,7 @@ class OAuthConnections:
         deleted = await self._connections.delete_connection(
             owner, grant.provider, connect_id=grant.connect_id, version=grant.version,
         )
-        if deleted and record is not None and _credential(record) == (grant.connect_id, grant.version):
+        if deleted and record is not None and _grant_identity(record) == (grant.connect_id, grant.version):
             await self._revoke_stored(record)
         self._audit_and_tell(
             EVENT_FORGET, RESULT_OK if deleted else RESULT_NOT_CONNECTED,
@@ -391,12 +492,13 @@ class OAuthConnections:
             if await self._connections.delete_connection(
                 owner, provider, connect_id=record.connect_id, version=record.version,
             ):
-                revoked = await self._revoke_stored(record)
+                revocable = isinstance(self._providers.get(provider), OAuthProvider)
+                revoked = await self._revoke_stored(record) if revocable else False
                 self._audit_and_tell(
-                    EVENT_DISCONNECT, RESULT_OK if revoked else RESULT_REVOKE_FAILED,
+                    EVENT_DISCONNECT, RESULT_OK if revoked or not revocable else RESULT_REVOKE_FAILED,
                     owner=owner, provider=provider, account=record.account_username,
                 )
-                return Disconnection(account=_account(record), revoked=revoked)
+                return Disconnection(account=_account(record), revoked=revoked, revocable=revocable)
         raise ProviderUnavailable(f"{owner}'s connection to {provider} kept changing while it was being ended")
 
     # -- refreshing -----------------------------------------------------------
@@ -424,13 +526,13 @@ class OAuthConnections:
         for _ in range(max(1, math.ceil(self._lease_s / self._poll_s))):
             await self._sleep(self._poll_s)
             latest = await self._connections.get_connection(seen.owner, seen.provider)
-            if latest is None or _credential(latest) != _credential(seen):
+            if latest is None or _grant_identity(latest) != _grant_identity(seen):
                 return
 
     async def _rotate(self, record: ConnectionRecord) -> ConnectionRecord:
         owner, provider = record.owner, record.provider
         where = {"owner": owner, "provider": provider, "account": record.account_username}
-        oauth = self._provider(provider)
+        oauth = self._oauth(provider)
         refresh_token = self._sealer.open(record.refresh_sealed) if record.refresh_sealed else None
         if not refresh_token:
             # Nothing to refresh with: the connection has run its course.
@@ -441,7 +543,7 @@ class OAuthConnections:
             fresh = await oauth.refresh(refresh_token)
         except ProviderRejected as exc:
             latest = await self._connections.get_connection(owner, provider)
-            if latest is not None and _credential(latest) != _credential(record):
+            if latest is not None and _grant_identity(latest) != _grant_identity(record):
                 return latest  # another replica got there and rotated it
             await self._connections.delete_connection(owner, provider, connect_id=record.connect_id, version=record.version)
             self._audit_and_tell(EVENT_REFRESH, RESULT_REJECTED, **where)
@@ -474,11 +576,17 @@ class OAuthConnections:
 
     # -- plumbing -------------------------------------------------------------
 
-    def _provider(self, name: str) -> OAuthProvider:
-        oauth = self._providers.get(name)
-        if oauth is None:
+    def _provider(self, name: str) -> OAuthProvider | CredentialProvider:
+        source = self._providers.get(name)
+        if source is None:
             raise ProviderUnavailable(f"{name} is not a provider this application is configured for")
-        return oauth
+        return source
+
+    def _oauth(self, name: str) -> OAuthProvider:
+        source = self._provider(name)
+        if not isinstance(source, OAuthProvider):
+            raise ProviderUnavailable(f"{name} takes a credential the person entered: nothing to refresh it with")
+        return source
 
     def _fresh(self, record: ConnectionRecord) -> bool:
         if not record.expires_at:
@@ -521,8 +629,8 @@ class OAuthConnections:
         oauth = self._providers.get(record.provider)
         sealed = record.refresh_sealed or record.access_sealed
         token = self._sealer.open(sealed) if sealed else None
-        if oauth is None or token is None:
-            return False
+        if not isinstance(oauth, OAuthProvider) or token is None:
+            return False  # a credential the person entered is theirs: not the engine's to end
         return await _revoke(oauth, token)
 
 
@@ -531,7 +639,7 @@ class OwnerConnections:
     use them and end one after a 401; it cannot start or end a connection,
     and never learns whose they are."""
 
-    def __init__(self, service: OAuthConnections, owner: str) -> None:
+    def __init__(self, service: Connections, owner: str) -> None:
         self._service = service
         self._owner = owner
 
@@ -550,7 +658,7 @@ class OwnerConnections:
 
 
 def connection_access(
-    service: OAuthConnections, owner_for: Callable[[str, str, str, TurnScope | None], str | None],
+    service: Connections, owner_for: Callable[[str, str, str, TurnScope | None], str | None],
 ) -> ConnectionAccessFactory:
     """What the tool server is handed: for each call, the connections of the
     person its turn acts for. ``owner_for(agent, user_id, gateway, turn)`` is

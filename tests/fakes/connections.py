@@ -82,5 +82,8 @@ class MemoryLinkStore:
     async def put_link(self, link: ConnectionLinkRecord) -> None:
         self._links[link.state_digest] = link
 
+    async def peek_link(self, state_digest: str) -> ConnectionLinkRecord | None:
+        return self._links.get(state_digest)
+
     async def take_link(self, state_digest: str) -> ConnectionLinkRecord | None:
         return self._links.pop(state_digest, None)

@@ -132,7 +132,7 @@ from crucible.tools import SessionProofBook, ToolServer, ToolWiring
 from crucible.turns import TurnRegistry
 from crucible.unit import AgentUnit
 from impi.config import ImpiSettings
-from impi.connections import Connections, RedrawOnConnect, build_connections
+from impi.connections import ConnectedAccounts, RedrawOnConnect, build_connections
 from impi.connections_screen import ConnectionsScreen
 from impi.deployment_report import (
     agents_dir_extensions,
@@ -301,7 +301,7 @@ class App:
     auth_refresher: AuthRefresher | None = None
     # People's own accounts at OAuth providers, and the page a provider sends
     # them back to. None when no provider is configured.
-    connections: Connections | None = None
+    connections: ConnectedAccounts | None = None
     # Each agent's own user id on its platform, filled as the gateways log in:
     # what tells a command typed in the agent's direct message from one typed
     # in somebody else's.
