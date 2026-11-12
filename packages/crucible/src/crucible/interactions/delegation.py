@@ -54,7 +54,7 @@ from crucible.ports.agent.spec import (
 from crucible.ports.attachments import FileSaver
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.flow import StoppableSink, TrackedSink, TurnOutcome
+from crucible.ports.chat.flow import StoppableSink, TrackedSink, TurnOutcome, TurnStop
 from crucible.ports.chat.gateway import GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION
 from crucible.ports.chat.types import (
     KIND_CHANNEL,
@@ -305,9 +305,9 @@ class EngineDelegationService:
         self, agent: str, runtime_session_id: str, to: str, task: str, paths: Sequence[str] = (),
         *, digests: Mapping[str, str] | None = None,
     ) -> str:
-        record, sink = await self._resolve(agent, runtime_session_id, to)
-        sources = self._attachments(agent, paths)
         scope = self._turns.current(runtime_session_id) if self._turns is not None else None
+        record, sink = await self._resolve(agent, runtime_session_id, to, scope)
+        sources = self._attachments(agent, paths)
         attributes = _handed_attributes(scope)
         task_id = delegation_id()
         key = self._conversation_key(to, task_id, record)
@@ -328,8 +328,12 @@ class EngineDelegationService:
         await self._store.save_delegation(entry)
         self._in_flight.add(task_id)
         try:
+            # The asked agent may ask no one the asker's conversation may not:
+            # the list travels with the task, and the asked agent's own
+            # entitlement narrows it further.
             message = _message(entry, attachments, gateway=GATEWAY_DELEGATION, scope=TurnScope(
                 turn_id=task_id, attributes={**attributes, **_task_attributes(entry)},
+                agents=scope.agents if scope is not None else None,
             ))
             self._spawn(self._run(entry, sink, message, self._delegated_chat(), watch=None))
         except BaseException:
@@ -347,9 +351,9 @@ class EngineDelegationService:
             raise DelegationError(f"{to} is not an agent you trust; hand the task on with delegate, which asks first")
         if self._trusted_chat is None or self._turns is None:
             raise DelegationError("asking a trusted agent is not available in this deployment")
-        record, sink = await self._resolve(agent, runtime_session_id, to)
-        sources = self._attachments(agent, paths)
         scope = self._turns.current(runtime_session_id)
+        record, sink = await self._resolve(agent, runtime_session_id, to, scope)
+        sources = self._attachments(agent, paths)
         attributes = _handed_attributes(scope)
         poster = self._presence.poster(agent, record.last_gateway)
         if poster is None:
@@ -401,7 +405,8 @@ class EngineDelegationService:
                     event = EventReport(source=agent, text=transcript, label=CONTEXT_LABEL.format(asker=agent))
             message = _message(
                 entry, attachments, gateway=GATEWAY_TRUSTED_DELEGATION,
-                scope=TurnScope(turn_id=task_id, attributes=handed, secrets=secrets), event=event,
+                scope=TurnScope(turn_id=task_id, attributes=handed, secrets=secrets, agents=scope.agents if scope is not None else None),
+                event=event,
             )
             self._links.register(key, TrustedLink(
                 asker=agent, asker_session_id=runtime_session_id, to=to, poster=poster, ref=ref, elsewhere=elsewhere,
@@ -543,11 +548,12 @@ class EngineDelegationService:
         self._running.add(task)
         task.add_done_callback(self._running.discard)
 
-    async def _resolve(self, agent: str, runtime_session_id: str, to: str) -> tuple[SessionRecord, TrackedSink]:
+    async def _resolve(
+        self, agent: str, runtime_session_id: str, to: str, scope: TurnScope | None,
+    ) -> tuple[SessionRecord, TrackedSink]:
         # An agent the turn's conversation may not ask (``TurnScope.agents``)
         # is, to it, an agent that does not run here — the same answer, so
         # the refusal says nothing of who else is around.
-        scope = self._turns.current(runtime_session_id) if self._turns is not None else None
         other = next((a for a in self._directory.list_agents() if a.name == to), None)
         if other is None or (scope is not None and scope.agents is not None and to not in scope.agents):
             raise DelegationError(f"no agent named {to!r} runs here")
@@ -641,7 +647,7 @@ class EngineDelegationService:
         if target is not None and isinstance(target.sink, StoppableSink):
             stopped = await target.sink.stop(entry.to_conversation_id)
             logger.info("task %s: the asked agent's turn %s", entry.id,
-                        "was interrupted" if stopped else "had not started")
+                        "was interrupted" if stopped is TurnStop.STOPPED else "had not started")
 
     async def _run(
         self, entry: DelegationRecord, sink: TrackedSink, message: IncomingMessage, chat: DelegatedTurnChat,

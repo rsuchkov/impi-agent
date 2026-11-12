@@ -452,7 +452,10 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   tool server hands the turn a directory of those agents and itself
   (`EntitledDirectory`), so `list_agents` and the delegation tools' cards name
   no other, and the delegation service answers a name outside the list as it
-  answers an agent that does not run here. For an agent of a team — its own
+  answers an agent that does not run here. The list travels with a task the
+  turn hands on (`TurnScope.agents` of the asked agent's turn), and the asked
+  agent's own entitlement narrows it, never widens it: a second hop reaches
+  nobody the first could not. For an agent of a team — its own
   words, knowledge and model, meant for the people of that team — to answer
   only them, whoever asks for it: the source reads the person's groups off the
   message and names the team's agent for its members alone. `/v1/agents` on

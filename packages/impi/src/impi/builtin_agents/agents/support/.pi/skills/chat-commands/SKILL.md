@@ -167,7 +167,7 @@ Read the engine log and match the line:
 | `callback to /<?>/… refused: not on the receiver's secret path` | registered without, or with an old, `INTEGRATIONS_SECRET` — re-register under the URL `impi health` prints |
 | nothing at all | the request never arrived: URL, port, or the Mattermost outbound block |
 | `reaction :<emoji>: by <user> in <conv> runs /<cmd> for <agent>` | a reaction worked; what follows is a normal turn — unless the word is the stop word, then nothing starts |
-| `stop asked for <agent> in <conv> by <user>: stopped` / `nothing_running` / `unavailable` | the stop word was typed: a turn was ended / none was running there / the agent's flow cannot stop a turn (no runtime control wired, or an application flow without `StoppableSink`) |
+| `stop asked for <agent> in <conv> by <user>: stopped` / `nothing_running` / `not_theirs` / `unavailable` | the stop word was typed: a turn was ended / none was running there / the typist is not the person the turn answers, nothing changed / the agent's flow cannot stop a turn (no runtime control wired, or an application flow without `StoppableSink`) |
 | `turn in <agent>/<conv> stopped by request (interrupted)` | the flow ended the turn; a `stopped` notice follows in the conversation |
 | `Slack agent session <ts> stopped by <user>: …` | the panel's Stop button, routed the same way |
 | `agent session status not set for <ts>: …` (debug) | `SLACK_AGENT_SESSIONS=true` but the app lacks `agent_view`/`assistant:write`, or the network did not answer; the turn runs on, the panel shows no indicator |

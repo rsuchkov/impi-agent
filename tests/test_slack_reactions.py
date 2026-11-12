@@ -63,10 +63,14 @@ class FakeChat:
             "UAUTOBOT": UserProfile(username="autobot", is_bot=True),
         }
         self.asked: list[str] = []
+        self.whispered: list[tuple[str, str, str]] = []
 
     async def get_user_profile(self, user_id: str):
         self.asked.append(user_id)
         return self.profiles.get(user_id)
+
+    async def whisper_notice(self, ref, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "") -> None:
+        self.whispered.append((ref.channel_id, user_id, text))
 
 
 class Directory:
@@ -309,3 +313,18 @@ async def test_a_reaction_mapped_to_the_stop_word_stops_the_turn_instead_of_star
     )
     assert dispatcher.stopped == [("assistant", "1782309753.848289")]  # the thread under the message
     assert dispatcher.calls == []
+    assert dispatcher.stoppers == [ROMAN]  # who reacted: the turn is its person's to stop
+
+
+async def test_a_strangers_stop_reaction_changes_nothing_and_they_alone_are_told() -> None:
+    from crucible.interactions.results import TURN_STOP_ANSWERS
+    from crucible.ports.chat.flow import TurnStop
+
+    dispatcher = FakeDispatcher()
+    dispatcher.stop_command = "stop"
+    dispatcher.stop_result = TurnStop.NOT_THEIRS
+    chat = FakeChat()
+    await _reactions(dispatcher, by_emoji={"octagonal_sign": "stop"}, messages=[_message(text="top level")], chat=chat).handle_reaction(
+        _reaction(reaction="octagonal_sign")
+    )
+    assert [(who, text) for _, who, text in chat.whispered] == [(ROMAN, TURN_STOP_ANSWERS[TurnStop.NOT_THEIRS])]

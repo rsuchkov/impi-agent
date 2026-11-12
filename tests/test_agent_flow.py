@@ -2941,6 +2941,10 @@ async def test_the_agents_a_conversation_may_ask_ride_on_the_turns_scope(tmp_pat
         entitlements.entitlement_ = Entitlement(tools=("read",))
         again = replace(_dm("again"), ref=replace(_dm().ref, message_id="p2"))  # not a replay
         await flow.handle(again, FakeChat())
-        assert runtime.seen == [("jira",), None]
+        # A turn handed a list already (a task's turn) is narrowed by the source, never widened.
+        entitlements.entitlement_ = Entitlement(agents=("jira", "coder"))
+        handed = replace(_dm("task"), ref=replace(_dm().ref, message_id="p3"), turn=TurnScope(turn_id="t3", agents=("coder", "ops")))
+        await flow.handle(handed, FakeChat())
+        assert runtime.seen == [("jira",), None, ("coder",)]
     finally:
         await store.close()

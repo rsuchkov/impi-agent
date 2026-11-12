@@ -549,10 +549,11 @@ class AgentFlow:
             self._tell_turn(fresh, anchor, key, outcome, facts, time.monotonic() - started)
         if self._ledger is not None and facts.result is not None and facts.result.usage is not None:
             await self._keep_usage(anchor, facts.result.usage)
-        if anchor.turn is not None and anchor.turn.flags:
+        if facts.scope.flags:
             # After the answer or the failure notice: a tool's note about the turn
-            # ("your session expired") reads as the footnote it is.
-            for flag in sorted(anchor.turn.flags):
+            # ("your session expired") reads as the footnote it is. Read from the
+            # scope the turn ran under — the one the registry published.
+            for flag in sorted(facts.scope.flags):
                 await chat.post_notice(
                     anchor.ref, self._flag_notices.get(flag, flag), code=flag
                 )
@@ -805,8 +806,13 @@ class AgentFlow:
         profile = self._turn_profile(entitlement, record)
         if entitlement is not None and entitlement.agents is not None:
             # Whom the turn may hand a task to rides on its scope: the tool
-            # server and the delegation service read it there.
-            facts.scope = replace(facts.scope, agents=tuple(entitlement.agents))
+            # server and the delegation service read it there. A scope that
+            # came with a list already (a task's turn, handed the asker's)
+            # is narrowed, never widened.
+            handed = facts.scope.agents
+            facts.scope = replace(
+                facts.scope, agents=tuple(a for a in entitlement.agents if handed is None or a in handed),
+            )
 
         # Only a real message can wear the "working on it" mark. A synthetic
         # anchor — a slash command, a widget click, a scheduled run — carries an

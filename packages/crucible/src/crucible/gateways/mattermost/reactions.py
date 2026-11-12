@@ -21,9 +21,12 @@ from crucible.gateways.reactions import (
     quoted_message,
     reacted_by_an_agent,
 )
-from crucible.ports.chat.client import ChatClient
+from crucible.interactions.results import TURN_STOP_ANSWERS
+from crucible.ports.chat.client import ChatClient, WhisperedNotices
 from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.flow import TurnStop
 from crucible.ports.chat.gateway import GATEWAY_MATTERMOST
+from crucible.ports.chat.types import ConversationRef
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +80,12 @@ class MattermostReactions:
         is_dm = await self._channel_type(channel_id) == DIRECT_CHANNEL_TYPE
         conversation_id, kind, thread_root = conversation_of(reaction.message_id, root_id, channel_id, is_dm=is_dm, dm_thread=self._dm_thread)
         if command == self._dispatcher.stop_command:
-            # The reaction says stop: no turn is started, the one running ends.
-            await self._dispatcher.stop_turn(self._agent, conversation_id, gateway=GATEWAY_MATTERMOST, user_id=reaction.user_id)
+            # The reaction says stop: no turn is started, the one running ends
+            # — when it is the reactor's turn to end; anyone else is told so.
+            stop = await self._dispatcher.stop_turn(self._agent, conversation_id, gateway=GATEWAY_MATTERMOST, user_id=reaction.user_id)
+            if stop is TurnStop.NOT_THEIRS and isinstance(self._chat, WhisperedNotices):
+                where = ConversationRef(channel_id=channel_id, conversation_id=conversation_id, message_id=reaction.message_id, thread_root_id=thread_root)
+                await self._chat.whisper_notice(where, reaction.user_id, TURN_STOP_ANSWERS[stop])
             return
         quoted = None
         text = str(post.get("message") or "")

@@ -264,11 +264,14 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   message in the channel, not in its thread** — the thread had no reply yet;
   Slack shows an ephemeral message in a thread only once the thread is active,
   so the engine whispers at the top of the channel until then. Working as
-  designed.
-- **`/stop`, a stop reaction or Slack's Stop button answered "Only the person
-  whose message started this turn can stop it"** — in a channel or a thread
-  the turn is its person's to end; log `a stop by <user> refused, the turn
-  answers <user>`. Working as designed; a direct message has one person anyway.
+  designed. Telling needs the conversation's history scope
+  (`channels:history`/`groups:history`); without it the whisper goes into the
+  thread as before, and `conversations_replies … failed` is in the debug log.
+- **`/stop` or a stop reaction answered "Only the person whose message
+  started this turn can stop it"** — in a channel or a thread the turn is its
+  person's to end; log `a stop by <user> refused, the turn answers <user>`.
+  Working as designed; a direct message has one person anyway, and Slack's
+  Stop button exists there only.
 - **Slack: the bot does not answer a mention in a channel** — the app lacks
   the `app_mention` event subscription (scope `app_mentions:read`; or
   `message.channels`, which brings every channel message to the engine);

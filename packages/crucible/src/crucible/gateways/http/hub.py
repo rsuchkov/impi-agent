@@ -53,6 +53,7 @@ from crucible.ports.chat.flow import (
     TrackedSink,
     TurnJoiner,
     TurnOutcome,
+    TurnStop,
 )
 from crucible.ports.chat.gateway import GATEWAY_HTTP
 from crucible.ports.chat.interactions import actions_from_json, approval_card_from_json
@@ -783,7 +784,7 @@ class HttpHub:
         if isinstance(sink, StoppableSink):
             # The flow ends the turn as stopped: the reply it had, a `stopped`
             # notice, a note for the next turn — the same as a /stop in chat.
-            cancelled = await sink.stop(key)
+            cancelled = await sink.stop(key) is TurnStop.STOPPED  # a word nobody signs: the caller's own
         elif self._control is not None and turn.runtime_session_id:
             cancelled = await self._control.cancel(turn.runtime_session_id)
         else:

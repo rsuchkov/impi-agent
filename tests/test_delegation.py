@@ -193,7 +193,7 @@ async def test_the_task_opens_the_other_agents_turn_alone_and_its_answer_comes_b
     turns = TurnRegistry()
     svc = EngineDelegationService(_presence(sink), store, AGENTS, store, dispatcher, DelegationChatClient, turns=turns)
     record, _ = await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD, user_id="u-alice", gateway=GATEWAY_SLACK)
-    async with turns.bind(record.runtime_session_id, TurnScope(turn_id="t1", attributes={"realm": "acme"})):
+    async with turns.bind(record.runtime_session_id, TurnScope(turn_id="t1", attributes={"realm": "acme"}, agents=("coder",))):
         task_id = await svc.delegate("assistant", record.runtime_session_id, "coder", "Write the migration.")
     assert len(task_id) == 12
     await _settled(svc)
@@ -201,6 +201,7 @@ async def test_the_task_opens_the_other_agents_turn_alone_and_its_answer_comes_b
     # The asked agent's turn: a message of the engine's, in a conversation
     # that exists for this task alone, run as the person's.
     (message, chat), = sink.submitted
+    assert message.turn is not None and message.turn.agents == ("coder",)  # the asker's list travels with the task
     key = delegated_conversation_key(task_id)
     assert message.ref == ConversationRef(channel_id=key, conversation_id=key, message_id=task_id, thread_root_id="")
     assert (message.text, message.kind, message.is_dm, message.gateway) == ("Write the migration.", KIND_DM, True, GATEWAY_DELEGATION)

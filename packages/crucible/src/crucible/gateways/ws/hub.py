@@ -31,7 +31,7 @@ from crucible.gateways.ws.events import (
 )
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.directory import AgentDirectory
-from crucible.ports.chat.flow import MessageSink, StoppableSink
+from crucible.ports.chat.flow import MessageSink, StoppableSink, TurnStop
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import OutgoingFile
 
@@ -256,9 +256,10 @@ class WsHub:
             return
         # The conversation as the flow keys it: the same mapping a message takes.
         key = self._keying.key(agent, frame_to_incoming(service, {**data, "text": ""}))
-        cancelled = await sink.stop(key)
+        stop = await sink.stop(key)  # a word nobody signs: the service's own
         await ws.send_json({
-            "type": "cancelled", "agent": agent, "conversation_id": data["conversation_id"], "cancelled": cancelled,
+            "type": "cancelled", "agent": agent, "conversation_id": data["conversation_id"],
+            "cancelled": stop is TurnStop.STOPPED,
         })
 
     def _agents_payload(self, allow: tuple[str, ...] | None) -> list[dict]:

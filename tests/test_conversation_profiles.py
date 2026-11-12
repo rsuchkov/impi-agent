@@ -286,3 +286,25 @@ async def test_the_gateway_source_passes_the_inners_deferred_names_on() -> None:
     msg = IncomingMessage(ref=ConversationRef("c", "c", "m"), text="hi", user_id="u1", username="u", kind="dm", gateway="slack")
     joined = await GatewayEntitlements(lambda _: spec, inner=Inner()).entitlement("assistant", msg)
     assert joined.deferred == ("bash",)
+
+
+async def test_the_gateway_source_passes_the_inners_agents_on() -> None:
+    """The documented wiring puts the application's source inside the
+    gateway's: the agents it names must survive the join, or the control is
+    nothing — `()` included, which is "ask nobody"."""
+    from crucible.conversation_profiles import GatewayEntitlements
+    from crucible.ports.chat.types import ConversationRef, IncomingMessage
+
+    spec = AgentSpec(name="assistant", display_name="A", role="r", description="d", profile_dir=Path("/x"), tools=("read",))
+
+    class Inner:
+        def __init__(self, agents) -> None:
+            self.agents = agents
+
+        async def entitlement(self, agent, msg, *, tools=None):
+            return Entitlement(agents=self.agents)
+
+    msg = IncomingMessage(ref=ConversationRef("c", "c", "m"), text="hi", user_id="u1", username="u", kind="dm", gateway="slack")
+    assert (await GatewayEntitlements(lambda _: spec, inner=Inner(("jira",))).entitlement("assistant", msg)).agents == ("jira",)
+    assert (await GatewayEntitlements(lambda _: spec, inner=Inner(())).entitlement("assistant", msg)).agents == ()
+    assert (await GatewayEntitlements(lambda _: spec, inner=Inner(None)).entitlement("assistant", msg)).agents is None

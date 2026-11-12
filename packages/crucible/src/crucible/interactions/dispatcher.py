@@ -17,7 +17,7 @@ from crucible.interactions.labels import humanize
 from crucible.interactions.pending_ui import PendingUiRequests
 from crucible.interactions.ports import FormHandlers
 from crucible.interactions.presence import AgentPresence
-from crucible.interactions.results import TURN_STOP_ANSWERS, ActionResult, TurnStop
+from crucible.interactions.results import TURN_STOP_ANSWERS, ActionResult
 from crucible.interactions.screens import (
     Redrawn,
     ScreenOpened,
@@ -27,7 +27,7 @@ from crucible.interactions.screens import (
     refusal,
 )
 from crucible.ports.chat.client import ChatClient
-from crucible.ports.chat.flow import MessageSink, StoppableSink
+from crucible.ports.chat.flow import MessageSink, StoppableSink, TurnStop
 from crucible.ports.chat.interactions import form_from_json
 from crucible.ports.chat.keying import PersonKey, PlatformPerson
 from crucible.ports.chat.types import (

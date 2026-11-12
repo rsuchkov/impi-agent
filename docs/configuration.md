@@ -68,7 +68,9 @@ workflow or another app is a bot's and is not answered. A whisper to the
 person — a tool's card, a sign-in notice — goes into the thread only once the
 thread has a reply: Slack shows an ephemeral message in a thread only then,
 so under a message nobody has answered yet it goes beside the message, at
-the top of the channel. The agent session's status and its Stop button
+the top of the channel (telling needs the conversation's history scope,
+`channels:history`/`groups:history`; without it the whisper goes into the
+thread as before). The agent session's status and its Stop button
 (`SLACK_AGENT_SESSIONS`) are set in a direct message only: in a channel's
 thread they would be everyone's who reads it.
 

@@ -60,6 +60,10 @@ class FakeDriver:
 class FakeChat:
     def __init__(self) -> None:
         self.asked: list[str] = []
+        self.whispered: list[tuple[str, str, str]] = []
+
+    async def whisper_notice(self, ref, user_id: str, text: str, *, code: str = "", link: str = "", label: str = "") -> None:
+        self.whispered.append((ref.channel_id, user_id, text))
 
     async def get_user_profile(self, user_id: str):
         self.asked.append(user_id)
@@ -249,3 +253,17 @@ async def test_a_reaction_mapped_to_the_stop_word_stops_the_turn_instead_of_star
     await _reactions(dispatcher, driver, by_emoji={"octagonal_sign": "stop"}).handle_reaction(_reaction(emoji="octagonal_sign"))
     assert dispatcher.stopped == [("assistant", "root1")]  # the thread the post is in
     assert dispatcher.calls == []  # no command turn
+    assert dispatcher.stoppers == [HUMAN]  # who reacted: the turn is its person's to stop
+
+
+async def test_a_strangers_stop_reaction_changes_nothing_and_they_alone_are_told() -> None:
+    from crucible.interactions.results import TURN_STOP_ANSWERS
+    from crucible.ports.chat.flow import TurnStop
+
+    dispatcher = FakeDispatcher()
+    dispatcher.stop_command = "stop"
+    dispatcher.stop_result = TurnStop.NOT_THEIRS
+    chat = FakeChat()
+    driver = FakeDriver({"p1": _post(root_id="root1")})
+    await _reactions(dispatcher, driver, by_emoji={"octagonal_sign": "stop"}, chat=chat).handle_reaction(_reaction(emoji="octagonal_sign"))
+    assert chat.whispered == [("ch1", HUMAN, TURN_STOP_ANSWERS[TurnStop.NOT_THEIRS])]

@@ -27,7 +27,7 @@ from crucible.ports.agent.events import (
 )
 from crucible.ports.agent.runtime import RuntimeStats
 from crucible.ports.chat.directory import AgentInfo
-from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.flow import TurnOutcome, TurnStop
 from crucible.ports.chat.types import Action, IncomingMessage
 from crucible.ports.traces import TraceRecord
 from crucible.store.base import SessionRecord
@@ -1477,9 +1477,9 @@ async def test_cancel_goes_through_the_flow_when_the_sink_can_stop_a_turn() -> N
             super().__init__(script)
             self.stopped: list[str] = []
 
-        async def stop(self, conversation_id: str) -> bool:
+        async def stop(self, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
             self.stopped.append(conversation_id)
-            return True
+            return TurnStop.STOPPED
 
     async def running(msg, chat):
         record = SessionRecord("helper", msg.channel_id, msg.conversation_id, "dm", "helper--portal-c1", "t", "t")

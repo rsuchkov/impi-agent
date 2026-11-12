@@ -9,8 +9,8 @@ while still routing interactive callbacks to the neutral dispatch brain.
 from typing import Protocol
 
 from crucible.approvals import ApprovalOutcome
-from crucible.interactions.results import TurnStop
 from crucible.interactions.screens import Redrawn, ScreenOpened
+from crucible.ports.chat.flow import TurnStop
 from crucible.ports.chat.types import Form, QuotedMessage
 
 

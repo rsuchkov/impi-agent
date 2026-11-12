@@ -76,8 +76,8 @@ def shared_entitlement(entitlements: Sequence[Entitlement]) -> Entitlement:
     as tools — only the ones every one of them may ask."""
     if not entitlements:
         return Entitlement()
-    ordered = _everyones(tuple(e.tools for e in entitlements))
-    agents = _everyones(tuple(e.agents for e in entitlements))
+    ordered = _allowed_by_all(tuple(e.tools for e in entitlements))
+    agents = _allowed_by_all(tuple(e.agents for e in entitlements))
     instructions = {e.instructions for e in entitlements}
     deferred: tuple[str, ...] | None = None
     if any(e.deferred for e in entitlements):
@@ -90,7 +90,7 @@ def shared_entitlement(entitlements: Sequence[Entitlement]) -> Entitlement:
     )
 
 
-def _everyones(answers: Sequence[Collection[str] | None]) -> Collection[str] | None:
+def _allowed_by_all(answers: Sequence[Collection[str] | None]) -> Collection[str] | None:
     """The names every answer allows (an answer of None imposes nothing; one
     answer of ``()`` leaves none), in the order the first restricting answer
     gave them; None when no answer restricts."""

@@ -10,6 +10,7 @@ from crucible.attachments import AttachmentStore
 from crucible.gateways.ws.client import WsChatClient
 from crucible.gateways.ws.hub import WsHub
 from crucible.ports.chat.directory import AgentInfo
+from crucible.ports.chat.flow import TurnStop
 from crucible.ports.chat.types import ConversationRef, OutgoingFile
 
 
@@ -381,9 +382,9 @@ async def test_a_cancel_frame_stops_the_conversations_turn_and_says_whether_one_
             super().__init__()
             self.stopped: list[str] = []
 
-        async def stop(self, conversation_id: str) -> bool:
+        async def stop(self, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
             self.stopped.append(conversation_id)
-            return len(self.stopped) == 1  # the first time something ran
+            return TurnStop.STOPPED if len(self.stopped) == 1 else TurnStop.NOTHING_RUNNING  # the first time something ran
 
     hub = _hub(8479, {"probe": ("tok", None)})
     sink = StoppableSink()

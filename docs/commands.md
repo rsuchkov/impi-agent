@@ -219,13 +219,13 @@ way. All five doors lead to the one ending. One Slack caveat: a slash command
 never reaches a thread (the platform's rule, above), so `/stop` typed in a
 channel stops that channel's own turn and never a thread's, `/stop` typed in a
 direct message stops the turn there (in a thread under one of its messages
-too), and a turn running in a channel's thread — every Agents-panel session is
-a thread — is stopped with the reaction or the Stop button. Whose word it is
-matters where other people read: the turn answers one person, and in a
-channel or a thread only they can end it — a stranger's `/stop`, reaction or
-Stop button is answered "Only the person whose message started this turn can
-stop it" and changes nothing (`TurnStop.NOT_THEIRS`); a word nobody signs (a
-service's `cancel`, the engine's own) still ends it.
+too), and a turn running in a channel's thread is stopped with the reaction
+(the Stop button is a direct message's: the agent session is set there only).
+Whose word it is matters where other people read: the turn answers one
+person, and in a channel or a thread only they can end it — a stranger's
+`/stop` or stop reaction changes nothing and they alone are told "Only the
+person whose message started this turn can stop it" (`TurnStop.NOT_THEIRS`);
+a word nobody signs (a service's `cancel`, the engine's own) still ends it.
 
 
 ## Teaching the agent the command

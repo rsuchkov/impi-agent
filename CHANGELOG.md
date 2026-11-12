@@ -17,19 +17,23 @@ when a release is cut, and `impi update` shows the target version's section.
   agents and itself (`EntitledDirectory`, `crucible.ports.chat.directory`),
   so `list_agents` and the delegation tools name no other, and the delegation
   service answers a name outside the list as an agent that does not run here
-  — nothing says who else is around. For an agent of a team to answer its
-  team alone, whoever asks for it.
+  — nothing says who else is around. The list travels with a task the turn
+  hands on: the asked agent's turn starts with it and its own entitlement
+  narrows it, never widens it, so a second hop reaches nobody the first could
+  not. For an agent of a team to answer its team alone, whoever asks for it.
 - **A stop is the turn's person's word.** `/stop`, a stop reaction and
   Slack's Stop button name who pressed, and in a channel or a thread only the
-  person whose message the turn answers ends it — anyone else is told "Only
-  the person whose message started this turn can stop it"
-  (`TurnStop.NOT_THEIRS`) and nothing changes; a word nobody signs (a ws
-  `cancel`, the engine's own) still ends it. The Slack agent session's status
+  person whose message the turn answers ends it — anyone else's `/stop` or
+  reaction changes nothing and they alone are told "Only the person whose
+  message started this turn can stop it" (`TurnStop.NOT_THEIRS`); a word
+  nobody signs (a ws `cancel`, the engine's own) still ends it. The Slack agent session's status
   (`SLACK_AGENT_SESSIONS`) is set in a direct message only: in a channel's
   thread "processing" and the Stop button were everyone's who read it.
   **Breaks:** `TurnStopper.stop`/`StoppableSink.stop(conversation_id, *,
   gateway="", user_id="")` return `TurnStop` (`crucible.ports.chat.flow`,
-  re-exported by `crucible.interactions.results`) instead of a bool;
+  where it now lives — `crucible.interactions.results` keeps only the
+  answers) instead of a bool; a ws `cancel` frame and the http `/cancel`
+  body still say `cancelled: true|false`;
   `GatewayDispatcher.stop_turn` takes `user_id=`.
 - **Slack: a whisper goes beside the message until its thread has a reply.**
   Slack shows an ephemeral message in a thread only once the thread is active;

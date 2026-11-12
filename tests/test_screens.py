@@ -435,7 +435,8 @@ async def test_the_stop_command_ends_the_turn_and_answers_privately(tmp_path: Pa
     flight is told to end through the agent's sink, and the person who asked
     hears whether there was one. No stop word configured: it is an agent's
     command like any other."""
-    from crucible.interactions.results import TURN_STOP_ANSWERS, TurnStop
+    from crucible.interactions.results import TURN_STOP_ANSWERS
+    from crucible.ports.chat.flow import TurnStop
 
     class StoppableSpy(SinkSpy):
         def __init__(self, running: bool) -> None:
