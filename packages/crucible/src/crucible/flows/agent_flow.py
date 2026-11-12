@@ -63,6 +63,7 @@ from crucible.ports.chat.types import (
 from crucible.ports.delegation import parent_turn_of
 from crucible.ports.entitlement import (
     ConversationProfiles,
+    Entitlement,
     EntitlementSource,
     shared_entitlement,
 )
@@ -437,20 +438,26 @@ class AgentFlow:
         the conversation's memory."""
         self._profile = profile
 
-    async def _turn_profile(self, msgs: list[IncomingMessage], record: SessionRecord) -> AgentProfile:
-        """The profile this turn runs with: the agent's, or the conversation's
-        own when the application entitles it to less or tells it more. A batch
-        may hold several people's messages (a channel, a thread): each is
-        asked about once, and the turn gets what they are jointly entitled to
-        — the tools all of them may use, instructions only where they agree."""
-        if self._entitlements is None or self._conversation_profiles is None:
-            return self._profile
+    async def _turn_entitlement(self, msgs: list[IncomingMessage]) -> Entitlement | None:
+        """What this turn's conversation is entitled to, when the application
+        says: a batch may hold several people's messages (a channel, a thread):
+        each is asked about once, and the turn gets what they are jointly
+        entitled to — the tools and the agents all of them may use,
+        instructions only where they agree. None without a source."""
+        if self._entitlements is None:
+            return None
         first_by_author = {m.user_id: m for m in reversed(msgs)}
         answers = [
             await self._entitlements.entitlement(self._agent_name, m)
             for m in first_by_author.values()
         ]
-        entitlement = answers[0] if len(answers) == 1 else shared_entitlement(answers)
+        return answers[0] if len(answers) == 1 else shared_entitlement(answers)
+
+    def _turn_profile(self, entitlement: Entitlement | None, record: SessionRecord) -> AgentProfile:
+        """The profile this turn runs with: the agent's, or the conversation's
+        own when the application entitles it to less or tells it more."""
+        if entitlement is None or self._conversation_profiles is None:
+            return self._profile
         return self._conversation_profiles.build(
             self._agent_name, self._profile, entitlement, record.runtime_session_id
         )
@@ -794,7 +801,12 @@ class AgentFlow:
             # Said once: the next turn after this one starts clean.
             await self._sessions.set_cut_short(self._agent_name, anchor.conversation_id, "")
         images = await self._inline_images(fresh)
-        profile = await self._turn_profile(fresh, record)
+        entitlement = await self._turn_entitlement(fresh)
+        profile = self._turn_profile(entitlement, record)
+        if entitlement is not None and entitlement.agents is not None:
+            # Whom the turn may hand a task to rides on its scope: the tool
+            # server and the delegation service read it there.
+            facts.scope = replace(facts.scope, agents=tuple(entitlement.agents))
 
         # Only a real message can wear the "working on it" mark. A synthetic
         # anchor — a slash command, a widget click, a scheduled run — carries an

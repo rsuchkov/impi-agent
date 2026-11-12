@@ -443,6 +443,21 @@ WebSocket/socket loop, and tears them down on exit — see `impi/app.py`'s `run`
   ceiling (`entitlement(agent, msg, *, tools=None)`), so instructions that
   speak of tools speak of the ones the conversation will have; a source the
   flow calls directly gets `tools=None`.
+  **Which agents a conversation may ask.** `Entitlement(agents=…)` names the
+  agents this conversation may hand a task to with `ask_agent` or `delegate`
+  — the agent's own profile (`runtime.trusted_agents`, the deployment's
+  roster) is the ceiling, `None` leaves it to decide, `()` lets the
+  conversation ask nobody; a batch of several people gets the agents all of
+  them may ask. The names ride on the turn's scope (`TurnScope.agents`): the
+  tool server hands the turn a directory of those agents and itself
+  (`EntitledDirectory`), so `list_agents` and the delegation tools' cards name
+  no other, and the delegation service answers a name outside the list as it
+  answers an agent that does not run here. For an agent of a team — its own
+  words, knowledge and model, meant for the people of that team — to answer
+  only them, whoever asks for it: the source reads the person's groups off the
+  message and names the team's agent for its members alone. `/v1/agents` on
+  the http gateway lists the deployment's agents to the caller and is not a
+  turn's; it stays as it is.
   **Tools the model is not told about until it asks.** Every tool a
   conversation has is declared to the model, with its description and its
   schema, on every call — fifty tools are a page of the model's window each

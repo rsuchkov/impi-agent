@@ -6,6 +6,19 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **Which agents a conversation may ask is the application's to say.**
+  `Entitlement(agents=…)` (`crucible.ports.entitlement`) names the agents a
+  conversation may hand a task to with `ask_agent` or `delegate` — the
+  agent's own profile (`runtime.trusted_agents`, the roster) is the ceiling,
+  `None` leaves it to decide, `()` lets the conversation ask nobody, and a
+  batch of several people gets the agents all of them may ask
+  (`shared_entitlement`). The names ride on the turn's scope
+  (`TurnScope.agents`): the tool server hands the turn a directory of those
+  agents and itself (`EntitledDirectory`, `crucible.ports.chat.directory`),
+  so `list_agents` and the delegation tools name no other, and the delegation
+  service answers a name outside the list as an agent that does not run here
+  — nothing says who else is around. For an agent of a team to answer its
+  team alone, whoever asks for it.
 - **A stop is the turn's person's word.** `/stop`, a stop reaction and
   Slack's Stop button name who pressed, and in a channel or a thread only the
   person whose message the turn answers ends it — anyone else is told "Only

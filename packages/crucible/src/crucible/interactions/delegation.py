@@ -544,8 +544,12 @@ class EngineDelegationService:
         task.add_done_callback(self._running.discard)
 
     async def _resolve(self, agent: str, runtime_session_id: str, to: str) -> tuple[SessionRecord, TrackedSink]:
+        # An agent the turn's conversation may not ask (``TurnScope.agents``)
+        # is, to it, an agent that does not run here — the same answer, so
+        # the refusal says nothing of who else is around.
+        scope = self._turns.current(runtime_session_id) if self._turns is not None else None
         other = next((a for a in self._directory.list_agents() if a.name == to), None)
-        if other is None:
+        if other is None or (scope is not None and scope.agents is not None and to not in scope.agents):
             raise DelegationError(f"no agent named {to!r} runs here")
         if other.name == agent:
             raise DelegationError("that is you; hand the task to another agent")

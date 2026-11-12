@@ -29,7 +29,7 @@ from crucible.constant_time import find_by_secret
 from crucible.ports.agent.runtime import TurnClock
 from crucible.ports.attachments import ReceivedFiles
 from crucible.ports.chat.admin import ChatAdmin
-from crucible.ports.chat.directory import AgentDirectory
+from crucible.ports.chat.directory import AgentDirectory, EntitledDirectory
 from crucible.ports.chat.files import FileService
 from crucible.ports.chat.interactions import InteractionService
 from crucible.ports.chat.types import CallPreview, CannotRun
@@ -357,7 +357,10 @@ class ToolServer:
 
         ctx = ToolContext(
             agent_name=agent,
-            directory=self._directory,
+            directory=(
+                EntitledDirectory(self._directory, turn.agents, own=agent)
+                if turn is not None and turn.agents is not None else self._directory
+            ),
             chat_admin=admin,
             settings=self._tool_configs.get(tool.name),
             runtime_session_id=runtime_session_id,

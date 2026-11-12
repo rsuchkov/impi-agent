@@ -47,12 +47,21 @@ class Entitlement:
     small window; ``None`` or empty declares everything, as always. Which
     tools can be deferred is the runtime's: the engine's typed tools and MCP
     tools can, a runtime's built-ins cannot, and a built-in named here is
-    declared as it is.
+    declared as it is. ``agents``: the names of the agents this conversation
+    may hand a task to (``ask_agent``, ``delegate``) — the agent's own profile
+    (``trusted_agents``, the deployment's roster) is the ceiling, a name
+    outside it is ignored; ``None`` leaves the profile to decide, ``()`` lets
+    the conversation ask nobody. An agent the conversation may not ask is not
+    there for it: the tools list the others, and asking is answered as asking
+    an agent that does not run here. For an agent of a team — its own words,
+    knowledge and model, for the people of the team — to answer only them,
+    whoever the asker asks for.
     """
 
     tools: Collection[str] | None = None
     instructions: str = ""
     deferred: Collection[str] | None = None
+    agents: Collection[str] | None = None
 
 
 def shared_entitlement(entitlements: Sequence[Entitlement]) -> Entitlement:
@@ -63,19 +72,12 @@ def shared_entitlement(entitlements: Sequence[Entitlement]) -> Entitlement:
     none). Instructions: only when every answer says the same, since words the
     application vouches for about one person cannot stand for another.
     Deferred: what any answer defers — a declaration held back for one person
-    is held back for the turn, since the model that reads it is one."""
+    is held back for the turn, since the model that reads it is one. Agents:
+    as tools — only the ones every one of them may ask."""
     if not entitlements:
         return Entitlement()
-    tools: set[str] | None = None
-    for entitlement in entitlements:
-        if entitlement.tools is None:
-            continue
-        tools = set(entitlement.tools) if tools is None else tools & set(entitlement.tools)
-    ordered: Collection[str] | None = None
-    if tools is not None:
-        # Kept in the order the first restricting answer gave them.
-        first = next(e.tools for e in entitlements if e.tools is not None)
-        ordered = tuple(dict.fromkeys(t for t in first if t in tools))
+    ordered = _everyones(tuple(e.tools for e in entitlements))
+    agents = _everyones(tuple(e.agents for e in entitlements))
     instructions = {e.instructions for e in entitlements}
     deferred: tuple[str, ...] | None = None
     if any(e.deferred for e in entitlements):
@@ -84,7 +86,23 @@ def shared_entitlement(entitlements: Sequence[Entitlement]) -> Entitlement:
         tools=ordered,
         instructions=next(iter(instructions)) if len(instructions) == 1 else "",
         deferred=deferred,
+        agents=agents,
     )
+
+
+def _everyones(answers: Sequence[Collection[str] | None]) -> Collection[str] | None:
+    """The names every answer allows (an answer of None imposes nothing; one
+    answer of ``()`` leaves none), in the order the first restricting answer
+    gave them; None when no answer restricts."""
+    allowed: set[str] | None = None
+    for names in answers:
+        if names is None:
+            continue
+        allowed = set(names) if allowed is None else allowed & set(names)
+    if allowed is None:
+        return None
+    first = next(names for names in answers if names is not None)
+    return tuple(dict.fromkeys(n for n in first if n in allowed))
 
 
 class EntitlementSource(Protocol):

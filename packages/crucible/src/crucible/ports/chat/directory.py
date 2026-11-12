@@ -4,7 +4,7 @@ Gateways use it for dispatch decisions (e.g. "is this channel's only resident
 agent me?"); later stages expose it to agents themselves via a tool.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -48,3 +48,21 @@ class StaticDirectory:
 
     def list_agents(self) -> list[AgentInfo]:
         return list(self._agents)
+
+
+class EntitledDirectory:
+    """The directory as one turn sees it: the agents its conversation's
+    entitlement names (``Entitlement.agents``), and the agent itself. What
+    the turn may not ask is not there for it to find — ``list_agents`` and
+    the tools built on it say so; the platform ids of every agent stay, since
+    telling an agent's message from a person's is nobody's entitlement."""
+
+    def __init__(self, directory: AgentDirectory, agents: Collection[str], *, own: str) -> None:
+        self._directory = directory
+        self._allowed = frozenset(agents) | {own}
+
+    def agent_user_ids(self) -> frozenset[str]:
+        return self._directory.agent_user_ids()
+
+    def list_agents(self) -> list[AgentInfo]:
+        return [a for a in self._directory.list_agents() if a.name in self._allowed]

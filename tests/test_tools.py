@@ -888,7 +888,8 @@ async def test_server_resolves_conversation_into_context() -> None:
 
         async def execute(self, ctx, args):
             received = [r.name for r in await ctx.received_files.list()] if ctx.received_files is not None else None
-            return {"channel_id": ctx.channel_id, "user_id": ctx.user_id, "files_dir": str(ctx.files_dir), "received": received}
+            return {"channel_id": ctx.channel_id, "user_id": ctx.user_id, "files_dir": str(ctx.files_dir), "received": received,
+                    "agents": [a.name for a in ctx.directory.list_agents()]}
 
     reg = ToolRegistry((_Echo(),))  # type: ignore[arg-type]
 
@@ -946,8 +947,17 @@ async def test_server_resolves_conversation_into_context() -> None:
         assert body == {
             "channel_id": "C-resolved", "user_id": "U-resolved", "files_dir": "/files/assistant/conv",
             "received": ["note.txt"],  # the conversation's record, by its files directory
+            "agents": [a.name for a in AGENTS],  # a turn entitled to no list of agents sees them all
         }
         assert asked == [("assistant", "assistant--conv")]  # once per call, with the caller
+        # A turn whose entitlement names the agents it may ask sees those, and itself.
+        async with turns.bind("assistant--conv", TurnScope(turn_id="turn-8", agents=(AGENTS[-1].name,))), aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8470/tool/echo_ctx", json={},
+                headers={"X-Tool-Token": "tok", "X-Runtime-Session": "assistant--conv"},
+            ) as resp:
+                seen = (await resp.json())["result"]["agents"]
+        assert seen == [a.name for a in AGENTS if a.name in {"assistant", AGENTS[-1].name}]
         # Told once per call, resolved or refused: who, what, where, how.
         async with aiohttp.ClientSession() as s:
             async with s.post("http://127.0.0.1:8470/tool/echo_ctx", json={}, headers={"X-Tool-Token": "nope"}) as resp:
@@ -957,10 +967,10 @@ async def test_server_resolves_conversation_into_context() -> None:
         from crucible.ports.telemetry import ToolCalled
 
         events = [e for e in telemetry.events if isinstance(e, ToolCalled)]
-        assert [(e.tool, e.outcome) for e in events] == [("echo_ctx", "ok"), ("echo_ctx", "unauthorized"), ("other", "unknown_tool")]
+        assert [(e.tool, e.outcome) for e in events] == [("echo_ctx", "ok"), ("echo_ctx", "ok"), ("echo_ctx", "unauthorized"), ("other", "unknown_tool")]
         assert (events[0].agent, events[0].user_id, events[0].confirmed) == ("assistant", "U-resolved", False)
-        assert events[0].duration_s >= 0 and events[1].agent == ""
-        assert (events[0].turn_id, events[1].turn_id) == ("turn-7", "") and events[0].started_at  # the turn the call was made in
+        assert events[0].duration_s >= 0 and events[2].agent == ""
+        assert (events[0].turn_id, events[1].turn_id, events[2].turn_id) == ("turn-7", "turn-8", "") and events[0].started_at  # the turn the call was made in
         assert events[0].args == ""  # facts only, by default
     finally:
         await server.stop()

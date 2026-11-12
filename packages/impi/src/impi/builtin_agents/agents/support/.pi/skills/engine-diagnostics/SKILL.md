@@ -365,7 +365,10 @@ And from the session check:
   person, telemetry says `BudgetHit`. Raise the budget or wait; neither is a bug.
 - Tasks handed between agents — `X is not an agent you trust; hand the task on
   with delegate` (`ask_agent` to an agent the asker's `runtime.trusted_agents`
-  does not name), `asker_turn_ended` in `delegation_status` (the asker answered or
+  does not name), `no agent named 'X' runs here` for an agent that does run —
+  the application's entitlement (`Entitlement.agents`) does not let this
+  person's conversation ask it, and `list_agents` leaves it out for them
+  (working as designed; the application's rule, not the engine's), `asker_turn_ended` in `delegation_status` (the asker answered or
   was stopped before `await_agents`; the trusted task was called off), a message a person sent while a turn ran
   that got no answer until the next one (`JOIN_RUNNING_TURNS` is off, the default — on, it joins the running turn
   and the log says `a message joined the running turn in <agent>/<conversation>`; one the turn never read is

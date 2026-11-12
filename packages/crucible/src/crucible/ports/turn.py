@@ -19,7 +19,7 @@ answered in a thread under the person's message, say) and not merely to the
 conversation's standing address.
 """
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any, NoReturn, Protocol
@@ -70,12 +70,15 @@ class TurnScope:
     """One turn's own data. ``attributes`` are plain facts a tool may read (a
     request id, a locale); ``secrets`` are values it may use and must not
     repeat; ``flags`` are notes a tool leaves for the flow that started the
-    turn — codes, not prose, for the flow to act on once the turn is over."""
+    turn — codes, not prose, for the flow to act on once the turn is over;
+    ``agents`` are the agents this turn may hand a task to, when its
+    conversation's entitlement names them (None: the profile decides)."""
 
     turn_id: str
     secrets: TurnSecrets = field(default_factory=TurnSecrets, repr=False)
     attributes: Mapping[str, str] = field(default_factory=dict)
     flags: set[str] = field(default_factory=set, compare=False)
+    agents: Collection[str] | None = None
 
     def flag(self, code: str) -> None:
         """Leave a note for whoever started the turn."""

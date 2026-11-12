@@ -307,6 +307,12 @@ async def test_no_such_agent_oneself_an_unresolvable_conversation_and_an_agent_w
     record, _ = await store.get_or_create("assistant", "ch1", "root1", KIND_THREAD)
     with pytest.raises(DelegationError, match="no agent named 'nobody'"):
         await svc.delegate("assistant", record.runtime_session_id, "nobody", "x")
+    # An agent the conversation may not ask (``TurnScope.agents``) gets the same answer.
+    turns = TurnRegistry()
+    scoped = EngineDelegationService(_presence(sink), store, AGENTS, store, FakeTurnDispatcher(), DelegationChatClient, turns=turns)
+    async with turns.bind(record.runtime_session_id, TurnScope(turn_id="t", agents=())):
+        with pytest.raises(DelegationError, match="no agent named 'coder'"):
+            await scoped.delegate("assistant", record.runtime_session_id, "coder", "x")
     with pytest.raises(DelegationError, match="that is you"):
         await svc.delegate("assistant", record.runtime_session_id, "assistant", "x")
     with pytest.raises(DelegationError, match="could not be resolved"):

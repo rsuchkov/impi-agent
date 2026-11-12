@@ -1645,6 +1645,11 @@ def test_a_shared_entitlement_is_the_intersection_and_agreement() -> None:
     assert shared_entitlement([Entitlement(deferred=("a", "b")), Entitlement(deferred=("b", "c"))]).deferred == ("a", "b", "c")
     assert shared_entitlement([Entitlement(deferred=("a",)), Entitlement()]).deferred == ("a",)
     assert shared_entitlement([Entitlement(deferred=()), Entitlement()]).deferred is None
+    # Agents: as tools — only the ones everyone may ask, in the first restricting answer's order.
+    assert shared_entitlement([Entitlement(agents=("jira", "coder")), Entitlement()]).agents == ("jira", "coder")
+    assert shared_entitlement([Entitlement(agents=("jira", "coder")), Entitlement(agents=("coder",))]).agents == ("coder",)
+    assert shared_entitlement([Entitlement(agents=("jira",)), Entitlement(agents=())]).agents == ()
+    assert shared_entitlement([Entitlement(), Entitlement()]).agents is None
 
 
 class _Captions:
@@ -2906,3 +2911,36 @@ async def test_a_stop_is_the_turns_persons_word_alone(tmp_path: Path) -> None:
     assert await flow.stop("root1", gateway="slack", user_id="u1") is TurnStop.STOPPED
     assert await turn is TurnOutcome.STOPPED
     await store.close()
+
+
+async def test_the_agents_a_conversation_may_ask_ride_on_the_turns_scope(tmp_path: Path) -> None:
+    """``Entitlement.agents`` is read by the tool server and the delegation
+    service from the scope bound for the turn; an entitlement that says
+    nothing of agents leaves the scope as it was."""
+    from crucible.turns import TurnRegistry
+
+    class _Looking(FakeRuntime):
+        def __init__(self, turns: TurnRegistry) -> None:
+            super().__init__()
+            self.turns = turns
+            self.seen: list = []
+
+        async def run_stateful(self, profile, session_id, message, *, on_event=None, cwd=None, images=()):
+            scope = self.turns.current(session_id)
+            self.seen.append(scope.agents if scope is not None else "no scope")
+            return await super().run_stateful(profile, session_id, message, on_event=on_event, cwd=cwd, images=images)
+
+    turns = TurnRegistry()
+    runtime = _Looking(turns)
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    entitlements = FakeEntitlements(Entitlement(agents=("jira",)))
+    flow = AgentFlow(runtime, PROFILE, store, agent_name="assistant", entitlements=entitlements,
+                     conversation_profiles=FakeConversationProfiles(), turns=turns)
+    try:
+        await flow.handle(_dm("hello"), FakeChat())
+        entitlements.entitlement_ = Entitlement(tools=("read",))
+        again = replace(_dm("again"), ref=replace(_dm().ref, message_id="p2"))  # not a replay
+        await flow.handle(again, FakeChat())
+        assert runtime.seen == [("jira",), None]
+    finally:
+        await store.close()
