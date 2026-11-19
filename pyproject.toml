@@ -123,6 +123,9 @@ forbidden_modules = [
     "crucible.flows",
     "crucible.store",
     "crucible.profiles",
+    # The connections machinery loads the store; a gateway that signs people
+    # in through it is composed above both (crucible.mcp_authorization).
+    "crucible.connections",
 ]
 
 [[tool.importlinter.contracts]]

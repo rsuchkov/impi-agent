@@ -229,6 +229,10 @@ channel; with several agents present, only an explicit mention) and the
   is polled by cursor, a card is a journal event answered through the same
   dispatcher, one turn per conversation at a time. For programs that cannot
   hold a socket — see [http-gateway.md](http-gateway.md).
+- **mcp** is the engine as an MCP server for an agent on the outside: a
+  person signs in and consents, the client's token names them, `tools/call`
+  runs a turn as them, a card goes to the person in their chat. A library
+  gateway `impi` does not run — see [mcp-gateway.md](mcp-gateway.md).
 
 **Who renders what.** The port draws a line between words the *model* wrote
 and structure the *engine* produced, and each `ChatClient` verb sits on one

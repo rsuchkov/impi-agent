@@ -151,7 +151,8 @@ no tools at all**.
 
 An agent on several gateways may be allowed less on one of them:
 `runtime.tools_by_gateway` maps a gateway kind (`mattermost`, `slack`, `ws`,
-`http`, or `delegation` and `trusted-delegation` for the turns on a task another
+`http`, `mcp` — the library's gateway, which `impi` does not run — or
+`delegation` and `trusted-delegation` for the turns on a task another
 agent handed on or asked of it) to
 the names of `tools` a conversation there may use — a subset,
 checked when the profile loads — or to `{except: [names]}`, every entry of

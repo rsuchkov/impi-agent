@@ -1,5 +1,6 @@
 """Gateway port: one agent's connection to one chat platform."""
 
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -33,6 +34,22 @@ GATEWAY_KINDS = (GATEWAY_MATTERMOST, GATEWAY_SLACK, GATEWAY_WS, GATEWAY_HTTP, GA
 # entitlement source reads them to narrow a read-only client's turn.
 MCP_CLIENT_ATTRIBUTE = "mcp_client"
 MCP_SCOPES_ATTRIBUTE = "mcp_scopes"
+# What a token lets the client do. ``read``: ask the agent, and use the tools
+# that ask nobody for a yes; ``act``: the whole agent, each confirmation put to
+# the person where the application delivers cards.
+MCP_SCOPE_READ = "read"
+MCP_SCOPE_ACT = "act"
+MCP_SCOPES = (MCP_SCOPE_READ, MCP_SCOPE_ACT)
+
+
+def mcp_scopes_attribute(scopes: Collection[str]) -> str:
+    """The scopes as the attribute carries them: sorted, space-separated."""
+    return " ".join(sorted(scopes))
+
+
+def mcp_scopes_of(attributes: Mapping[str, str]) -> frozenset[str]:
+    """The scopes a turn's attributes carry; empty for a turn no MCP client opened."""
+    return frozenset(attributes.get(MCP_SCOPES_ATTRIBUTE, "").split())
 # The engine's own door: a turn one agent opens for another on a task
 # (``ports.delegation``). Not a kind an operator configures — every agent has
 # it — but a conversation can be live in it, and a message can say it came

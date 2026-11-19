@@ -130,6 +130,9 @@ WebSocket hub for the operator's own programs) or `http` (a request/turn API for
 programs that cannot hold a socket — a browser panel behind a server) — or
 through none at all (`headless: true`), reached only when another agent hands it
 a task with `delegate` or `ask_agent`.
+`mcp` is a gateway of the library's (the engine as an MCP server), which impi
+does not run: an agent put on it is skipped at startup with the log line
+`agent <name>: gateway=mcp is the library's (crucible.gateways.mcp), which impi does not run — skipping`.
 `AGENTS_GATEWAY__<NAME>=mattermost,slack` is one agent on both: one profile, one
 memory per conversation, a reply through the gateway the message came in by;
 the first listed is the default, where a turn the engine starts by itself goes.

@@ -1,5 +1,10 @@
 """A call that runs as a task: the client asks and goes away, then polls.
 
+The word is the protocol's (``tasks/get``), and the engine has two others: the
+scheduler's task (``ports.tasks``, work on a schedule) and the task one agent
+hands another (``ports.delegation``). An ``McpTask`` is neither — one
+``tools/call`` still running, and its result once it is not.
+
 A turn may take minutes and may stop to ask the person for a yes; a client
 that cannot hold a request open that long asks for the call as a task
 (``params.task``), gets a task id at once and reads the task's status
@@ -48,9 +53,10 @@ def _now_iso() -> str:
 class McpTask:
     """One call running as a task: whose, what it is doing, how it ended."""
 
-    def __init__(self, task_id: str, owner: str, call: GatewayCall, runner: "asyncio.Future[dict[str, Any]]", ttl_ms: int) -> None:
+    def __init__(self, task_id: str, key: str, call: GatewayCall, runner: "asyncio.Future[dict[str, Any]]", ttl_ms: int) -> None:
         self.id = task_id
-        self.owner = owner
+        # Whose it is: the person and the client together (``McpHub._task_key``).
+        self.key = key
         self.call = call
         self.runner = runner
         self.ttl_ms = ttl_ms
@@ -97,24 +103,24 @@ class McpTask:
 
 
 class McpTasks:
-    """The tasks of one process, by id; each read by its owner alone."""
+    """The tasks of one process, by id; each read by whose it is alone."""
 
     def __init__(self) -> None:
         self._by_id: dict[str, McpTask] = {}
 
-    def create(self, task_id: str, owner: str, call: GatewayCall, runner: "asyncio.Future[dict[str, Any]]", asked: Mapping[str, Any]) -> McpTask:
+    def create(self, task_id: str, key: str, call: GatewayCall, runner: "asyncio.Future[dict[str, Any]]", asked: Mapping[str, Any]) -> McpTask:
         ttl = asked.get("ttl")
         ttl_ms = min(int(ttl), MAX_TTL_MS) if isinstance(ttl, int | float) and ttl > 0 else DEFAULT_TTL_MS
-        task = McpTask(task_id, owner, call, runner, ttl_ms)
+        task = McpTask(task_id, key, call, runner, ttl_ms)
         self._by_id[task_id] = task
         return task
 
-    def get(self, owner: str, task_id: str) -> McpTask | None:
+    def get(self, key: str, task_id: str) -> McpTask | None:
         task = self._by_id.get(task_id)
-        return task if task is not None and task.owner == owner else None
+        return task if task is not None and task.key == key else None
 
-    def owned_by(self, owner: str) -> list[McpTask]:
-        return [task for task in self._by_id.values() if task.owner == owner]
+    def of(self, key: str) -> list[McpTask]:
+        return [task for task in self._by_id.values() if task.key == key]
 
     def sweep(self, now: float) -> int:
         """Forget ended tasks past their retention."""

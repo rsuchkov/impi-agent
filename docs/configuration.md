@@ -226,7 +226,7 @@ as defaults — set only the ones you need.
 | `AGENTS_SLACK_APP_TOKEN__<AGENT>` | that agent's Slack app-level token |
 | `AGENTS_SLACK_AGENT_SESSIONS__<AGENT>` | whether that agent's Slack bot is an agent in Slack's panel (`SLACK_AGENT_SESSIONS` for the rest) |
 | `AGENTS_DM_REPLIES__<AGENT>` | where that agent answers a top-level direct message, `top` or `thread` (`DM_REPLIES` for the rest) |
-| `AGENTS_GATEWAY__<AGENT>` | that agent's gateway (`mattermost` \| `slack` \| `ws` \| `http`), or several as a CSV (`mattermost,slack`); the first is its default |
+| `AGENTS_GATEWAY__<AGENT>` | that agent's gateway (`mattermost` \| `slack` \| `ws` \| `http`), or several as a CSV (`mattermost,slack`); the first is its default; `mcp` is skipped, as under `GATEWAY` |
 | `AGENTS_SKILLS__<AGENT>` | override that agent's skills (CSV of names; empty = none; unset = its `agent.yaml`) |
 | `AGENTS_ENV__<AGENT>` | override the engine environment variables that agent's process inherits (CSV of names, `*` allowed; empty = none beyond the base set; unset = its `agent.yaml` `runtime.env`) |
 | `AGENTS_FALLBACK_MODELS__<AGENT>` | override that agent's fallback models (CSV of `provider/model`; empty = none; unset = its `agent.yaml`, else `DEFAULT_FALLBACK_MODELS`) |

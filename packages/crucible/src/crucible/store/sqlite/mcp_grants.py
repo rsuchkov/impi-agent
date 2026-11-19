@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS mcp_auth_requests (
   subject         TEXT NOT NULL DEFAULT '',
   username        TEXT NOT NULL DEFAULT '',
   code_hash       TEXT NOT NULL DEFAULT '',
-  code_expires_at TEXT NOT NULL DEFAULT ''
+  code_expires_at TEXT NOT NULL DEFAULT '',
+  browser_hash    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_auth_requests_code ON mcp_auth_requests (code_hash);
 

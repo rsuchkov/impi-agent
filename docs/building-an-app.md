@@ -800,11 +800,12 @@ credential, is another user's credential.
   `McpChatClient(hub.turns, name, cards=hub.cards, asker_of=hub.asker_of)` and
   `hub.turns` as the flow's tracer for `"mcp"`; `GatewayFactory(mcp_hub=hub)`
   does this for a `GatewayConfig(kind="mcp")`. `authorization` is who holds a
-  bearer token (`Authorization.authenticate(request) -> Principal | None`):
+  bearer token (`Authorization.authenticate(request) -> McpCaller | None`):
   `AuthorizationServer(store, connections, public_url=, clients=,
-  sign_in_providers=, consent_page=, subject_of=)` is the engine's own — the
+  sign_in_providers=, consent_page=, subject_of=)` (`crucible.mcp_authorization`,
+  a module over the gateway and the connections) is the engine's own — the
   OAuth metadata, `/authorize`, a sign-in at one of your connection providers
-  as an ephemeral connect (`CallbackServer(sign_ins=authorization)` carries the
+  as a sign-in connect (`CallbackServer(sign_ins=authorization)` carries the
   person from the callback to the consent page), `/token`, `/revoke`, the
   records in the store (`McpGrants`) — and a deployment with an authorization
   server of its own implements the port instead. Yours: the clients
@@ -820,9 +821,10 @@ credential, is another user's credential.
   `scope` — `read` or `act` — `requires_task`, `run(call)`; `GatewayCall.ask`
   runs an agent's turn as the person, `progress` tells the client, `CallFailed`
   is `isError`), the agent's answer as the client reads it (`presenter`), and
-  `GatewayEntitlements(registry=)` for the read door. Tokens live an hour and
-  the grant twelve (`access_ttl_s`, `grant_ttl_s`); the audit is the logger
-  `crucible.gateways.mcp.audit`, the telemetry event `McpGrantChanged`.
+  `McpScopeEntitlements(spec_of, registry, inner=…)` as the gateway source's
+  inner for the read door. Tokens live an hour and the grant twelve
+  (`access_ttl_s`, `grant_ttl_s`); the audit is the logger
+  `crucible.mcp_authorization.audit`, the telemetry event `McpGrantChanged`.
 - **A message joins the running turn.** `MessageCoalescer(join_running_turns=True)`
   puts a message that arrives mid-turn to that turn (`join`, `JoinableSink`)
   instead of queueing it: the flow renders it as the speaker line a prompt

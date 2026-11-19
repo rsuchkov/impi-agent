@@ -230,13 +230,13 @@ class Connections:
 
     # -- connecting ---------------------------------------------------------
 
-    async def begin(self, owner: str, provider: str, *, return_to: str = "", ephemeral: bool = False) -> str:
+    async def begin(self, owner: str, provider: str, *, return_to: str = "", sign_in: bool = False) -> str:
         """Start a connect for ``owner``: the URL to send them to — the
         provider's consent page, or, for a credential provider, the form that
         asks them for a credential. The URL is the person's alone — whoever holds it can
         finish the connect within its time, so it goes to them privately.
         ``return_to`` is kept with the link and handed back in ``Connected``.
-        ``ephemeral`` makes it a sign-in: the finish names the account in
+        ``sign_in`` makes it a sign-in: the finish names the account in
         ``Connected`` and keeps nothing — no record, no tokens (revoked at
         once), no word to the application's hook — and asks no rule about the
         account, there being no owner to connect it for."""
@@ -250,7 +250,7 @@ class Connections:
             state_digest=state_digest(state), owner=owner, provider=provider,
             verifier_sealed=self._sealer.seal(verifier),
             expires_at=_iso(self._clock() + timedelta(seconds=self._link_ttl_s)),
-            return_to=return_to, ephemeral=ephemeral,
+            return_to=return_to, sign_in=sign_in,
         ))
         self._audit_and_tell(EVENT_CONNECT_START, RESULT_OK, owner=owner, provider=provider)
         if isinstance(source, CredentialProvider):
@@ -359,7 +359,7 @@ class Connections:
         tokens, to revoke them when they are not kept — None for a credential
         the person entered, which is theirs to keep whatever happens here."""
         where = {"owner": link.owner, "provider": link.provider}
-        if link.ephemeral:
+        if link.sign_in:
             # A sign-in: the account is the whole answer. The tokens were
             # issued for the asking and are not kept.
             if issued_by is not None:
@@ -367,7 +367,7 @@ class Connections:
             self._audit_and_tell(EVENT_SIGN_IN, RESULT_OK, account=account.username, **where)
             return Connected(
                 owner=link.owner, provider=link.provider, account=account, return_to=link.return_to,
-                started_by=link.owner, ephemeral=True,
+                started_by=link.owner, sign_in=True,
             )
         known = dict(facts or {})
         try:

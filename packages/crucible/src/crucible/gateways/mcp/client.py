@@ -20,7 +20,7 @@ from typing import Protocol
 
 from crucible.gateways.http.client import HttpChatClient
 from crucible.gateways.http.turns import HttpTurns
-from crucible.gateways.mcp.auth import Principal
+from crucible.gateways.mcp.auth import McpCaller
 from crucible.ports.chat.client import NobodyToAnswer
 from crucible.ports.chat.types import Action, ApprovalCard, ConversationRef, Form
 
@@ -33,14 +33,14 @@ _FORWARDED_MAX = 1000
 
 class ApprovalCards(Protocol):
     """Where the application puts a confirmation an MCP turn needs in front
-    of the person. ``post_confirmation`` is given the principal — the person
+    of the person. ``post_confirmation`` is given the caller — the person
     the card is for and the client that asked — and answers with the post's
     id as the application knows it; the other verbs name that id. The card's
     controls carry the engine's approval token: the application's gateway
     hands a click to the dispatcher as it does its own cards'."""
 
     async def post_confirmation(
-        self, asker: Principal, card: ApprovalCard, actions: list[Action], *, callback_url: str
+        self, asker: McpCaller, card: ApprovalCard, actions: list[Action], *, callback_url: str
     ) -> str: ...
 
     async def update_confirmation(
@@ -52,7 +52,7 @@ class ApprovalCards(Protocol):
 
 class McpChatClient(HttpChatClient):
     """``HttpChatClient`` over the gateway's turns, with cards forwarded to
-    the application. ``asker_of`` names the principal whose call runs in a
+    the application. ``asker_of`` names the caller whose call runs in a
     conversation, or None when none does."""
 
     def __init__(
@@ -61,7 +61,7 @@ class McpChatClient(HttpChatClient):
         agent: str,
         *,
         cards: ApprovalCards | None,
-        asker_of: Callable[[str], Principal | None],
+        asker_of: Callable[[str], McpCaller | None],
     ) -> None:
         super().__init__(turns, agent)
         self._delivery = cards
@@ -114,7 +114,7 @@ class McpChatClient(HttpChatClient):
         raise NobodyToAnswer("an MCP client speaks for the person and cannot fill a form for them")
 
 
-def _asked_through(card: ApprovalCard, asker: Principal) -> ApprovalCard:
+def _asked_through(card: ApprovalCard, asker: McpCaller) -> ApprovalCard:
     """The card says the turn was asked through a program: the person reading
     it in their chat did not type the request they are asked to approve."""
     return replace(card, headline=f"{card.headline} Asked through {asker.client}.")

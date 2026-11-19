@@ -13,6 +13,9 @@ client.py  — ChatClient over the journal (one per agent)
 hub.py     — the aiohttp server shared by every agent on the gateway
 internal.py — the replicas' routes on the hub (a forwarded turn, a forwarded click) and their client
 gateway.py — per-agent lifecycle shim (identity + park-until-stop)
+
+turns.py, journal.py and client.py serve the mcp gateway too (``gateways.mcp``):
+a journal is how any gateway without a platform behind it keeps a turn's words.
 """
 
 from crucible.gateways.http.auth import (

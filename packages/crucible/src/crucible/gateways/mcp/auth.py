@@ -2,11 +2,11 @@
 
 Every request to ``/mcp`` carries a token an authorization server issued to a
 client program after a person signed in and consented to it; ``Authorization``
-turns the token into a ``Principal`` — the person (``subject``), the program
+turns the token into a ``McpCaller`` — the person (``subject``), the program
 (``client``) and what the person let it do (``scopes``). The gateway answers a
-request with no principal 401, pointing the client at the protected-resource
+request with no caller 401, pointing the client at the protected-resource
 metadata, as the OAuth profile of the protocol wants; a tool the scopes do not
-reach is 403. The engine's own authorization server (``gateways.mcp.server``)
+reach is 403. The engine's own authorization server (``crucible.mcp_authorization``)
 implements this port; a test or a deployment with an authorization server of
 its own implements it otherwise.
 """
@@ -16,28 +16,24 @@ from typing import Protocol
 
 from aiohttp import web
 
-# What a token lets the client do. ``read``: tools that change nothing and the
-# agent's answer; ``act``: tools that need the person's yes too — the gateway's
-# ``act`` tools, and inside a turn the agent's own tools that ask for
-# confirmation, the card going to the person where the application puts it.
-SCOPE_READ = "read"
-SCOPE_ACT = "act"
-SCOPES = (SCOPE_READ, SCOPE_ACT)
+from crucible.ports.chat.gateway import MCP_SCOPE_READ
 
 
 @dataclass(frozen=True)
-class Principal:
-    """One authenticated request. ``subject`` is the person the token was
+class McpCaller:
+    """One authenticated request, as the http gateway's ``Caller`` is: there
+    the program is trusted to say who its user is, here the token says it.
+    ``subject`` is the person the token was
     issued for, as the application names people (the same key its other
     gateways use for them, so a card the application puts in front of them
     elsewhere is answered by the same person); ``client`` is the program that
-    holds the token; ``scopes`` are what the person let it do (``SCOPES``);
+    holds the token; ``scopes`` are what the person let it do (``ports.chat.gateway.MCP_SCOPES``);
     ``username`` is the person's name for the prompt (``subject`` when
     empty)."""
 
     subject: str
     client: str
-    scopes: frozenset[str] = frozenset({SCOPE_READ})
+    scopes: frozenset[str] = frozenset({MCP_SCOPE_READ})
     username: str = ""
 
     def allows(self, scope: str) -> bool:
@@ -45,7 +41,7 @@ class Principal:
 
 
 class Authorization(Protocol):
-    async def authenticate(self, request: web.Request) -> Principal | None:
-        """The principal behind this request's bearer token, or None for 401 —
+    async def authenticate(self, request: web.Request) -> McpCaller | None:
+        """The caller behind this request's bearer token, or None for 401 —
         no token, an unknown one, one expired or revoked."""
         ...

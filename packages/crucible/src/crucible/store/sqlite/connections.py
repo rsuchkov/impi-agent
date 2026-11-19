@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS connection_links (
   verifier_sealed TEXT NOT NULL,
   expires_at      TEXT NOT NULL,
   return_to       TEXT NOT NULL DEFAULT '',
-  ephemeral       INTEGER NOT NULL DEFAULT 0
+  sign_in         INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_connection_links_expires ON connection_links (expires_at);
 """
@@ -62,7 +62,7 @@ def _record(row: tuple) -> ConnectionRecord:
 
 def _link(row: tuple) -> ConnectionLinkRecord:
     values = dict(zip(_LINK_FIELDS, row, strict=True))
-    values["ephemeral"] = bool(values["ephemeral"])
+    values["sign_in"] = bool(values["sign_in"])
     return ConnectionLinkRecord(**values)
 
 
@@ -93,8 +93,8 @@ class ConnectionStoreMixin(SqliteBase):
             if column not in columns:
                 self._conn.execute(f"ALTER TABLE connections ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         links = {row[1] for row in self._conn.execute("PRAGMA table_info(connection_links)")}
-        if "ephemeral" not in links:
-            self._conn.execute("ALTER TABLE connection_links ADD COLUMN ephemeral INTEGER NOT NULL DEFAULT 0")
+        if "sign_in" not in links:
+            self._conn.execute("ALTER TABLE connection_links ADD COLUMN sign_in INTEGER NOT NULL DEFAULT 0")
 
     # -- connections ------------------------------------------------------------
 

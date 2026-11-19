@@ -36,7 +36,7 @@ skipped with a word in the log.
    the client as `error=` (`invalid_request` without PKCE, `invalid_scope`,
    `invalid_target` for another resource).
 4. The person signs in at a connection provider — with several, they pick one
-   on a page — through an ephemeral connect: the provider names the account,
+   on a page — through a sign-in connect: the provider names the account,
    nothing is stored, the provider's tokens are revoked at once.
 5. The consent page: which client (by the operator's name and its id), as
    whom, for which scopes — `Allow` or `Deny`. Allowed → `302` to the client's
@@ -48,20 +48,25 @@ skipped with a word in the log.
 7. `POST /mcp` with `Authorization: Bearer <access_token>`.
 
 Access tokens last an hour (`access_ttl_s`), the grant twelve hours from the
-sign-in (`grant_ttl_s`): a refresh (`grant_type=refresh_token`) rotates both
+sign-in (`grant_ttl_s`, counted from the code exchange, which follows the
+sign-in within minutes): a refresh (`grant_type=refresh_token`) rotates both
 tokens and never outlives the grant; after it the person signs in again. A
 refresh token presented a second time ends the grant for good — somebody has
 a copy. `POST /revoke` with either token ends it on purpose. Tokens are random
-and kept as digests; the audit (logger `crucible.gateways.mcp.audit`) names
+and kept as digests; the consent page is bound by a cookie to the browser
+that signed in, so the client that started the request — which knows its id —
+cannot consent in the person's place; the audit (logger
+`crucible.mcp_authorization.audit`) names
 clients and subjects and never a token, a code or a state.
 
 ## The protocol
 
 Revision 2026-07-28, stateless: every request carries `MCP-Protocol-Version:
 2026-07-28` and may carry `Mcp-Method` and `Mcp-Name`, which must say what the
-body says (`-32020` otherwise). A client of another era — no version, or an
-`initialize` — is answered `400` with `-32022` and `{"supported":
-["2026-07-28"]}` and is not served otherwise. One JSON-RPC request per POST
+body says (`-32020` otherwise). A client of another era — no version header, or an
+older version, as a client that opens with `initialize` sends — is answered
+`400` with `-32022` and `{"supported": ["2026-07-28"]}` and is not served
+otherwise. One JSON-RPC request per POST
 (a batch is `400`); a notification is `202` and nothing; `GET` and `DELETE`
 are `405`; a browser `Origin` not in `allowed_origins` is `403`. Bodies up to
 1 MiB.
@@ -128,12 +133,15 @@ the task is unknown and the client asks again.
 
 A token's scopes are what the person let the client do:
 
-- **`read`** — ask the agent, and use the tools that change nothing. The turn
-  runs with the agent's tools minus every one that would ask the person for a
-  yes (`requires_confirmation`): `GatewayEntitlements(registry=)` reads the
-  scopes off the turn (`mcp_scopes` on its `TurnScope.attributes`) and
-  narrows the entitlement; the gateway's own tools marked `scope = "act"`
-  are not offered.
+- **`read`** — ask the agent, and use the tools that ask nobody for a yes.
+  The turn runs with the agent's tools minus every one that would ask the
+  person (`requires_confirmation`): `McpScopeEntitlements(spec_of, registry)`
+  reads the scopes off the turn (`mcp_scopes` on its `TurnScope.attributes`)
+  and narrows the entitlement; the gateway's own tools marked `scope = "act"`
+  are not offered. A runtime's built-in (`bash`, `write`, `edit`) is not in
+  the registry and asks nobody, so it stays: an operator who hands out `read`
+  tokens to an agent with a shell narrows it with `tools_by_gateway: {mcp:
+  [...]}` — the door takes away what asks, not what acts quietly.
 - **`act`** — the whole agent, each confirmation put to the person. The card
   goes where the application delivers cards for this gateway
   (`ApprovalCards`: a direct message on the chat platform, say), with the
@@ -147,14 +155,15 @@ A token's scopes are what the person let the client do:
 
 The grant window a card offers ("allow for a while") is the gateway's own
 ceiling: `TOOL_MAX_GRANT_S_BY_GATEWAY=mcp=0` offers none on cards an MCP turn
-raises and honours none opened elsewhere ([secrets.md](secrets.md)).
+raises and honours none opened elsewhere (`TOOL_MAX_GRANT_S_BY_GATEWAY` in
+[configuration.md](configuration.md)).
 
 ## Wiring (crucible)
 
 ```python
-from crucible.gateways.mcp import (
-    AskAgentTool, AuthorizationServer, ClientRegistration, McpHub,
-)
+from crucible.conversation_profiles import GatewayEntitlements, McpScopeEntitlements
+from crucible.gateways.mcp import AskAgentTool, McpHub
+from crucible.mcp_authorization import AuthorizationServer, ClientRegistration
 
 authorization = AuthorizationServer(
     store, connections, public_url="https://agents.example.com",
@@ -174,13 +183,15 @@ hub = McpHub(
 callback = CallbackServer(connections, sign_ins=authorization)   # the sign-in goes on to the consent page
 factory = GatewayFactory(..., mcp_hub=hub)                       # GatewayConfig(kind="mcp") per agent
 tracer = TracerByGateway({"http": http_hub.turns, "mcp": hub.turns}, default=...)
-entitlements = GatewayEntitlements(spec_of, registry=registry, inner=...)
+entitlements = GatewayEntitlements(spec_of, inner=McpScopeEntitlements(spec_of, registry, inner=...))
 ```
 
 `store` is the engine's store (`McpGrants`: `mcp_auth_requests`, `mcp_grants`
-in SQLite and MongoDB alike). A tool of the application's is any object with
+in SQLite and MongoDB alike). The authorization server is
+`crucible.mcp_authorization`, a module over the gateway and the connections
+(the gateway itself knows only the `Authorization` port). A tool of the application's is any object with
 `name`, `description`, `input_schema`, `scope`, `requires_task` and `async
-run(call: GatewayCall) -> str`; `call.principal` says who and which client,
+run(call: GatewayCall) -> str`; `call.caller` says who and which client,
 `call.arguments` what, `await call.ask(text, agent=...)` runs an agent's turn
 in the call's conversation and answers with what the agent said, `await
 call.progress(text)` tells a client that asked, and `CallFailed(text)` is the
@@ -194,6 +205,11 @@ keeps its journals in.
 - No dynamic client registration: the operator lists clients. A client with
   a metadata document is listed by its URL; the document is not fetched.
 - No `resources`, `prompts`, sampling or elicitation: tools only.
+- No widgets, forms or hand-offs in an MCP turn: nothing on the other end
+  can click, fill a form or be a conversation another agent joins, so the
+  agent's `ask_user_*`, `open_form`, `open_screen`, `delegate` and
+  `ask_agent` tools are not there in an `mcp` conversation (the handle's
+  `denied_caps`).
 - No session era: a client speaking 2025-11-25 or older is refused.
 - Tasks are not kept across a restart; the conversation and its memory are.
 - A loopback redirect is accepted on any port and path (RFC 8252); a client

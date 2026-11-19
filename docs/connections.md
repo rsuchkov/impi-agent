@@ -183,10 +183,10 @@ the chat says of the person (an email), and refuse a sign-in by somebody else.
 moment; such a person connects once more.
 
 A connect can also be a sign-in and nothing more: `begin(owner, provider,
-return_to=…, ephemeral=True)` makes one that, finished, names the account in
-`Connected` (`ephemeral` is true) and keeps nothing — no record, the
+return_to=…, sign_in=True)` makes one that, finished, names the account in
+`Connected` (`sign_in` is true) and keeps nothing — no record, the
 provider's tokens revoked at once, no rule asked about the account, no word
-to `on_connected`. The callback hands such a connect to whoever asked for it
+to `on_connected`; the audit says `sign_in`. The callback hands such a connect to whoever asked for it
 (`CallbackServer(sign_ins=)`, a `SignIns` whose `signed_in(connected,
 request)` answers the browser — a redirect to its next step) rather than to
 the connected page; the MCP gateway's authorization server signs people in

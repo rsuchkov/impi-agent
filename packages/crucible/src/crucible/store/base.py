@@ -662,7 +662,7 @@ class ConnectionLinkRecord:
     # A connect made to learn who the person is and nothing more — a sign-in:
     # the account is named in ``Connected`` and nothing is stored, the tokens
     # the provider issued are revoked at once.
-    ephemeral: bool = False
+    sign_in: bool = False
 
 
 class ConnectionStore(Protocol):

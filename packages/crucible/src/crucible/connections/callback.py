@@ -61,13 +61,13 @@ _DEFAULT_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self
 # On every answer, whoever draws the page, where the page set none: the query
 # carried the state and the code, and the page must neither be kept nor send
 # them on.
-_SAFE_HEADERS = {
+SAFE_HEADERS = {
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": _DEFAULT_CSP,
 }
-_HEADERS = dict(_SAFE_HEADERS)
+_HEADERS = dict(SAFE_HEADERS)
 
 # How a connect that did not go through ended, beside the link's own words
 # (``connections.errors``: expired, foreign, denied, rejected, account_refused).
@@ -133,7 +133,7 @@ class CallbackPage(Protocol):
 
 
 class SignIns(Protocol):
-    """Where a connect made as a sign-in (``Connections.begin(ephemeral=True)``)
+    """Where a connect made as a sign-in (``Connections.begin(sign_in=True)``)
     goes on once the provider has named the account: whoever asked for the
     sign-in — the MCP gateway's authorization server — takes the person from
     here (a redirect to its next step), with ``Connected.return_to`` saying
@@ -147,8 +147,8 @@ _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title>
 <style>body{{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#222}}
-h1{{font-size:1.3rem}}</style></head>
-<body><h1>{title}</h1><p>{text}</p></body></html>
+h1{{font-size:1.3rem}} button{{font:inherit;padding:.4rem 1.2rem;margin-right:.6rem}} ul{{padding-left:1.2rem}}</style></head>
+<body><h1>{title}</h1>{body}</body></html>
 """
 _FORM = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -166,14 +166,20 @@ h1{{font-size:1.3rem}} input{{font:inherit;width:100%;box-sizing:border-box;padd
 DEFAULT_START_AGAIN = "Start the connect again from the chat."
 
 
+def html_page(status: int, title: str, body: str) -> web.Response:
+    """A plain page of the engine's — the style every page here shares — with
+    ``body`` as HTML the caller has already escaped, and the flow's headers."""
+    text = _PAGE.format(title=html.escape(title), body=body)
+    return web.Response(status=status, text=text, content_type="text/html", headers=_HEADERS)
+
+
 def _page(status: int, title: str, text: str) -> web.Response:
-    body = _PAGE.format(title=html.escape(title), text=html.escape(text))
-    return web.Response(status=status, text=body, content_type="text/html", headers=_HEADERS)
+    return html_page(status, title, f"<p>{html.escape(text)}</p>")
 
 
-def _safe(response: web.StreamResponse) -> web.StreamResponse:
-    """The flow's headers, where the page set none."""
-    for name, value in _SAFE_HEADERS.items():
+def safe(response: web.StreamResponse) -> web.StreamResponse:
+    """The flow's headers (``SAFE_HEADERS``), where the page set none."""
+    for name, value in SAFE_HEADERS.items():
         response.headers.setdefault(name, value)
     return response
 
@@ -266,21 +272,21 @@ class CallbackServer:
         """The page for the outcome — or, for a sign-in, the next step of
         whoever asked for it."""
         connected = outcome.connected
-        if connected is not None and connected.ephemeral:
+        if connected is not None and connected.sign_in:
             if self._sign_ins is None:
                 logger.error("a sign-in finished at the callback, but nothing here takes sign-ins")
                 outcome = CallbackOutcome(refusal=OUTCOME_FAILED, start_again=outcome.start_again)
             else:
-                return _safe(await self._sign_ins.signed_in(connected, request))
-        return _safe(await self._page.render(outcome, request))
+                return safe(await self._sign_ins.signed_in(connected, request))
+        return safe(await self._page.render(outcome, request))
 
     async def _form(self, request: web.Request) -> web.StreamResponse:
         """The form the link names, or why not: a link that expired, was
         used, or never was gets the outcome page for an expired one."""
         form = await self._connections.form_of(request.match_info["state"])
         if form is None:
-            return _safe(await self._page.render(CallbackOutcome(refusal=LINK_EXPIRED, start_again=self._start_again), request))
-        return _safe(await self._page.form(replace(form, start_again=self._start_again), request))
+            return safe(await self._page.render(CallbackOutcome(refusal=LINK_EXPIRED, start_again=self._start_again), request))
+        return safe(await self._page.form(replace(form, start_again=self._start_again), request))
 
     async def _credential(self, request: web.Request) -> web.StreamResponse:
         """What the person entered. An empty credential draws the form again;
@@ -300,15 +306,15 @@ class CallbackServer:
         try:
             connected = await self._connections.finish_with_credential(state, credential, csrf)
         except LinkRefused as exc:
-            return _safe(await self._page.render(
+            return safe(await self._page.render(
                 CallbackOutcome(refusal=exc.reason, account=exc.account or "", detail=exc.detail or "", start_again=again),
                 request,
             ))
         except ProviderUnavailable:
-            return _safe(await self._page.render(CallbackOutcome(refusal=OUTCOME_PROVIDER_UNAVAILABLE, start_again=again), request))
+            return safe(await self._page.render(CallbackOutcome(refusal=OUTCOME_PROVIDER_UNAVAILABLE, start_again=again), request))
         except Exception:
             logger.exception("a connect by credential could not be finished")
-            return _safe(await self._page.render(CallbackOutcome(refusal=OUTCOME_FAILED, start_again=again), request))
+            return safe(await self._page.render(CallbackOutcome(refusal=OUTCOME_FAILED, start_again=again), request))
         return await self._answer(CallbackOutcome(connected=connected, start_again=again), request)
 
     async def _outcome(self, request: web.Request) -> CallbackOutcome:

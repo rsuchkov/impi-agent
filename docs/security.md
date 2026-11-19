@@ -318,8 +318,9 @@ IDE or in a system of its own — into an agent here, as that person
 in for and consented to; it speaks for them for the grant's twelve hours.
 
 Enforced by: the token — issued only after a sign-in at one of the
-deployment's connection providers and a consent page that names the client,
-to a client the operator listed, for a redirect address that is the client's
+deployment's connection providers and a consent page that names the client
+and is bound by a cookie to the browser that signed in, to a client the
+operator listed, for a redirect address that is the client's
 own (loopback, or one listed); PKCE on the code, the code single use, the
 refresh token rotated and the grant ended when one is presented twice; the
 scopes — a `read` token never sees a tool that would ask the person, an `act`
@@ -473,7 +474,9 @@ Things the design does not solve, stated so nobody relies on them by accident.
   sends it on, acts on it — the engine cannot see. An `act` token's
   confirmations go to the person, not to the program, and `TOOL_MAX_GRANT_S_BY_GATEWAY=mcp=0`
   keeps every such call read; a `read` token gets the agent without the tools
-  that ask. A grant lasts twelve hours from the sign-in and ends with
+  that ask — not without a runtime's built-ins that act without asking
+  (`bash`, `write`, `edit`), which `tools_by_gateway: {mcp: [...]}` takes
+  away where `read` tokens are handed out. A grant lasts twelve hours from the sign-in and ends with
   `/revoke`; tasks a client started are forgotten by a restart, their
   conversations are not.
 - **An MCP server on stdio runs as the engine.** It is a child of the engine

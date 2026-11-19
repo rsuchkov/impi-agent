@@ -12,15 +12,13 @@ from crucible.gateways.factory import GatewayConfig, GatewayFactory
 from crucible.gateways.mcp import (
     MCP_PATH,
     META_CONVERSATION,
-    SCOPE_ACT,
-    SCOPE_READ,
     AskAgentTool,
     CallFailed,
     GatewayCall,
+    McpCaller,
     McpChatClient,
     McpGateway,
     McpHub,
-    Principal,
     conversation_key,
 )
 from crucible.gateways.mcp.hub import RESOURCE_METADATA_PATH
@@ -37,6 +35,8 @@ from crucible.ports.chat.flow import TurnOutcome, TurnStop
 from crucible.ports.chat.gateway import (
     GATEWAY_KINDS,
     MCP_CLIENT_ATTRIBUTE,
+    MCP_SCOPE_ACT,
+    MCP_SCOPE_READ,
     MCP_SCOPES_ATTRIBUTE,
 )
 from crucible.ports.chat.types import (
@@ -52,9 +52,9 @@ from crucible.tools.base import CAP_DELEGATION, CAP_FORMS, CAP_WIDGETS
 Script = Callable[[IncomingMessage, McpChatClient], Awaitable[TurnOutcome]]
 VERSION = "2026-07-28"
 TOKENS = {
-    "tok-reader": Principal("alice@example.com", "ide-client", frozenset({SCOPE_READ}), username="alice"),
-    "tok-actor": Principal("alice@example.com", "ide-client", frozenset({SCOPE_READ, SCOPE_ACT}), username="alice"),
-    "tok-bob": Principal("bob@example.com", "ide-client", frozenset({SCOPE_READ})),
+    "tok-reader": McpCaller("alice@example.com", "ide-client", frozenset({MCP_SCOPE_READ}), username="alice"),
+    "tok-actor": McpCaller("alice@example.com", "ide-client", frozenset({MCP_SCOPE_READ, MCP_SCOPE_ACT}), username="alice"),
+    "tok-bob": McpCaller("bob@example.com", "ide-client", frozenset({MCP_SCOPE_READ})),
 }
 
 
@@ -86,7 +86,7 @@ class FakeCards:
     """The application's: a card goes "to Slack", by the person's key."""
 
     def __init__(self) -> None:
-        self.posted: list[tuple[Principal, ApprovalCard, list[Action]]] = []
+        self.posted: list[tuple[McpCaller, ApprovalCard, list[Action]]] = []
         self.updated: list[tuple[str, ApprovalCard, list[Action] | None]] = []
         self.retracted: list[tuple[str, str]] = []
 
@@ -105,7 +105,7 @@ class ActTool:
     name = "deploy"
     description = "Deploy something."
     input_schema = {"type": "object", "properties": {}}
-    scope = SCOPE_ACT
+    scope = MCP_SCOPE_ACT
     requires_task = False
 
     async def run(self, call: GatewayCall) -> str:
@@ -116,7 +116,7 @@ class BrokenTool:
     name = "broken"
     description = "Fails."
     input_schema = {"type": "object", "properties": {}}
-    scope = SCOPE_READ
+    scope = MCP_SCOPE_READ
     requires_task = False
 
     async def run(self, call: GatewayCall) -> str:
@@ -127,7 +127,7 @@ class ProgressTool:
     name = "slow"
     description = "Says what it does."
     input_schema = {"type": "object", "properties": {}}
-    scope = SCOPE_READ
+    scope = MCP_SCOPE_READ
     requires_task = False
 
     async def run(self, call: GatewayCall) -> str:
@@ -504,7 +504,7 @@ def test_the_factory_builds_an_mcp_handle_only_over_a_hub() -> None:
     assert handle is not None and isinstance(handle.chat, McpChatClient)
     assert handle.denied_caps == {CAP_WIDGETS, CAP_FORMS, CAP_DELEGATION}
     gateway = handle.create_gateway(FakeSink())
-    assert isinstance(gateway, McpGateway) and hub.serves("helper")
+    assert isinstance(gateway, McpGateway) and "helper" in hub.agents
     with pytest.raises(TypeError):
         handle.create_gateway(object())  # type: ignore[arg-type]
     without = GatewayFactory(directory=None, loop_guard=LoopGuard(), dispatcher=None)  # type: ignore[arg-type]
@@ -521,12 +521,12 @@ async def test_a_gateway_call_is_what_a_tool_sees() -> None:
     async def progress(text):
         said.append(text)
 
-    call = GatewayCall(TOKENS["tok-reader"], {"text": "hi"}, "", asker=asker, progress=progress)
+    call = GatewayCall(TOKENS["tok-reader"], {"text": "hi"}, "", ask_agent=asker, progress=progress)
     assert await AskAgentTool().run(call) == "default: hi"
     await call.progress("working")
     assert said == ["working"] and call.handle == "" and not call.wants_progress
     with pytest.raises(CallFailed):
-        await AskAgentTool().run(GatewayCall(TOKENS["tok-reader"], {}, "", asker=asker, progress=progress))
+        await AskAgentTool().run(GatewayCall(TOKENS["tok-reader"], {}, "", ask_agent=asker, progress=progress))
 
 
 # -- tasks ------------------------------------------------------------------------------
@@ -548,7 +548,7 @@ class TaskTool:
     name = "long_job"
     description = "Takes a while and may ask the person."
     input_schema: Mapping[str, Any] = {"type": "object", "properties": {}}
-    scope = SCOPE_READ
+    scope = MCP_SCOPE_READ
     requires_task = True
 
     async def run(self, call: GatewayCall) -> str:
@@ -641,7 +641,7 @@ async def test_a_task_says_what_its_tool_says_and_is_forgotten_after_its_ttl(mon
         name = "waits"
         description = "Waits."
         input_schema = {"type": "object", "properties": {}}
-        scope = SCOPE_READ
+        scope = MCP_SCOPE_READ
         requires_task = False
 
         async def run(self, call: GatewayCall) -> str:

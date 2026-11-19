@@ -39,10 +39,10 @@ class Connected:
     account: ProviderAccount
     return_to: str = ""
     started_by: str = ""
-    # A sign-in (``begin(ephemeral=True)``): the account is the whole answer,
+    # A sign-in (``begin(sign_in=True)``): the account is the whole answer,
     # nothing was stored, and the callback hands it to whoever asked for the
     # sign-in rather than to the connected page.
-    ephemeral: bool = False
+    sign_in: bool = False
 
 
 @dataclass(frozen=True)

@@ -4,28 +4,16 @@ An MCP client with a token a person signed in for lists the gateway's tools
 and calls them; ``ask_agent`` runs a turn of the agent's as that person, in a
 conversation the client names by a handle. See docs/mcp-gateway.md.
 
-auth.py    — who holds the token: the Authorization port, Principal, the scopes
-authorization.py — the authorization server: sign-in through a connection provider, consent, tokens
+auth.py    — who holds the token: the Authorization port and McpCaller (the scopes are
+             ``ports.chat.gateway.MCP_SCOPES``; the engine's authorization server is
+             ``crucible.mcp_authorization``, over this package and the connections)
 tools.py   — the McpGatewayTool port, GatewayCall, the bundled AskAgentTool
 client.py  — ChatClient over the journal, cards forwarded to the application (ApprovalCards)
 hub.py     — the aiohttp server shared by every agent on the gateway (McpHub)
 gateway.py — per-agent lifecycle shim (identity + park-until-stop)
 """
 
-from crucible.gateways.mcp.auth import (
-    SCOPE_ACT,
-    SCOPE_READ,
-    SCOPES,
-    Authorization,
-    Principal,
-)
-from crucible.gateways.mcp.authorization import (
-    AuthorizationServer,
-    ClientRegistration,
-    ConsentPage,
-    ConsentRequest,
-    DefaultConsentPage,
-)
+from crucible.gateways.mcp.auth import Authorization, McpCaller
 from crucible.gateways.mcp.client import ApprovalCards, McpChatClient
 from crucible.gateways.mcp.gateway import McpGateway
 from crucible.gateways.mcp.hub import (
@@ -50,23 +38,15 @@ __all__ = [
     "META_CONVERSATION",
     "PROMPT_HINT",
     "RESOURCE_METADATA_PATH",
-    "SCOPES",
-    "SCOPE_ACT",
-    "SCOPE_READ",
     "ApprovalCards",
     "AskAgentTool",
     "Authorization",
-    "AuthorizationServer",
-    "ClientRegistration",
-    "ConsentPage",
-    "ConsentRequest",
-    "DefaultConsentPage",
     "CallFailed",
     "GatewayCall",
     "McpChatClient",
     "McpGateway",
     "McpGatewayTool",
     "McpHub",
-    "Principal",
+    "McpCaller",
     "conversation_key",
 ]

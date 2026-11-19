@@ -5,7 +5,7 @@ The protocol's authorization is OAuth 2.1: a client learns from the gateway's
 protected-resource metadata where to authorize, sends the person's browser to
 ``/authorize``, and exchanges the code it gets for tokens at ``/token``. Here
 the person proves who they are by signing in at one of the application's
-connection providers — an ephemeral connect through ``Connections``, which
+connection providers — a sign-in connect through ``Connections``, which
 names the account and keeps nothing — then sees who asks for what and allows
 or declines (``ConsentPage``). The grant stands from the sign-in for
 ``grant_ttl_s``; access tokens are short and refreshed with a rotating refresh
@@ -17,9 +17,15 @@ loopback addresses on any port by default. A client not on the list, or a
 redirect not its own, is refused on a page — never with a redirect — since
 the redirect is exactly what is in question.
 
-Tokens are random and kept as digests; nothing here is written down in the
-clear, and the audit (``crucible.gateways.mcp.audit`` logger) names clients
-and subjects, never tokens, codes or states.
+A module over two packages — the connections' sign-in and the MCP gateway's
+caller — and so neither's: the gateway knows only the ``Authorization`` port,
+the connections know only a sign-in that goes on somewhere (``SignIns``).
+
+Tokens and codes are random and kept as digests (the consent form's own
+secret and the PKCE challenge, which open nothing by themselves, are kept as
+they are), the consent is bound by a cookie to the browser that signed in,
+and the audit (``crucible.mcp_authorization.audit`` logger) names clients and
+subjects, never tokens, codes or states.
 """
 
 import hashlib
@@ -36,25 +42,28 @@ from urllib.parse import urlencode, urlsplit
 from aiohttp import web
 
 from crucible.connections.audit import LoggingAudit
+from crucible.connections.callback import SAFE_HEADERS, html_page, safe
 from crucible.connections.pkce import code_challenge as challenge_of
 from crucible.connections.ports import ConnectionsAudit
+from crucible.connections.service import Connections
 from crucible.connections.types import Connected
-from crucible.gateways.mcp.auth import SCOPE_READ, SCOPES, Principal
+from crucible.gateways.mcp.auth import McpCaller
 from crucible.gateways.mcp.hub import MCP_PATH, RESOURCE_METADATA_PATH
+from crucible.ports.chat.gateway import MCP_SCOPE_ACT, MCP_SCOPE_READ, MCP_SCOPES
 from crucible.ports.connections import ProviderUnavailable
 from crucible.ports.mcp_grants import McpAuthRequest, McpGrant, McpGrants
 from crucible.ports.telemetry import McpGrantChanged, Telemetry
 
 logger = logging.getLogger(__name__)
 
-AUDIT_LOGGER = "crucible.gateways.mcp.audit"
+AUDIT_LOGGER = "crucible.mcp_authorization.audit"
 AS_METADATA_PATH = "/.well-known/oauth-authorization-server"
 AUTHORIZE_PATH = "/authorize"
 SIGN_IN_PATH = "/sign-in"
 CONSENT_PATH = "/consent"
 TOKEN_PATH = "/token"
 REVOKE_PATH = "/revoke"
-# The owner an ephemeral connect is started for: the sign-in of this request.
+# The owner a sign-in connect is started for: the sign-in of this request.
 SIGN_IN_OWNER_PREFIX = "mcp-sign-in:"
 # The audit's events and results.
 EVENT_AUTHORIZE = "authorize"
@@ -76,19 +85,10 @@ ACCESS_TTL_S = 3600
 REQUEST_TTL_S = 600
 CODE_TTL_S = 60
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-_SAFE_HEADERS = {
-    "Cache-Control": "no-store",
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
-}
-_PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{title}</title>
-<style>body{{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#222}}
-h1{{font-size:1.3rem}} button{{font:inherit;padding:.4rem 1.2rem;margin-right:.6rem}} ul{{padding-left:1.2rem}}</style></head>
-<body><h1>{title}</h1>{body}</body></html>
-"""
+# The cookie that binds the consent to the browser the sign-in came back in:
+# whoever else holds the request's id — the client that started it — cannot
+# give the person's consent for them.
+CONSENT_COOKIE = "mcp_consent"
 
 
 def _utcnow() -> datetime:
@@ -103,13 +103,8 @@ def _digest(secret: str) -> str:
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
-def _page(status: int, title: str, body_html: str) -> web.Response:
-    text = _PAGE.format(title=html.escape(title), body=body_html)
-    return web.Response(status=status, text=text, content_type="text/html", headers=_SAFE_HEADERS)
-
-
 def _refusal(status: int, text: str) -> web.Response:
-    return _page(status, "Not authorized", f"<p>{html.escape(text)}</p>")
+    return html_page(status, "Not authorized", f"<p>{html.escape(text)}</p>")
 
 
 def _with_query(url: str, **params: str) -> str:
@@ -159,17 +154,6 @@ class ConsentRequest:
     csrf: str
 
 
-class SignIn(Protocol):
-    """What the server needs of the application's connections to sign a
-    person in: the providers one may sign in at, and a connect started as a
-    sign-in (``Connections`` is one)."""
-
-    @property
-    def providers(self) -> tuple[str, ...]: ...
-
-    async def begin(self, owner: str, provider: str, *, return_to: str = "", ephemeral: bool = False) -> str: ...
-
-
 class ConsentPage(Protocol):
     """The application's consent page. The response gets the flow's safety
     headers where it set none, as the connections callback's pages do."""
@@ -192,12 +176,12 @@ class DefaultConsentPage:
             '<button type="submit" name="decision" value="allow">Allow</button>'
             '<button type="submit" name="decision" value="deny">Deny</button></form>'
         )
-        return _page(200, f"Allow {consent.client_name or consent.client}?", body)
+        return html_page(200, f"Allow {consent.client_name or consent.client}?", body)
 
 
 _SCOPE_WORDS = {
-    SCOPE_READ: "ask the agent, and use the tools that change nothing (read)",
-    "act": "use the tools that act, each asking you for a yes first (act)",
+    MCP_SCOPE_READ: "ask the agent, and use the tools that ask nobody for a yes (read)",
+    MCP_SCOPE_ACT: "use the tools that act, each asking you for a yes first (act)",
 }
 
 
@@ -221,7 +205,7 @@ class AuthorizationServer:
     def __init__(
         self,
         grants: McpGrants,
-        connections: SignIn,
+        connections: Connections,
         *,
         public_url: str,
         clients: Mapping[str, ClientRegistration],
@@ -274,7 +258,7 @@ class AuthorizationServer:
 
     # -- Authorization (the hub asks) -----------------------------------------------
 
-    async def authenticate(self, request: web.Request) -> Principal | None:
+    async def authenticate(self, request: web.Request) -> McpCaller | None:
         token = bearer_of(request.headers)
         if not token:
             return None
@@ -283,7 +267,7 @@ class AuthorizationServer:
             return None
         if grant.client not in self._clients:
             return None  # a client struck off the list is out, tokens or no tokens
-        return Principal(
+        return McpCaller(
             subject=grant.subject, client=grant.client, scopes=frozenset(grant.scope.split()), username=grant.username,
         )
 
@@ -293,7 +277,7 @@ class AuthorizationServer:
         return web.json_response({
             "resource": self.resource,
             "authorization_servers": [self.issuer],
-            "scopes_supported": list(SCOPES),
+            "scopes_supported": list(MCP_SCOPES),
             "bearer_methods_supported": ["header"],
         })
 
@@ -309,7 +293,7 @@ class AuthorizationServer:
             "code_challenge_methods_supported": ["S256"],
             "token_endpoint_auth_methods_supported": ["none"],
             "revocation_endpoint_auth_methods_supported": ["none"],
-            "scopes_supported": list(SCOPES),
+            "scopes_supported": list(MCP_SCOPES),
             "client_id_metadata_document_supported": True,
         })
 
@@ -332,7 +316,7 @@ class AuthorizationServer:
             self._tell(EVENT_AUTHORIZE, RESULT_INVALID, client=client_id, error=error)
             raise web.HTTPFound(
                 _with_query(redirect_uri, error=error, error_description=description, state=state, iss=self.issuer),
-                headers=_SAFE_HEADERS,
+                headers=SAFE_HEADERS,
             )
 
         if query.get("response_type") != "code":
@@ -343,9 +327,9 @@ class AuthorizationServer:
         resource = query.get("resource", "")
         if resource and resource != self.resource:
             back("invalid_target", f"this server is {self.resource}")
-        scopes = tuple(dict.fromkeys(query.get("scope", "").split())) or (SCOPE_READ,)
-        if any(scope not in SCOPES for scope in scopes):
-            back("invalid_scope", f"the scopes here are {', '.join(SCOPES)}")
+        scopes = tuple(dict.fromkeys(query.get("scope", "").split())) or (MCP_SCOPE_READ,)
+        if any(scope not in MCP_SCOPES for scope in scopes):
+            back("invalid_scope", f"the scopes here are {', '.join(MCP_SCOPES)}")
         now = self._clock()
         record = McpAuthRequest(
             id=secrets.token_urlsafe(24), client=client_id, redirect_uri=redirect_uri, code_challenge=code_challenge,
@@ -366,7 +350,7 @@ class AuthorizationServer:
             f"{html.escape(name)}</a></li>"
             for name in self._providers
         )
-        return _page(200, "Sign in", f"<p>Sign in to let {html.escape(self._name_of(record.client))} use the agent as you:</p><ul>{links}</ul>")
+        return html_page(200, "Sign in", f"<p>Sign in to let {html.escape(self._name_of(record.client))} use the agent as you:</p><ul>{links}</ul>")
 
     async def _sign_in(self, request: web.Request) -> web.StreamResponse:
         record = await self._pending(request.match_info["request"])
@@ -380,12 +364,12 @@ class AuthorizationServer:
     async def _start_sign_in(self, record: McpAuthRequest, provider: str) -> web.StreamResponse:
         try:
             url = await self._connections.begin(
-                SIGN_IN_OWNER_PREFIX + record.id, provider, return_to=record.id, ephemeral=True,
+                SIGN_IN_OWNER_PREFIX + record.id, provider, return_to=record.id, sign_in=True,
             )
         except ProviderUnavailable:
             logger.warning("mcp authorization: %s cannot take a sign-in", provider, exc_info=True)
             return _refusal(503, f"Signing in at {provider} is not possible right now. Try again later.")
-        raise web.HTTPSeeOther(url, headers=_SAFE_HEADERS)
+        raise web.HTTPSeeOther(url, headers=SAFE_HEADERS)
 
     async def signed_in(self, connected: Connected, request: web.Request) -> web.StreamResponse:
         """``SignIns``: the person came back from the provider, the account is
@@ -398,20 +382,42 @@ class AuthorizationServer:
         if not subject:
             self._tell(EVENT_SIGN_IN, RESULT_REFUSED, client=record.client)
             return _refusal(403, "The account you signed in with cannot use the agent here.")
-        await self._grants.put_mcp_request(replace(record, subject=subject, username=username))
+        # The browser that signed in is the one that may consent: it alone gets
+        # the cookie, and the consent page asks for it. The client that started
+        # the request knows its id and nothing else.
+        browser = secrets.token_urlsafe(24)
+        await self._grants.put_mcp_request(replace(
+            record, subject=subject, username=username, browser_hash=_digest(browser),
+        ))
         self._tell(EVENT_SIGN_IN, RESULT_OK, client=record.client, subject=subject, provider=connected.provider)
-        raise web.HTTPSeeOther(f"{self._public_url}{CONSENT_PATH}/{record.id}", headers=_SAFE_HEADERS)
+        response = web.HTTPSeeOther(f"{self._public_url}{CONSENT_PATH}/{record.id}", headers=SAFE_HEADERS)
+        response.set_cookie(
+            CONSENT_COOKIE, browser, path=CONSENT_PATH, httponly=True, samesite="Lax",
+            secure=self._public_url.startswith("https://"), max_age=int(self._request_ttl_s),
+        )
+        raise response
 
     # -- /consent ----------------------------------------------------------------------
 
     async def _consent_form(self, request: web.Request) -> web.StreamResponse:
-        record = await self._pending(request.match_info["request"])
-        if record is None or not record.subject or record.code_hash:
+        record = await self._awaiting_consent(request)
+        if record is None:
             return _refusal(400, "This request has expired or was already answered. Start again from your client.")
-        response = await self._consent.render(self._consent_request(record), request)
-        for name, value in _SAFE_HEADERS.items():
-            response.headers.setdefault(name, value)
-        return response
+        return safe(await self._consent.render(self._consent_request(record), request))
+
+    async def _awaiting_consent(self, request: web.Request) -> McpAuthRequest | None:
+        """The request this browser may consent to: signed in, not yet
+        answered, and the browser the sign-in came back in (its cookie). A
+        browser without the cookie — the client that started the request,
+        say — is refused the page, and the request stands for the right one."""
+        record = await self._pending(request.match_info["request"])
+        if record is None or not record.subject or record.code_hash or not record.browser_hash:
+            return None
+        cookie = request.cookies.get(CONSENT_COOKIE, "")
+        if not secrets.compare_digest(_digest(cookie).encode(), record.browser_hash.encode()):
+            self._tell(EVENT_CONSENT, RESULT_REFUSED, client=record.client, subject=record.subject, reason="browser")
+            return None
+        return record
 
     def _consent_request(self, record: McpAuthRequest) -> ConsentRequest:
         return ConsentRequest(
@@ -421,8 +427,8 @@ class AuthorizationServer:
         )
 
     async def _consent_answer(self, request: web.Request) -> web.StreamResponse:
-        record = await self._pending(request.match_info["request"])
-        if record is None or not record.subject or record.code_hash:
+        record = await self._awaiting_consent(request)
+        if record is None:
             return _refusal(400, "This request has expired or was already answered. Start again from your client.")
         posted = await request.post()
         csrf = str(posted.get("csrf") or "")
@@ -436,7 +442,7 @@ class AuthorizationServer:
             self._tell(EVENT_CONSENT, RESULT_DENIED, client=record.client, subject=record.subject)
             raise web.HTTPFound(
                 _with_query(record.redirect_uri, error="access_denied", state=record.state, iss=self.issuer),
-                headers=_SAFE_HEADERS,
+                headers=SAFE_HEADERS,
             )
         code = secrets.token_urlsafe(32)
         await self._grants.put_mcp_request(replace(
@@ -444,7 +450,7 @@ class AuthorizationServer:
         ))
         self._tell(EVENT_CONSENT, RESULT_OK, client=record.client, subject=record.subject, scope=record.scope)
         raise web.HTTPFound(
-            _with_query(record.redirect_uri, code=code, state=record.state, iss=self.issuer), headers=_SAFE_HEADERS
+            _with_query(record.redirect_uri, code=code, state=record.state, iss=self.issuer), headers=SAFE_HEADERS
         )
 
     # -- /token and /revoke ------------------------------------------------------------

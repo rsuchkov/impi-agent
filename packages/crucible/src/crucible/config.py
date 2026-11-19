@@ -21,7 +21,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from crucible.ports.agent.confinement import check_confinement_level
 from crucible.ports.agent.inherited_env import check_inherited_env
 from crucible.ports.agent.model_ref import check_model_ref, check_provider_has_model
-from crucible.ports.chat.gateway import DM_REPLIES
+from crucible.ports.chat.gateway import (
+    DM_REPLIES,
+    GATEWAY_DELEGATION,
+    GATEWAY_KINDS,
+    GATEWAY_TRUSTED_DELEGATION,
+)
 from crucible.ports.traces import TRACE_AFTER
 from crucible.receiver_paths import RECEIVER_SECRET_RE, callback_path
 
@@ -56,7 +61,14 @@ def _seconds_by_gateway(raw: str) -> dict[str, int]:
         kind, sep, seconds = part.partition("=")
         if not sep or not kind.strip() or not seconds.strip().isdigit():
             raise ValueError(f"TOOL_MAX_GRANT_S_BY_GATEWAY: {part!r} is not <gateway>=<seconds>")
-        out[kind.strip().lower()] = int(seconds.strip())
+        name = kind.strip().lower()
+        if name not in (*GATEWAY_KINDS, GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION):
+            # A ceiling on a misspelt gateway would quietly guard nothing.
+            raise ValueError(
+                f"TOOL_MAX_GRANT_S_BY_GATEWAY: {name!r} is not a gateway "
+                f"(one of {', '.join((*GATEWAY_KINDS, GATEWAY_DELEGATION, GATEWAY_TRUSTED_DELEGATION))})"
+            )
+        out[name] = int(seconds.strip())
     return out
 
 

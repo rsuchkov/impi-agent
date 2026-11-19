@@ -527,7 +527,8 @@ called, `usage` with tokens and pi's cost estimate), `model_called` (one per
 answer of the model within a turn, with that answer's `usage`), `tool_called`
 (with the outcome word — `ok`, `error`, `denied`, `not_allowed`, …),
 `card_answered`, `mcp_called`, `mcp_checked`, `task_ran`,
-`connection_changed`, and `engine_state` every `TELEMETRY_STATE_S` seconds.
+`connection_changed`, `mcp_grant_changed` (only from an application running the
+library's MCP gateway; impi emits none), and `engine_state` every `TELEMETRY_STATE_S` seconds.
 The events of one turn share a `turn_id` (`grep '"turn_id": "<id>"'` lists a
 turn's model calls, tool calls and its end); a task's turn names the asker's
 as `parent_turn_id`. With `TELEMETRY_OTLP_ENDPOINT` the same events go to a

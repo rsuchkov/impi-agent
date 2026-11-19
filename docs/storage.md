@@ -155,7 +155,7 @@ One per subject, named the way the SQLite tables are:
 | `approval_audit` | the ledger of what was asked and how it came out |
 | `tool_traces` | one turn's tool calls — arguments and outcomes, never results — for the trace button (`TOOL_TRACE_AFTER=button`) and the http gateway's `GET /v1/traces/{token}`; `owner` is the http caller (realm/user) the record is read by, empty for a chat widget's |
 | `connections` | people's accounts connected at an OAuth provider: the tokens sealed (unreadable without the sealing key), whose and which account, when it was connected and what else the provider said of it (`account_extra`, JSON) readable; one per person and provider |
-| `connection_links` | connects started and not yet finished — single use, gone after ten minutes (a TTL index); `ephemeral` marks a sign-in, which stores no connection |
+| `connection_links` | connects started and not yet finished — single use, gone after ten minutes (a TTL index); `sign_in` marks a sign-in, which stores no connection |
 | `mcp_auth_requests` | authorizations in progress at the MCP gateway's authorization server ([mcp-gateway.md](mcp-gateway.md)): what the client asked, who signed in, a digest of the code once consented — ten minutes, single use |
 | `mcp_grants` | the tokens that server issued, as digests (access, refresh and the refresh before it), with the subject, the client, the scopes and the grant's end — twelve hours from the sign-in (a TTL index) |
 | `usage` | what every turn cost at the model, as the runtime reported it — agent, person, when, tokens by kind, the dollar estimate — summed by day for the budgets (`runtime.budget`); rows older than `USAGE_RETENTION_DAYS` go at startup |

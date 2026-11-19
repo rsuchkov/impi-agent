@@ -15,7 +15,8 @@ class McpAuthRequest:
     and single use: the code is taken with the request. ``code_hash`` is a
     digest of the code, never the code — a reader of the store cannot finish
     an authorization; ``secret`` is the consent form's own, handed back by the
-    form that approves."""
+    form that approves; ``browser_hash`` is a digest of the cookie the browser
+    that signed in was given, which the consent page asks for."""
 
     id: str
     client: str
@@ -30,6 +31,7 @@ class McpAuthRequest:
     username: str = ""
     code_hash: str = ""  # "" until they consented
     code_expires_at: str = ""
+    browser_hash: str = ""  # "" until they signed in
 
 
 @dataclass(frozen=True)

@@ -376,3 +376,6 @@ def test_the_grant_ceiling_by_gateway_is_read_as_pairs(tmp_path) -> None:
     for bad in ("slack", "slack=", "=5", "slack=a lot"):
         with pytest.raises(ValueError, match="TOOL_MAX_GRANT_S_BY_GATEWAY"):
             _seconds_by_gateway(bad)
+    with pytest.raises(ValueError, match="not a gateway"):
+        _seconds_by_gateway("slak=0")  # a ceiling on a misspelt gateway would guard nothing
+    assert _seconds_by_gateway("delegation=0") == {"delegation": 0}

@@ -21,26 +21,32 @@ when a release is cut, and `impi update` shows the target version's section.
   (`McpGatewayTool` over a `GatewayCall` whose `ask` runs an agent's turn as
   the person; `AskAgentTool` comes bundled) in a conversation named by a
   handle in `_meta` and keyed by the person, so there is none to steal. Who
-  calls is a person: `AuthorizationServer` is the OAuth authorization server
-  on the same listener — metadata, `/authorize` for the clients the operator
+  calls is a person: `AuthorizationServer` (`crucible.mcp_authorization`) is
+  the OAuth authorization server on the same listener — metadata, `/authorize` for the clients the operator
   lists (`ClientRegistration`), a sign-in at any of the application's
-  connection providers as an ephemeral connect, a consent page
-  (`ConsentPage`, `DefaultConsentPage`), `/token` with PKCE and rotating
+  connection providers as a sign-in connect, a consent page
+  (`ConsentPage`, `DefaultConsentPage`) bound by a cookie to the browser that
+  signed in, `/token` with PKCE and rotating
   refresh tokens whose reuse ends the grant, `/revoke`; grants last twelve
   hours from the sign-in, access tokens an hour, kept as digests
   (`McpGrants`: `mcp_auth_requests`, `mcp_grants`, SQLite and MongoDB). Two
   doors: a `read` token gets the agent without the tools that would ask the
-  person for a yes (`GatewayEntitlements(registry=)`), an `act` token's cards
+  person for a yes (`McpScopeEntitlements`), an `act` token's cards
   go to the person where the application puts them (`ApprovalCards`), headed
   "asked through <client>" — never to the client, which speaks for the
   person and may not answer for them. `GATEWAY_MCP` joins the gateway kinds;
   `GatewayFactory(mcp_hub=)` builds the handle. **Breaks:** `tools_by_gateway`
-  accepts `mcp`; `Connections.begin(ephemeral=)` and `Connected.ephemeral`,
-  `ConnectionLinkRecord.ephemeral` (a column added on open; a
+  accepts `mcp`; `Connections.begin(sign_in=)` and `Connected.sign_in`,
+  `ConnectionLinkRecord.sign_in` (a column added on open; a
   `ConnectionLinkStore` of the application's keeps the field);
   `CallbackServer(sign_ins=)` hands a finished sign-in to a `SignIns` instead
-  of the connected page; the store grows two tables; `declared` is the name
-  of `tools.wiring._declared`; the telemetry event `McpGrantChanged`.
+  of the connected page, and the connections audit gains the event `sign_in`;
+  the `Store` port grows the `McpGrants` facet (two tables, ten methods a
+  store of the application's own implements); an MCP turn has no widgets,
+  forms or hand-offs (`denied_caps`); `declared` is the name of
+  `tools.wiring._declared`; `TOOL_MAX_GRANT_S_BY_GATEWAY` refuses a kind that
+  is not a gateway's (a misspelt one guarded nothing); the telemetry event
+  `McpGrantChanged`.
 - **A grant ceiling of a gateway's own.** `TOOL_MAX_GRANT_S_BY_GATEWAY`
   (`slack=900,mcp=0`; `ToolGate(max_grant_s_by_gateway=)`) gives a gateway
   its own ceiling on "allow for a while"; a gateway not named keeps

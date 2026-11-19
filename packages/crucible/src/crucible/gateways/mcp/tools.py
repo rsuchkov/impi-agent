@@ -2,7 +2,7 @@
 
 A gateway tool is the application's: a name, a description and a schema for
 the client's model, a scope it needs, and ``run`` over a ``GatewayCall`` — the
-principal, the arguments, and two things only the gateway can do: ``ask`` an
+caller, the arguments, and two things only the gateway can do: ``ask`` an
 agent in the conversation the call belongs to, and tell the client of
 ``progress`` while the call runs. ``AskAgentTool`` is the tool a deployment
 starts with: the agent itself, as a tool.
@@ -10,14 +10,15 @@ starts with: the agent itself, as a tool.
 Conversations: a call names the conversation it continues by the handle the
 gateway gave an earlier call (``_meta`` of the call and of its result); a call
 with none that asks an agent opens a new conversation and answers with its
-handle. The conversation is the principal's: the same handle presented for
+handle. The conversation is the caller's: the same handle presented for
 another subject is another conversation.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Protocol
 
-from crucible.gateways.mcp.auth import SCOPE_READ, Principal
+from crucible.gateways.mcp.auth import McpCaller
+from crucible.ports.chat.gateway import MCP_SCOPE_READ
 
 # The ``_meta`` key, on a call and on its result, that names the conversation.
 META_CONVERSATION = "crucible/conversation"
@@ -33,15 +34,15 @@ class GatewayCall:
 
     def __init__(
         self,
-        principal: Principal,
+        caller: McpCaller,
         arguments: Mapping[str, Any],
         handle: str,
         *,
-        asker: Callable[["GatewayCall", str, str], Awaitable[str]],
+        ask_agent: Callable[["GatewayCall", str, str], Awaitable[str]],
         progress: Callable[[str], Awaitable[None]],
         wants_progress: bool = False,
     ) -> None:
-        self.principal = principal
+        self.caller = caller
         self.arguments = arguments
         # The conversation this call belongs to: "" until an agent is asked.
         self.handle = handle
@@ -49,16 +50,16 @@ class GatewayCall:
         # the call, an event stream accepted): the gateway follows the turn's
         # steps for it only then.
         self.wants_progress = wants_progress
-        self._asker = asker
+        self._ask_agent = ask_agent
         self._progress = progress
 
     async def ask(self, text: str, *, agent: str = "") -> str:
         """Put ``text`` to ``agent`` (the gateway's only agent when "") as the
-        principal's message in the call's conversation — opening one when the
+        caller's message in the call's conversation — opening one when the
         call named none — and answer with what the agent said. Raises
         ``CallFailed`` when the turn failed, the conversation is busy with
         another call, or no such agent runs here."""
-        return await self._asker(self, text, agent)
+        return await self._ask_agent(self, text, agent)
 
     async def progress(self, text: str) -> None:
         """A word to the client on what the call is doing. Nothing happens when
@@ -69,7 +70,7 @@ class GatewayCall:
 class McpGatewayTool(Protocol):
     """A tool the gateway offers MCP clients. ``input_schema`` is the JSON
     schema of ``arguments``; ``scope`` the one a token needs to see and call
-    it (``SCOPE_READ``, ``SCOPE_ACT``); ``requires_task`` whether the call must
+    it (``MCP_SCOPE_READ``, ``MCP_SCOPE_ACT``); ``requires_task`` whether the call must
     run as a task (a long one, one that may wait on a person) — a client that
     cannot follow a task is refused it."""
 
@@ -103,7 +104,7 @@ class AskAgentTool:
         },
         "required": ["text"],
     }
-    scope = SCOPE_READ
+    scope = MCP_SCOPE_READ
     requires_task = False
 
     async def run(self, call: GatewayCall) -> str:

@@ -18,25 +18,22 @@ from aiohttp import web
 from crucible.connections import Connections
 from crucible.connections.callback import CALLBACK_PATH, CallbackServer
 from crucible.connections.sealing import FernetSealer, new_sealing_key
-from crucible.gateways.mcp import (
-    MCP_PATH,
-    AuthorizationServer,
-    ClientRegistration,
-    ConsentRequest,
-    McpChatClient,
-    McpHub,
-)
-from crucible.gateways.mcp.authorization import (
+from crucible.gateways.mcp import MCP_PATH, McpChatClient, McpHub
+from crucible.gateways.mcp.hub import RESOURCE_METADATA_PATH
+from crucible.mcp_authorization import (
     AS_METADATA_PATH,
     AUDIT_LOGGER,
     AUTHORIZE_PATH,
+    CONSENT_COOKIE,
     CONSENT_PATH,
     REVOKE_PATH,
     SIGN_IN_OWNER_PREFIX,
     SIGN_IN_PATH,
     TOKEN_PATH,
+    AuthorizationServer,
+    ClientRegistration,
+    ConsentRequest,
 )
-from crucible.gateways.mcp.hub import RESOURCE_METADATA_PATH
 from crucible.ports.telemetry import McpGrantChanged
 from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
@@ -157,7 +154,7 @@ async def _call(s: aiohttp.ClientSession, token: str, text: str = "hi") -> aioht
 async def test_a_client_signs_the_person_in_consents_and_calls_with_the_token(world: World, caplog) -> None:
     w = world
     caplog.set_level(logging.INFO, logger=AUDIT_LOGGER)
-    async with aiohttp.ClientSession() as s:
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as s:
         # 1. Without a token the gateway names the metadata; the metadata names the server.
         async with s.post(f"{PUBLIC}{MCP_PATH}", json={}) as r:
             assert r.status == 401
@@ -218,7 +215,7 @@ async def test_a_client_signs_the_person_in_consents_and_calls_with_the_token(wo
 
 async def test_refresh_rotates_and_a_reused_refresh_token_ends_the_grant(world: World) -> None:
     w = world
-    async with aiohttp.ClientSession() as s:
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as s:
         verifier, challenge = _pkce()
         async with await _sign_in_and_consent(s, w, challenge) as r:
             code = _query(r.headers["Location"])["code"]
@@ -247,7 +244,7 @@ async def test_refresh_rotates_and_a_reused_refresh_token_ends_the_grant(world: 
 
 async def test_tokens_end_with_the_grant_and_a_revoke_ends_them_at_once(world: World) -> None:
     w = world
-    async with aiohttp.ClientSession() as s:
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as s:
         verifier, challenge = _pkce()
         async with await _sign_in_and_consent(s, w, challenge) as r:
             code = _query(r.headers["Location"])["code"]
@@ -284,7 +281,7 @@ async def test_tokens_end_with_the_grant_and_a_revoke_ends_them_at_once(world: W
 
 async def test_what_is_refused_and_how(world: World) -> None:
     w = world
-    async with aiohttp.ClientSession() as s:
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as s:
         verifier, challenge = _pkce()
         # A client not on the list, or a redirect not its own: a page, never a redirect.
         async with s.get(_authorize_url(challenge, client="stranger"), allow_redirects=False) as r:
@@ -338,6 +335,21 @@ async def test_what_is_refused_and_how(world: World) -> None:
             assert r.status == 403
         async with s.get(consent_url) as r:
             assert r.status == 400 and "expired" in await r.text()
+        # The client that started the request knows its id; it did not sign in
+        # and holds no cookie: the consent page is not its to see or answer.
+        verifier, challenge = _pkce()
+        async with s.get(_authorize_url(challenge), allow_redirects=False) as r:
+            state, code = w.provider.consent(r.headers["Location"])
+        async with s.get(f"http://127.0.0.1:{CALLBACK_PORT}{CALLBACK_PATH}?state={state}&code={code}", allow_redirects=False) as r:
+            consent_url = r.headers["Location"]
+            assert r.cookies[CONSENT_COOKIE].value and r.cookies[CONSENT_COOKIE]["path"] == CONSENT_PATH
+        async with aiohttp.ClientSession() as stranger:
+            async with stranger.get(consent_url) as r:
+                assert r.status == 400
+            async with stranger.post(consent_url, data={"csrf": "x", "decision": "allow"}, allow_redirects=False) as r:
+                assert r.status == 400
+        async with s.get(consent_url) as r:
+            assert r.status == 200  # the browser that signed in still may
         # The code expires on its own.
         verifier, challenge = _pkce()
         async with await _sign_in_and_consent(s, w, challenge) as r:
@@ -376,7 +388,7 @@ async def test_with_several_providers_the_person_picks_one(tmp_path: Path) -> No
     await hub.start()
     await callback.start()
     try:
-        async with aiohttp.ClientSession() as s:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as s:
             verifier, challenge = _pkce()
             async with s.get(_authorize_url(challenge, scope="read"), allow_redirects=False) as r:
                 page = await r.text()
@@ -399,9 +411,9 @@ async def test_with_several_providers_the_person_picks_one(tmp_path: Path) -> No
                 s, grant_type="authorization_code", code=code, redirect_uri=REDIRECT, client_id=IDE, code_verifier=verifier,
             )
             assert status == 200 and tokens["scope"] == "read"
-            principal = await server.authenticate(_FakeRequest(tokens["access_token"]))  # type: ignore[arg-type]
-            assert principal is not None and principal.subject == "alice@example.com" and principal.username == "Alice"
-            assert principal.scopes == {"read"}
+            caller = await server.authenticate(_FakeRequest(tokens["access_token"]))  # type: ignore[arg-type]
+            assert caller is not None and caller.subject == "alice@example.com" and caller.username == "Alice"
+            assert caller.scopes == {"read"}
             # The sign-in link cannot be used twice.
             async with s.get(link, allow_redirects=False) as r:
                 assert r.status == 400
@@ -416,7 +428,7 @@ class _FakeRequest:
         self.headers = {"Authorization": f"Bearer {token}"}
 
 
-async def test_an_ephemeral_connect_stores_nothing_and_asks_no_rule() -> None:
+async def test_a_sign_in_connect_stores_nothing_and_asks_no_rule() -> None:
     clock, provider = Clock(), FakeProvider()
     store, links = MemoryConnectionStore(), MemoryLinkStore()
     asked: list = []
@@ -435,10 +447,10 @@ async def test_an_ephemeral_connect_stores_nothing_and_asks_no_rule() -> None:
         connections=store, links=links, providers={"okta": provider}, sealer=FernetSealer([new_sealing_key()]),
         clock=clock, poll_s=0.001, policy=Policy(), on_connected=on_connected,
     )
-    url = await connections.begin("mcp-sign-in:r1", "okta", return_to="r1", ephemeral=True)
+    url = await connections.begin("mcp-sign-in:r1", "okta", return_to="r1", sign_in=True)
     state, code = provider.consent(url, account=ALICE)
     connected = await connections.finish(state, code)
-    assert connected.ephemeral and connected.return_to == "r1" and connected.account == ALICE
+    assert connected.sign_in and connected.return_to == "r1" and connected.account == ALICE
     assert connected.owner == "mcp-sign-in:r1"
     assert asked == [] and told == []  # no rule, no word: nobody is connected
     assert await store.list_connections("mcp-sign-in:r1") == []
@@ -460,9 +472,9 @@ async def test_the_callback_without_a_sign_in_taker_reports_a_failure(tmp_path: 
     callback = CallbackServer(connections, host="127.0.0.1", port=CALLBACK_PORT)
     await callback.start()
     try:
-        url = await connections.begin("mcp-sign-in:r1", "okta", return_to="r1", ephemeral=True)
+        url = await connections.begin("mcp-sign-in:r1", "okta", return_to="r1", sign_in=True)
         state, code = provider.consent(url)
-        async with aiohttp.ClientSession() as s:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as s:
             async with s.get(f"http://127.0.0.1:{CALLBACK_PORT}{CALLBACK_PATH}?state={state}&code={code}") as r:
                 assert r.status == 500 and "Connected" not in await r.text()
     finally:
