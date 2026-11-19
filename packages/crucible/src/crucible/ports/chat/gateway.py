@@ -22,7 +22,17 @@ GATEWAY_MATTERMOST = "mattermost"
 GATEWAY_SLACK = "slack"
 GATEWAY_WS = "ws"
 GATEWAY_HTTP = "http"
-GATEWAY_KINDS = (GATEWAY_MATTERMOST, GATEWAY_SLACK, GATEWAY_WS, GATEWAY_HTTP)
+# An outside agent's door: an MCP client holding a token a person signed in
+# for calls the agent as a tool (``gateways.mcp``). The person is the token's
+# subject; the client is the program speaking for them.
+GATEWAY_MCP = "mcp"
+GATEWAY_KINDS = (GATEWAY_MATTERMOST, GATEWAY_SLACK, GATEWAY_WS, GATEWAY_HTTP, GATEWAY_MCP)
+# What a turn an MCP call opened carries on its scope's attributes: the
+# client program that called (its id at the authorization server) and the
+# scopes its token holds, space-separated (``gateways.mcp.auth.SCOPES``). An
+# entitlement source reads them to narrow a read-only client's turn.
+MCP_CLIENT_ATTRIBUTE = "mcp_client"
+MCP_SCOPES_ATTRIBUTE = "mcp_scopes"
 # The engine's own door: a turn one agent opens for another on a task
 # (``ports.delegation``). Not a kind an operator configures — every agent has
 # it — but a conversation can be live in it, and a message can say it came

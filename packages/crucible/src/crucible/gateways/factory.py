@@ -21,6 +21,8 @@ from crucible.gateways.mattermost import (
     MattermostGateway,
     driver_options,
 )
+from crucible.gateways.mcp import PROMPT_HINT as MCP_PROMPT_HINT
+from crucible.gateways.mcp import McpChatClient, McpGateway, McpHub
 from crucible.gateways.reactions import ReactionCommands
 from crucible.gateways.slack import (
     DEFAULT_COMMAND_SHORTCUT_PREFIX,
@@ -63,7 +65,7 @@ class GatewayConfig:
     agent's gateway. An application maps its own settings onto this (which agent
     runs on which transport, and with which tokens)."""
 
-    kind: str  # "mattermost" | "slack" | "ws" | "http"
+    kind: str  # "mattermost" | "slack" | "ws" | "http" | "mcp"
     reply_to_agents: bool = True
     max_post_chars: int = 16000
     # Mattermost
@@ -114,6 +116,7 @@ class GatewayFactory:
         dispatcher: GatewayDispatcher | None,
         ws_hub: WsHub | None = None,
         http_hub: HttpHub | None = None,
+        mcp_hub: McpHub | None = None,
         attachments: AttachmentStore | None = None,
         keying: ConversationKey | None = None,
         slack_apps: Mapping[str, AsyncApp] | None = None,
@@ -124,6 +127,7 @@ class GatewayFactory:
         self._dispatcher = dispatcher
         self._ws_hub = ws_hub
         self._http_hub = http_hub
+        self._mcp_hub = mcp_hub
         # Where a gateway saves what a sender attached (None = files are ignored),
         # under the conversation as the application keys it — the same key the
         # flow and the coalescer use, so a tool finds the file in the
@@ -142,6 +146,7 @@ class GatewayFactory:
             "slack": self._slack,
             "ws": self._ws,
             "http": self._http,
+            "mcp": self._mcp,
         }
 
     def create(self, agent: str, config: GatewayConfig) -> GatewayHandle | None:
@@ -251,4 +256,29 @@ class GatewayFactory:
             # would start a turn nobody tracks; those stay on chat platforms.
             # A task for another agent is the engine's to carry, so that goes.
             denied_caps=frozenset({CAP_WIDGETS, CAP_FORMS}),
+        )
+
+    def _mcp(self, agent: str, config: GatewayConfig) -> GatewayHandle | None:
+        hub = self._mcp_hub
+        if hub is None:
+            logger.warning(
+                "agent %s: gateway 'mcp' but the app built no McpHub — skipping", agent
+            )
+            return None
+        chat = McpChatClient(hub.turns, agent, cards=hub.cards, asker_of=hub.asker_of)
+
+        def create_gateway(sink: MessageSink) -> Gateway:
+            if not isinstance(sink, TrackedSink):
+                raise TypeError("the mcp gateway needs a sink that reports turn outcomes")
+            hub.register_agent(agent, sink, chat)
+            return McpGateway(agent)
+
+        return GatewayHandle(
+            chat=chat, admin=None, create_gateway=create_gateway,
+            prompt_hint=MCP_PROMPT_HINT, needs_http_receiver=False,
+            # The client on the other end is a program speaking for the person:
+            # nothing it clicks or fills in is the person's. A card goes to the
+            # person through the application (ApprovalCards); a widget, a
+            # form and a task for another agent have nowhere to go.
+            denied_caps=frozenset({CAP_WIDGETS, CAP_FORMS, CAP_DELEGATION}),
         )
