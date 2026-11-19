@@ -7,6 +7,7 @@ from collections.abc import Mapping
 
 import httpx
 
+from crucible.connections.errors import ProviderRejected
 from crucible.ports.connections import ProviderAccount, ProviderUnavailable
 
 # The provider's names for the four fields the engine keeps, unless told otherwise.
@@ -15,11 +16,17 @@ ACCOUNT_FIELDS = {"id": "id", "username": "username", "name": "name", "email": "
 
 def account_of(response: httpx.Response, fields: Mapping[str, str], extra: tuple[str, ...]) -> ProviderAccount:
     """The account a "who am I" answer names, by the field names the provider
-    uses for the four the engine keeps, with ``extra`` kept beside them."""
+    uses for the four the engine keeps, with ``extra`` kept beside them. An
+    answer that names nobody — the id field null or empty, as a system that
+    answers 200 to a credential it does not know may — is a refusal
+    (``ProviderRejected``), not an account called "None"."""
     try:
         data = response.json()
+        raw_id = data[fields["id"]]
+        if raw_id is None or not str(raw_id).strip():
+            raise ProviderRejected("the system named no account for it")
         return ProviderAccount(
-            id=str(data[fields["id"]]),
+            id=str(raw_id),
             username=str(data.get(fields["username"]) or ""),
             name=str(data.get(fields["name"]) or ""),
             email=str(data.get(fields["email"]) or ""),

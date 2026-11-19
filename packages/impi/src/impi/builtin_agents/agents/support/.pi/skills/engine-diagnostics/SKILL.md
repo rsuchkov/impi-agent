@@ -305,8 +305,10 @@ Ten other 403s say what happened in the body. From the confirmation gate:
 - `declined by the user` — the tool declares `requires_confirmation`, the card
   went out, and a person answered Deny. A human can answer **Allow for…**
   instead, which stops the questions for that agent and that tool **in that
-  conversation** until the window closes (`TOOL_MAX_GRANT_S` caps it); another
-  thread or direct message is asked on its own.
+  conversation** until the window closes (`TOOL_MAX_GRANT_S` caps it; a gateway
+  named in `TOOL_MAX_GRANT_S_BY_GATEWAY` has a ceiling of its own, and at `0`
+  its cards offer no "allow for…" and no window lets a call from there through);
+  another thread or direct message is asked on its own.
 - `nobody answered the confirmation in time, so the call did not run…` — the
   card went out and expired unanswered (`INTEGRATIONS_UI_TIMEOUT`, 90 s). Told
   apart from a Deny on purpose: the agent is expected to say it needs the

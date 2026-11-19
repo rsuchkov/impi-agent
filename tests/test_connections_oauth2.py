@@ -118,6 +118,12 @@ async def test_revoke_counts_only_a_confirmation() -> None:
         await OAuth2Provider(config).revoke("rt")
 
 
+async def test_a_userinfo_answer_with_an_empty_id_is_rejected() -> None:
+    provider = _gitlab(lambda r: httpx.Response(200, json={"id": None, "username": "alice"}))
+    with pytest.raises(ProviderRejected):
+        await provider.identify("at")
+
+
 async def test_identify_reads_the_account_with_the_token_in_the_header_only() -> None:
     seen: list[httpx.Request] = []
 

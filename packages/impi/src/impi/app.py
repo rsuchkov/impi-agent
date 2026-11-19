@@ -726,6 +726,7 @@ def build_app(settings: ImpiSettings) -> App:
         screens=screens,
         approvals=approvals,
         tool_max_grant_s=settings.tools.max_grant_s,
+        tool_max_grant_s_by_gateway=settings.tools.max_grant_s_by_gateway,
         tool_approvers=settings.tools.approvers,
         replica=replica, clicks=forwarder,
         stop_command=settings.stop_command,

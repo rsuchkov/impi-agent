@@ -6,7 +6,26 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **A grant ceiling of a gateway's own.** `TOOL_MAX_GRANT_S_BY_GATEWAY`
+  (`slack=900,mcp=0`; `ToolGate(max_grant_s_by_gateway=)`) gives a gateway
+  its own ceiling on "allow for a while"; a gateway not named keeps
+  `TOOL_MAX_GRANT_S`. At `0` — a gateway where a cloud model asks — a card
+  from there offers no window, and a window opened from another gateway does
+  not let a call from there through: every call is read.
+- **The callback page sees the request and may carry the person on.**
+  `CallbackPage.render(outcome, request)` and `form(form, request)` are
+  asynchronous and get the `web.Request`, answering with any response — a
+  page, or a redirect with a cookie of the application's own — so a connect
+  of several steps (the provider's consent, then a sign-in that names the
+  person) is the application's to arrange without reaching into the server.
+  **Breaks:** a `CallbackPage` of the application's implements both methods
+  as `async` with the request as the second argument.
+- **Fixed: a "who am I" answer that names nobody connected an account called
+  "None".** A system that answers 200 to a credential it does not know, with
+  the account's id null or empty, now gets `ProviderRejected` from
+  `account_of` — for a credential provider and an OAuth userinfo alike —
+  instead of a connection to the account `"None"` that fails at the first
+  call.
 
 ## v0.53.0 — 2026-11-12
 

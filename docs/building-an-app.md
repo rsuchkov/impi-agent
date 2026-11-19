@@ -997,18 +997,22 @@ credential, is another user's credential.
   the page what to draw (`CredentialForm`: the provider, its hint, where to post,
   the secret the form hands back) and `finish_with_credential(state, credential, csrf,
   owner=…, facts=…)` finishes it; your own page is `CallbackServer(…, page=)`, a
-  `CallbackPage` whose `form(CredentialForm)` draws that form (a password field
+  `CallbackPage` whose `form(CredentialForm, request)` draws that form (a password field
   named `credential`, a hidden `csrf`, autocomplete off, and `owner` — whom
   the link was made for — said on the page, so a forwarded link is seen for
-  what it is) and whose `render(outcome)` gets a `CallbackOutcome` — the
+  what it is) and whose `render(outcome, request)` gets a `CallbackOutcome` — the
   `Connected` record when it went through, else the word for why (`denied`,
   `expired`, `foreign`, `rejected`, `forged`, `credential_rejected`,
   `account_refused`, `not_a_connect`, `no_code`, `provider_unavailable`,
   `failed`) with `account`/`detail` for a
   refused account, and `start_again` — and answers with a response of its own:
-  its words, a picture, its own content-security policy; the flow adds the
-  no-store/no-referrer/nosniff headers, and the strict policy, where the page
-  set none; `account`, `detail` and the connected account's names are the
+  its words, a picture, its own content-security policy — both methods are
+  asynchronous and get the request, so a page may carry the person on: a
+  connect of several steps (the provider's consent, then a sign-in that names
+  the person) answers the first with a redirect and a cookie of the
+  application's own for the step, and reads that cookie when the person comes
+  back; the flow adds the no-store/no-referrer/nosniff headers, and the strict
+  policy, where the page set none; `account`, `detail` and the connected account's names are the
   provider's words — escape them), and
   an `AccountPolicy` whose `refusal(owner, provider, account, facts)` says why
   an account may not be bound to that person, or None (`account.extra`

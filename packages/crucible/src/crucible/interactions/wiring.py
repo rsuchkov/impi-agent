@@ -10,7 +10,7 @@ the presence registry, so there is no ``register`` and no ``finalize``.
 A convenience for composition roots; an app may wire these pieces by hand instead.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from crucible.approvals import PendingApprovals
 from crucible.config import IntegrationsSettings
@@ -56,6 +56,7 @@ class InteractionWiring:
         screens: ScreenRegistry | None = None,
         approvals: PendingApprovals | None = None,
         tool_max_grant_s: int = 900,
+        tool_max_grant_s_by_gateway: Mapping[str, int] | None = None,
         tool_approvers: tuple[str, ...] = (),
         replica: Replica | None = None,
         clicks: ClickForwarder | None = None,
@@ -127,6 +128,7 @@ class InteractionWiring:
                 callback_url=integrations.interact_url,
                 timeout_s=integrations.ui_timeout,
                 max_grant_s=tool_max_grant_s,
+                max_grant_s_by_gateway=tool_max_grant_s_by_gateway,
                 approvers=frozenset(tool_approvers),
                 replica_id=replica_id,
                 people=people,

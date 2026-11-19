@@ -506,6 +506,7 @@ nobody at the screen is the usual case of the second.
 |---|---|---|
 | `TOOL_APPROVERS` | `""` | who may answer a tool's confirmation card (CSV of platform user ids). Empty = the person whose message the turn answers: in a burst merged into one turn the newest one's author, for a scheduled task the person who scheduled it; a conversation that names no person is answered by anyone in it. One set for every agent and gateway — name ids from each platform in use (an application with a `PersonKey` names persons). A click from anyone else is told so privately and the card stays live |
 | `TOOL_MAX_GRANT_S` | `900` | longest window a human may open for a gated tool (`0` = ask every time). A window covers that tool in the conversation where it was opened — another thread or direct message with the same agent is asked afresh |
+| `TOOL_MAX_GRANT_S_BY_GATEWAY` | `""` | a ceiling of a gateway's own, CSV of `<gateway>=<seconds>` (`slack=900,mcp=0`); a gateway not named keeps `TOOL_MAX_GRANT_S`. `0` on a gateway where a cloud model asks: no "allow for…" on its cards, and a window opened elsewhere does not let a call from there through |
 
 ## Logging
 

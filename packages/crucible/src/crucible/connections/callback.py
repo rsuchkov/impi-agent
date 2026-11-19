@@ -106,7 +106,12 @@ class CallbackOutcome:
 
 class CallbackPage(Protocol):
     """What the person sees in their browser: the application's page for the
-    outcome of a connect, and its form that asks for a credential. Each response
+    outcome of a connect, and its form that asks for a credential. Both get
+    the request as well as what to draw, and answer with any response — a
+    page, or a redirect that carries the person on (a second sign-in that
+    names them, with a cookie of the application's own for the step) — so a
+    connect of several steps is the application's to arrange, and
+    ``Connected`` arrives with the request's cookies at hand. Each response
     gets the flow's safety headers added where it set none (no-store,
     no-referrer, nosniff, and the strict content-security policy — nothing
     but inline style, a form posting nowhere but here — where the page set no
@@ -115,9 +120,9 @@ class CallbackPage(Protocol):
     ``hint`` are the provider's or the operator's words: a page that puts them
     in HTML escapes them."""
 
-    def render(self, outcome: CallbackOutcome) -> web.Response: ...
+    async def render(self, outcome: CallbackOutcome, request: web.Request) -> web.StreamResponse: ...
 
-    def form(self, form: CredentialForm) -> web.Response:
+    async def form(self, form: CredentialForm, request: web.Request) -> web.StreamResponse:
         """The form that asks the person for a credential: a password field
         named ``credential`` with autocomplete off, a hidden field ``csrf``
         with the form's secret, posting to ``form.post_url``; the provider's
@@ -153,7 +158,7 @@ def _page(status: int, title: str, text: str) -> web.Response:
     return web.Response(status=status, text=body, content_type="text/html", headers=_HEADERS)
 
 
-def _safe(response: web.Response) -> web.Response:
+def _safe(response: web.StreamResponse) -> web.StreamResponse:
     """The flow's headers, where the page set none."""
     for name, value in _SAFE_HEADERS.items():
         response.headers.setdefault(name, value)
@@ -164,7 +169,7 @@ class DefaultCallbackPage:
     """The plain page: a title and a sentence, the provider by its id, the
     account by its username — what a deployment with no page of its own gets."""
 
-    def form(self, form: CredentialForm) -> web.Response:
+    async def form(self, form: CredentialForm, request: web.Request) -> web.StreamResponse:
         body = _FORM.format(
             title=html.escape(f"Connect your {form.provider} account"),
             whom=html.escape(
@@ -176,7 +181,7 @@ class DefaultCallbackPage:
         )
         return web.Response(status=200, text=body, content_type="text/html", headers=_HEADERS)
 
-    def render(self, outcome: CallbackOutcome) -> web.Response:
+    async def render(self, outcome: CallbackOutcome, request: web.Request) -> web.StreamResponse:
         connected, again = outcome.connected, outcome.start_again
         if connected is not None:
             who = connected.account.username or connected.account.name or connected.account.id
@@ -239,18 +244,18 @@ class CallbackServer:
             await self._runner.cleanup()
             self._runner = None
 
-    async def _callback(self, request: web.Request) -> web.Response:
-        return _safe(self._page.render(await self._outcome(request)))
+    async def _callback(self, request: web.Request) -> web.StreamResponse:
+        return _safe(await self._page.render(await self._outcome(request), request))
 
-    async def _form(self, request: web.Request) -> web.Response:
+    async def _form(self, request: web.Request) -> web.StreamResponse:
         """The form the link names, or why not: a link that expired, was
         used, or never was gets the outcome page for an expired one."""
         form = await self._connections.form_of(request.match_info["state"])
         if form is None:
-            return _safe(self._page.render(CallbackOutcome(refusal=LINK_EXPIRED, start_again=self._start_again)))
-        return _safe(self._page.form(replace(form, start_again=self._start_again)))
+            return _safe(await self._page.render(CallbackOutcome(refusal=LINK_EXPIRED, start_again=self._start_again), request))
+        return _safe(await self._page.form(replace(form, start_again=self._start_again), request))
 
-    async def _credential(self, request: web.Request) -> web.Response:
+    async def _credential(self, request: web.Request) -> web.StreamResponse:
         """What the person entered. An empty credential draws the form again;
         a post without the form's secret is forged and spends the link."""
         state = request.match_info["state"]
@@ -268,15 +273,16 @@ class CallbackServer:
         try:
             connected = await self._connections.finish_with_credential(state, credential, csrf)
         except LinkRefused as exc:
-            return _safe(self._page.render(
+            return _safe(await self._page.render(
                 CallbackOutcome(refusal=exc.reason, account=exc.account or "", detail=exc.detail or "", start_again=again),
+                request,
             ))
         except ProviderUnavailable:
-            return _safe(self._page.render(CallbackOutcome(refusal=OUTCOME_PROVIDER_UNAVAILABLE, start_again=again)))
+            return _safe(await self._page.render(CallbackOutcome(refusal=OUTCOME_PROVIDER_UNAVAILABLE, start_again=again), request))
         except Exception:
             logger.exception("a connect by credential could not be finished")
-            return _safe(self._page.render(CallbackOutcome(refusal=OUTCOME_FAILED, start_again=again)))
-        return _safe(self._page.render(CallbackOutcome(connected=connected, start_again=again)))
+            return _safe(await self._page.render(CallbackOutcome(refusal=OUTCOME_FAILED, start_again=again), request))
+        return _safe(await self._page.render(CallbackOutcome(connected=connected, start_again=again), request))
 
     async def _outcome(self, request: web.Request) -> CallbackOutcome:
         """Finish the connect the request names, or say why it did not."""

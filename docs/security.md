@@ -431,7 +431,7 @@ decisions an operator makes.
 | [the secret broker](secrets.md) | off | any credential an agent should use on your behalf |
 | the broker's unattended unlock | off | a scheduled task needs a secret while nobody is awake — read the trade first |
 | `WARD_APPROVERS` | — | the people on it can reach every secret some agent may; keep it short |
-| `TOOL_MAX_GRANT_S` / a policy's `--max-grant` | 15 min / 1 h | how long "allow for…" may leave a tool or a secret open |
+| `TOOL_MAX_GRANT_S` / a policy's `--max-grant` | 15 min / 1 h | how long "allow for…" may leave a tool or a secret open; `TOOL_MAX_GRANT_S_BY_GATEWAY` gives a gateway a ceiling of its own — `0` for one where a cloud model asks, so every call from there is read |
 | the [browser](browsing.md) | off | one browser serves every agent; cookies are shared between them |
 | egress | unrestricted | a proxy or firewall around the containers when the agents must not reach arbitrary hosts |
 | who answers a tool's confirmation (`TOOL_APPROVERS`) | the person who asked the agent | name the people instead when the asker should not be the one deciding |

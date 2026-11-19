@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import socket
+from collections.abc import Mapping
 from functools import cached_property
 from pathlib import Path
 from typing import ClassVar
@@ -45,6 +46,20 @@ def _detect_lan_ip() -> str:
         s.close()
 
 
+def _seconds_by_gateway(raw: str) -> dict[str, int]:
+    """``TOOL_MAX_GRANT_S_BY_GATEWAY``: ``kind=seconds`` pairs, comma-separated."""
+    out: dict[str, int] = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        kind, sep, seconds = part.partition("=")
+        if not sep or not kind.strip() or not seconds.strip().isdigit():
+            raise ValueError(f"TOOL_MAX_GRANT_S_BY_GATEWAY: {part!r} is not <gateway>=<seconds>")
+        out[kind.strip().lower()] = int(seconds.strip())
+    return out
+
+
 class ToolSettings(BaseModel):
     """Tool-SERVER config as its own model (not per-tool settings — those belong
     to each tool). Bound from flat env names on Settings (see ``Settings.tools``)
@@ -56,6 +71,9 @@ class ToolSettings(BaseModel):
     # Ceiling on "allow this tool for a while". Shorter than a secret's by
     # default: leave bash open and you have left everything open.
     max_grant_s: int
+    # A ceiling of a gateway's own, by gateway kind; 0 = no window there at
+    # all, and none opened elsewhere lets a call from there through.
+    max_grant_s_by_gateway: Mapping[str, int] = Field(default_factory=dict)
     # Who may answer a tool's confirmation card, by platform user id. Empty =
     # the person whose message started the turn.
     approvers: tuple[str, ...] = ()
@@ -449,6 +467,9 @@ class Settings(BaseSettings):
     tool_server_host: str = "127.0.0.1"
     tool_server_port: int = 8422
     tool_max_grant_s: int = 900
+    # The ceiling by gateway, CSV of kind=seconds ("slack=900,mcp=0"); a
+    # gateway not named keeps TOOL_MAX_GRANT_S.
+    tool_max_grant_s_by_gateway: str = ""
     # Who may answer a tool's confirmation card (CSV of platform user ids).
     # Empty = the person whose message started the turn.
     tool_approvers: str = ""
@@ -890,6 +911,7 @@ class Settings(BaseSettings):
             server_host=self.tool_server_host,
             server_port=self.tool_server_port,
             max_grant_s=self.tool_max_grant_s,
+            max_grant_s_by_gateway=_seconds_by_gateway(self.tool_max_grant_s_by_gateway),
             approvers=tuple(a.strip() for a in self.tool_approvers.split(",") if a.strip()),
             public_url=self.tool_public_url,
         )

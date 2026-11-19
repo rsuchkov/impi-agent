@@ -203,6 +203,7 @@ async def _rig(tmp_path: Path, port: int, *, gated: bool = True, **over) -> Rig:
         callback_url="http://engine/interact",
         timeout_s=over.pop("timeout_s", 5.0),
         max_grant_s=over.pop("max_grant_s", 900),
+        max_grant_s_by_gateway=over.pop("max_grant_s_by_gateway", None),
         approvers=frozenset(over.pop("approvers", ())),
         replica_id=over.pop("replica_id", ""),
         people=over.pop("people", None),
@@ -1211,5 +1212,37 @@ async def test_a_tool_that_is_not_grantable_offers_no_window_and_honours_none(tm
         await _answer(rig, "once")  # asked again, not let through on the window
         await again
         assert rig.tool.ran == 3
+    finally:
+        await _close(rig)
+
+
+async def test_a_gateway_may_have_a_grant_ceiling_of_its_own(tmp_path: Path) -> None:
+    """A turn on a gateway whose ceiling is 0 — where a cloud model asks —
+    gets a card with no "allow for…" and is not let through on a window
+    opened from another gateway; a gateway with a ceiling of its own offers
+    windows up to it, and a window once opened covers the conversation on
+    every gateway whose ceiling is not 0."""
+    from crucible.ports.turn import TurnPlace
+    from crucible.turns import TurnRegistry
+
+    turns = TurnRegistry()
+    rig = await _rig(tmp_path, 8580, places=turns, max_grant_s=900, max_grant_s_by_gateway={"mcp": 0, "slack": 60})
+    try:
+        # From Slack, its own, shorter ceiling: the window offered is capped, and opened.
+        async with turns.bind(rig.session, None, place=TurnPlace("slack", "")):
+            pending = asyncio.create_task(_call(rig, "dangerous"))
+            card = await _answer(rig, "grant:900")
+            assert await pending == 200
+        assert [c.value for c in next(a for a in card.actions if a.kind == ACTION_SELECT).options] == ["grant:60"]
+        # The same conversation asked from the mcp gateway: no window on the card, and the one just opened does not count.
+        async with turns.bind(rig.session, None, place=TurnPlace("mcp", "")):
+            pending = asyncio.create_task(_call(rig, "dangerous"))
+            card = await _answer(rig, "once")
+            assert await pending == 200
+        assert not any(a.kind == ACTION_SELECT for a in card.actions)
+        # From Mattermost (the deployment's ceiling): let through on the window Slack opened.
+        assert await _call(rig, "dangerous") == 200
+        grants = await rig.store.list_grants(now="2000-01-01T00:00:00+00:00")
+        assert len(grants) == 1 and rig.tool.ran == 3
     finally:
         await _close(rig)

@@ -366,3 +366,13 @@ def test_the_shared_dirs_root_defaults_under_the_data_dir() -> None:
     assert _settings(data_dir="/srv/impi").resolved_shared_dirs_root == Path("/srv/impi/shared").resolve()  # /srv may be a link
     assert _settings(shared_dirs_root="/mnt/shared").resolved_shared_dirs_root == Path("/mnt/shared").resolve()
     assert _settings(data_dir="data").resolved_shared_dirs_root.is_absolute()  # handed to processes elsewhere
+
+
+def test_the_grant_ceiling_by_gateway_is_read_as_pairs(tmp_path) -> None:
+    from crucible.config import _seconds_by_gateway
+
+    assert _seconds_by_gateway("") == {}
+    assert _seconds_by_gateway("slack=900, MCP=0,") == {"slack": 900, "mcp": 0}
+    for bad in ("slack", "slack=", "=5", "slack=a lot"):
+        with pytest.raises(ValueError, match="TOOL_MAX_GRANT_S_BY_GATEWAY"):
+            _seconds_by_gateway(bad)

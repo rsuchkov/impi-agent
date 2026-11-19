@@ -34,6 +34,7 @@ import asyncio
 import json
 import logging
 import secrets as tokens
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -67,7 +68,7 @@ from crucible.ports.delegation import (
 )
 from crucible.ports.replica import tag_token
 from crucible.ports.telemetry import CardAnswered, Telemetry
-from crucible.ports.turn import TurnFeed, TurnPlaces, TurnScopes
+from crucible.ports.turn import TurnFeed, TurnPlace, TurnPlaces, TurnScopes
 from crucible.store.base import (
     DECISION_ABANDONED,
     DECISION_APPROVED_GRANT,
@@ -80,6 +81,7 @@ from crucible.store.base import (
     ApprovalAudit,
     ApprovalGrant,
     ApprovalStore,
+    SessionRecord,
     SessionStore,
     gateway_addresses,
 )
@@ -125,6 +127,7 @@ class ToolGate:
         callback_url: str = "",
         timeout_s: float = 90.0,
         max_grant_s: int = 900,
+        max_grant_s_by_gateway: Mapping[str, int] | None = None,
         approvers: frozenset[str] = frozenset(),
         replica_id: str = "",
         people: PersonKey | None = None,
@@ -154,6 +157,11 @@ class ToolGate:
         # Shorter than a secret's ceiling by default: "let it use bash for a
         # while" is a broader permission than one named credential.
         self._max_grant_s = max_grant_s
+        # The ceiling where the turn's gateway has one of its own: a gateway
+        # where a cloud model asks gets none (0 — no "allow for a while" on the
+        # card, and no window opened elsewhere lets a call from there through),
+        # while the panel and the chats keep theirs.
+        self._max_grant_s_by_gateway = dict(max_grant_s_by_gateway or {})
         # Who may answer every card, by platform user id. Empty = the person
         # whose message started the turn.
         self._approvers = approvers
@@ -178,6 +186,12 @@ class ToolGate:
         turn_id = bound.turn_id if bound is not None else ""
         parent_turn_id = parent_turn_of(bound)
 
+        record = await self._sessions.get_by_runtime_session(runtime_session_id)
+        place = self._places.place(runtime_session_id) if self._places is not None else None
+        # The turn runs on one gateway; its ceiling is that gateway's.
+        running_on = place.gateway if place is not None else (record.last_gateway if record is not None else "")
+        ceiling_s = self._ceiling(running_on)
+        grantable = grantable and ceiling_s > 0
         grant = await self._ledger.live_grant(KIND_TOOL, agent, scope, now=_now()) if grantable else None
         if grant is not None:
             await self._record(
@@ -188,7 +202,10 @@ class ToolGate:
             return ConfirmOutcome.ALLOWED
 
         try:
-            answer = await self._ask(agent, tool, args, runtime_session_id, preview, display_name, grantable)
+            answer = await self._ask(
+                agent, tool, args, runtime_session_id, preview, display_name, grantable,
+                record=record, place=place, ceiling_s=ceiling_s,
+            )
         except asyncio.CancelledError:
             # The caller hung up — the turn was aborted or timed out while the
             # card was up. Nothing may run on this card now, whatever is clicked.
@@ -212,7 +229,7 @@ class ToolGate:
         grant_id = ""
         decision = DECISION_APPROVED_ONCE
         if answer.grant_s > 0:
-            grant_id = await self._open_window(agent, tool, scope, answer)
+            grant_id = await self._open_window(agent, tool, scope, answer, ceiling_s)
             decision = DECISION_APPROVED_GRANT
         await self._record(
             agent, scope, args, decision, started, request_id,
@@ -241,15 +258,17 @@ class ToolGate:
         runtime_session_id: str,
         preview: CallPreview | None,
         display_name: str,
-        grantable: bool = True,
+        grantable: bool,
+        *,
+        record: SessionRecord | None,
+        place: TurnPlace | None,
+        ceiling_s: int,
     ) -> Approval | None:
-        record = await self._sessions.get_by_runtime_session(runtime_session_id)
         # Asked in every gateway the conversation is live in, each at the
         # conversation's address there — in the thread the turn answers in, on
         # the gateway it came through — the person answers wherever they are
         # looking, and the first answer closes every copy. A conversation known
         # in no gateway yet is asked where it last spoke.
-        place = self._places.place(runtime_session_id) if self._places is not None else None
         posters: list[tuple[str, ChatClient]] = []
         addresses = gateway_addresses(record) if record is not None else {}
         if record is not None:
@@ -284,7 +303,7 @@ class ToolGate:
         ).isoformat(timespec="seconds")
         card = _card(agent, tool, args, preview, display_name=display_name, expires_at=expires_at)
         named = _named(tool, display_name)
-        actions = approval_actions(token, offers=windows(ceiling_s=self._max_grant_s) if grantable else ())
+        actions = approval_actions(token, offers=windows(ceiling_s=ceiling_s) if grantable else ())
         copies: list[tuple[ChatClient, str]] = []  # (poster, post id) of every copy posted
         views: list[tuple[ConversationView, ConversationRef]] = []  # where a platform shows the wait
         # The wait is the turn's, and the turn runs on one gateway: only that
@@ -371,8 +390,8 @@ class ToolGate:
         await self._rewrite_all(copies, _closed(card, headline, verdict, answer.grant_s))
         return answer
 
-    async def _open_window(self, agent: str, tool: str, scope: str, answer: Approval) -> str:
-        seconds = min(answer.grant_s, self._max_grant_s)
+    async def _open_window(self, agent: str, tool: str, scope: str, answer: Approval, ceiling_s: int) -> str:
+        seconds = min(answer.grant_s, ceiling_s)
         now = datetime.now(timezone.utc)
         grant = ApprovalGrant(
             id=f"gr_{tokens.token_hex(6)}",
@@ -412,6 +431,11 @@ class ToolGate:
             )
         )
         logger.info("tool %s for %s: %s", scope, agent, decision)
+
+    def _ceiling(self, gateway: str) -> int:
+        """How long a window may be for a turn on ``gateway``: the gateway's
+        own ceiling when it has one, else the deployment's."""
+        return self._max_grant_s_by_gateway.get(gateway, self._max_grant_s)
 
     async def _rewrite_all(self, copies: list[tuple[ChatClient, str]], card: ApprovalCard) -> None:
         for poster, post_id in copies:

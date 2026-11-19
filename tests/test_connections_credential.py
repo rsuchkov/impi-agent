@@ -76,3 +76,11 @@ async def test_a_credential_a_header_cannot_carry_is_refused_before_any_call() -
     with pytest.raises(ProviderRejected):
         await _provider(handler).identify("tokén")
     assert called == []
+
+
+@pytest.mark.parametrize("answer", [{"id": None, "username": "x"}, {"id": "", "username": "x"}, {"id": "  "}])
+async def test_an_answer_that_names_no_account_is_a_refusal_not_an_account_called_none(answer: dict) -> None:
+    """A system that answers 200 to a credential it does not know, with the
+    account's fields empty, named nobody: refused, as a 401 would be."""
+    with pytest.raises(ProviderRejected):
+        await _provider(lambda r: httpx.Response(200, json=answer)).identify("unknown")

@@ -128,7 +128,7 @@ async def test_the_application_draws_the_page_and_the_flow_keeps_its_headers() -
     outcomes: list[CallbackOutcome] = []
 
     class _Picture:
-        def render(self, outcome: CallbackOutcome) -> web.Response:
+        async def render(self, outcome: CallbackOutcome, request: web.Request) -> web.StreamResponse:
             outcomes.append(outcome)
             if outcome.connected is not None:
                 text = f"<img src='data:image/gif;base64,R0lGOD'> {outcome.connected.provider} as {outcome.connected.account.name}"
@@ -139,7 +139,7 @@ async def test_the_application_draws_the_page_and_the_flow_keeps_its_headers() -
                 headers={"Content-Security-Policy": "default-src 'none'; img-src data:", "Referrer-Policy": "same-origin"},
             )
 
-        def form(self, form) -> web.Response:
+        async def form(self, form, request: web.Request) -> web.StreamResponse:
             raise AssertionError("no credential provider here")
 
     provider = FakeProvider()
@@ -262,10 +262,10 @@ async def test_the_applications_page_draws_the_form_too() -> None:
     drawn: list[CredentialForm] = []
 
     class _Own:
-        def render(self, outcome: CallbackOutcome) -> web.Response:
+        async def render(self, outcome: CallbackOutcome, request: web.Request) -> web.StreamResponse:
             return web.Response(status=outcome.status, text=f"own: {outcome.refusal or 'ok'}", content_type="text/html")
 
-        def form(self, form: CredentialForm) -> web.Response:
+        async def form(self, form: CredentialForm, request: web.Request) -> web.StreamResponse:
             drawn.append(form)
             return web.Response(status=200, text=f"own form for {form.provider}: {form.start_again}", content_type="text/html")
 
@@ -277,5 +277,43 @@ async def test_the_applications_page_draws_the_form_too() -> None:
         assert drawn[0].post_url == url and drawn[0].csrf and drawn[0].owner == "mattermost:u1"
         status, page = await _post_form(url, {"credential": "tok-alice", "csrf": drawn[0].csrf})
         assert (status, page) == (200, "own: ok")
+    finally:
+        await server.stop()
+
+
+async def test_the_applications_page_may_carry_the_person_on_with_a_redirect_and_a_cookie() -> None:
+    """A connect of several steps — the provider's consent, then a sign-in
+    that names the person — is the application's to arrange: its page gets
+    the request and answers with whatever comes next, a 303 with a cookie of
+    its own for the step; the flow's headers are still added."""
+    seen: list[tuple[str, str]] = []
+
+    class _Stepped:
+        async def render(self, outcome: CallbackOutcome, request: web.Request) -> web.StreamResponse:
+            seen.append((request.path, request.cookies.get("step", "")))
+            if outcome.connected is not None:
+                response = web.Response(status=303, headers={"Location": "https://idp.example/authorize?state=next"})
+                response.set_cookie("step", "s1", httponly=True, secure=True, samesite="Lax")
+                return response
+            return web.Response(status=outcome.status, text=outcome.refusal, content_type="text/html")
+
+        async def form(self, form, request: web.Request) -> web.StreamResponse:
+            raise AssertionError("no credential provider here")
+
+    provider = FakeProvider()
+    service = Connections(
+        connections=MemoryConnectionStore(), links=MemoryLinkStore(), providers={"gitlab": provider},
+        sealer=FernetSealer([new_sealing_key()]),
+    )
+    server = CallbackServer(service, host="127.0.0.1", port=PORT, page=_Stepped())
+    await server.start()
+    try:
+        state, code = provider.consent(await service.begin("mattermost:u1", "gitlab"))
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as s:
+            async with s.get(URL, params={"state": state, "code": code}, allow_redirects=False, cookies={"step": "before"}) as resp:
+                assert resp.status == 303 and resp.headers["Location"].startswith("https://idp.example/authorize")
+                assert "step=s1" in resp.headers.get("Set-Cookie", "")
+                assert resp.headers["Cache-Control"] == "no-store" and resp.headers["Referrer-Policy"] == "no-referrer"
+        assert seen == [("/oauth/callback", "before")]  # the page saw the request, cookies included
     finally:
         await server.stop()
