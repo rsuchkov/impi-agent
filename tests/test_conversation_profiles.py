@@ -308,3 +308,39 @@ async def test_the_gateway_source_passes_the_inners_agents_on() -> None:
     assert (await GatewayEntitlements(lambda _: spec, inner=Inner(("jira",))).entitlement("assistant", msg)).agents == ("jira",)
     assert (await GatewayEntitlements(lambda _: spec, inner=Inner(())).entitlement("assistant", msg)).agents == ()
     assert (await GatewayEntitlements(lambda _: spec, inner=Inner(None)).entitlement("assistant", msg)).agents is None
+
+
+async def test_an_mcp_client_that_may_only_read_gets_the_agent_without_the_tools_that_ask(tmp_path: Path) -> None:
+    """The read door: a turn an MCP client opened with a token without ``act``
+    is entitled to the agent's tools but those that would ask the person for a
+    yes (``requires_confirmation``); a token with ``act`` keeps them all, and so
+    does any other gateway. The gateway's own list, when the agent has one, is
+    the ceiling the door narrows further."""
+    from crucible.conversation_profiles import GatewayEntitlements
+    from crucible.ports.chat.gateway import MCP_CLIENT_ATTRIBUTE, MCP_SCOPES_ATTRIBUTE
+    from crucible.ports.chat.types import ConversationRef, IncomingMessage
+    from crucible.ports.turn import TurnScope
+
+    wiring, spec = _wiring(tmp_path)
+    spec = dataclasses.replace(spec, tools=("read", "bash", "ask_user_buttons", "delegate"))
+    assert wiring.registry is not None and wiring.registry.get("delegate").requires_confirmation  # type: ignore[union-attr]
+
+    def msg(gateway: str, scopes: str) -> IncomingMessage:
+        return IncomingMessage(
+            ref=ConversationRef(channel_id="c", conversation_id="c", message_id="m", thread_root_id=""),
+            text="hi", user_id="okta:7", username="alice", gateway=gateway, kind="dm", is_dm=True,
+            turn=TurnScope(turn_id="t", attributes={MCP_CLIENT_ATTRIBUTE: "ide", MCP_SCOPES_ATTRIBUTE: scopes}),
+        )
+
+    source = GatewayEntitlements(lambda name: spec if name == "assistant" else None, registry=wiring.registry)
+    assert (await source.entitlement("assistant", msg("mcp", "read"))).tools == ("read", "bash", "ask_user_buttons")
+    assert (await source.entitlement("assistant", msg("mcp", "act read"))).tools is None  # the agent's own
+    assert (await source.entitlement("assistant", msg("slack", "read"))).tools is None  # not the MCP door
+    assert (await source.entitlement("other", msg("mcp", "read"))).tools is None  # not an agent of ours
+    # Without the registry the source cannot tell which tools ask: it narrows nothing by scope.
+    assert (await GatewayEntitlements(lambda _: spec).entitlement("assistant", msg("mcp", "read"))).tools is None
+    # The gateway's list is the ceiling; a server's tools spelled as a pattern are read as declared.
+    narrowed = dataclasses.replace(spec, tools_by_gateway=(("mcp", ("bash", "delegate")),))
+    source = GatewayEntitlements(lambda _: narrowed, registry=wiring.registry)
+    assert (await source.entitlement("assistant", msg("mcp", "read"))).tools == ("bash",)
+    assert (await source.entitlement("assistant", msg("mcp", "act"))).tools == ("bash", "delegate")

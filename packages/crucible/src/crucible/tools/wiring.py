@@ -69,7 +69,7 @@ def _gate_tools(
     typed tools (the runtime's own builtins, e.g. ``read``) are ignored here."""
     kept: list[str] = []
     dropped: dict[str, frozenset[str]] = {}
-    for name in _declared(registry, tools):
+    for name in declared(registry, tools):
         tool = registry.get(name)
         if tool is None or name in withdrawn:
             continue
@@ -83,7 +83,7 @@ def _gate_tools(
     return tuple(kept), dropped
 
 
-def _declared(registry: ToolRegistry, tools: tuple[str, ...]) -> tuple[str, ...]:
+def declared(registry: ToolRegistry, tools: tuple[str, ...]) -> tuple[str, ...]:
     """The declared tools by name: an entry ``<family>__*`` stands for every
     registry tool whose name starts with ``<family>__`` (an MCP server's tools,
     pinned when the server was declared), each once, in declared order."""
@@ -323,7 +323,7 @@ class ToolWiring:
             return {**self.envs[agent], MANIFEST_ENV: str(manifest_path(self.manifests_dir, agent))}
         ceiling = self.allowlists.get(agent, frozenset())
         # A conversation's set may name a server's tools whole, as a profile does.
-        allowed = tuple(name for name in _declared(self.registry, tuple(tools)) if name in ceiling)
+        allowed = tuple(name for name in declared(self.registry, tuple(tools)) if name in ceiling)
         self.session_allowlists[runtime_session_id] = frozenset(allowed)
         path = self.registry.write_session_manifest(
             self.manifests_dir, agent, runtime_session_id, allowed

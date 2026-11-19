@@ -15,6 +15,7 @@ has nobody to ask: a tool that needs a yes is refused where it asks.
 import logging
 from collections import OrderedDict
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Protocol
 
 from crucible.gateways.http.client import HttpChatClient
@@ -74,6 +75,7 @@ class McpChatClient(HttpChatClient):
         asker = self._asker_of(ref.conversation_id)
         if self._delivery is None or asker is None:
             raise NobodyToAnswer("an MCP client speaks for the person and cannot answer for them")
+        card = _asked_through(card, asker)
         theirs = await self._delivery.post_confirmation(asker, card, actions, callback_url=callback_url)
         post_id = await super().post_confirmation(ref, card, actions, callback_url=callback_url)
         if post_id and theirs:
@@ -88,13 +90,20 @@ class McpChatClient(HttpChatClient):
         await super().update_confirmation(post_id, card, actions, callback_url=callback_url)
         theirs = self._forwarded.get(post_id)
         if theirs is not None and self._delivery is not None:
-            await self._delivery.update_confirmation(theirs, card, actions, callback_url=callback_url)
+            asker = self._asker_of(self._conversation_of(post_id)) if actions else None
+            await self._delivery.update_confirmation(
+                theirs, _asked_through(card, asker) if asker is not None else card, actions, callback_url=callback_url,
+            )
 
     async def retract(self, post_id: str, text: str) -> None:
         await super().retract(post_id, text)
         theirs = self._forwarded.pop(post_id, None)
         if theirs is not None and self._delivery is not None:
             await self._delivery.retract(theirs, text)
+
+    def _conversation_of(self, post_id: str) -> str:
+        turn = self._turn_of_post(post_id)
+        return turn.conversation if turn is not None else ""
 
     async def post_actions(
         self, ref: ConversationRef, text: str, actions: list[Action], *, callback_url: str
@@ -103,3 +112,9 @@ class McpChatClient(HttpChatClient):
 
     async def open_dialog(self, trigger_id: str, form: Form, *, submit_url: str, state: str) -> None:
         raise NobodyToAnswer("an MCP client speaks for the person and cannot fill a form for them")
+
+
+def _asked_through(card: ApprovalCard, asker: Principal) -> ApprovalCard:
+    """The card says the turn was asked through a program: the person reading
+    it in their chat did not type the request they are asked to approve."""
+    return replace(card, headline=f"{card.headline} Asked through {asker.client}.")

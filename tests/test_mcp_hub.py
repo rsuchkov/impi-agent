@@ -442,9 +442,11 @@ async def test_a_card_goes_to_the_person_through_the_application_not_to_the_clie
             _, answer, _ = await _call(s, 8609, "ask_agent", {"text": "deploy"}, token="tok-actor")
             assert answer["result"]["content"][0]["text"] == "deployed"
             asker, posted_card, posted_actions = cards.posted[0]
-            assert asker == TOKENS["tok-actor"] and posted_card is card and posted_actions == actions
+            assert asker == TOKENS["tok-actor"] and posted_actions == actions
+            # The person reads in their chat that a program asked, not they.
+            assert posted_card.headline == "wants to run deploy. Asked through ide-client." and posted_card.tool == "deploy"
             assert seen["status"] == "awaiting_input"  # the journal says the turn waits
-            assert cards.updated == [("slack-1", card, [])]
+            assert cards.updated == [("slack-1", card, [])]  # a verdict rewrites it as the gate wrote it
             assert cards.retracted == [("slack-1", "withdrawn")]
     finally:
         await hub.stop()

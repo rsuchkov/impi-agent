@@ -21,13 +21,16 @@ The other half of the same mechanism is where an entitlement comes from.
 ``GatewayEntitlements`` reads one off the agent's own profile —
 ``runtime.tools_by_gateway``, what a conversation on each gateway may use —
 and joins it with an application's own source when there is one, so the
-engine's rule and the application's narrow the same profile.
+engine's rule and the application's narrow the same profile. On the MCP
+gateway it reads the token's scopes too: a client whose token may only read
+gets the agent without the tools that would ask the person for a yes.
 """
 
 from collections.abc import Callable, Collection
 
 from crucible.ports.agent.runtime import AgentProfile
 from crucible.ports.agent.spec import AgentSpec
+from crucible.ports.chat.gateway import GATEWAY_MCP, MCP_SCOPES_ATTRIBUTE
 from crucible.ports.chat.types import IncomingMessage
 from crucible.ports.entitlement import (
     Entitlement,
@@ -35,7 +38,8 @@ from crucible.ports.entitlement import (
     ProfileNarrowing,
     shared_entitlement,
 )
-from crucible.tools.wiring import ToolWiring
+from crucible.tools.registry import ToolRegistry
+from crucible.tools.wiring import ToolWiring, declared
 
 
 class EntitledProfiles:
@@ -71,11 +75,18 @@ class GatewayEntitlements:
     channel, a thread — and nothing else: no instructions, no view of who the
     person is. Given an ``inner`` source (an application's own answer about
     the person or the place), the two are joined as several people's answers
-    are: the tools both allow, the inner's instructions."""
+    are: the tools both allow, the inner's instructions. Given the tool
+    ``registry``, a turn an MCP client opened with a token that may not act
+    (``MCP_SCOPES_ATTRIBUTE`` without ``act``) is narrowed to the tools that
+    ask nobody for a yes — the read door."""
 
-    def __init__(self, spec_of: Callable[[str], AgentSpec | None], *, inner: EntitlementSource | None = None) -> None:
+    def __init__(
+        self, spec_of: Callable[[str], AgentSpec | None], *, inner: EntitlementSource | None = None,
+        registry: ToolRegistry | None = None,
+    ) -> None:
         self._spec_of = spec_of
         self._inner = inner
+        self._registry = registry
 
     async def entitlement(
         self, agent: str, msg: IncomingMessage, *, tools: Collection[str] | None = None
@@ -84,6 +95,9 @@ class GatewayEntitlements:
         own = Entitlement(tools=_tools_on(spec, msg.gateway) if spec is not None else None)
         if spec is not None and spec.tools_in_channels is not None and not msg.direct:
             own = shared_entitlement([own, Entitlement(tools=spec.tools_in_channels)])
+        if spec is not None and self._registry is not None and _mcp_read_only(msg):
+            ceiling = own.tools if own.tools is not None else spec.tools
+            own = Entitlement(tools=_asking_nobody(self._registry, tuple(ceiling)))
         if tools is not None:
             own = shared_entitlement([own, Entitlement(tools=tools)])
         if self._inner is None:
@@ -95,6 +109,25 @@ class GatewayEntitlements:
         return Entitlement(
             tools=joined.tools, instructions=theirs.instructions, deferred=theirs.deferred, agents=joined.agents,
         )
+
+
+def _mcp_read_only(msg: IncomingMessage) -> bool:
+    """Whether the turn is an MCP client's whose token may not act."""
+    if msg.gateway != GATEWAY_MCP or msg.turn is None:
+        return False
+    return "act" not in msg.turn.attributes.get(MCP_SCOPES_ATTRIBUTE, "").split()
+
+
+def _asking_nobody(registry: ToolRegistry, names: tuple[str, ...]) -> tuple[str, ...]:
+    """``names`` — a server's tools spelled out — without the ones that would
+    ask the person for a yes. A runtime's built-in is not in the registry and
+    asks nobody; it stays."""
+    kept: list[str] = []
+    for name in declared(registry, names):
+        tool = registry.get(name)
+        if tool is None or not tool.requires_confirmation:
+            kept.append(name)
+    return tuple(kept)
 
 
 def _tools_on(spec: AgentSpec, gateway: str) -> tuple[str, ...] | None:

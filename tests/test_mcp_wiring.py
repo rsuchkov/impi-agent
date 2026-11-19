@@ -8,7 +8,7 @@ import pytest
 from crucible.config import Settings
 from crucible.mcp import McpLibrary, McpServer, Snapshot, ToolDefinition
 from crucible.profiles import FsProfileStore, ProfileError
-from crucible.tools.wiring import ToolWiring, _declared
+from crucible.tools.wiring import ToolWiring, declared
 from impi.app import build_app
 from impi.engine_tools import engine_tool_registry
 from tests.fakes.mcp_http import ECHO, WIPE
@@ -41,7 +41,7 @@ def test_a_server_entry_stands_for_its_pinned_tools_in_the_allowlist_and_the_man
 
     library = _pinned_library(tmp_path)
     registry = engine_tool_registry(McpServers(library, {}).registry_tools())
-    assert _declared(registry, ("read", "mcp__github__*", "list_agents", "mcp__github__echo")) == (
+    assert declared(registry, ("read", "mcp__github__*", "list_agents", "mcp__github__echo")) == (
         "read", "mcp__github__echo", "mcp__github__wipe", "list_agents",
     )
     wiring = ToolWiring(
