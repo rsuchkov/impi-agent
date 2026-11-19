@@ -33,7 +33,7 @@ import logging
 import re
 import secrets
 import uuid
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -156,6 +156,7 @@ class McpHub:
         turns: HttpTurns | None = None,
         server_info: Mapping[str, str] = SERVER_INFO,
         max_body: int = MAX_BODY_BYTES,
+        routes: Iterable[web.AbstractRouteDef] = (),
     ) -> None:
         self._host = host
         self._port = port
@@ -177,6 +178,9 @@ class McpHub:
         self.turns = turns if turns is not None else HttpTurns()
         self._server_info = dict(server_info)
         self._max_body = max_body
+        # Routes served beside /mcp on the same listener: the authorization
+        # server's (``AuthorizationServer.routes()``), an application's own.
+        self._routes = list(routes)
         self._agents: dict[str, tuple[TrackedSink, McpChatClient]] = {}
         # conversation key -> the principal whose call runs there now.
         self._askers: dict[str, Principal] = {}
@@ -207,6 +211,7 @@ class McpHub:
     async def start(self) -> None:
         app = web.Application(client_max_size=self._max_body)
         app.router.add_post(MCP_PATH, self._mcp)
+        app.add_routes(self._routes)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         await web.TCPSite(self._runner, self._host, self._port).start()

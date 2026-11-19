@@ -38,6 +38,8 @@ LEASES = "leases"
 CONVERSATION_OWNERS = "conversation_owners"
 DELEGATIONS = "delegations"
 USAGE = "usage"
+MCP_AUTH_REQUESTS = "mcp_auth_requests"
+MCP_GRANTS = "mcp_grants"
 
 # The heartbeat is one document by construction: a reader asks for THE beat,
 # so there is nothing to choose between.
@@ -144,6 +146,16 @@ async def create_indexes(db: Collections) -> None:
     await db[DELEGATIONS].create_index([("status", 1)])
     # Summed by agent since a moment before a turn; pruned by age.
     await db[USAGE].create_index([("agent", 1), ("at", 1)])
+    # An authorization is found by the code it was answered with, once; a
+    # grant by the token presented — the access token, unique by construction,
+    # or a refresh token, current or the one before it (a reuse). Both go on
+    # their own when past their time; the server checks the expiry itself.
+    await db[MCP_AUTH_REQUESTS].create_index([("code_hash", 1)])
+    await db[MCP_AUTH_REQUESTS].create_index([("expire_at", 1)], expireAfterSeconds=0)
+    await db[MCP_GRANTS].create_index([("access_hash", 1)], unique=True)
+    await db[MCP_GRANTS].create_index([("refresh_hash", 1)])
+    await db[MCP_GRANTS].create_index([("previous_refresh_hash", 1)])
+    await db[MCP_GRANTS].create_index([("expire_at", 1)], expireAfterSeconds=0)
 
 
 class MongoBase:

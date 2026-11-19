@@ -130,6 +130,19 @@ class CallbackPage(Protocol):
         the link was made for — say it, so a person handed somebody else's
         link sees it is not theirs."""
         ...
+
+
+class SignIns(Protocol):
+    """Where a connect made as a sign-in (``Connections.begin(ephemeral=True)``)
+    goes on once the provider has named the account: whoever asked for the
+    sign-in — the MCP gateway's authorization server — takes the person from
+    here (a redirect to its next step), with ``Connected.return_to`` saying
+    which sign-in it was. The response gets the flow's safety headers added
+    where it set none."""
+
+    async def signed_in(self, connected: Connected, request: web.Request) -> web.StreamResponse: ...
+
+
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title>
@@ -220,11 +233,13 @@ class DefaultCallbackPage:
 class CallbackServer:
     def __init__(
         self, connections: Connections, *, host: str = "0.0.0.0", port: int = 8429,
-        start_again: str = DEFAULT_START_AGAIN, page: CallbackPage | None = None,
+        start_again: str = DEFAULT_START_AGAIN, page: CallbackPage | None = None, sign_ins: SignIns | None = None,
     ) -> None:
         self._connections = connections
         self._start_again = start_again
         self._page: CallbackPage = page if page is not None else DefaultCallbackPage()
+        # Who takes a sign-in from here; None when nothing here asks for one.
+        self._sign_ins = sign_ins
         self._host = host
         self._port = port
         self._runner: web.AppRunner | None = None
@@ -245,7 +260,19 @@ class CallbackServer:
             self._runner = None
 
     async def _callback(self, request: web.Request) -> web.StreamResponse:
-        return _safe(await self._page.render(await self._outcome(request), request))
+        return await self._answer(await self._outcome(request), request)
+
+    async def _answer(self, outcome: CallbackOutcome, request: web.Request) -> web.StreamResponse:
+        """The page for the outcome — or, for a sign-in, the next step of
+        whoever asked for it."""
+        connected = outcome.connected
+        if connected is not None and connected.ephemeral:
+            if self._sign_ins is None:
+                logger.error("a sign-in finished at the callback, but nothing here takes sign-ins")
+                outcome = CallbackOutcome(refusal=OUTCOME_FAILED, start_again=outcome.start_again)
+            else:
+                return _safe(await self._sign_ins.signed_in(connected, request))
+        return _safe(await self._page.render(outcome, request))
 
     async def _form(self, request: web.Request) -> web.StreamResponse:
         """The form the link names, or why not: a link that expired, was
@@ -282,7 +309,7 @@ class CallbackServer:
         except Exception:
             logger.exception("a connect by credential could not be finished")
             return _safe(await self._page.render(CallbackOutcome(refusal=OUTCOME_FAILED, start_again=again), request))
-        return _safe(await self._page.render(CallbackOutcome(connected=connected, start_again=again), request))
+        return await self._answer(CallbackOutcome(connected=connected, start_again=again), request)
 
     async def _outcome(self, request: web.Request) -> CallbackOutcome:
         """Finish the connect the request names, or say why it did not."""

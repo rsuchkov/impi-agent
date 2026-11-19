@@ -5,6 +5,7 @@ and calls them; ``ask_agent`` runs a turn of the agent's as that person, in a
 conversation the client names by a handle. See docs/mcp-gateway.md.
 
 auth.py    — who holds the token: the Authorization port, Principal, the scopes
+authorization.py — the authorization server: sign-in through a connection provider, consent, tokens
 tools.py   — the McpGatewayTool port, GatewayCall, the bundled AskAgentTool
 client.py  — ChatClient over the journal, cards forwarded to the application (ApprovalCards)
 hub.py     — the aiohttp server shared by every agent on the gateway (McpHub)
@@ -17,6 +18,13 @@ from crucible.gateways.mcp.auth import (
     SCOPES,
     Authorization,
     Principal,
+)
+from crucible.gateways.mcp.authorization import (
+    AuthorizationServer,
+    ClientRegistration,
+    ConsentPage,
+    ConsentRequest,
+    DefaultConsentPage,
 )
 from crucible.gateways.mcp.client import ApprovalCards, McpChatClient
 from crucible.gateways.mcp.gateway import McpGateway
@@ -48,6 +56,11 @@ __all__ = [
     "ApprovalCards",
     "AskAgentTool",
     "Authorization",
+    "AuthorizationServer",
+    "ClientRegistration",
+    "ConsentPage",
+    "ConsentRequest",
+    "DefaultConsentPage",
     "CallFailed",
     "GatewayCall",
     "McpChatClient",

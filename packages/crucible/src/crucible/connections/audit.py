@@ -18,6 +18,7 @@ EVENT_REFRESH = "refresh"
 EVENT_FORGET = "forget"
 EVENT_DISCONNECT = "disconnect"
 EVENT_MOVE = "move"  # a connection handed to another owner
+EVENT_SIGN_IN = "sign_in"  # a connect made to learn who the person is, keeping nothing
 # …and how it ended.
 RESULT_OK = "ok"
 RESULT_UNAVAILABLE = "unavailable"

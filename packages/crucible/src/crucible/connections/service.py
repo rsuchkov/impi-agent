@@ -57,6 +57,7 @@ from crucible.connections.audit import (
     EVENT_FORGET,
     EVENT_MOVE,
     EVENT_REFRESH,
+    EVENT_SIGN_IN,
     RESULT_NOT_CONNECTED,
     RESULT_OK,
     RESULT_REJECTED,
@@ -229,12 +230,16 @@ class Connections:
 
     # -- connecting ---------------------------------------------------------
 
-    async def begin(self, owner: str, provider: str, *, return_to: str = "") -> str:
+    async def begin(self, owner: str, provider: str, *, return_to: str = "", ephemeral: bool = False) -> str:
         """Start a connect for ``owner``: the URL to send them to — the
         provider's consent page, or, for a credential provider, the form that
         asks them for a credential. The URL is the person's alone — whoever holds it can
         finish the connect within its time, so it goes to them privately.
-        ``return_to`` is kept with the link and handed back in ``Connected``."""
+        ``return_to`` is kept with the link and handed back in ``Connected``.
+        ``ephemeral`` makes it a sign-in: the finish names the account in
+        ``Connected`` and keeps nothing — no record, no tokens (revoked at
+        once), no word to the application's hook — and asks no rule about the
+        account, there being no owner to connect it for."""
         source = self._provider(provider)
         if isinstance(source, CredentialProvider) and not self._credential_form_url:
             raise ProviderUnavailable(f"{provider} takes a credential the person enters, and this application serves no form for one")
@@ -245,7 +250,7 @@ class Connections:
             state_digest=state_digest(state), owner=owner, provider=provider,
             verifier_sealed=self._sealer.seal(verifier),
             expires_at=_iso(self._clock() + timedelta(seconds=self._link_ttl_s)),
-            return_to=return_to,
+            return_to=return_to, ephemeral=ephemeral,
         ))
         self._audit_and_tell(EVENT_CONNECT_START, RESULT_OK, owner=owner, provider=provider)
         if isinstance(source, CredentialProvider):
@@ -354,6 +359,16 @@ class Connections:
         tokens, to revoke them when they are not kept — None for a credential
         the person entered, which is theirs to keep whatever happens here."""
         where = {"owner": link.owner, "provider": link.provider}
+        if link.ephemeral:
+            # A sign-in: the account is the whole answer. The tokens were
+            # issued for the asking and are not kept.
+            if issued_by is not None:
+                await self._revoke_tokens(issued_by, tokens)
+            self._audit_and_tell(EVENT_SIGN_IN, RESULT_OK, account=account.username, **where)
+            return Connected(
+                owner=link.owner, provider=link.provider, account=account, return_to=link.return_to,
+                started_by=link.owner, ephemeral=True,
+            )
         known = dict(facts or {})
         try:
             refusal = (

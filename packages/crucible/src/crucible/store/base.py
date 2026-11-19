@@ -21,6 +21,7 @@ from crucible.ports.chat.directory import AgentInfo
 from crucible.ports.chat.types import KIND_DM
 from crucible.ports.held_cards import HeldCards
 from crucible.ports.lease import Leases
+from crucible.ports.mcp_grants import McpGrants
 from crucible.ports.replica import Replicas
 from crucible.ports.traces import Traces
 
@@ -658,6 +659,10 @@ class ConnectionLinkRecord:
     # Where the application wants to say it went once the connect finishes —
     # opaque here (a message to redraw, say), handed back in ``Connected``.
     return_to: str = ""
+    # A connect made to learn who the person is and nothing more — a sign-in:
+    # the account is named in ``Connected`` and nothing is stored, the tokens
+    # the provider issued are revoked at once.
+    ephemeral: bool = False
 
 
 class ConnectionStore(Protocol):
@@ -797,6 +802,13 @@ class DelegationStore(Protocol):
         ...
 
 
+# -- what the MCP gateway's authorization server issues ----------------------
+
+
+class McpGrantStore(McpGrants, Protocol):
+    """The authorization server's records, kept with the inventory."""
+
+
 # -- what turns cost at the model ---------------------------------------------
 
 
@@ -928,6 +940,7 @@ class Store(
     ConnectionLinkStore,
     DelegationStore,
     UsageStore,
+    McpGrantStore,
     LeaseStore,
     ReplicaStore,
     Protocol,

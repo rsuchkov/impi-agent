@@ -178,9 +178,19 @@ class ConnectionChanged:
     """A person's connected account moved: as the connections audit says it."""
 
     provider: str
-    event: str  # connect_start, connect, refresh, forget, disconnect, grant
+    event: str  # connect_start, connect, sign_in, refresh, forget, disconnect, move, grant
     result: str  # ok, unavailable, rejected, not_connected, revoke_failed; on a connect also the link's
     # word: expired, foreign, denied, account_refused
+
+
+@dataclass(frozen=True)
+class McpGrantChanged:
+    """A client's standing at the MCP gateway's authorization server moved: as
+    the server's audit says it."""
+
+    client: str
+    event: str  # authorize, sign_in, consent, token, refresh, revoke
+    result: str  # ok, denied, refused, reused, expired, unknown_client, unknown_redirect, invalid
 
 
 @dataclass(frozen=True)
@@ -209,7 +219,7 @@ class EngineState:
 
 TelemetryEvent = (
     TurnEnded | ToolCalled | ModelCalled | CardAnswered | McpCalled | McpChecked | TaskRan | ConnectionChanged | BudgetHit
-    | EngineState
+    | EngineState | McpGrantChanged
 )
 
 

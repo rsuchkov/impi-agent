@@ -39,6 +39,7 @@ from crucible.store.mongo.cards import MongoHeldCardMixin
 from crucible.store.mongo.connections import MongoConnectionMixin
 from crucible.store.mongo.delegations import MongoDelegationMixin
 from crucible.store.mongo.leases import MongoLeaseMixin
+from crucible.store.mongo.mcp_grants import MongoMcpGrantMixin
 from crucible.store.mongo.replicas import MongoReplicaMixin
 from crucible.store.mongo.tasks import MongoTaskMixin
 from crucible.store.mongo.traces import MongoTraceMixin
@@ -47,7 +48,7 @@ from crucible.store.mongo.usage import MongoUsageMixin
 
 class MongoSessionStore(
     MongoTaskMixin, MongoApprovalMixin, MongoTraceMixin, MongoConnectionMixin, MongoLeaseMixin,
-    MongoReplicaMixin, MongoHeldCardMixin, MongoDelegationMixin, MongoUsageMixin,
+    MongoReplicaMixin, MongoHeldCardMixin, MongoDelegationMixin, MongoUsageMixin, MongoMcpGrantMixin,
 ):
     """The whole inventory on MongoDB — every facet of the ``Store`` port.
 

@@ -28,6 +28,7 @@ from crucible.store.sqlite.cards import HeldCardStoreMixin
 from crucible.store.sqlite.connections import ConnectionStoreMixin
 from crucible.store.sqlite.delegations import DelegationStoreMixin
 from crucible.store.sqlite.leases import LeaseStoreMixin
+from crucible.store.sqlite.mcp_grants import McpGrantStoreMixin
 from crucible.store.sqlite.replicas import ReplicaStoreMixin
 from crucible.store.sqlite.tasks import TaskStoreMixin
 from crucible.store.sqlite.traces import TraceStoreMixin
@@ -104,7 +105,7 @@ _COLUMNS = (
 
 class SqliteSessionStore(
     TaskStoreMixin, ApprovalStoreMixin, TraceStoreMixin, ConnectionStoreMixin, LeaseStoreMixin,
-    ReplicaStoreMixin, HeldCardStoreMixin, DelegationStoreMixin, UsageStoreMixin,
+    ReplicaStoreMixin, HeldCardStoreMixin, DelegationStoreMixin, UsageStoreMixin, McpGrantStoreMixin,
 ):
     def __init__(self, db_path: str | Path) -> None:
         path = Path(db_path)
@@ -135,6 +136,7 @@ class SqliteSessionStore(
             self._create_held_card_table()  # cards conversations hold outside a turn
             self._create_delegation_table()  # tasks agents handed one another
             self._create_usage_table()  # what turns cost, for the budgets
+            self._create_mcp_grant_tables()  # what the MCP gateway's authorization server issued
             self._create_app_tables()  # whatever the application keeps here too
             self._migrate()
             self._conn.commit()

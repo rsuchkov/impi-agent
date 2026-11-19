@@ -166,6 +166,7 @@ source_modules = [
     "crucible.ports.engine_turn",
     "crucible.ports.held_cards",
     "crucible.ports.lease",
+    "crucible.ports.mcp_grants",
     "crucible.ports.telemetry",
     "crucible.ports.replica",
     "crucible.ports.traces",
