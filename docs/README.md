@@ -65,6 +65,10 @@ people. Keep them accurate to the code.
   services: the frame protocol, conversation isolation, a minimal client.
 - **[http-gateway.md](http-gateway.md)** — the request/turn HTTP API for programs
   that cannot hold a socket: turns, journals, busy, idempotent submits, cards.
+- **[mcp-gateway.md](mcp-gateway.md)** — the engine as an MCP server for an
+  agent on the outside (a library gateway, not run by `impi`): a person signs
+  in and consents, the client's token, `ask_agent` and the application's
+  tools, conversations by handle, tasks, the read and act doors.
 - **[configuration.md](configuration.md)** — every configuration knob: the `.env`
   variables, their defaults, and what reads them.
 - **[installation.md](installation.md)** — deploying the engine in containers:

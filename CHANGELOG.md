@@ -6,6 +6,41 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+- **The engine as an MCP server: the `mcp` gateway.** An agent on the
+  outside — a person's assistant in their IDE, a workflow elsewhere — calls
+  the agents here over MCP (`crucible.gateways.mcp`,
+  [mcp-gateway.md](docs/mcp-gateway.md); a library gateway, which `impi`
+  does not run). `McpHub` answers `POST /mcp` in the stateless revision
+  (2026-07-28): `server/discover`, `tools/list`, `tools/call` — with
+  `notifications/progress` over an event stream for a client that asks —
+  and the tasks methods (`tasks/get`, `tasks/result`, `tasks/cancel`,
+  `tasks/list`) for a call the client cannot wait for: `params.task` answers
+  with a task id at once and the status is read off the turn (`working` with
+  its latest word, `input_required` while a card is up for the person,
+  `completed`, `failed`, `cancelled`). The tools are the application's
+  (`McpGatewayTool` over a `GatewayCall` whose `ask` runs an agent's turn as
+  the person; `AskAgentTool` comes bundled) in a conversation named by a
+  handle in `_meta` and keyed by the person, so there is none to steal. Who
+  calls is a person: `AuthorizationServer` is the OAuth authorization server
+  on the same listener — metadata, `/authorize` for the clients the operator
+  lists (`ClientRegistration`), a sign-in at any of the application's
+  connection providers as an ephemeral connect, a consent page
+  (`ConsentPage`, `DefaultConsentPage`), `/token` with PKCE and rotating
+  refresh tokens whose reuse ends the grant, `/revoke`; grants last twelve
+  hours from the sign-in, access tokens an hour, kept as digests
+  (`McpGrants`: `mcp_auth_requests`, `mcp_grants`, SQLite and MongoDB). Two
+  doors: a `read` token gets the agent without the tools that would ask the
+  person for a yes (`GatewayEntitlements(registry=)`), an `act` token's cards
+  go to the person where the application puts them (`ApprovalCards`), headed
+  "asked through <client>" — never to the client, which speaks for the
+  person and may not answer for them. `GATEWAY_MCP` joins the gateway kinds;
+  `GatewayFactory(mcp_hub=)` builds the handle. **Breaks:** `tools_by_gateway`
+  accepts `mcp`; `Connections.begin(ephemeral=)` and `Connected.ephemeral`,
+  `ConnectionLinkRecord.ephemeral` (a column added on open; a
+  `ConnectionLinkStore` of the application's keeps the field);
+  `CallbackServer(sign_ins=)` hands a finished sign-in to a `SignIns` instead
+  of the connected page; the store grows two tables; `declared` is the name
+  of `tools.wiring._declared`; the telemetry event `McpGrantChanged`.
 - **A grant ceiling of a gateway's own.** `TOOL_MAX_GRANT_S_BY_GATEWAY`
   (`slack=900,mcp=0`; `ToolGate(max_grant_s_by_gateway=)`) gives a gateway
   its own ceiling on "allow for a while"; a gateway not named keeps

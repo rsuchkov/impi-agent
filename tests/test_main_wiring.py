@@ -972,6 +972,9 @@ def test_a_gateway_without_its_tokens_is_left_out_of_the_agents_list(tmp_path: P
     assert [c.kind for c in resolve_gateways(both, "assistant")] == ["mattermost", "slack"]
     default = resolve_gateway(both, "assistant")
     assert default is not None and default.kind == "mattermost"  # the default is the first
+    # The library's mcp gateway is not one impi runs: an agent put on it is skipped, the rest stand.
+    with_mcp = both.model_copy(update={"gateway": "mcp,slack"})
+    assert [c.kind for c in resolve_gateways(with_mcp, "assistant")] == ["slack"]
 
 
 async def test_build_app_reaches_one_agent_through_two_gateways(tmp_path: Path) -> None:

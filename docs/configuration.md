@@ -100,7 +100,7 @@ command in that message's conversation, as a slash command or a shortcut would
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GATEWAY` | `mattermost` | the gateways agents are reached through (`mattermost` \| `slack` \| `ws` \| `http`), as a CSV when several; override per agent with `AGENTS_GATEWAY__<AGENT>` |
+| `GATEWAY` | `mattermost` | the gateways agents are reached through (`mattermost` \| `slack` \| `ws` \| `http`), as a CSV when several; override per agent with `AGENTS_GATEWAY__<AGENT>`. The library's fifth kind, `mcp` ([mcp-gateway.md](mcp-gateway.md)), `impi` does not run: an agent put on it is skipped with a word in the log |
 | `JOIN_RUNNING_TURNS` | `false` | a person's message into a conversation whose turn is running joins that turn, on every gateway (`http` included) — read by the model before its next call, answered in it — instead of waiting for the next turn (chat) or being refused with 409 (`http`); one the turn ends without reading runs next ([http-gateway.md](http-gateway.md)) |
 | `CHANNEL_CONVERSATION_PER_AUTHOR` | `false` | a channel, or a thread in one, is a conversation of its own per person who speaks to the agent there (`AuthorKey`, on every gateway — a ws frame of kind `thread`/`channel` with a `user_id` too): their session and memory, the thread's replies as context either way; the answer still goes in the thread. On where an agent acts with people's own credentials ([security.md](security.md)) |
 

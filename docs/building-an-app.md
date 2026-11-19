@@ -793,6 +793,36 @@ credential, is another user's credential.
   hub's handlers have; `hub.drain()` / `await hub.idle(timeout)` are the
   shutdown pair, and `HttpHub(readiness_probes=…)` gives your own dependencies a
   say in `/readyz` — see [http-gateway.md](http-gateway.md).
+- **The engine as an MCP server for an agent outside** is the `mcp` gateway
+  (`crucible.gateways.mcp`, [mcp-gateway.md](mcp-gateway.md)): `McpHub(host,
+  port, authorization, public_url=…, tools=(AskAgentTool(), …), cards=…,
+  routes=authorization.routes(), turns=…)` plus, per agent,
+  `McpChatClient(hub.turns, name, cards=hub.cards, asker_of=hub.asker_of)` and
+  `hub.turns` as the flow's tracer for `"mcp"`; `GatewayFactory(mcp_hub=hub)`
+  does this for a `GatewayConfig(kind="mcp")`. `authorization` is who holds a
+  bearer token (`Authorization.authenticate(request) -> Principal | None`):
+  `AuthorizationServer(store, connections, public_url=, clients=,
+  sign_in_providers=, consent_page=, subject_of=)` is the engine's own — the
+  OAuth metadata, `/authorize`, a sign-in at one of your connection providers
+  as an ephemeral connect (`CallbackServer(sign_ins=authorization)` carries the
+  person from the callback to the consent page), `/token`, `/revoke`, the
+  records in the store (`McpGrants`) — and a deployment with an authorization
+  server of its own implements the port instead. Yours: the clients
+  (`ClientRegistration`: a name for the consent page, the redirect addresses,
+  loopback or not), the subject a sign-in becomes (`subject_of`: make it what
+  your `PersonKey` can match with the chat user, or the person cannot answer
+  the cards their MCP turns raise), the consent page (`ConsentPage`; the plain
+  one otherwise), where cards go (`ApprovalCards`: `post_confirmation(asker,
+  card, actions, callback_url=)` answering with your post id, `update_confirmation`,
+  `retract` — a direct message in the person's chat, whose click your gateway
+  hands the dispatcher as any card's; `None` refuses every tool that needs a
+  yes), the tools (`McpGatewayTool`: `name`, `description`, `input_schema`,
+  `scope` — `read` or `act` — `requires_task`, `run(call)`; `GatewayCall.ask`
+  runs an agent's turn as the person, `progress` tells the client, `CallFailed`
+  is `isError`), the agent's answer as the client reads it (`presenter`), and
+  `GatewayEntitlements(registry=)` for the read door. Tokens live an hour and
+  the grant twelve (`access_ttl_s`, `grant_ttl_s`); the audit is the logger
+  `crucible.gateways.mcp.audit`, the telemetry event `McpGrantChanged`.
 - **A message joins the running turn.** `MessageCoalescer(join_running_turns=True)`
   puts a message that arrives mid-turn to that turn (`join`, `JoinableSink`)
   instead of queueing it: the flow renders it as the speaker line a prompt

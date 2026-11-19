@@ -87,11 +87,12 @@ trusted server's hint): not a gate of the engine's — it confirms by
 `requires_confirmation` — but the word an application's own auto-approval may
 rely on; a tool that says nothing is never let through without a person.
 `runtime.tools_by_gateway` narrows the list per gateway (`mattermost`, `slack`,
-`ws`, `http`, or `delegation` for the turns on a task another agent handed on):
+`ws`, `http`, `mcp` — the library's gateway, which impi does not run — or
+`delegation` for the turns on a task another agent handed on):
 a subset of `tools` for the gateway named — or `{except: [names]}`,
 everything but those, the form to take a few tools away from one gateway without
 repeating the list — the whole list for one not named; a name the agent's list
-lacks (in a list or an `except`), or a gateway that is not one of the five,
+lacks (in a list or an `except`), or a gateway that is not one of those,
 fails the profile. A tool refused with `not available in this
 conversation` on one gateway and fine on another is this map.
 **Skills need `read` + `bash`** to function (the model reads `SKILL.md` and runs

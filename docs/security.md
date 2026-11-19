@@ -24,7 +24,7 @@ Two facts shape everything below.
 
 ## The boundaries
 
-Five lines are drawn. Each is listed with what crosses it, what enforces it,
+The lines drawn, each listed with what crosses it, what enforces it,
 and what it does not hold against.
 
 ### The model and the engine
@@ -310,6 +310,31 @@ deployment's credential rather than the person's. It bounds what a stolen
 chat session is worth, to the sign-in's lifetime; it does not make the chat
 platform's session short.
 
+### An outside agent and the person behind it
+
+What crosses: an MCP client's call — another model's program, in a person's
+IDE or in a system of its own — into an agent here, as that person
+([mcp-gateway.md](mcp-gateway.md)). The client holds a token the person signed
+in for and consented to; it speaks for them for the grant's twelve hours.
+
+Enforced by: the token — issued only after a sign-in at one of the
+deployment's connection providers and a consent page that names the client,
+to a client the operator listed, for a redirect address that is the client's
+own (loopback, or one listed); PKCE on the code, the code single use, the
+refresh token rotated and the grant ended when one is presented twice; the
+scopes — a `read` token never sees a tool that would ask the person, an `act`
+token's confirmations go to the person in their chat and never to the client,
+with the card saying it was asked through the client; the conversation key,
+which carries the subject, so a handle names only the person's own; and the
+turn's own doors — entitlement, the tool server's allowlist, the gate — as for
+a turn from any gateway.
+
+Does not hold against: the person themselves, who hands the agent's words to
+the client's model and that model's words to the agent; a client that keeps
+the person's token where another program on their machine can read it; and a
+stolen token for the rest of its hour (an hour at most: `/revoke` ends it,
+and so does ending the grant).
+
 ### The deployment and the outside
 
 What crosses: chat traffic (the engine holds a bot token per agent and calls
@@ -442,6 +467,15 @@ decisions an operator makes.
 Things the design does not solve, stated so nobody relies on them by accident.
 
 - **A connect link forwarded to somebody else.** Whoever holds a connect link within its ten minutes finishes it under the person it was made for. For an OAuth provider the lure is the provider's own consent page; for a credential provider it is the engine's form, on the deployment's domain — so the form names whom the link was made for, and `CONNECTION_MATCH_EMAIL__<NAME>` refuses an account whose email is not the person's. A system whose "who am I" names no email leaves the form's word as the only guard; `impi doctor` warns when the match is off for such a provider.
+- **An MCP client is trusted with the agent's words.** What an agent answers
+  through the MCP gateway goes to another model's program, which the person
+  chose and the operator listed; what that program does with it — shows it,
+  sends it on, acts on it — the engine cannot see. An `act` token's
+  confirmations go to the person, not to the program, and `TOOL_MAX_GRANT_S_BY_GATEWAY=mcp=0`
+  keeps every such call read; a `read` token gets the agent without the tools
+  that ask. A grant lasts twelve hours from the sign-in and ends with
+  `/revoke`; tasks a client started are forgotten by a restart, their
+  conversations are not.
 - **An MCP server on stdio runs as the engine.** It is a child of the engine
   process with the engine's rights and no confinement of its own — a service
   the deployment installed, trusted like the engine's code. A server that

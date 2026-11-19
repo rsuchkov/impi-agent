@@ -78,6 +78,11 @@ def resolve_gateway_kind(settings: ImpiSettings, agent: str, kind: str) -> Gatew
         # No per-agent token gate: access is authorized by the callers' own
         # tokens on the hub (WS_SERVICE_TOKEN__* / HTTP_CALLER_TOKEN__*).
         return GatewayConfig(kind=kind, reply_to_agents=settings.agents_reply_to_agents)
+    if kind == "mcp":
+        logger.warning(
+            "agent %s: gateway=mcp is the library's (crucible.gateways.mcp), which impi does not run — skipping", agent
+        )
+        return None
     return GatewayConfig(kind=kind)
 
 
