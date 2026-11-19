@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.54.0 — 2026-11-19
+
 - **The engine as an MCP server: the `mcp` gateway.** An agent on the
   outside — a person's assistant in their IDE, a workflow elsewhere — calls
   the agents here over MCP (`crucible.gateways.mcp`,
