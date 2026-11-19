@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 import aiohttp
@@ -26,9 +26,14 @@ from crucible.gateways.mcp import (
 from crucible.gateways.mcp.hub import RESOURCE_METADATA_PATH
 from crucible.loopguard import LoopGuard
 from crucible.mcp.protocol import HttpTransport, McpClient
-from crucible.ports.agent.events import TextProgress, ToolFinished, ToolStarted
+from crucible.ports.agent.events import (
+    CallAwaiting,
+    TextProgress,
+    ToolFinished,
+    ToolStarted,
+)
 from crucible.ports.chat.client import NobodyToAnswer
-from crucible.ports.chat.flow import TurnOutcome
+from crucible.ports.chat.flow import TurnOutcome, TurnStop
 from crucible.ports.chat.gateway import (
     GATEWAY_KINDS,
     MCP_CLIENT_ATTRIBUTE,
@@ -520,3 +525,204 @@ async def test_a_gateway_call_is_what_a_tool_sees() -> None:
     assert said == ["working"] and call.handle == "" and not call.wants_progress
     with pytest.raises(CallFailed):
         await AskAgentTool().run(GatewayCall(TOKENS["tok-reader"], {}, "", asker=asker, progress=progress))
+
+
+# -- tasks ------------------------------------------------------------------------------
+
+
+class StoppableFakeSink(FakeSink):
+    def __init__(self, script: Script) -> None:
+        super().__init__(script)
+        self.stopped: list[tuple[str, str, str]] = []
+        self.gate = asyncio.Event()
+
+    async def stop(self, conversation_id: str, *, gateway: str = "", user_id: str = "") -> TurnStop:
+        self.stopped.append((conversation_id, gateway, user_id))
+        self.gate.set()  # the turn ends with what it had
+        return TurnStop.STOPPED
+
+
+class TaskTool:
+    name = "long_job"
+    description = "Takes a while and may ask the person."
+    input_schema: Mapping[str, Any] = {"type": "object", "properties": {}}
+    scope = SCOPE_READ
+    requires_task = True
+
+    async def run(self, call: GatewayCall) -> str:
+        await call.progress("warming up")
+        return await call.ask("do the long job")
+
+
+async def _task_call(s, port, name, *, token="tok-reader", ttl=5000, arguments=None):
+    params = {"name": name, "arguments": arguments or {}, "task": {"ttl": ttl}}
+    return await _rpc(s, port, "tools/call", params, headers=_headers(token, method="tools/call"))
+
+
+async def _task_rpc(s, port, method, task_id, *, token="tok-reader"):
+    return await _rpc(s, port, method, {"taskId": task_id}, headers=_headers(token, method=method))
+
+
+@pytest.mark.asyncio
+async def test_a_task_is_polled_through_its_turn_and_read_when_done() -> None:
+    gate = asyncio.Event()
+    cards = FakeCards()
+    card = ApprovalCard(agent="helper", headline="wants to run deploy.", tool="deploy")
+
+    async def slow(msg: IncomingMessage, chat: McpChatClient) -> TurnOutcome:
+        record = SessionRecord("helper", msg.channel_id, msg.conversation_id, "dm", "rs-2", "t", "t")
+        trace = hub.turns.begin(record, chat)
+        trace.on_event(TextProgress("Reading the runbook"))
+        trace.on_event(ToolStarted("c1", "deploy", {}, caption="Deploying"))
+        trace.on_event(CallAwaiting("deploy"))
+        post_id = await chat.post_confirmation(msg.ref, card, [Action(id="ok", label="Allow", value="yes")], callback_url="")
+        await gate.wait()
+        await chat.update_confirmation(post_id, card, [], callback_url="")
+        trace.on_event(ToolFinished("c1", "deploy", is_error=False))
+        await trace.end()
+        await chat.post_reply(msg.ref, "deployed")
+        return TurnOutcome.REPLIED
+
+    hub, _ = _hub(8612, script=slow, tools=(AskAgentTool(), TaskTool()), cards=cards)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, answer, _ = await _rpc(s, 8612, "server/discover")
+            assert answer["result"]["capabilities"]["tasks"] == {"requests": {"tools": {"call": {}}}, "list": {}, "cancel": {}}
+            _, answer, _ = await _rpc(s, 8612, "tools/list")
+            support = {t["name"]: t["execution"]["taskSupport"] for t in answer["result"]["tools"]}
+            assert support == {"ask_agent": "optional", "long_job": "required"}
+            # The task tool called plainly says how it is to be called.
+            _, answer, _ = await _call(s, 8612, "long_job")
+            assert answer["result"]["isError"] is True and "task" in answer["result"]["content"][0]["text"]
+
+            status, answer, _ = await _task_call(s, 8612, "long_job", token="tok-actor")
+            assert status == 200
+            task = answer["result"]["task"]
+            assert task["status"] == "working" and task["ttl"] == 5000 and task["pollInterval"] == 2000
+            task_id = task["taskId"]
+            await asyncio.sleep(0.05)
+            _, answer, _ = await _task_rpc(s, 8612, "tasks/get", task_id, token="tok-actor")
+            got = answer["result"]
+            assert got["status"] == "input_required" and got["statusMessage"] == "waiting for the person's yes to deploy"
+            assert got["createdAt"] and got["lastUpdatedAt"]
+            # The task is its owner's: the same person through another token of
+            # another scope is still the same client; another person is not.
+            _, answer, _ = await _task_rpc(s, 8612, "tasks/get", task_id, token="tok-reader")
+            assert answer["result"]["taskId"] == task_id
+            _, answer, _ = await _task_rpc(s, 8612, "tasks/get", task_id, token="tok-bob")
+            assert answer["error"]["code"] == -32602
+            _, answer, _ = await _rpc(s, 8612, "tasks/list", headers=_headers("tok-actor", method="tasks/list"))
+            assert [t["taskId"] for t in answer["result"]["tasks"]] == [task_id]
+            _, answer, _ = await _rpc(s, 8612, "tasks/list", headers=_headers("tok-bob", method="tasks/list"))
+            assert answer["result"]["tasks"] == []
+
+            gate.set()
+            _, answer, _ = await _task_rpc(s, 8612, "tasks/result", task_id, token="tok-actor")
+            result = answer["result"]
+            assert result["content"] == [{"type": "text", "text": "deployed"}] and result["isError"] is False
+            assert result["_meta"][META_CONVERSATION]
+            _, answer, _ = await _task_rpc(s, 8612, "tasks/get", task_id, token="tok-actor")
+            assert answer["result"]["status"] == "completed" and "statusMessage" not in answer["result"]
+            _, answer, _ = await _task_rpc(s, 8612, "tasks/cancel", task_id, token="tok-actor")
+            assert answer["error"]["code"] == -32602 and "ended" in answer["error"]["message"]
+            assert cards.posted[0][0] == TOKENS["tok-actor"]
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_task_says_what_its_tool_says_and_is_forgotten_after_its_ttl(monkeypatch) -> None:
+    gate = asyncio.Event()
+
+    class Waits:
+        name = "waits"
+        description = "Waits."
+        input_schema = {"type": "object", "properties": {}}
+        scope = SCOPE_READ
+        requires_task = False
+
+        async def run(self, call: GatewayCall) -> str:
+            await call.progress("counting")
+            await gate.wait()
+            return "counted"
+
+    monkeypatch.setattr("crucible.gateways.mcp.hub.RESULT_WAIT_S", 0.05)
+    hub, _ = _hub(8613, tools=(Waits(),))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, answer, _ = await _task_call(s, 8613, "waits", ttl=1)
+            task_id = answer["result"]["task"]["taskId"]
+            assert answer["result"]["task"]["ttl"] == 1
+            await asyncio.sleep(0.02)
+            _, answer, _ = await _task_rpc(s, 8613, "tasks/get", task_id)
+            assert answer["result"] == {**answer["result"], "status": "working", "statusMessage": "counting"}
+            _, answer, _ = await _task_rpc(s, 8613, "tasks/result", task_id)
+            assert answer["error"]["code"] == -32002  # not done: come back
+            gate.set()
+            _, answer, _ = await _task_rpc(s, 8613, "tasks/result", task_id)
+            assert answer["result"]["content"][0]["text"] == "counted" and "_meta" not in answer["result"]
+            await asyncio.sleep(0.01)
+            _, answer, _ = await _task_rpc(s, 8613, "tasks/get", task_id)
+            assert answer["error"]["code"] == -32602  # kept one millisecond, as asked
+            # A huge ttl is capped; a missing one is the default.
+            _, answer, _ = await _task_call(s, 8613, "waits", ttl=10**9)
+            assert answer["result"]["task"]["ttl"] == 3_600_000
+            _, answer, _ = await _rpc(s, 8613, "tools/call", {"name": "waits", "arguments": {}, "task": {}}, headers=_headers(method="tools/call"))
+            assert answer["result"]["task"]["ttl"] == 600_000
+            _, answer, _ = await _rpc(s, 8613, "tools/call", {"name": "waits", "arguments": {}, "task": "yes"}, headers=_headers(method="tools/call"))
+            assert answer["error"]["code"] == -32602
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_task_stops_its_turn() -> None:
+    async def until_stopped(msg: IncomingMessage, chat: McpChatClient) -> TurnOutcome:
+        await sink.gate.wait()
+        await chat.post_notice(msg.ref, "Stopped.", code="stopped")
+        return TurnOutcome.STOPPED
+
+    hub = McpHub("127.0.0.1", 8614, FakeAuthorization(), tools=(AskAgentTool(), TaskTool()))
+    sink = StoppableFakeSink(until_stopped)
+    hub.register_agent("helper", sink, McpChatClient(hub.turns, "helper", cards=None, asker_of=hub.asker_of))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, answer, _ = await _task_call(s, 8614, "long_job")
+            task_id = answer["result"]["task"]["taskId"]
+            await asyncio.sleep(0.05)
+            _, answer, _ = await _task_rpc(s, 8614, "tasks/get", task_id)
+            assert answer["result"]["status"] == "working"
+            _, answer, _ = await _task_rpc(s, 8614, "tasks/cancel", task_id)
+            assert answer["result"]["status"] == "cancelled" and answer["result"]["statusMessage"] == "cancelled by the client"
+            conversation = sink.submitted[0].conversation_id
+            assert sink.stopped == [(conversation, "mcp", "alice@example.com")]
+            await asyncio.sleep(0.05)
+            assert hub.turns.active(conversation) is None  # the turn was closed when the flow ended it
+            _, answer, _ = await _task_rpc(s, 8614, "tasks/result", task_id)
+            assert answer["error"]["code"] == -32602 and "cancelled" in answer["error"]["message"]
+            # The conversation is free for the next call.
+            _, answer, _ = await _rpc(s, 8614, "tasks/get", {"taskId": "nope"}, headers=_headers(method="tasks/get"))
+            assert answer["error"]["code"] == -32602
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_task_whose_tool_breaks_is_failed() -> None:
+    hub, _ = _hub(8615, tools=(BrokenTool(),))
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, answer, _ = await _task_call(s, 8615, "broken")
+            task_id = answer["result"]["task"]["taskId"]
+            await asyncio.sleep(0.02)
+            _, answer, _ = await _task_rpc(s, 8615, "tasks/get", task_id)
+            # The tool's own failure is a result that says so, as in a plain call.
+            assert answer["result"]["status"] == "completed"
+            _, answer, _ = await _task_rpc(s, 8615, "tasks/result", task_id)
+            assert answer["result"]["isError"] is True
+    finally:
+        await hub.stop()

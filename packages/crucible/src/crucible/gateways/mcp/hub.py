@@ -50,6 +50,14 @@ from crucible.gateways.http.journal import (
 from crucible.gateways.http.turns import HttpTurns, Turn, TurnInProgress
 from crucible.gateways.mcp.auth import Authorization, Principal
 from crucible.gateways.mcp.client import ApprovalCards, McpChatClient
+from crucible.gateways.mcp.tasks import (
+    RESULT_WAIT_S,
+    TASK_SUPPORT_OPTIONAL,
+    TASK_SUPPORT_REQUIRED,
+    TERMINAL,
+    McpTask,
+    McpTasks,
+)
 from crucible.gateways.mcp.tools import (
     META_CONVERSATION,
     AskAgentTool,
@@ -67,7 +75,7 @@ from crucible.mcp.protocol import (
     NAME_HEADER,
     PROTOCOL_VERSION_HEADER,
 )
-from crucible.ports.chat.flow import TrackedSink, TurnOutcome
+from crucible.ports.chat.flow import StoppableSink, TrackedSink, TurnOutcome
 from crucible.ports.chat.gateway import (
     GATEWAY_MCP,
     MCP_CLIENT_ATTRIBUTE,
@@ -93,6 +101,8 @@ ERROR_INVALID_REQUEST = -32600
 ERROR_METHOD_NOT_FOUND = -32601
 ERROR_INVALID_PARAMS = -32602
 ERROR_INTERNAL = -32603
+# The server's own: a task's result asked for before the task has ended.
+ERROR_TASK_NOT_DONE = -32002
 # How the gateway keys a principal's conversation: the subject is in the key,
 # so a handle presented for another subject names another conversation.
 _SEP = ":"
@@ -184,6 +194,7 @@ class McpHub:
         self._agents: dict[str, tuple[TrackedSink, McpChatClient]] = {}
         # conversation key -> the principal whose call runs there now.
         self._askers: dict[str, Principal] = {}
+        self.tasks = McpTasks()
         self._runner: web.AppRunner | None = None
 
     # -- agents -------------------------------------------------------------------
@@ -295,7 +306,7 @@ class McpHub:
         if method == "server/discover":
             return self._result(rid, {
                 "supportedVersions": [MODERN_VERSION],
-                "capabilities": {"tools": {}},
+                "capabilities": {"tools": {}, "tasks": {"requests": {"tools": {"call": {}}}, "list": {}, "cancel": {}}},
                 "serverInfo": dict(self._server_info),
                 "instructions": self._instructions,
                 "_meta": {META_SERVER_INFO: dict(self._server_info)},
@@ -306,11 +317,21 @@ class McpHub:
             })
         if method == "tools/call":
             return await self._call(request, principal, params, meta, rid)
+        if method in ("tasks/get", "tasks/result", "tasks/cancel"):
+            return await self._task(principal, method, params, rid)
+        if method == "tasks/list":
+            self.tasks.sweep(asyncio.get_running_loop().time())
+            owner = _task_owner(principal)
+            return self._result(rid, {"tasks": [self._task_wire(task) for task in self.tasks.owned_by(owner)]})
         raise _Refused(ERROR_METHOD_NOT_FOUND, f"{method}: not a method of this server")
 
     @staticmethod
     def _declare(tool: McpGatewayTool) -> dict[str, Any]:
-        return {"name": tool.name, "description": tool.description, "inputSchema": dict(tool.input_schema)}
+        support = TASK_SUPPORT_REQUIRED if tool.requires_task else TASK_SUPPORT_OPTIONAL
+        return {
+            "name": tool.name, "description": tool.description, "inputSchema": dict(tool.input_schema),
+            "execution": {"taskSupport": support},
+        }
 
     # -- tools/call ----------------------------------------------------------------
 
@@ -332,6 +353,16 @@ class McpHub:
         handle = meta.get(META_CONVERSATION, "")
         if handle and not (isinstance(handle, str) and _HANDLE.match(handle)):
             raise _Refused(ERROR_INVALID_PARAMS, f"{META_CONVERSATION} is not a conversation handle of this gateway's")
+        asked_task = params.get("task")
+        if asked_task is not None and not isinstance(asked_task, Mapping):
+            raise _Refused(ERROR_INVALID_PARAMS, "task must be an object")
+        if asked_task is not None:
+            return self._result(rid, {"task": self._start_task(principal, tool, arguments, handle, asked_task)})
+        if tool.requires_task:
+            return self._result(rid, {
+                "content": [{"type": "text", "text": f"{tool.name} runs as a task: call it with task: {{ttl}} and read tasks/get"}],
+                "isError": True,
+            })
         progress_token = meta.get("progressToken")
         streaming = progress_token is not None and "text/event-stream" in request.headers.get("Accept", "")
         if not streaming:
@@ -372,6 +403,71 @@ class McpHub:
         if call.handle:
             result["_meta"] = {META_CONVERSATION: call.handle}
         return result
+
+    # -- tasks ------------------------------------------------------------------------------
+
+    def _start_task(
+        self, principal: Principal, tool: McpGatewayTool, arguments: Mapping[str, Any], handle: str, asked: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        self.tasks.sweep(asyncio.get_running_loop().time())
+        task_id = uuid.uuid4().hex
+        holder: list[McpTask] = []
+
+        async def progress(text: str) -> None:
+            if holder:
+                holder[0].progress(text)
+
+        call = GatewayCall(principal, arguments, handle, asker=self._ask, progress=progress, wants_progress=True)
+        runner = asyncio.ensure_future(self._run(tool, call))
+        task = self.tasks.create(task_id, _task_owner(principal), call, runner, asked)
+        holder.append(task)
+        return self._task_wire(task)
+
+    def _task_wire(self, task: McpTask) -> dict[str, Any]:
+        call = task.call
+        conversation = conversation_key(call.principal.subject, call.handle) if call.handle else ""
+        status, message = task.status(self.turns, conversation)
+        return task.wire(status, message)
+
+    async def _task(self, principal: Principal, method: str, params: Mapping[str, Any], rid: Any) -> web.Response:
+        self.tasks.sweep(asyncio.get_running_loop().time())
+        task_id = params.get("taskId")
+        task = self.tasks.get(_task_owner(principal), task_id) if isinstance(task_id, str) else None
+        if task is None:
+            raise _Refused(ERROR_INVALID_PARAMS, f"unknown task {task_id!r}")
+        if method == "tasks/get":
+            return self._result(rid, self._task_wire(task))
+        if method == "tasks/cancel":
+            status, _ = task.status(self.turns, "")
+            if status in TERMINAL or task.cancelled:
+                raise _Refused(ERROR_INVALID_PARAMS, f"task {task_id} has already ended")
+            await self._cancel(task)
+            return self._result(rid, self._task_wire(task))
+        # tasks/result: the call's result, waited for a while.
+        try:
+            result = await asyncio.wait_for(asyncio.shield(task.runner), RESULT_WAIT_S)
+        except asyncio.TimeoutError as exc:
+            raise _Refused(ERROR_TASK_NOT_DONE, f"task {task_id} is still working; read tasks/get") from exc
+        except asyncio.CancelledError as exc:
+            raise _Refused(ERROR_INVALID_PARAMS, f"task {task_id} was cancelled") from exc
+        except Exception as exc:
+            raise _Refused(ERROR_INTERNAL, f"task {task_id} failed") from exc
+        return self._result(rid, result)
+
+    async def _cancel(self, task: McpTask) -> None:
+        """End the task: the turn it runs, when one runs, and the call."""
+        task.cancelled = True
+        call = task.call
+        if call.handle:
+            conversation = conversation_key(call.principal.subject, call.handle)
+            turn = self.turns.active(conversation)
+            entry = self._agents.get(turn.agent) if turn is not None else None
+            if entry is not None and isinstance(entry[0], StoppableSink):
+                try:
+                    await entry[0].stop(conversation, gateway=GATEWAY_MCP, user_id=call.principal.subject)
+                except Exception:
+                    logger.warning("mcp gateway: could not stop the turn of task %s", task.id, exc_info=True)
+        task.runner.cancel()
 
     # -- a turn for a call ------------------------------------------------------------
 
@@ -502,6 +598,12 @@ class McpHub:
 
 async def _no_progress(text: str) -> None:
     return
+
+
+def _task_owner(principal: Principal) -> str:
+    """Whose a task is: the person and the program together — another client
+    of the same person does not see it."""
+    return f"{principal.subject}\n{principal.client}"
 
 
 async def _event(response: web.StreamResponse, message: Mapping[str, Any]) -> None:
