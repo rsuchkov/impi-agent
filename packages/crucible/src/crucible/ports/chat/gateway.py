@@ -33,6 +33,7 @@ GATEWAY_KINDS = (GATEWAY_MATTERMOST, GATEWAY_SLACK, GATEWAY_WS, GATEWAY_HTTP, GA
 # scopes its token holds, space-separated (``gateways.mcp.auth.SCOPES``). An
 # entitlement source reads them to narrow a read-only client's turn.
 MCP_CLIENT_ATTRIBUTE = "mcp_client"
+MCP_CLIENT_NAME_ATTRIBUTE = "mcp_client_name"  # the operator's name for it ("" when it has none)
 MCP_SCOPES_ATTRIBUTE = "mcp_scopes"
 # What a token lets the client do. ``read``: ask the agent, and use the tools
 # that ask nobody for a yes; ``act``: the whole agent, each confirmation put to

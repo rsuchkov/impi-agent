@@ -117,4 +117,4 @@ class McpChatClient(HttpChatClient):
 def _asked_through(card: ApprovalCard, asker: McpCaller) -> ApprovalCard:
     """The card says the turn was asked through a program: the person reading
     it in their chat did not type the request they are asked to approve."""
-    return replace(card, headline=f"{card.headline} Asked through {asker.client}.")
+    return replace(card, headline=f"{card.headline} Asked through {asker.client_words}.")

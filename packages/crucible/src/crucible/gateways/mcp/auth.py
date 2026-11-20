@@ -27,14 +27,22 @@ class McpCaller:
     issued for, as the application names people (the same key its other
     gateways use for them, so a card the application puts in front of them
     elsewhere is answered by the same person); ``client`` is the program that
-    holds the token; ``scopes`` are what the person let it do (``ports.chat.gateway.MCP_SCOPES``);
-    ``username`` is the person's name for the prompt (``subject`` when
-    empty)."""
+    holds the token — its id, a URL for a client that publishes its metadata
+    — and ``client_name`` the operator's name for it, for a person's eyes
+    ("" when it has none); ``scopes`` are what the person let it do
+    (``ports.chat.gateway.MCP_SCOPES``); ``username`` is the person's name
+    for the prompt (``subject`` when empty)."""
 
     subject: str
     client: str
     scopes: frozenset[str] = frozenset({MCP_SCOPE_READ})
     username: str = ""
+    client_name: str = ""
+
+    @property
+    def client_words(self) -> str:
+        """The client as a person is told of it: its name, else its id."""
+        return self.client_name or self.client
 
     def allows(self, scope: str) -> bool:
         return scope in self.scopes

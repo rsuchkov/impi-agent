@@ -6,7 +6,41 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The MCP gateway speaks the tasks extension of 2026-07-28, and a short
+  client gets its answer too.** Tasks as the revision has them: a client
+  declares `io.modelcontextprotocol/tasks` on the request, the server decides
+  — a call that runs a turn (`McpGatewayTool.long_running`, `ask_agent`)
+  answers at once with a flat `CreateTaskResult` (`resultType: "task"`) and
+  is polled with `tasks/get` until `completed` with the call's `result`,
+  `failed` with an `error`, or `cancelled`; `tasks/update` is acknowledged
+  (nothing here asks the client for input), `tasks/cancel` is cooperative;
+  every result carries `resultType`. A client without the extension waits
+  `McpHub(call_wait_s=45)` and gets where the turn stands as an ordinary
+  result — the step, or that the person is being asked in their chat — with
+  the conversation in `structuredContent`, and comes back with the bundled
+  `wait_agent`; a call into a busy conversation joins the wait, and the same
+  request again within `repeat_window_s` joins the turn it opened. The
+  conversation's handle is the tool's own argument (`conversation_argument`,
+  `conversation` on `ask_agent` and `wait_agent`) and the result's last line,
+  where the client's model reads it. Turns are written down as they go
+  (`McpTurns`, `mcp_turns` in SQLite and MongoDB: state, step, answer, which
+  replica runs it), so a poll, a wait or a cancel may land on any replica,
+  and a turn whose replica is gone is failed rather than waited for. Grants
+  stand twelve hours unused and a week at most (`grant_idle_s`,
+  `grant_max_s`); the application is asked at every refresh whether the
+  grant still holds (`GrantPolicy.still_holds -> GrantStanding`), turns a
+  sign-in into a subject asynchronously and may refuse with a page of its
+  own (`subject_of(connected, request) -> Subject | response`); the metadata
+  says `authorization_response_iss_parameter_supported`. A card an MCP turn
+  raises names the client by the operator's name (`McpCaller.client_name`,
+  `mcp_client_name` on the turn) rather than its id. **Breaks:** the tasks
+  contract of v0.54.0 is gone — `params.task`, `tasks/result`, `tasks/list`,
+  `execution.taskSupport` and `ping` are not served, `requires_task` is
+  `long_running`; `McpHub(store=)` is required and `McpGatewayTool` has
+  `conversation_argument`; the `Store` port grows `McpTurns` (one table,
+  seven methods); `AuthorizationServer(grant_ttl_s=)` is `grant_idle_s`
+  and `grant_max_s`, and `subject_of` is asynchronous with the request;
+  `GatewayCall` takes `wait_turn=`.
 
 ## v0.54.0 — 2026-11-19
 

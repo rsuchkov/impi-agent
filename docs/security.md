@@ -315,15 +315,17 @@ platform's session short.
 What crosses: an MCP client's call — another model's program, in a person's
 IDE or in a system of its own — into an agent here, as that person
 ([mcp-gateway.md](mcp-gateway.md)). The client holds a token the person signed
-in for and consented to; it speaks for them for the grant's twelve hours.
+in for and consented to; it speaks for them while the grant stands — twelve
+hours unused, a week at most.
 
 Enforced by: the token — issued only after a sign-in at one of the
 deployment's connection providers and a consent page that names the client
 and is bound by a cookie to the browser that signed in, to a client the
 operator listed, for a redirect address that is the client's
 own (loopback, or one listed); PKCE on the code, the code single use, the
-refresh token rotated and the grant ended when one is presented twice; the
-scopes — a `read` token never sees a tool that would ask the person, an `act`
+refresh token rotated and the grant ended when one is presented twice, and the
+application asked at every refresh whether the person still holds what the
+grant gives; the scopes — a `read` token never sees a tool that would ask the person, an `act`
 token's confirmations go to the person in their chat and never to the client,
 with the card saying it was asked through the client; the conversation key,
 which carries the subject, so a handle names only the person's own; and the
@@ -476,9 +478,10 @@ Things the design does not solve, stated so nobody relies on them by accident.
   keeps every such call read; a `read` token gets the agent without the tools
   that ask — not without a runtime's built-ins that act without asking
   (`bash`, `write`, `edit`), which `tools_by_gateway: {mcp: [...]}` takes
-  away where `read` tokens are handed out. A grant lasts twelve hours from the sign-in and ends with
-  `/revoke`; tasks a client started are forgotten by a restart, their
-  conversations are not.
+  away where `read` tokens are handed out. A grant lasts twelve hours
+  unused and a week at most, and ends with `/revoke` or the application's
+  word at a refresh; a turn a replica was running when it stopped is failed,
+  its conversation is not.
 - **An MCP server on stdio runs as the engine.** It is a child of the engine
   process with the engine's rights and no confinement of its own — a service
   the deployment installed, trusted like the engine's code. A server that

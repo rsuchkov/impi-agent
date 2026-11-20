@@ -190,7 +190,7 @@ class McpGrantChanged:
 
     client: str
     event: str  # authorize, sign_in, consent, token, refresh, revoke
-    result: str  # ok, denied, refused, reused, expired, unknown_client, unknown_redirect, invalid
+    result: str  # ok, denied, refused, reused, expired, ended, unavailable, unknown_client, unknown_redirect, invalid
 
 
 @dataclass(frozen=True)

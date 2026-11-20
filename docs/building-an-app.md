@@ -795,14 +795,17 @@ credential, is another user's credential.
   say in `/readyz` — see [http-gateway.md](http-gateway.md).
 - **The engine as an MCP server for an agent outside** is the `mcp` gateway
   (`crucible.gateways.mcp`, [mcp-gateway.md](mcp-gateway.md)): `McpHub(host,
-  port, authorization, public_url=…, tools=(AskAgentTool(), …), cards=…,
-  routes=authorization.routes(), turns=…)` plus, per agent,
+  port, authorization, store=…, public_url=…, tools=(AskAgentTool(),
+  WaitAgentTool(), …), cards=…, routes=authorization.routes(), turns=…,
+  replica=…, replicas=…, call_wait_s=45)` — `store` the engine's, where every
+  replica reads a turn's record (`McpTurns`), `replica`/`replicas` which pod
+  runs a turn and who is alive — plus, per agent,
   `McpChatClient(hub.turns, name, cards=hub.cards, asker_of=hub.asker_of)` and
   `hub.turns` as the flow's tracer for `"mcp"`; `GatewayFactory(mcp_hub=hub)`
   does this for a `GatewayConfig(kind="mcp")`. `authorization` is who holds a
   bearer token (`Authorization.authenticate(request) -> McpCaller | None`):
   `AuthorizationServer(store, connections, public_url=, clients=,
-  sign_in_providers=, consent_page=, subject_of=)` (`crucible.mcp_authorization`,
+  sign_in_providers=, consent_page=, subject_of=, policy=)` (`crucible.mcp_authorization`,
   a module over the gateway and the connections) is the engine's own — the
   OAuth metadata, `/authorize`, a sign-in at one of your connection providers
   as a sign-in connect (`CallbackServer(sign_ins=authorization)` carries the
@@ -810,21 +813,26 @@ credential, is another user's credential.
   records in the store (`McpGrants`) — and a deployment with an authorization
   server of its own implements the port instead. Yours: the clients
   (`ClientRegistration`: a name for the consent page, the redirect addresses,
-  loopback or not), the subject a sign-in becomes (`subject_of`: make it what
-  your `PersonKey` can match with the chat user, or the person cannot answer
-  the cards their MCP turns raise), the consent page (`ConsentPage`; the plain
+  loopback or not), the subject a sign-in becomes (`async subject_of(connected,
+  request) -> Subject | web.StreamResponse`: make `Subject.id` what your
+  `PersonKey` can match with the chat user, or the person cannot answer the
+  cards their MCP turns raise; a response is your own refusal page), whether
+  a grant still holds at each refresh (`GrantPolicy.still_holds(grant) ->
+  GrantStanding`, for a person who left or lost the group), the consent page (`ConsentPage`; the plain
   one otherwise), where cards go (`ApprovalCards`: `post_confirmation(asker,
   card, actions, callback_url=)` answering with your post id, `update_confirmation`,
   `retract` — a direct message in the person's chat, whose click your gateway
   hands the dispatcher as any card's; `None` refuses every tool that needs a
   yes), the tools (`McpGatewayTool`: `name`, `description`, `input_schema`,
-  `scope` — `read` or `act` — `requires_task`, `run(call)`; `GatewayCall.ask`
-  runs an agent's turn as the person, `progress` tells the client, `CallFailed`
+  `scope` — `read` or `act` — `long_running`, `conversation_argument`,
+  `run(call)`; `GatewayCall.ask` runs an agent's turn as the person, `wait`
+  waits for a conversation's turn, `progress` tells the client, `CallFailed`
   is `isError`), the agent's answer as the client reads it (`presenter`), and
   `McpScopeEntitlements(spec_of, registry, inner=…)` as the gateway source's
-  inner for the read door. Tokens live an hour and the grant twelve
-  (`access_ttl_s`, `grant_ttl_s`); the audit is the logger
-  `crucible.mcp_authorization.audit`, the telemetry event `McpGrantChanged`.
+  inner for the read door. Tokens live an hour (`access_ttl_s`), the grant
+  twelve hours unused and a week at most (`grant_idle_s`, `grant_max_s`); the
+  audit is the logger `crucible.mcp_authorization.audit`, the telemetry event
+  `McpGrantChanged`.
 - **A message joins the running turn.** `MessageCoalescer(join_running_turns=True)`
   puts a message that arrives mid-turn to that turn (`join`, `JoinableSink`)
   instead of queueing it: the flow renders it as the speaker line a prompt

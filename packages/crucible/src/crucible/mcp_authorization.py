@@ -7,9 +7,12 @@ protected-resource metadata where to authorize, sends the person's browser to
 the person proves who they are by signing in at one of the application's
 connection providers — a sign-in connect through ``Connections``, which
 names the account and keeps nothing — then sees who asks for what and allows
-or declines (``ConsentPage``). The grant stands from the sign-in for
-``grant_ttl_s``; access tokens are short and refreshed with a rotating refresh
-token, a refresh token presented twice ends the grant.
+or declines (``ConsentPage``). The grant stands while the client keeps using
+it — ``grant_idle_s`` from the last refresh — and ``grant_max_s`` from the
+sign-in at most; access tokens are short and refreshed with a rotating refresh
+token, a refresh token presented twice ends the grant, and the application is
+asked at every refresh whether the person still holds what the grant gives
+(``GrantPolicy``).
 
 Clients are not registered dynamically: the operator lists them
 (``ClientRegistration``) with the redirect addresses each may be sent back to,
@@ -33,9 +36,10 @@ import html
 import logging
 import secrets
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from enum import Enum, auto
 from typing import Any, Protocol
 from urllib.parse import urlencode, urlsplit
 
@@ -77,10 +81,16 @@ RESULT_DENIED = "denied"  # the person declined
 RESULT_REFUSED = "refused"  # the request did not hold up (PKCE, the code, the client)
 RESULT_REUSED = "reused"  # a refresh token presented again: the grant ends
 RESULT_EXPIRED = "expired"
+RESULT_ENDED = "ended"  # the application's policy ended the grant at a refresh
+RESULT_UNAVAILABLE = "unavailable"  # the policy could not answer
 RESULT_UNKNOWN_CLIENT = "unknown_client"
 RESULT_UNKNOWN_REDIRECT = "unknown_redirect"
 RESULT_INVALID = "invalid"
-GRANT_TTL_S = 12 * 3600
+# A grant ends after this long unused, and after this long from the sign-in
+# however used. Twelve hours idle and a week at most: an application that
+# signs its people in less often says so.
+GRANT_IDLE_S = 12 * 3600
+GRANT_MAX_S = 7 * 24 * 3600
 ACCESS_TTL_S = 3600
 REQUEST_TTL_S = 600
 CODE_TTL_S = 60
@@ -185,11 +195,41 @@ _SCOPE_WORDS = {
 }
 
 
-def _subject_of(connected: Connected) -> tuple[str, str]:
+@dataclass(frozen=True)
+class Subject:
+    """Who a sign-in made the person, for the gateway: ``id`` is the subject
+    the turns run as (what the application's ``PersonKey`` can match with the
+    chat user), ``name`` the person's name for the prompt."""
+
+    id: str
+    name: str = ""
+
+
+async def _subject_of(connected: Connected, request: web.Request) -> Subject:
     """The default: the provider's name and the account's id, and the
     account's username for the prompt."""
     account = connected.account
-    return f"{connected.provider}:{account.id}", account.username or account.name or account.email or account.id
+    return Subject(
+        f"{connected.provider}:{account.id}", account.username or account.name or account.email or account.id,
+    )
+
+
+class GrantStanding(Enum):
+    """What the application says of a grant when asked at a refresh."""
+
+    HOLDS = auto()  # the person still has what the grant gives
+    ENDED = auto()  # they do not: the grant ends, the client signs them in again
+    UNAVAILABLE = auto()  # the application cannot tell right now: the refresh waits
+
+
+class GrantPolicy(Protocol):
+    """The application's word on a grant that is about to be refreshed —
+    whether the person still holds what it gives (still employed, still in
+    the group that may use the agent). Asked at every refresh; a grant the
+    policy ends is gone, and a client whose answer cannot be had is told to
+    try again later."""
+
+    async def still_holds(self, grant: McpGrant) -> GrantStanding: ...
 
 
 class AuthorizationServer:
@@ -199,8 +239,11 @@ class AuthorizationServer:
     clients reach the listener from outside: the issuer, and the base of
     every address in the metadata. ``sign_in_providers`` are the connection
     providers a person may sign in at (every one the application has, when
-    None); ``subject_of`` turns the account a sign-in named into the subject
-    the gateway runs turns as and the name the prompt shows."""
+    None); ``subject_of`` turns the account a sign-in named into the
+    ``Subject`` the gateway runs turns as — or answers the browser itself
+    with a page of the application's, a refusal in its own words, and no
+    sign-in is made; ``policy`` is asked at every refresh whether the grant
+    still holds."""
 
     def __init__(
         self,
@@ -211,8 +254,10 @@ class AuthorizationServer:
         clients: Mapping[str, ClientRegistration],
         sign_in_providers: Sequence[str] | None = None,
         consent_page: ConsentPage | None = None,
-        subject_of: Callable[[Connected], tuple[str, str]] = _subject_of,
-        grant_ttl_s: float = GRANT_TTL_S,
+        subject_of: Callable[[Connected, web.Request], Awaitable[Subject | web.StreamResponse]] = _subject_of,
+        policy: GrantPolicy | None = None,
+        grant_idle_s: float = GRANT_IDLE_S,
+        grant_max_s: float = GRANT_MAX_S,
         access_ttl_s: float = ACCESS_TTL_S,
         request_ttl_s: float = REQUEST_TTL_S,
         code_ttl_s: float = CODE_TTL_S,
@@ -227,7 +272,9 @@ class AuthorizationServer:
         self._providers = tuple(sign_in_providers) if sign_in_providers is not None else connections.providers
         self._consent: ConsentPage = consent_page if consent_page is not None else DefaultConsentPage()
         self._subject_of = subject_of
-        self._grant_ttl_s = grant_ttl_s
+        self._policy = policy
+        self._grant_idle_s = grant_idle_s
+        self._grant_max_s = grant_max_s
         self._access_ttl_s = access_ttl_s
         self._request_ttl_s = request_ttl_s
         self._code_ttl_s = code_ttl_s
@@ -269,6 +316,7 @@ class AuthorizationServer:
             return None  # a client struck off the list is out, tokens or no tokens
         return McpCaller(
             subject=grant.subject, client=grant.client, scopes=frozenset(grant.scope.split()), username=grant.username,
+            client_name=self._name_of(grant.client),
         )
 
     # -- metadata ------------------------------------------------------------------
@@ -289,6 +337,7 @@ class AuthorizationServer:
             "token_endpoint": base + TOKEN_PATH,
             "revocation_endpoint": base + REVOKE_PATH,
             "response_types_supported": ["code"],
+            "authorization_response_iss_parameter_supported": True,
             "grant_types_supported": ["authorization_code", "refresh_token"],
             "code_challenge_methods_supported": ["S256"],
             "token_endpoint_auth_methods_supported": ["none"],
@@ -378,18 +427,22 @@ class AuthorizationServer:
         if record is None or record.subject:
             self._tell(EVENT_SIGN_IN, RESULT_EXPIRED, client=record.client if record else "")
             return _refusal(400, "This sign-in has expired or was already made. Start again from your client.")
-        subject, username = self._subject_of(connected)
-        if not subject:
+        subject = await self._subject_of(connected, request)
+        if not isinstance(subject, Subject) or not subject.id:
+            # The application's own refusal — its page, its words — or none
+            # at all: the request stands unsigned, and the sign-in link is spent.
             self._tell(EVENT_SIGN_IN, RESULT_REFUSED, client=record.client)
+            if isinstance(subject, web.StreamResponse):
+                return subject
             return _refusal(403, "The account you signed in with cannot use the agent here.")
         # The browser that signed in is the one that may consent: it alone gets
         # the cookie, and the consent page asks for it. The client that started
         # the request knows its id and nothing else.
         browser = secrets.token_urlsafe(24)
         await self._grants.put_mcp_request(replace(
-            record, subject=subject, username=username, browser_hash=_digest(browser),
+            record, subject=subject.id, username=subject.name, browser_hash=_digest(browser),
         ))
-        self._tell(EVENT_SIGN_IN, RESULT_OK, client=record.client, subject=subject, provider=connected.provider)
+        self._tell(EVENT_SIGN_IN, RESULT_OK, client=record.client, subject=subject.id, provider=connected.provider)
         response = web.HTTPSeeOther(f"{self._public_url}{CONSENT_PATH}/{record.id}", headers=SAFE_HEADERS)
         response.set_cookie(
             CONSENT_COOKIE, browser, path=CONSENT_PATH, httponly=True, samesite="Lax",
@@ -485,7 +538,7 @@ class AuthorizationServer:
         now = self._clock()
         grant = McpGrant(
             id=uuid.uuid4().hex, subject=record.subject, username=record.username, client=record.client,
-            scope=record.scope, signed_in_at=_iso(now), expires_at=_iso(now + timedelta(seconds=self._grant_ttl_s)),
+            scope=record.scope, signed_in_at=_iso(now), expires_at=_iso(now),
             access_hash="", access_expires_at="", refresh_hash="",
         )
         grant, access, refresh = self._rotated(grant, now)
@@ -513,6 +566,19 @@ class AuthorizationServer:
             await self._grants.delete_mcp_grant(grant.id)
             self._tell(EVENT_REFRESH, RESULT_EXPIRED, client=grant.client, subject=grant.subject)
             return _token_error("invalid_grant", "the grant has expired: sign in again")
+        if self._policy is not None:
+            try:
+                standing = await self._policy.still_holds(grant)
+            except Exception:
+                logger.warning("mcp authorization: the grant policy failed", exc_info=True)
+                standing = GrantStanding.UNAVAILABLE
+            if standing is GrantStanding.ENDED:
+                await self._grants.delete_mcp_grant(grant.id)
+                self._tell(EVENT_REFRESH, RESULT_ENDED, client=grant.client, subject=grant.subject)
+                return _token_error("invalid_grant", "the grant was ended: sign in again")
+            if standing is GrantStanding.UNAVAILABLE:
+                self._tell(EVENT_REFRESH, RESULT_UNAVAILABLE, client=grant.client, subject=grant.subject)
+                return _token_error("temporarily_unavailable", "whether the grant still holds cannot be told right now; try again", status=503)
         rotated, access, refresh = self._rotated(grant, now)
         if not await self._grants.replace_mcp_grant(rotated, expected_refresh_hash=grant.refresh_hash):
             self._tell(EVENT_REFRESH, RESULT_REFUSED, client=grant.client, subject=grant.subject)
@@ -521,12 +587,15 @@ class AuthorizationServer:
         return self._tokens(rotated, access, refresh, now)
 
     def _rotated(self, grant: McpGrant, now: datetime) -> tuple[McpGrant, str, str]:
-        """New tokens for the grant; the access token ends with the grant at
-        the latest."""
+        """New tokens for the grant, and a new end for it: the idle span from
+        now, the most from the sign-in; the access token ends with the grant
+        at the latest."""
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        until = min(now + timedelta(seconds=self._access_ttl_s), datetime.fromisoformat(grant.expires_at))
+        signed_in = datetime.fromisoformat(grant.signed_in_at)
+        ends = min(now + timedelta(seconds=self._grant_idle_s), signed_in + timedelta(seconds=self._grant_max_s))
+        until = min(now + timedelta(seconds=self._access_ttl_s), ends)
         rotated = replace(
-            grant, access_hash=_digest(access), access_expires_at=_iso(until),
+            grant, expires_at=_iso(ends), access_hash=_digest(access), access_expires_at=_iso(until),
             refresh_hash=_digest(refresh), previous_refresh_hash=grant.refresh_hash,
         )
         return rotated, access, refresh
@@ -579,9 +648,9 @@ class AuthorizationServer:
             logger.warning("telemetry failed to record an authorization event", exc_info=True)
 
 
-def _token_error(error: str, description: str) -> web.Response:
+def _token_error(error: str, description: str, *, status: int = 400) -> web.Response:
     return web.json_response(
-        {"error": error, "error_description": description}, status=400, headers={"Cache-Control": "no-store"}
+        {"error": error, "error_description": description}, status=status, headers={"Cache-Control": "no-store"}
     )
 
 

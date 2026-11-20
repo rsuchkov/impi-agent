@@ -38,6 +38,7 @@ from crucible.ports.chat.flow import TurnOutcome, TurnStop
 from crucible.ports.chat.gateway import (
     GATEWAY_KINDS,
     MCP_CLIENT_ATTRIBUTE,
+    MCP_CLIENT_NAME_ATTRIBUTE,
     MCP_SCOPE_ACT,
     MCP_SCOPE_READ,
     MCP_SCOPES_ATTRIBUTE,
@@ -60,7 +61,9 @@ Script = Callable[[IncomingMessage, McpChatClient], Awaitable[TurnOutcome]]
 VERSION = "2026-07-28"
 TOKENS = {
     "tok-reader": McpCaller("alice@example.com", "ide-client", frozenset({MCP_SCOPE_READ}), username="alice"),
-    "tok-actor": McpCaller("alice@example.com", "ide-client", frozenset({MCP_SCOPE_READ, MCP_SCOPE_ACT}), username="alice"),
+    "tok-actor": McpCaller(
+        "alice@example.com", "ide-client", frozenset({MCP_SCOPE_READ, MCP_SCOPE_ACT}), username="alice", client_name="The IDE",
+    ),
     "tok-bob": McpCaller("bob@example.com", "ide-client", frozenset({MCP_SCOPE_READ})),
 }
 WITH_TASKS = {"io.modelcontextprotocol/clientCapabilities": {"extensions": {TASKS_EXTENSION: {}}}}
@@ -282,7 +285,9 @@ async def test_discover_list_and_a_call_run_a_turn_as_the_person() -> None:
             assert msg.gateway == "mcp" and msg.user_id == "alice@example.com" and msg.username == "alice"
             assert msg.kind == KIND_DM and msg.is_dm and msg.mentioned
             assert msg.conversation_id == conversation_key("alice@example.com", handle)
-            assert msg.turn is not None and msg.turn.attributes == {MCP_CLIENT_ATTRIBUTE: "ide-client", MCP_SCOPES_ATTRIBUTE: "read"}
+            assert msg.turn is not None and msg.turn.attributes == {
+                MCP_CLIENT_ATTRIBUTE: "ide-client", MCP_CLIENT_NAME_ATTRIBUTE: "", MCP_SCOPES_ATTRIBUTE: "read",
+            }
             assert msg.turn.turn_id
 
             # The handle, as the tool's argument or in _meta, continues the
@@ -558,7 +563,7 @@ async def test_a_card_goes_to_the_person_through_the_application_not_to_the_clie
             asker, posted_card, posted_actions = cards.posted[0]
             assert asker == TOKENS["tok-actor"] and posted_actions == actions
             # The person reads in their chat that a program asked, not they.
-            assert posted_card.headline == "wants to run deploy. Asked through ide-client." and posted_card.tool == "deploy"
+            assert posted_card.headline == "wants to run deploy. Asked through The IDE." and posted_card.tool == "deploy"
             assert seen["status"] == "awaiting_input"  # the journal says the turn waits
             assert cards.updated == [("slack-1", card, [])]  # a verdict rewrites it as the gate wrote it
             assert cards.retracted == [("slack-1", "withdrawn")]

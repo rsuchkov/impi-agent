@@ -15,7 +15,7 @@ import aiohttp
 import pytest
 from aiohttp import web
 
-from crucible.connections import Connections
+from crucible.connections import Connections, ProviderAccount
 from crucible.connections.callback import CALLBACK_PATH, CallbackServer
 from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.gateways.mcp import MCP_PATH, McpChatClient, McpHub
@@ -33,6 +33,8 @@ from crucible.mcp_authorization import (
     AuthorizationServer,
     ClientRegistration,
     ConsentRequest,
+    GrantStanding,
+    Subject,
 )
 from crucible.ports.telemetry import McpGrantChanged
 from crucible.store.sqlite import SqliteSessionStore
@@ -66,6 +68,18 @@ class Recorder:
         self.events.append(event)
 
 
+class Policy:
+    """The application's word at a refresh: holds, unless told otherwise."""
+
+    def __init__(self) -> None:
+        self.standing = GrantStanding.HOLDS
+        self.asked: list[str] = []
+
+    async def still_holds(self, grant):
+        self.asked.append(grant.subject)
+        return self.standing
+
+
 @dataclass
 class World:
     hub: McpHub
@@ -78,11 +92,12 @@ class World:
     clock: Clock
     telemetry: Recorder
     sink: FakeSink
+    policy: "Policy"
 
 
 @pytest.fixture
 async def world(tmp_path: Path) -> AsyncIterator[World]:
-    clock, provider, telemetry = Clock(), FakeProvider(), Recorder()
+    clock, provider, telemetry, policy = Clock(), FakeProvider(), Recorder(), Policy()
     store = SqliteSessionStore(tmp_path / "s.db")
     links = MemoryLinkStore()
     connections = Connections(
@@ -91,7 +106,7 @@ async def world(tmp_path: Path) -> AsyncIterator[World]:
     )
     server = AuthorizationServer(
         store, connections, public_url=PUBLIC, clients=CLIENTS, clock=clock, telemetry=telemetry,
-        grant_ttl_s=12 * 3600, access_ttl_s=3600,
+        grant_idle_s=12 * 3600, grant_max_s=7 * 24 * 3600, access_ttl_s=3600, policy=policy,
     )
     hub = McpHub("127.0.0.1", HUB_PORT, server, store=MemoryMcpTurns(), public_url=PUBLIC, routes=server.routes())
     sink = FakeSink(_reply)
@@ -100,7 +115,7 @@ async def world(tmp_path: Path) -> AsyncIterator[World]:
     await hub.start()
     await callback.start()
     try:
-        yield World(hub, server, callback, connections, provider, store, links, clock, telemetry, sink)
+        yield World(hub, server, callback, connections, provider, store, links, clock, telemetry, sink, policy)
     finally:
         await callback.stop()
         await hub.stop()
@@ -172,6 +187,7 @@ async def test_a_client_signs_the_person_in_consents_and_calls_with_the_token(wo
         assert metadata["token_endpoint"] == f"{PUBLIC}{TOKEN_PATH}" and metadata["revocation_endpoint"] == f"{PUBLIC}{REVOKE_PATH}"
         assert metadata["code_challenge_methods_supported"] == ["S256"] and "registration_endpoint" not in metadata
         assert metadata["client_id_metadata_document_supported"] is True
+        assert metadata["authorization_response_iss_parameter_supported"] is True  # the redirect carries iss
 
         # 2. Authorize → sign in at the provider → consent → a code to the client.
         verifier, challenge = _pkce()
@@ -206,6 +222,7 @@ async def test_a_client_signs_the_person_in_consents_and_calls_with_the_token(wo
         msg = w.sink.submitted[0]
         assert msg.user_id == "okta:7" and msg.username == "alice"
         assert msg.turn is not None and msg.turn.attributes["mcp_client"] == IDE and msg.turn.attributes["mcp_scopes"] == "act read"
+        assert msg.turn.attributes["mcp_client_name"] == "The IDE"  # the operator's name, for a person's eyes
 
     events = [(e.event, e.result) for e in w.telemetry.events]
     assert events == [("authorize", "ok"), ("sign_in", "ok"), ("consent", "ok"), ("token", "ok"), ("token", "refused")]
@@ -252,15 +269,57 @@ async def test_tokens_end_with_the_grant_and_a_revoke_ends_them_at_once(world: W
         _, tokens = await _tokens(
             s, grant_type="authorization_code", code=code, redirect_uri=REDIRECT, client_id=IDE, code_verifier=verifier,
         )
-        # Near the grant's end an access token lives only as long as the grant.
+        # A refresh keeps the grant alive: the idle span starts again from it.
         w.clock.advance(12 * 3600 - 600)
+        status, kept = await _tokens(s, grant_type="refresh_token", refresh_token=tokens["refresh_token"], client_id=IDE)
+        assert status == 200 and kept["expires_in"] == 3600  # a fresh hour: the grant now ends twelve hours from here
+        assert w.policy.asked == ["okta:7"]  # the application was asked whether it still holds
+        # Unused for the idle span, the grant ends.
+        w.clock.advance(12 * 3600 + 1)
+        async with await _call(s, kept["access_token"]) as r:
+            assert r.status == 401
+        status, body = await _tokens(s, grant_type="refresh_token", refresh_token=kept["refresh_token"], client_id=IDE)
+        assert status == 400 and "sign in again" in body["error_description"]
+
+        # Refreshed every hour, the grant still ends a week from the sign-in;
+        # near that end an access token lives only as long as the grant.
+        w.clock.advance(1)
+        verifier, challenge = _pkce()
+        async with await _sign_in_and_consent(s, w, challenge) as r:
+            code = _query(r.headers["Location"])["code"]
+        _, tokens = await _tokens(
+            s, grant_type="authorization_code", code=code, redirect_uri=REDIRECT, client_id=IDE, code_verifier=verifier,
+        )
+        for _ in range(7 * 24 - 1):
+            w.clock.advance(3600)
+            status, tokens = await _tokens(s, grant_type="refresh_token", refresh_token=tokens["refresh_token"], client_id=IDE)
+            assert status == 200
+        w.clock.advance(3000)
         status, late = await _tokens(s, grant_type="refresh_token", refresh_token=tokens["refresh_token"], client_id=IDE)
         assert status == 200 and late["expires_in"] == 600
         w.clock.advance(601)
-        async with await _call(s, late["access_token"]) as r:
-            assert r.status == 401
         status, body = await _tokens(s, grant_type="refresh_token", refresh_token=late["refresh_token"], client_id=IDE)
         assert status == 400 and "sign in again" in body["error_description"]
+
+        # The application's word at a refresh: ended, or not to be had right now.
+        w.clock.advance(1)
+        verifier, challenge = _pkce()
+        async with await _sign_in_and_consent(s, w, challenge) as r:
+            code = _query(r.headers["Location"])["code"]
+        _, tokens = await _tokens(
+            s, grant_type="authorization_code", code=code, redirect_uri=REDIRECT, client_id=IDE, code_verifier=verifier,
+        )
+        w.policy.standing = GrantStanding.UNAVAILABLE
+        status, body = await _tokens(s, grant_type="refresh_token", refresh_token=tokens["refresh_token"], client_id=IDE)
+        assert status == 503 and body["error"] == "temporarily_unavailable"
+        async with await _call(s, tokens["access_token"]) as r:
+            assert r.status == 200  # the access token stands meanwhile
+        w.policy.standing = GrantStanding.ENDED
+        status, body = await _tokens(s, grant_type="refresh_token", refresh_token=tokens["refresh_token"], client_id=IDE)
+        assert status == 400 and "was ended" in body["error_description"]
+        async with await _call(s, tokens["access_token"]) as r:
+            assert r.status == 401  # the grant is gone, its access token with it
+        w.policy.standing = GrantStanding.HOLDS
 
         # A fresh grant, revoked by the client.
         w.clock.advance(1)
@@ -377,8 +436,10 @@ async def test_with_several_providers_the_person_picks_one(tmp_path: Path) -> No
         async def render(self, consent: ConsentRequest, request):
             return web.Response(text=f"custom {consent.client_name} {consent.username} {' '.join(consent.scopes)} {consent.csrf}")
 
-    def subject_of(connected):
-        return connected.account.email, connected.account.name
+    async def subject_of(connected, request):
+        if connected.account.email.endswith("@stranger.example"):
+            return web.Response(status=403, text="Sign in to the assistant in your chat first.")
+        return Subject(connected.account.email, connected.account.name)
 
     server = AuthorizationServer(
         store, connections, public_url=PUBLIC, clients=CLIENTS, clock=clock, consent_page=Page(), subject_of=subject_of,
@@ -418,6 +479,16 @@ async def test_with_several_providers_the_person_picks_one(tmp_path: Path) -> No
             # The sign-in link cannot be used twice.
             async with s.get(link, allow_redirects=False) as r:
                 assert r.status == 400
+            # The application refuses a sign-in with a page of its own.
+            verifier, challenge = _pkce()
+            async with s.get(_authorize_url(challenge, scope="read"), allow_redirects=False) as r:
+                page = await r.text()
+                link = page.split('href="')[1].split('"')[0]
+            async with s.get(link, allow_redirects=False) as r:
+                state, code = okta.consent(r.headers["Location"], account=ProviderAccount(id="9", username="eve", name="Eve", email="eve@stranger.example"))
+            async with s.get(f"http://127.0.0.1:{CALLBACK_PORT}{CALLBACK_PATH}?state={state}&code={code}", allow_redirects=False) as r:
+                assert r.status == 403 and await r.text() == "Sign in to the assistant in your chat first."
+                assert r.headers["Cache-Control"] == "no-store"
     finally:
         await callback.stop()
         await hub.stop()

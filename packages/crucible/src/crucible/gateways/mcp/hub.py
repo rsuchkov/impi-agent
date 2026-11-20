@@ -88,6 +88,7 @@ from crucible.ports.chat.flow import StoppableSink, TrackedSink, TurnOutcome
 from crucible.ports.chat.gateway import (
     GATEWAY_MCP,
     MCP_CLIENT_ATTRIBUTE,
+    MCP_CLIENT_NAME_ATTRIBUTE,
     MCP_SCOPES_ATTRIBUTE,
     mcp_scopes_attribute,
 )
@@ -787,6 +788,7 @@ class McpHub:
                 turn_id=turn.id,
                 attributes={
                     MCP_CLIENT_ATTRIBUTE: caller.client,
+                    MCP_CLIENT_NAME_ATTRIBUTE: caller.client_name,
                     MCP_SCOPES_ATTRIBUTE: mcp_scopes_attribute(caller.scopes),
                 },
             ),
