@@ -84,7 +84,7 @@ are `405`; a browser `Origin` not in `allowed_origins` is `403`. Bodies up to
 |---|---|
 | `server/discover` | `supportedVersions`, `capabilities` (`tools`, and `extensions` with `io.modelcontextprotocol/tasks`), `serverInfo`, `instructions` |
 | `tools/list` | the tools the token's scopes reach |
-| `tools/call` | the tool's result — `content[0].text`, `isError`, the conversation and its state in `structuredContent` and the handle in `_meta` (below) — or, for a long call, where its turn stands, or a task |
+| `tools/call` | the tool's result — `content[0].text`, `isError`, the conversation named at the end of the text and in `_meta` (below) — or, for a long call, where its turn stands, or a task |
 | `tasks/get`, `tasks/update`, `tasks/cancel` | the caller's own tasks, for a client that declared the extension (`-32021` otherwise) |
 | anything else (`ping` among them) | `-32601` |
 
@@ -103,10 +103,10 @@ scope="act"` and `-32602`.
 
 A call that asks an agent runs in a conversation of the person's, named by a
 handle. The result says it where the client's model reads — the last line of
-the text, `Conversation: <handle>` — and as data: `structuredContent` is
-`{conversation, state}` on every answer that names a conversation (`state` is
-`done` on a finished answer; `step` is added while the turn runs), and
-`_meta["crucible/conversation"]` carries the handle too. The next call puts
+the text, `Conversation: <handle>` — and, for a program, in
+`_meta["crucible/conversation"]`. Nothing goes in `structuredContent`: a client
+that finds one hands its model that alone, and the agent's answer beside it
+would go unread. The next call puts
 the same handle in the tool's `conversation` argument to go on there, the
 agent's memory of the conversation included. A call with no handle opens a
 new conversation. The handle is the person's: the same one presented with
@@ -143,9 +143,8 @@ two ways, by what the client declared on the request:
   `call_wait_s` (45 seconds, under the minute some clients cut a call at) —
   else where the turn stands, as an ordinary result: "The agent is still
   working (now: …). Call wait_agent with conversation <handle> to get the
-  answer." or "The agent is waiting for the person's yes in their chat (…)",
-  with `structuredContent` `{conversation, state, step}` (`state` one of
-  `working`, `awaiting_approval`, `done`, `failed`, `cancelled`). The client
+  answer." or "The agent is waiting for the person's yes in their chat (…)".
+  The client
   comes back with `wait_agent(conversation)`, which waits as long again and
   answers with the agent's words once the turn is done. The same request
   again — into the conversation, or with no conversation named within two

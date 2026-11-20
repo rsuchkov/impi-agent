@@ -6,7 +6,16 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **Fixed: the MCP gateway's results hid the agent's answer from the
+  client's model.** v0.55.0 put `{conversation, state}` in every result's
+  `structuredContent`, and a client that finds one hands its model that
+  alone — Codex and Claude Code both do — so the model read `{"state":
+  "done"}` and never the answer, nor the word to call `wait_agent`. No
+  result carries `structuredContent` now; the conversation stays the last
+  line of the text (`Conversation: <handle>`) and, for a program,
+  `_meta["crucible/conversation"]`. **Breaks:** a program that read the
+  conversation or the state off `structuredContent` reads `_meta` and the
+  text instead.
 
 ## v0.55.0 — 2026-11-20
 

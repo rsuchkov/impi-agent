@@ -50,7 +50,7 @@ from crucible.ports.chat.types import (
     IncomingMessage,
     OutgoingFile,
 )
-from crucible.ports.mcp_turns import TURN_DONE, TURN_WORKING
+from crucible.ports.mcp_turns import TURN_DONE
 from crucible.ports.replica import Replica
 from crucible.store.base import SessionRecord
 from crucible.tools.base import CAP_DELEGATION, CAP_FORMS, CAP_WIDGETS
@@ -252,7 +252,7 @@ def _text(answer: dict) -> str:
 
 
 def _handle(answer: dict) -> str:
-    return answer["result"]["structuredContent"]["conversation"]
+    return answer["result"]["_meta"][META_CONVERSATION]
 
 
 @pytest.mark.asyncio
@@ -277,10 +277,11 @@ async def test_discover_list_and_a_call_run_a_turn_as_the_person() -> None:
             result = answer["result"]
             handle = _handle(answer)
             assert handle and result["resultType"] == "complete" and result["isError"] is False
-            # The conversation is named where the client's model reads, and as data.
+            # The conversation is named where the client's model reads, and in
+            # _meta for a program — never in structuredContent, which a client
+            # would hand its model instead of the answer.
             assert result["content"] == [{"type": "text", "text": f"you said: hello\n\nConversation: {handle}"}]
-            assert result["structuredContent"] == {"conversation": handle, "state": TURN_DONE}
-            assert result["_meta"] == {META_CONVERSATION: handle}
+            assert result["_meta"] == {META_CONVERSATION: handle} and "structuredContent" not in result
             msg = sinks["helper"].submitted[0]
             assert msg.gateway == "mcp" and msg.user_id == "alice@example.com" and msg.username == "alice"
             assert msg.kind == KIND_DM and msg.is_dm and msg.mentioned
@@ -390,7 +391,7 @@ async def test_a_tool_is_there_for_the_scope_that_may_call_it() -> None:
             assert headers["WWW-Authenticate"] == 'Bearer error="insufficient_scope", scope="act"'
             status, answer, _ = await _call(s, 8604, "deploy", token="tok-actor")
             assert status == 200 and _text(answer) == "deployed" and answer["result"]["resultType"] == "complete"
-            assert "structuredContent" not in answer["result"] and "_meta" not in answer["result"]  # no conversation was used
+            assert "_meta" not in answer["result"]  # no conversation was used
             status, answer, _ = await _call(s, 8604, "nope")
             assert status == 200 and answer["error"]["code"] == -32602
     finally:
@@ -447,7 +448,7 @@ async def test_a_call_too_long_for_the_client_answers_with_where_the_turn_stands
             _, answer, _ = await _call(s, 8606, "ask_agent", {"text": "one"})
             handle = _handle(answer)
             assert answer["result"]["isError"] is False
-            assert answer["result"]["structuredContent"] == {"conversation": handle, "state": TURN_WORKING, "step": "Searching the runbook"}
+            assert "structuredContent" not in answer["result"]
             assert _text(answer) == (
                 f"The agent is still working (now: Searching the runbook). Call wait_agent with conversation {handle} "
                 f"to get the answer.\n\nConversation: {handle}"
@@ -455,14 +456,14 @@ async def test_a_call_too_long_for_the_client_answers_with_where_the_turn_stands
             # The busy conversation: another request is told where the turn
             # stands at once, no second turn and no result of a call it did not make.
             _, answer, _ = await _call(s, 8606, "ask_agent", {"text": "two"}, handle=handle)
-            assert answer["result"]["structuredContent"]["state"] == TURN_WORKING and len(sinks["helper"].submitted) == 1
+            assert "still working" in _text(answer) and len(sinks["helper"].submitted) == 1
             # The same request again without a handle: the stream broke, the client asks again.
             _, answer, _ = await _call(s, 8606, "ask_agent", {"text": "one"})
             assert _handle(answer) == handle and len(sinks["helper"].submitted) == 1
             # Another request without a handle is another conversation (and waits in turn).
             gate.set()
             _, answer, _ = await _rpc(s, 8606, "tools/call", {"name": "wait_agent", "arguments": {"conversation": handle}})
-            assert _text(answer) == f"done\n\nConversation: {handle}" and answer["result"]["structuredContent"]["state"] == TURN_DONE
+            assert _text(answer) == f"done\n\nConversation: {handle}"
             # Waiting again on a conversation that is done answers at once with the answer; an unknown one is refused.
             _, answer, _ = await _rpc(s, 8606, "tools/call", {"name": "wait_agent", "arguments": {"conversation": handle}})
             assert _text(answer).startswith("done")
@@ -716,7 +717,7 @@ async def test_a_client_with_the_tasks_extension_gets_a_task_and_polls_it() -> N
             assert done["status"] == "completed" and "statusMessage" not in done
             result = done["result"]
             assert result["resultType"] == "complete" and result["isError"] is False
-            handle = result["structuredContent"]["conversation"]
+            handle = result["_meta"][META_CONVERSATION]
             assert result["content"] == [{"type": "text", "text": f"deployed\n\nConversation: {handle}"}]
             assert sinks["helper"].submitted[0].conversation_id == conversation_key("alice@example.com", handle)
             assert cards.posted[0][0] == TOKENS["tok-actor"]
@@ -743,7 +744,7 @@ async def test_a_task_says_what_its_tool_says_and_is_forgotten_after_its_ttl() -
             assert answer["result"] == {**answer["result"], "status": "working", "statusMessage": "counting"}
             # The same call for a client without tasks: the state, with the tool's word.
             _, answer, _ = await _call(s, 8613, "long_job")
-            assert answer["result"]["structuredContent"]["state"] == TURN_WORKING and "(now: counting)" in _text(answer)
+            assert "(now: counting)" in _text(answer)
             tool.gate.set()
             answer = await _settled(s, 8613, task_id)
             assert answer["result"]["status"] == "completed" and answer["result"]["result"]["content"][0]["text"].startswith("counted")
@@ -844,7 +845,7 @@ async def test_a_turn_of_a_replica_that_restarted_is_failed_and_another_replica_
             # Waited for on the other pod: the state, read from the record.
             _, answer, _ = await _call(s, 8617, "ask_agent", {"text": "go"})  # the same request joins, anywhere
             handle = _handle(answer)
-            assert answer["result"]["structuredContent"]["state"] == TURN_WORKING
+            assert "still working" in _text(answer)
             gate.set()
             _, answer, _ = await _rpc(s, 8617, "tools/call", {"name": "wait_agent", "arguments": {"conversation": handle}})
             assert _text(answer).startswith("done on a")

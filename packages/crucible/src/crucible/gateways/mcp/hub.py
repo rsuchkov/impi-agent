@@ -60,10 +60,7 @@ from crucible.gateways.http.turns import HttpTurns, Turn, TurnInProgress
 from crucible.gateways.mcp.auth import Authorization, McpCaller
 from crucible.gateways.mcp.client import ApprovalCards, McpChatClient
 from crucible.gateways.mcp.tools import (
-    CONVERSATION_KEY,
     META_CONVERSATION,
-    STEP_KEY,
-    TURN_STATE_KEY,
     AskAgentTool,
     CallFailed,
     GatewayCall,
@@ -526,15 +523,17 @@ class McpHub:
             logger.exception("mcp gateway: tool %s failed", tool.name)
             return f"{tool.name} failed; the engine's log says how", True
 
-    def _wire(self, answer: tuple[str, bool], handle: str, *, state: str = TURN_DONE) -> dict[str, Any]:
+    @staticmethod
+    def _wire(answer: tuple[str, bool], handle: str) -> dict[str, Any]:
         """A call's result as the client reads it: the text, with the
         conversation named at its end where the client's model reads it, and
-        the same in ``structuredContent`` and ``_meta``."""
+        the handle in ``_meta`` for a program. Nothing in ``structuredContent``:
+        a client that has one hands its model that alone, and the answer with
+        it would go unread."""
         text, is_error = answer
         result: dict[str, Any] = {"content": [{"type": "text", "text": text}], "isError": is_error}
         if handle:
             result["content"][0]["text"] = f"{text}\n\nConversation: {handle}" if text else f"Conversation: {handle}"
-            result["structuredContent"] = {CONVERSATION_KEY: handle, TURN_STATE_KEY: state}
             result["_meta"] = {META_CONVERSATION: handle}
         return result
 
@@ -542,11 +541,8 @@ class McpHub:
         """Where the turn stands, as a call's result: its answer once it has
         ended, else the word on what it is doing and how to come back."""
         if state.state in TURN_ENDED:
-            return self._wire((state.answer, state.is_error or state.state != TURN_DONE), state.handle, state=state.state)
-        result = self._wire((standing_words(state), False), state.handle, state=state.state)
-        if state.step:
-            result["structuredContent"][STEP_KEY] = state.step
-        return result
+            return self._wire((state.answer, state.is_error or state.state != TURN_DONE), state.handle)
+        return self._wire((standing_words(state), False), state.handle)
 
     # -- a turn for a long call --------------------------------------------------------
 
@@ -638,7 +634,7 @@ class McpHub:
             expires_at=self._ended_until(now),
         ))
         await self._store.purge_mcp_turns(_iso(now))  # whatever is past its time goes with this one's end
-        return self._wire((text, is_error), call.handle, state=state)
+        return self._wire((text, is_error), call.handle)
 
     def _running_until(self, now: datetime) -> str:
         """Until when a record of a turn still running is kept — moved on at

@@ -11,7 +11,7 @@ for an answer that took longer than a call may.
 Conversations: a tool names the argument that carries the conversation's
 handle (``conversation_argument``); a call with none that asks an agent opens
 a new conversation, and the result says its handle — in the text, where the
-client's model reads it, and in ``structuredContent``. The conversation is the
+client's model reads it, and in ``_meta`` for a program. The conversation is the
 caller's: the same handle presented for another subject is another
 conversation.
 
@@ -31,12 +31,10 @@ from crucible.ports.chat.gateway import MCP_SCOPE_READ
 from crucible.ports.mcp_turns import TURN_AWAITING_APPROVAL, TURN_DONE, TURN_ENDED
 
 # The ``_meta`` key, on a call and on its result, that names the conversation
-# — beside the tool's own argument and the result's ``structuredContent``.
+# — beside the tool's own argument.
 META_CONVERSATION = "crucible/conversation"
-# The result's ``structuredContent`` keys.
+# The bundled tools' argument that carries the conversation's handle.
 CONVERSATION_KEY = "conversation"
-TURN_STATE_KEY = "state"
-STEP_KEY = "step"
 
 
 class CallFailed(Exception):
