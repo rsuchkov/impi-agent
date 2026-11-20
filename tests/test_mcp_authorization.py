@@ -34,7 +34,7 @@ from crucible.mcp_authorization import (
     ClientRegistration,
     ConsentRequest,
     GrantStanding,
-    Subject,
+    SignedIn,
 )
 from crucible.ports.telemetry import McpGrantChanged
 from crucible.store.sqlite import SqliteSessionStore
@@ -106,7 +106,7 @@ async def world(tmp_path: Path) -> AsyncIterator[World]:
     )
     server = AuthorizationServer(
         store, connections, public_url=PUBLIC, clients=CLIENTS, clock=clock, telemetry=telemetry,
-        grant_idle_s=12 * 3600, grant_max_s=7 * 24 * 3600, access_ttl_s=3600, policy=policy,
+        grant_idle_s=12 * 3600, grant_max_s=7 * 24 * 3600, access_ttl_s=3600, grant_policy=policy,
     )
     hub = McpHub("127.0.0.1", HUB_PORT, server, store=MemoryMcpTurns(), public_url=PUBLIC, routes=server.routes())
     sink = FakeSink(_reply)
@@ -310,8 +310,9 @@ async def test_tokens_end_with_the_grant_and_a_revoke_ends_them_at_once(world: W
             s, grant_type="authorization_code", code=code, redirect_uri=REDIRECT, client_id=IDE, code_verifier=verifier,
         )
         w.policy.standing = GrantStanding.UNAVAILABLE
-        status, body = await _tokens(s, grant_type="refresh_token", refresh_token=tokens["refresh_token"], client_id=IDE)
-        assert status == 503 and body["error"] == "temporarily_unavailable"
+        async with s.post(f"{PUBLIC}{TOKEN_PATH}", data=dict(grant_type="refresh_token", refresh_token=tokens["refresh_token"], client_id=IDE)) as r:
+            # Not an OAuth error, which a client would read as "sign in again": a plain "later".
+            assert r.status == 503 and r.headers["Retry-After"] == "30" and r.content_type == "text/plain"
         async with await _call(s, tokens["access_token"]) as r:
             assert r.status == 200  # the access token stands meanwhile
         w.policy.standing = GrantStanding.ENDED
@@ -439,7 +440,7 @@ async def test_with_several_providers_the_person_picks_one(tmp_path: Path) -> No
     async def subject_of(connected, request):
         if connected.account.email.endswith("@stranger.example"):
             return web.Response(status=403, text="Sign in to the assistant in your chat first.")
-        return Subject(connected.account.email, connected.account.name)
+        return SignedIn(connected.account.email, connected.account.name)
 
     server = AuthorizationServer(
         store, connections, public_url=PUBLIC, clients=CLIENTS, clock=clock, consent_page=Page(), subject_of=subject_of,

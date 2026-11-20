@@ -92,6 +92,8 @@ RESULT_INVALID = "invalid"
 GRANT_IDLE_S = 12 * 3600
 GRANT_MAX_S = 7 * 24 * 3600
 ACCESS_TTL_S = 3600
+# What a client is told to wait when the application cannot say whether a grant holds.
+RETRY_AFTER_S = 30
 REQUEST_TTL_S = 600
 CODE_TTL_S = 60
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -196,20 +198,21 @@ _SCOPE_WORDS = {
 
 
 @dataclass(frozen=True)
-class Subject:
-    """Who a sign-in made the person, for the gateway: ``id`` is the subject
-    the turns run as (what the application's ``PersonKey`` can match with the
-    chat user), ``name`` the person's name for the prompt."""
+class SignedIn:
+    """Who a sign-in made the person, for the gateway: ``subject`` is what the
+    turns run as (and what the application's ``PersonKey`` can match with the
+    chat user), ``username`` the person's name for the prompt — the two words
+    the grant keeps."""
 
-    id: str
-    name: str = ""
+    subject: str
+    username: str = ""
 
 
-async def _subject_of(connected: Connected, request: web.Request) -> Subject:
+async def _signed_in(connected: Connected, request: web.Request) -> SignedIn:
     """The default: the provider's name and the account's id, and the
     account's username for the prompt."""
     account = connected.account
-    return Subject(
+    return SignedIn(
         f"{connected.provider}:{account.id}", account.username or account.name or account.email or account.id,
     )
 
@@ -239,11 +242,11 @@ class AuthorizationServer:
     clients reach the listener from outside: the issuer, and the base of
     every address in the metadata. ``sign_in_providers`` are the connection
     providers a person may sign in at (every one the application has, when
-    None); ``subject_of`` turns the account a sign-in named into the
-    ``Subject`` the gateway runs turns as — or answers the browser itself
+    None); ``subject_of`` turns the account a sign-in named into whom the
+    gateway runs turns as (``SignedIn``) — or answers the browser itself
     with a page of the application's, a refusal in its own words, and no
-    sign-in is made; ``policy`` is asked at every refresh whether the grant
-    still holds."""
+    sign-in is made; ``grant_policy`` is asked at every refresh whether the
+    grant still holds."""
 
     def __init__(
         self,
@@ -254,8 +257,8 @@ class AuthorizationServer:
         clients: Mapping[str, ClientRegistration],
         sign_in_providers: Sequence[str] | None = None,
         consent_page: ConsentPage | None = None,
-        subject_of: Callable[[Connected, web.Request], Awaitable[Subject | web.StreamResponse]] = _subject_of,
-        policy: GrantPolicy | None = None,
+        subject_of: Callable[[Connected, web.Request], Awaitable[SignedIn | web.StreamResponse]] = _signed_in,
+        grant_policy: GrantPolicy | None = None,
         grant_idle_s: float = GRANT_IDLE_S,
         grant_max_s: float = GRANT_MAX_S,
         access_ttl_s: float = ACCESS_TTL_S,
@@ -272,7 +275,7 @@ class AuthorizationServer:
         self._providers = tuple(sign_in_providers) if sign_in_providers is not None else connections.providers
         self._consent: ConsentPage = consent_page if consent_page is not None else DefaultConsentPage()
         self._subject_of = subject_of
-        self._policy = policy
+        self._policy = grant_policy
         self._grant_idle_s = grant_idle_s
         self._grant_max_s = grant_max_s
         self._access_ttl_s = access_ttl_s
@@ -427,22 +430,24 @@ class AuthorizationServer:
         if record is None or record.subject:
             self._tell(EVENT_SIGN_IN, RESULT_EXPIRED, client=record.client if record else "")
             return _refusal(400, "This sign-in has expired or was already made. Start again from your client.")
-        subject = await self._subject_of(connected, request)
-        if not isinstance(subject, Subject) or not subject.id:
+        signed_in = await self._subject_of(connected, request)
+        if not isinstance(signed_in, SignedIn) or not signed_in.subject:
             # The application's own refusal — its page, its words — or none
             # at all: the request stands unsigned, and the sign-in link is spent.
             self._tell(EVENT_SIGN_IN, RESULT_REFUSED, client=record.client)
-            if isinstance(subject, web.StreamResponse):
-                return subject
+            if isinstance(signed_in, web.StreamResponse):
+                return signed_in
             return _refusal(403, "The account you signed in with cannot use the agent here.")
         # The browser that signed in is the one that may consent: it alone gets
         # the cookie, and the consent page asks for it. The client that started
         # the request knows its id and nothing else.
         browser = secrets.token_urlsafe(24)
         await self._grants.put_mcp_request(replace(
-            record, subject=subject.id, username=subject.name, browser_hash=_digest(browser),
+            record, subject=signed_in.subject, username=signed_in.username, browser_hash=_digest(browser),
         ))
-        self._tell(EVENT_SIGN_IN, RESULT_OK, client=record.client, subject=subject.id, provider=connected.provider)
+        self._tell(
+            EVENT_SIGN_IN, RESULT_OK, client=record.client, subject=signed_in.subject, provider=connected.provider,
+        )
         response = web.HTTPSeeOther(f"{self._public_url}{CONSENT_PATH}/{record.id}", headers=SAFE_HEADERS)
         response.set_cookie(
             CONSENT_COOKIE, browser, path=CONSENT_PATH, httponly=True, samesite="Lax",
@@ -577,8 +582,14 @@ class AuthorizationServer:
                 self._tell(EVENT_REFRESH, RESULT_ENDED, client=grant.client, subject=grant.subject)
                 return _token_error("invalid_grant", "the grant was ended: sign in again")
             if standing is GrantStanding.UNAVAILABLE:
+                # Not an OAuth error: a client that reads one drops its refresh
+                # token and signs the person in again, the very thing this
+                # answer is meant to spare. A plain 503 says "later".
                 self._tell(EVENT_REFRESH, RESULT_UNAVAILABLE, client=grant.client, subject=grant.subject)
-                return _token_error("temporarily_unavailable", "whether the grant still holds cannot be told right now; try again", status=503)
+                return web.Response(
+                    status=503, text="whether the grant still holds cannot be told right now; try again later",
+                    headers={"Retry-After": str(RETRY_AFTER_S), "Cache-Control": "no-store"},
+                )
         rotated, access, refresh = self._rotated(grant, now)
         if not await self._grants.replace_mcp_grant(rotated, expected_refresh_hash=grant.refresh_hash):
             self._tell(EVENT_REFRESH, RESULT_REFUSED, client=grant.client, subject=grant.subject)
@@ -648,9 +659,9 @@ class AuthorizationServer:
             logger.warning("telemetry failed to record an authorization event", exc_info=True)
 
 
-def _token_error(error: str, description: str, *, status: int = 400) -> web.Response:
+def _token_error(error: str, description: str) -> web.Response:
     return web.json_response(
-        {"error": error, "error_description": description}, status=status, headers={"Cache-Control": "no-store"}
+        {"error": error, "error_description": description}, status=400, headers={"Cache-Control": "no-store"}
     )
 
 

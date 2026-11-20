@@ -7,7 +7,7 @@ conversation the client names by a handle. See docs/mcp-gateway.md.
 auth.py    — who holds the token: the Authorization port and McpCaller (the scopes are
              ``ports.chat.gateway.MCP_SCOPES``; the engine's authorization server is
              ``crucible.mcp_authorization``, over this package and the connections)
-tools.py   — the McpGatewayTool port, GatewayCall, TurnState, the bundled AskAgentTool and WaitAgentTool
+tools.py   — the McpGatewayTool port, GatewayCall, TurnStanding, the bundled AskAgentTool and WaitAgentTool
 client.py  — ChatClient over the journal, cards forwarded to the application (ApprovalCards)
 hub.py     — the aiohttp server shared by every agent on the gateway (McpHub)
 gateway.py — per-agent lifecycle shim (identity + park-until-stop)
@@ -30,7 +30,7 @@ from crucible.gateways.mcp.tools import (
     CallFailed,
     GatewayCall,
     McpGatewayTool,
-    TurnState,
+    TurnStanding,
     WaitAgentTool,
 )
 
@@ -54,7 +54,7 @@ __all__ = [
     "McpGatewayTool",
     "McpHub",
     "McpCaller",
-    "TurnState",
+    "TurnStanding",
     "WaitAgentTool",
     "conversation_key",
 ]

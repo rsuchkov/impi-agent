@@ -805,7 +805,7 @@ credential, is another user's credential.
   does this for a `GatewayConfig(kind="mcp")`. `authorization` is who holds a
   bearer token (`Authorization.authenticate(request) -> McpCaller | None`):
   `AuthorizationServer(store, connections, public_url=, clients=,
-  sign_in_providers=, consent_page=, subject_of=, policy=)` (`crucible.mcp_authorization`,
+  sign_in_providers=, consent_page=, subject_of=, grant_policy=)` (`crucible.mcp_authorization`,
   a module over the gateway and the connections) is the engine's own — the
   OAuth metadata, `/authorize`, a sign-in at one of your connection providers
   as a sign-in connect (`CallbackServer(sign_ins=authorization)` carries the
@@ -813,12 +813,13 @@ credential, is another user's credential.
   records in the store (`McpGrants`) — and a deployment with an authorization
   server of its own implements the port instead. Yours: the clients
   (`ClientRegistration`: a name for the consent page, the redirect addresses,
-  loopback or not), the subject a sign-in becomes (`async subject_of(connected,
-  request) -> Subject | web.StreamResponse`: make `Subject.id` what your
+  loopback or not), whom a sign-in makes the person (`async subject_of(connected,
+  request) -> SignedIn | web.StreamResponse`: make `SignedIn.subject` what your
   `PersonKey` can match with the chat user, or the person cannot answer the
   cards their MCP turns raise; a response is your own refusal page), whether
-  a grant still holds at each refresh (`GrantPolicy.still_holds(grant) ->
-  GrantStanding`, for a person who left or lost the group), the consent page (`ConsentPage`; the plain
+  a grant still holds at each refresh (`grant_policy=`,
+  `GrantPolicy.still_holds(grant) -> GrantStanding`, for a person who left or
+  lost the group), the consent page (`ConsentPage`; the plain
   one otherwise), where cards go (`ApprovalCards`: `post_confirmation(asker,
   card, actions, callback_url=)` answering with your post id, `update_confirmation`,
   `retract` — a direct message in the person's chat, whose click your gateway

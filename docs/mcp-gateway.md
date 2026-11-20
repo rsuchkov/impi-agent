@@ -60,7 +60,9 @@ and a week from the sign-in at most (`grant_max_s`); a refresh
 grant; after it the person signs in again. At every refresh the application
 is asked whether the person still holds what the grant gives (`GrantPolicy`:
 still employed, still in the group) — `ENDED` ends the grant, `UNAVAILABLE`
-answers `503 temporarily_unavailable` and the client tries again. A refresh
+answers a plain `503` with `Retry-After` and no OAuth error (an OAuth error
+would make the client drop its refresh token and sign the person in again,
+the very thing the answer is meant to spare). A refresh
 token presented a second time ends the grant for good — somebody has a copy.
 `POST /revoke` with either token ends it on purpose. Tokens are random and
 kept as digests; the audit (logger `crucible.mcp_authorization.audit`) names
@@ -82,7 +84,7 @@ are `405`; a browser `Origin` not in `allowed_origins` is `403`. Bodies up to
 |---|---|
 | `server/discover` | `supportedVersions`, `capabilities` (`tools`, and `extensions` with `io.modelcontextprotocol/tasks`), `serverInfo`, `instructions` |
 | `tools/list` | the tools the token's scopes reach |
-| `tools/call` | the tool's result — `content[0].text`, `isError`, the conversation in `structuredContent` and `_meta` (below) — or, for a long call, where its turn stands, or a task |
+| `tools/call` | the tool's result — `content[0].text`, `isError`, the conversation and its state in `structuredContent` and the handle in `_meta` (below) — or, for a long call, where its turn stands, or a task |
 | `tasks/get`, `tasks/update`, `tasks/cancel` | the caller's own tasks, for a client that declared the extension (`-32021` otherwise) |
 | anything else (`ping` among them) | `-32601` |
 
@@ -101,12 +103,16 @@ scope="act"` and `-32602`.
 
 A call that asks an agent runs in a conversation of the person's, named by a
 handle. The result says it where the client's model reads — the last line of
-the text, `Conversation: <handle>` — and as data, `structuredContent.conversation`
-(and `_meta["crucible/conversation"]`); the next call puts the same handle in
-the tool's `conversation` argument to go on there, the agent's memory of the
-conversation included. A call with no handle opens a new conversation. The
-handle is the person's: the same one presented with another person's token is
-another conversation, so there is no handle to steal.
+the text, `Conversation: <handle>` — and as data: `structuredContent` is
+`{conversation, state}` on every answer that names a conversation (`state` is
+`done` on a finished answer; `step` is added while the turn runs), and
+`_meta["crucible/conversation"]` carries the handle too. The next call puts
+the same handle in the tool's `conversation` argument to go on there, the
+agent's memory of the conversation included. A call with no handle opens a
+new conversation. The handle is the person's: the same one presented with
+another person's token is another conversation, so there is no handle to
+steal — and any client of the person's, holding a token of theirs, may go on
+in it or wait for its turn.
 
 The conversation is a direct message on the `mcp` gateway (kind `dm`); its
 key in the session store is `mcp:<subject>:<handle>`. `tools_by_gateway: {mcp:
@@ -131,7 +137,8 @@ two ways, by what the client declared on the request:
   the tool's), `failed` with an `error`, or `cancelled`. `tasks/cancel` stops
   the turn, cooperatively; `tasks/update` is acknowledged and ignored, since
   no task here asks the client for input. An ended task is kept `ttlMs`
-  (ten minutes); a working one until it ends.
+  (ten minutes); a working one until it ends. A task, like the conversation,
+  is the person's: another client of theirs polls it too.
 - **Any other client** gets the answer when the turn ends within
   `call_wait_s` (45 seconds, under the minute some clients cut a call at) —
   else where the turn stands, as an ordinary result: "The agent is still
@@ -140,18 +147,24 @@ two ways, by what the client declared on the request:
   with `structuredContent` `{conversation, state, step}` (`state` one of
   `working`, `awaiting_approval`, `done`, `failed`, `cancelled`). The client
   comes back with `wait_agent(conversation)`, which waits as long again and
-  answers with the agent's words once the turn is done. A call into a
-  conversation whose turn still runs joins that wait rather than failing, and
-  the same request again with no conversation named, within two minutes
-  (`repeat_window_s`), joins the turn it opened — a client whose stream broke
-  asks again, and must not get a second turn.
+  answers with the agent's words once the turn is done. The same request
+  again — into the conversation, or with no conversation named within two
+  minutes (`repeat_window_s`) — joins the turn it opened rather than starting
+  another: a client whose stream broke asks again, and must not get a second
+  turn. Another request into a conversation whose turn still runs is told
+  where that turn stands, at once, and gets no result of a call it did not
+  make.
 
 Either way the turn runs on the replica the call landed on and is written
 down as it goes (`mcp_turns` in the store: its state, its step, its answer),
 so the next call about it may land on any replica: a poll, a wait or a cancel
-reads the record, and the replica that runs the turn reads the cancel. A turn
-whose replica is gone is `failed` ("the engine running this turn restarted"),
-not waited for; a replica coming back closes what it was running.
+reads the record, and the replica that runs the turn reads the cancel (the
+record is written by two parties, and a save by the one that runs it never
+wipes the cancel mark the other set). A turn whose replica is gone is `failed`
+("the engine running this turn restarted; ask again"), not waited for; a
+replica coming back closes what it was running the same way. A record of a
+turn still running is kept a day from its last write, an ended one — however
+it ended — ten minutes.
 
 ## The two doors
 
@@ -188,10 +201,10 @@ raises and honours none opened elsewhere (`TOOL_MAX_GRANT_S_BY_GATEWAY` in
 ```python
 from crucible.conversation_profiles import GatewayEntitlements, McpScopeEntitlements
 from crucible.gateways.mcp import AskAgentTool, McpHub, WaitAgentTool
-from crucible.mcp_authorization import AuthorizationServer, ClientRegistration, Subject
+from crucible.mcp_authorization import AuthorizationServer, ClientRegistration, SignedIn
 
 async def subject_of(connected, request):
-    return Subject(connected.account.email, connected.account.name)   # or a refusal page of your own
+    return SignedIn(connected.account.email, connected.account.name)   # or a refusal page of your own
 
 authorization = AuthorizationServer(
     store, connections, public_url="https://agents.example.com",
@@ -200,7 +213,7 @@ authorization = AuthorizationServer(
         "portal": ClientRegistration("Portal", redirect_uris=("https://portal.example/oauth/done",), loopback=False),
     },
     sign_in_providers=("okta",),           # any of the Connections' providers; all of them when None
-    subject_of=subject_of, policy=MyGrantPolicy(),                      # asked at every refresh
+    subject_of=subject_of, grant_policy=MyGrantPolicy(),                # asked at every refresh
     consent_page=MyConsentPage(),          # DefaultConsentPage when None
     grant_idle_s=12 * 3600, grant_max_s=7 * 24 * 3600,
 )
@@ -226,7 +239,7 @@ application's is any object with `name`, `description`, `input_schema`,
 GatewayCall) -> str`; `call.caller` says who and which client,
 `call.arguments` what, `await call.ask(text, agent=...)` runs an agent's turn
 in the call's conversation and answers with what the agent said, `await
-call.wait(handle)` waits for a conversation's turn (`TurnState`), `await
+call.wait(handle)` waits for a conversation's turn (`TurnStanding`), `await
 call.progress(text)` tells a client that asked, and `CallFailed(text)` is the
 answer when the call cannot do what was asked (`isError`). `presenter=`
 turns the agent's Markdown into whatever the client should read. `McpHub.turns`

@@ -14,13 +14,14 @@ from dataclasses import dataclass
 from typing import Protocol
 
 # Where a turn stands, in the gateway's own words (a task's status is read off
-# these). ``awaiting_approval``: a card is up for the person in their chat.
-STATE_WORKING = "working"
-STATE_AWAITING_APPROVAL = "awaiting_approval"
-STATE_DONE = "done"
-STATE_FAILED = "failed"
-STATE_CANCELLED = "cancelled"
-ENDED = frozenset({STATE_DONE, STATE_FAILED, STATE_CANCELLED})
+# these; the scheduler's ``STATE_*`` are another lifecycle's).
+# ``awaiting_approval``: a card is up for the person in their chat.
+TURN_WORKING = "working"
+TURN_AWAITING_APPROVAL = "awaiting_approval"
+TURN_DONE = "done"
+TURN_FAILED = "failed"
+TURN_CANCELLED = "cancelled"
+TURN_ENDED = frozenset({TURN_DONE, TURN_FAILED, TURN_CANCELLED})
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,10 @@ class McpTurnRecord:
     failed), ``is_error`` whether the call called that an error;
     ``request_digest`` a digest of what was asked, so the same request again
     within a short while joins this turn instead of opening another;
-    ``cancel_requested`` is a client's word that reached another replica."""
+    ``cancel_requested`` is a client's word that reached another replica —
+    written by ``request_mcp_cancel`` alone: a ``save`` of the record leaves
+    the mark as it is, since the replica that runs the turn writes from its
+    own copy and must not wipe what another replica wrote."""
 
     turn_id: str
     conversation: str
@@ -59,7 +63,7 @@ class McpTurns(Protocol):
     """The gateway's turns, for every replica to read."""
 
     async def save_mcp_turn(self, record: McpTurnRecord) -> None:
-        """Insert or replace by ``turn_id``."""
+        """Insert, or replace every field but ``cancel_requested`` by ``turn_id``."""
         ...
 
     async def get_mcp_turn(self, turn_id: str) -> McpTurnRecord | None: ...
@@ -77,8 +81,9 @@ class McpTurns(Protocol):
         """Mark the turn as asked to stop; False when there is no such turn."""
         ...
 
-    async def fail_mcp_turns(self, replica: str, reason: str, now: str) -> int:
-        """Every turn ``replica`` was running is over — it restarted. How many."""
+    async def fail_mcp_turns(self, replica: str, reason: str, now: str, expires_at: str) -> int:
+        """Every turn ``replica`` was running is over — it restarted: failed
+        with ``reason``, kept until ``expires_at``. How many."""
         ...
 
     async def purge_mcp_turns(self, now: str) -> int:

@@ -328,7 +328,9 @@ application asked at every refresh whether the person still holds what the
 grant gives; the scopes — a `read` token never sees a tool that would ask the person, an `act`
 token's confirmations go to the person in their chat and never to the client,
 with the card saying it was asked through the client; the conversation key,
-which carries the subject, so a handle names only the person's own; and the
+which carries the subject, so a handle names only the person's own (and any
+client of the person's, holding a token of theirs, may read a turn of theirs
+— the conversation is the person's, not the program's); and the
 turn's own doors — entitlement, the tool server's allowlist, the gate — as for
 a turn from any gateway.
 
@@ -381,6 +383,7 @@ deployment configured; the engine makes no model calls itself.
 | telemetry (a turn ended, a tool ran, what it cost — names, ids, numbers, outcome words) | the log, and with `TELEMETRY_OTLP_ENDPOINT` the tracing collector named | the collector's | the collector's retention |
 | telemetry **content** — what the person wrote, what the agent answered, tool arguments — only with `TELEMETRY_CONTENT=text`, scrubbed of the turn's secrets and of what looks like one (a heuristic, as the log scrub is: a secret in prose or under an innocent name passes), cut at 8000 characters; tool results and the model's thinking never as fields, though an answer may quote one | the same log and collector | the collector's | the collector's retention |
 | a scheduled task's prompt | the provider, at each run | the inventory | until the task is removed |
+| an MCP client's call: what was asked of the agent (as a digest), the turn's steps, and the agent's answer to it ([mcp-gateway.md](mcp-gateway.md)) | the client's model, as the call's result | the inventory (`mcp_turns`), so any replica answers a poll or a wait | ten minutes after the turn ends |
 | who said what to whom (conversation ↔ session, last user) | nowhere | the inventory | until the session is deleted |
 | the broker's ledger (which agent asked for which secret, the command, the decision) | nowhere | the broker's own database | until removed by hand; never holds a value |
 | people's connected accounts: tokens (sealed), and the account's id, username, name, email and the userinfo fields `CONNECTION_ACCOUNT_EXTRA__<NAME>` names (a groups claim), readable | the provider, on each call a tool makes as them | the inventory | until they disconnect, reconnect, or a 401 ends it |

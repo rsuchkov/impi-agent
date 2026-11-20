@@ -7,17 +7,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from crucible.ports.mcp_turns import ENDED, STATE_FAILED, McpTurnRecord
+from crucible.ports.mcp_turns import TURN_ENDED, TURN_FAILED, McpTurnRecord
 from crucible.store.mongo.base import MCP_TURNS, MongoBase, from_doc, to_doc
 
 
 class MongoMcpTurnMixin(MongoBase):
     async def save_mcp_turn(self, record: McpTurnRecord) -> None:
         db = await self._ready()
-        await db[MCP_TURNS].replace_one(
-            {"_id": record.turn_id},
-            to_doc(record, _id=record.turn_id, expire_at=datetime.fromisoformat(record.expires_at)),
-            upsert=True,
+        doc = to_doc(record, expire_at=datetime.fromisoformat(record.expires_at))
+        # The cancel mark is another replica's to set and nobody's to unset by a save.
+        mark = doc.pop("cancel_requested")
+        await db[MCP_TURNS].update_one(
+            {"_id": record.turn_id}, {"$set": doc, "$setOnInsert": {"cancel_requested": mark}}, upsert=True,
         )
 
     async def get_mcp_turn(self, turn_id: str) -> McpTurnRecord | None:
@@ -35,7 +36,7 @@ class MongoMcpTurnMixin(MongoBase):
             return None
         db = await self._ready()
         doc = await db[MCP_TURNS].find_one(
-            {"subject": subject, "client": client, "request_digest": request_digest, "state": {"$nin": sorted(ENDED)}},
+            {"subject": subject, "client": client, "request_digest": request_digest, "state": {"$nin": sorted(TURN_ENDED)}},
             sort=[("started_at", -1)],
         )
         return from_doc(McpTurnRecord, doc) if doc else None
@@ -45,11 +46,14 @@ class MongoMcpTurnMixin(MongoBase):
         result = await db[MCP_TURNS].update_one({"_id": turn_id}, {"$set": {"cancel_requested": True}})
         return result.matched_count == 1
 
-    async def fail_mcp_turns(self, replica: str, reason: str, now: str) -> int:
+    async def fail_mcp_turns(self, replica: str, reason: str, now: str, expires_at: str) -> int:
         db = await self._ready()
         result = await db[MCP_TURNS].update_many(
-            {"replica": replica, "state": {"$nin": sorted(ENDED)}},
-            {"$set": {"state": STATE_FAILED, "answer": reason, "is_error": True, "updated_at": now}},
+            {"replica": replica, "state": {"$nin": sorted(TURN_ENDED)}},
+            {"$set": {
+                "state": TURN_FAILED, "step": "", "answer": reason, "is_error": True, "updated_at": now,
+                "expires_at": expires_at, "expire_at": datetime.fromisoformat(expires_at),
+            }},
         )
         return result.modified_count
 

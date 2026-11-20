@@ -5,7 +5,7 @@ newest."""
 import asyncio
 from dataclasses import fields
 
-from crucible.ports.mcp_turns import ENDED, STATE_FAILED, McpTurnRecord
+from crucible.ports.mcp_turns import TURN_ENDED, TURN_FAILED, McpTurnRecord
 from crucible.store.sqlite.base import SqliteBase
 
 _SCHEMA = """
@@ -34,6 +34,9 @@ CREATE INDEX IF NOT EXISTS idx_mcp_turns_expires ON mcp_turns (expires_at);
 
 _FIELDS = tuple(f.name for f in fields(McpTurnRecord))
 _COLUMNS = ", ".join(_FIELDS)
+# What a save rewrites on a row that exists: everything but the cancel mark,
+# which another replica may have set meanwhile.
+_REWRITTEN = tuple(name for name in _FIELDS if name not in ("turn_id", "cancel_requested"))
 
 
 def _record(row: tuple) -> McpTurnRecord:
@@ -44,7 +47,7 @@ def _record(row: tuple) -> McpTurnRecord:
 
 
 def _not_ended() -> tuple[str, tuple[str, ...]]:
-    return f"state NOT IN ({', '.join('?' * len(ENDED))})", tuple(sorted(ENDED))
+    return f"state NOT IN ({', '.join('?' * len(TURN_ENDED))})", tuple(sorted(TURN_ENDED))
 
 
 class McpTurnStoreMixin(SqliteBase):
@@ -58,7 +61,8 @@ class McpTurnStoreMixin(SqliteBase):
     def save_mcp_turn_sync(self, record: McpTurnRecord) -> None:
         with self._lock:
             self._conn.execute(
-                f"INSERT OR REPLACE INTO mcp_turns ({_COLUMNS}) VALUES ({', '.join('?' * len(_FIELDS))})",
+                f"INSERT INTO mcp_turns ({_COLUMNS}) VALUES ({', '.join('?' * len(_FIELDS))}) "
+                f"ON CONFLICT(turn_id) DO UPDATE SET {', '.join(f'{name} = excluded.{name}' for name in _REWRITTEN)}",
                 tuple(getattr(record, name) for name in _FIELDS),
             )
             self._conn.commit()
@@ -94,12 +98,13 @@ class McpTurnStoreMixin(SqliteBase):
             self._conn.commit()
         return cursor.rowcount == 1
 
-    def fail_mcp_turns_sync(self, replica: str, reason: str, now: str) -> int:
+    def fail_mcp_turns_sync(self, replica: str, reason: str, now: str, expires_at: str) -> int:
         clause, states = _not_ended()
         with self._lock:
             cursor = self._conn.execute(
-                f"UPDATE mcp_turns SET state = ?, answer = ?, is_error = 1, updated_at = ? WHERE replica = ? AND {clause}",
-                (STATE_FAILED, reason, now, replica, *states),
+                f"UPDATE mcp_turns SET state = ?, step = '', answer = ?, is_error = 1, updated_at = ?, expires_at = ? "
+                f"WHERE replica = ? AND {clause}",
+                (TURN_FAILED, reason, now, expires_at, replica, *states),
             )
             self._conn.commit()
         return cursor.rowcount
@@ -127,8 +132,8 @@ class McpTurnStoreMixin(SqliteBase):
     async def request_mcp_cancel(self, turn_id: str) -> bool:
         return await asyncio.to_thread(self.request_mcp_cancel_sync, turn_id)
 
-    async def fail_mcp_turns(self, replica: str, reason: str, now: str) -> int:
-        return await asyncio.to_thread(self.fail_mcp_turns_sync, replica, reason, now)
+    async def fail_mcp_turns(self, replica: str, reason: str, now: str, expires_at: str) -> int:
+        return await asyncio.to_thread(self.fail_mcp_turns_sync, replica, reason, now, expires_at)
 
     async def purge_mcp_turns(self, now: str) -> int:
         return await asyncio.to_thread(self.purge_mcp_turns_sync, now)

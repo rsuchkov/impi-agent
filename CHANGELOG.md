@@ -28,19 +28,26 @@ when a release is cut, and `impi update` shows the target version's section.
   and a turn whose replica is gone is failed rather than waited for. Grants
   stand twelve hours unused and a week at most (`grant_idle_s`,
   `grant_max_s`); the application is asked at every refresh whether the
-  grant still holds (`GrantPolicy.still_holds -> GrantStanding`), turns a
-  sign-in into a subject asynchronously and may refuse with a page of its
-  own (`subject_of(connected, request) -> Subject | response`); the metadata
-  says `authorization_response_iss_parameter_supported`. A card an MCP turn
+  grant still holds (`AuthorizationServer(grant_policy=)`,
+  `GrantPolicy.still_holds -> GrantStanding`: `ENDED` ends it, `UNAVAILABLE`
+  answers a plain `503` with `Retry-After`), turns a sign-in into whom the
+  turns run as asynchronously and may refuse with a page of its own
+  (`subject_of(connected, request) -> SignedIn | response`); the metadata
+  says `authorization_response_iss_parameter_supported`. A task, like a
+  conversation, is the person's: another client of theirs reads it too. A card an MCP turn
   raises names the client by the operator's name (`McpCaller.client_name`,
   `mcp_client_name` on the turn) rather than its id. **Breaks:** the tasks
   contract of v0.54.0 is gone — `params.task`, `tasks/result`, `tasks/list`,
-  `execution.taskSupport` and `ping` are not served, `requires_task` is
-  `long_running`; `McpHub(store=)` is required and `McpGatewayTool` has
+  `execution.taskSupport` and `ping` are not served, a card up for the
+  person is `working` (with `statusMessage`), never `input_required`,
+  `requires_task` is `long_running`, and `crucible.gateways.mcp.tasks`
+  (`McpTask`, `McpTasks`, `STATUS_*`, `TASK_SUPPORT_*`) and `McpHub.tasks`
+  are gone; `McpHub(store=)` is required and `McpGatewayTool` has
   `conversation_argument`; the `Store` port grows `McpTurns` (one table,
   seven methods); `AuthorizationServer(grant_ttl_s=)` is `grant_idle_s`
-  and `grant_max_s`, and `subject_of` is asynchronous with the request;
-  `GatewayCall` takes `wait_turn=`.
+  and `grant_max_s`, and `subject_of` is `async (connected, request) ->
+  SignedIn | web.StreamResponse` — a `(subject, username)` tuple is refused
+  as no sign-in; `GatewayCall` takes `wait_turn=` and `turn_id=`.
 
 ## v0.54.0 — 2026-11-19
 

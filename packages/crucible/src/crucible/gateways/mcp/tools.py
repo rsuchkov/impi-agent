@@ -19,7 +19,7 @@ Long calls: a tool that runs an agent's turn (``long_running``) may take
 minutes and may stop to ask the person. The gateway runs such a call as a
 task for a client that declared the tasks extension, and for any other client
 waits as long as a call may and then answers with where the turn stands
-(``TurnState``) — the client comes back with ``wait_agent``.
+(``TurnStanding``) — the client comes back with ``wait_agent``.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
@@ -28,14 +28,14 @@ from typing import Any, Protocol
 
 from crucible.gateways.mcp.auth import McpCaller
 from crucible.ports.chat.gateway import MCP_SCOPE_READ
-from crucible.ports.mcp_turns import ENDED, STATE_AWAITING_APPROVAL, STATE_DONE
+from crucible.ports.mcp_turns import TURN_AWAITING_APPROVAL, TURN_DONE, TURN_ENDED
 
 # The ``_meta`` key, on a call and on its result, that names the conversation
 # — beside the tool's own argument and the result's ``structuredContent``.
 META_CONVERSATION = "crucible/conversation"
 # The result's ``structuredContent`` keys.
 CONVERSATION_KEY = "conversation"
-STATE_KEY = "state"
+TURN_STATE_KEY = "state"
 STEP_KEY = "step"
 
 
@@ -45,9 +45,9 @@ class CallFailed(Exception):
 
 
 @dataclass(frozen=True)
-class TurnState:
+class TurnStanding:
     """Where a conversation's latest turn stands, for a tool that waits on it:
-    the state word (``ports.mcp_turns.STATE_*``), the latest step while it
+    the state word (``ports.mcp_turns.TURN_*``), the latest step while it
     runs, and once it has ended what it answered and whether that was an error."""
 
     handle: str
@@ -67,22 +67,18 @@ class GatewayCall:
         handle: str,
         *,
         ask_agent: Callable[["GatewayCall", str, str], Awaitable[str]],
-        wait_turn: Callable[["GatewayCall", str], Awaitable[TurnState]],
+        wait_turn: Callable[["GatewayCall", str], Awaitable[TurnStanding]],
         progress: Callable[[str], Awaitable[None]],
-        wants_progress: bool = False,
+        turn_id: str = "",
     ) -> None:
         self.caller = caller
         self.arguments = arguments
         # The conversation this call belongs to: from the tool's argument or
         # the call's ``_meta``; "" until an agent is asked, which opens one.
         self.handle = handle
-        # The turn this call is, once the gateway runs it as one (a long call):
+        # The turn this call is, when the gateway runs it as one (a long call):
         # what a client polls it by. "" for a call that is no turn.
-        self.turn_id = ""
-        # Whether the client asked to be told of progress (a progress token on
-        # the call, an event stream accepted): the gateway follows the turn's
-        # steps for it only then.
-        self.wants_progress = wants_progress
+        self.turn_id = turn_id
         self._ask_agent = ask_agent
         self._wait_turn = wait_turn
         self._progress = progress
@@ -95,7 +91,7 @@ class GatewayCall:
         ask per call: the call is the turn."""
         return await self._ask_agent(self, text, agent)
 
-    async def wait(self, handle: str) -> TurnState:
+    async def wait(self, handle: str) -> TurnStanding:
         """Where the conversation ``handle`` stands: its latest turn's state,
         after waiting as long as a call may for it to end or change. Raises
         ``CallFailed`` for a handle that names no conversation of the caller's."""
@@ -190,20 +186,20 @@ class WaitAgentTool:
     async def run(self, call: GatewayCall) -> str:
         if not call.handle:
             raise CallFailed("say which conversation to wait for: `conversation` is empty")
-        state = await call.wait(call.handle)
-        if state.state in ENDED:
-            if state.is_error or state.state != STATE_DONE:
-                raise CallFailed(state.answer or f"the agent's turn ended: {state.state}")
-            return state.answer
-        return state_words(state)
+        standing = await call.wait(call.handle)
+        if standing.state in TURN_ENDED:
+            if standing.is_error or standing.state != TURN_DONE:
+                raise CallFailed(standing.answer or f"the agent's turn ended: {standing.state}")
+            return standing.answer
+        return standing_words(standing)
 
 
-def state_words(state: TurnState) -> str:
+def standing_words(standing: TurnStanding) -> str:
     """How a turn still running is told to the client's model."""
-    if state.state == STATE_AWAITING_APPROVAL:
+    if standing.state == TURN_AWAITING_APPROVAL:
         return (
-            f"The agent is waiting for the person's yes in their chat ({state.step or 'a confirmation'}). "
-            f"Call wait_agent with conversation {state.handle} once they have answered."
+            f"The agent is waiting for the person's yes in their chat ({standing.step or 'a confirmation'}). "
+            f"Call wait_agent with conversation {standing.handle} once they have answered."
         )
-    step = f" (now: {state.step})" if state.step else ""
-    return f"The agent is still working{step}. Call wait_agent with conversation {state.handle} to get the answer."
+    step = f" (now: {standing.step})" if standing.step else ""
+    return f"The agent is still working{step}. Call wait_agent with conversation {standing.handle} to get the answer."
