@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.55.0 — 2026-11-20
+
 - **The MCP gateway speaks the tasks extension of 2026-07-28, and a short
   client gets its answer too.** Tasks as the revision has them: a client
   declares `io.modelcontextprotocol/tasks` on the request, the server decides
