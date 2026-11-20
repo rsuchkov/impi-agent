@@ -13,6 +13,8 @@
 #   EXTRA_ANSWERS=file  appended to the answers, e.g. a real LLM_* or a
 #                       subscription mode with a pinned provider
 #   E2E_PI_AUTH=file    seed pi's subscription login (~/.pi/agent/auth.json)
+#   E2E_MODEL=name      the model the live legs run on (default gpt-6-luna on
+#                       openai-codex: a ChatGPT account does not get gpt-5.5)
 #   E2E_LLM=1           ask the agent things and wait for it to answer
 #
 # Installs the CURRENT WORKING TREE (not a git clone, so uncommitted installer
@@ -527,6 +529,10 @@ if [ -n "${E2E_PI_AUTH:-}" ]; then
              chmod 600 /home/impi/.pi/agent/auth.json' <"$E2E_PI_AUTH"
     }
     check "pi subscription login seeded" seed_auth
+    # The model the legs run on: pi's own default for the login is not one
+    # every account gets (gpt-5.5 is refused to a ChatGPT account), so it is
+    # named here, where the login is.
+    printf 'DEFAULT_PROVIDER=openai-codex\nDEFAULT_MODEL=%s\n' "${E2E_MODEL:-gpt-6-luna}" >>"$E2E_HOME/conf/.env"
     built_before=$(engine_log_count "app built:")
     ws_before=$(engine_log_count "Websocket authentication OK")
     compose restart impi >/dev/null 2>&1
