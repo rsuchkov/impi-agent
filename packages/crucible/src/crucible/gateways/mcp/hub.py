@@ -5,7 +5,7 @@ system — reaches the agents here the way the engine reaches an MCP server of
 its own: ``tools/list``, ``tools/call``, over streamable HTTP. The tools it
 sees are the application's (``McpGatewayTool``), ``ask_agent`` among them:
 the agent itself, asked in words, answering with a turn of its own in a
-conversation it remembers (``tools.META_CONVERSATION``).
+conversation it remembers (``tools.CONVERSATION_KEY``).
 
 Stateless, as the current revision of the protocol is (2026-07-28): every
 request carries its protocol version and method in headers and its ``_meta``,
@@ -20,21 +20,28 @@ and may not answer for them — where the application puts the card
 (``ApprovalCards``). The gateway's own tools say which scope they need; a
 token without it does not see them.
 
-The turns in flight are kept the http gateway's way (``HttpTurns``): one
-running turn per conversation, a journal the answer is read out of when the
-turn ends and progress is read from while it runs. The application wires the
-hub's ``turns`` as the flow's tracer for ``GATEWAY_MCP``.
+A call that runs an agent's turn may take minutes. For a client that declared
+the tasks extension it is a task: answered at once with a task id, polled
+with ``tasks/get`` until it ends, read there. For any other client the call
+waits as long as a call may (``call_wait_s``) and then answers with where the
+turn stands — the client comes back with ``wait_agent``. Either way the turn
+runs on the replica the call landed on and is written down as it goes
+(``McpTurns``, in the store), so the next call about it may land anywhere:
+a poll, a wait or a cancel reads the record, and the replica that runs the
+turn reads the cancel. The turn's own journal (``HttpTurns``) stays with the
+replica that runs it, for progress on the call's own stream.
 """
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import re
 import secrets
 import uuid
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
-from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from aiohttp import web
@@ -46,34 +53,36 @@ from crucible.gateways.http.journal import (
     EV_PROGRESS,
     EV_TOOL_AWAITING,
     EV_TOOL_STARTED,
+    STATUS_AWAITING_INPUT,
 )
 from crucible.gateways.http.turns import HttpTurns, Turn, TurnInProgress
 from crucible.gateways.mcp.auth import Authorization, McpCaller
 from crucible.gateways.mcp.client import ApprovalCards, McpChatClient
-from crucible.gateways.mcp.tasks import (
-    RESULT_WAIT_S,
-    TASK_SUPPORT_OPTIONAL,
-    TASK_SUPPORT_REQUIRED,
-    TERMINAL,
-    McpTask,
-    McpTasks,
-)
 from crucible.gateways.mcp.tools import (
+    CONVERSATION_KEY,
     META_CONVERSATION,
+    STATE_KEY,
+    STEP_KEY,
     AskAgentTool,
     CallFailed,
     GatewayCall,
     McpGatewayTool,
+    TurnState,
+    WaitAgentTool,
+    state_words,
 )
 from crucible.mcp.protocol import (
     ERROR_HEADER_MISMATCH,
+    ERROR_MISSING_CAPABILITY,
     ERROR_UNSUPPORTED_VERSION,
+    META_CLIENT_CAPABILITIES,
     META_PROTOCOL_VERSION,
     META_SERVER_INFO,
     METHOD_HEADER,
     MODERN_VERSION,
     NAME_HEADER,
     PROTOCOL_VERSION_HEADER,
+    RESULT_COMPLETE,
 )
 from crucible.ports.chat.flow import StoppableSink, TrackedSink, TurnOutcome
 from crucible.ports.chat.gateway import (
@@ -83,6 +92,17 @@ from crucible.ports.chat.gateway import (
     mcp_scopes_attribute,
 )
 from crucible.ports.chat.types import KIND_DM, ConversationRef, IncomingMessage
+from crucible.ports.mcp_turns import (
+    ENDED,
+    STATE_AWAITING_APPROVAL,
+    STATE_CANCELLED,
+    STATE_DONE,
+    STATE_FAILED,
+    STATE_WORKING,
+    McpTurnRecord,
+    McpTurns,
+)
+from crucible.ports.replica import Replica, Replicas
 from crucible.ports.turn import TurnScope
 
 logger = logging.getLogger(__name__)
@@ -92,30 +112,62 @@ MCP_PATH = "/mcp"
 # address, for a client that was answered 401): RFC 9728, under the resource's path.
 RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource/mcp"
 SERVER_INFO: Mapping[str, str] = {"name": "crucible", "version": "1"}
+# The tasks extension, as a client declares it and the server offers it, and
+# the result type that says "a task, not the answer".
+TASKS_EXTENSION = "io.modelcontextprotocol/tasks"
+RESULT_TASK = "task"
 # One request may weigh this much: a question and its arguments, no files.
 MAX_BODY_BYTES = 1024 * 1024
 # How much of an agent's answer goes back to the client.
 ANSWER_MAX = 100_000
+# How long a call that runs a turn is held open for a client without tasks
+# before it is answered with where the turn stands: under the minute some
+# clients cut a call at.
+CALL_WAIT_S = 45.0
+# How long an ended turn is kept for the client to read; what a task's ttlMs says.
+TASK_TTL_MS = 10 * 60 * 1000
+POLL_INTERVAL_MS = 2000
+# The same request again by the same caller within this many seconds, with no
+# conversation named, joins the turn it opened: a client whose stream broke
+# sends the call again, and a second turn would answer it twice.
+REPEAT_WINDOW_S = 120.0
+# A record of a turn still running is kept at least this long; once it has
+# ended, the task's ttl.
+_RUNNING_RETENTION_S = 24 * 3600
 # JSON-RPC's own codes, beside the protocol's in ``crucible.mcp.protocol``.
 ERROR_PARSE = -32700
 ERROR_INVALID_REQUEST = -32600
 ERROR_METHOD_NOT_FOUND = -32601
 ERROR_INVALID_PARAMS = -32602
 ERROR_INTERNAL = -32603
-# The server's own: a task's result asked for before the task has ended.
-ERROR_TASK_NOT_DONE = -32002
 # How the gateway keys a caller's conversation: the subject is in the key,
 # so a handle presented for another subject names another conversation.
 _SEP = ":"
 _HANDLE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-_FAILED = frozenset({TurnOutcome.TIMEOUT, TurnOutcome.ERROR})
-_PROGRESS_WAIT_S = 1.0
+_TURN_FAILED = frozenset({TurnOutcome.TIMEOUT, TurnOutcome.ERROR})
+_POLL_S = 1.0
+_RESTARTED = "the engine running this turn restarted; ask again"
+# A task's status for each of the gateway's own words.
+_TASK_STATUS = {
+    STATE_WORKING: "working", STATE_AWAITING_APPROVAL: "working",
+    STATE_DONE: "completed", STATE_FAILED: "failed", STATE_CANCELLED: "cancelled",
+}
 
 
 def conversation_key(subject: str, handle: str) -> str:
     """The engine-side key of a caller's conversation — what the session
     store and ``HttpTurns`` know it by."""
     return f"{GATEWAY_MCP}{_SEP}{subject}{_SEP}{handle}"
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(moment: datetime) -> str:
+    # Milliseconds: a record's retention is compared as text, and a short one
+    # rounded to the second would be over before it began.
+    return moment.isoformat(timespec="milliseconds")
 
 
 class _RpcError(Exception):
@@ -151,6 +203,24 @@ def _word_of(event_type: str, payload: Mapping[str, Any]) -> str:
     return ""
 
 
+def _declares_tasks(meta: Mapping[str, Any]) -> bool:
+    capabilities = meta.get(META_CLIENT_CAPABILITIES)
+    extensions = capabilities.get("extensions") if isinstance(capabilities, Mapping) else None
+    return isinstance(extensions, Mapping) and TASKS_EXTENSION in extensions
+
+
+def _request_digest(tool: str, arguments: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps({"tool": tool, "arguments": arguments}, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def _state_of(record: McpTurnRecord) -> TurnState:
+    return TurnState(
+        handle=record.handle, state=record.state, step=record.step, answer=record.answer, is_error=record.is_error,
+    )
+
+
 class McpHub:
     def __init__(
         self,
@@ -158,6 +228,7 @@ class McpHub:
         port: int,
         authorization: Authorization,
         *,
+        store: McpTurns,
         public_url: str = "",
         tools: Sequence[McpGatewayTool] | None = None,
         cards: ApprovalCards | None = None,
@@ -165,17 +236,25 @@ class McpHub:
         instructions: str = "",
         allowed_origins: Collection[str] = (),
         turns: HttpTurns | None = None,
+        replica: Replica | None = None,
+        replicas: Replicas | None = None,
+        call_wait_s: float = CALL_WAIT_S,
+        task_ttl_ms: int = TASK_TTL_MS,
+        repeat_window_s: float = REPEAT_WINDOW_S,
         server_info: Mapping[str, str] = SERVER_INFO,
         max_body: int = MAX_BODY_BYTES,
         routes: Iterable[web.AbstractRouteDef] = (),
+        clock: Callable[[], datetime] = _utcnow,
     ) -> None:
         self._host = host
         self._port = port
         self._authorization = authorization
+        # The turns' records, for every replica to read (the engine's store).
+        self._store = store
         # Where clients reach this gateway from outside, for the metadata address
         # a 401 names; "" names it relative to the request.
         self._public_url = public_url.rstrip("/")
-        offered = list(tools) if tools is not None else [AskAgentTool()]
+        offered = list(tools) if tools is not None else [AskAgentTool(), WaitAgentTool()]
         self._tools: dict[str, McpGatewayTool] = {tool.name: tool for tool in offered}
         # Where the application puts a card in front of the person; None = a
         # tool that needs a yes is refused.
@@ -187,15 +266,25 @@ class McpHub:
         # A program names none and is not asked to.
         self._allowed_origins = frozenset(allowed_origins)
         self.turns = turns if turns is not None else HttpTurns()
+        # This process among the replicas sharing the store, and the registry
+        # that says which are alive: a record of a turn whose replica is gone
+        # is a turn that will never end on its own.
+        self._replica_id = replica.id if replica is not None else ""
+        self._replicas = replicas
+        self._call_wait_s = call_wait_s
+        self._task_ttl_ms = task_ttl_ms
+        self._repeat_window_s = repeat_window_s
         self._server_info = dict(server_info)
         self._max_body = max_body
         # Routes served beside /mcp on the same listener: the authorization
         # server's (``AuthorizationServer.routes()``), an application's own.
         self._routes = list(routes)
+        self._clock = clock
         self._agents: dict[str, tuple[TrackedSink, McpChatClient]] = {}
-        # conversation key -> the caller whose call runs there now.
+        # conversation key -> the caller whose call runs there now (this replica's).
         self._askers: dict[str, McpCaller] = {}
-        self.tasks = McpTasks()
+        # turn id -> the call running it here.
+        self._running: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._runner: web.AppRunner | None = None
 
     # -- agents -------------------------------------------------------------------
@@ -208,7 +297,7 @@ class McpHub:
         return tuple(sorted(self._agents))
 
     def asker_of(self, conversation: str) -> McpCaller | None:
-        """The caller whose call is running in ``conversation``, or None."""
+        """The caller whose call is running in ``conversation`` here, or None."""
         return self._askers.get(conversation)
 
     @property
@@ -218,6 +307,12 @@ class McpHub:
     # -- lifecycle --------------------------------------------------------------
 
     async def start(self) -> None:
+        # Whatever this replica was running when it last stopped is over.
+        now = _iso(self._clock())
+        failed = await self._store.fail_mcp_turns(self._replica_id, _RESTARTED, now)
+        gone = await self._store.purge_mcp_turns(now)
+        if failed or gone:
+            logger.info("mcp gateway: %d turn(s) of an earlier run closed, %d record(s) purged", failed, gone)
         app = web.Application(client_max_size=self._max_body)
         app.router.add_post(MCP_PATH, self._mcp)
         app.add_routes(self._routes)
@@ -230,6 +325,8 @@ class McpHub:
         )
 
     async def stop(self) -> None:
+        for runner in list(self._running.values()):
+            runner.cancel()
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None
@@ -278,8 +375,9 @@ class McpHub:
     def _check_envelope(request: web.Request, method: str, params: Mapping[str, Any], meta: Mapping[str, Any]) -> None:
         """The modern era's envelope: the version in the header, mirrored in
         ``_meta``; the method and the name in headers, when the client sent
-        them, saying what the body says. A client of another era — no version,
-        an ``initialize`` — is told what this server speaks."""
+        them, saying what the body says (a task's id is its name). A client
+        of another era — no version, an older one — is told what this server
+        speaks."""
         version = request.headers.get(PROTOCOL_VERSION_HEADER, "")
         if version != MODERN_VERSION:
             raise _RpcError(
@@ -291,7 +389,7 @@ class McpHub:
         if (named := request.headers.get(METHOD_HEADER)) is not None and named != method:
             raise _RpcError(ERROR_HEADER_MISMATCH, f"{METHOD_HEADER} says {named!r}, the body {method!r}", status=400)
         if (named := request.headers.get(NAME_HEADER)) is not None:
-            in_body = params.get("name") or params.get("uri") or ""
+            in_body = params.get("name") or params.get("uri") or params.get("taskId") or ""
             if _header_text(named) != in_body:
                 raise _RpcError(ERROR_HEADER_MISMATCH, f"{NAME_HEADER} differs from the body's name", status=400)
 
@@ -299,12 +397,11 @@ class McpHub:
         self, request: web.Request, caller: McpCaller, method: str, params: Mapping[str, Any],
         meta: Mapping[str, Any], rid: Any,
     ) -> web.StreamResponse:
-        if method == "ping":
-            return self._result(rid, {})
+        tasks = _declares_tasks(meta)
         if method == "server/discover":
             return self._result(rid, {
                 "supportedVersions": [MODERN_VERSION],
-                "capabilities": {"tools": {}, "tasks": {"requests": {"tools": {"call": {}}}, "list": {}, "cancel": {}}},
+                "capabilities": {"tools": {}, "extensions": {TASKS_EXTENSION: {}}},
                 "serverInfo": dict(self._server_info),
                 "instructions": self._instructions,
                 "_meta": {META_SERVER_INFO: dict(self._server_info)},
@@ -314,26 +411,25 @@ class McpHub:
                 "tools": [self._declare(tool) for tool in self._tools.values() if caller.allows(tool.scope)]
             })
         if method == "tools/call":
-            return await self._call(request, caller, params, meta, rid)
-        if method in ("tasks/get", "tasks/result", "tasks/cancel"):
+            return await self._call(request, caller, params, meta, rid, tasks=tasks)
+        if method in ("tasks/get", "tasks/update", "tasks/cancel"):
+            if not tasks:
+                raise _RpcError(
+                    ERROR_MISSING_CAPABILITY, f"{method} needs the tasks extension declared on the request",
+                    data={"requiredCapabilities": {"extensions": {TASKS_EXTENSION: {}}}},
+                )
             return await self._task(caller, method, params, rid)
-        if method == "tasks/list":
-            self.tasks.sweep(asyncio.get_running_loop().time())
-            return self._result(rid, {"tasks": [self._task_wire(task) for task in self.tasks.of(_task_key(caller))]})
         raise _RpcError(ERROR_METHOD_NOT_FOUND, f"{method}: not a method of this server")
 
     @staticmethod
     def _declare(tool: McpGatewayTool) -> dict[str, Any]:
-        support = TASK_SUPPORT_REQUIRED if tool.requires_task else TASK_SUPPORT_OPTIONAL
-        return {
-            "name": tool.name, "description": tool.description, "inputSchema": dict(tool.input_schema),
-            "execution": {"taskSupport": support},
-        }
+        return {"name": tool.name, "description": tool.description, "inputSchema": dict(tool.input_schema)}
 
     # -- tools/call ----------------------------------------------------------------
 
     async def _call(
         self, request: web.Request, caller: McpCaller, params: Mapping[str, Any], meta: Mapping[str, Any], rid: Any,
+        *, tasks: bool,
     ) -> web.StreamResponse:
         name = params.get("name")
         tool = self._tools.get(name) if isinstance(name, str) else None
@@ -347,123 +443,305 @@ class McpHub:
         arguments = params.get("arguments") or {}
         if not isinstance(arguments, Mapping):
             raise _RpcError(ERROR_INVALID_PARAMS, "arguments must be an object")
-        handle = meta.get(META_CONVERSATION, "")
-        if handle and not (isinstance(handle, str) and _HANDLE.match(handle)):
-            raise _RpcError(ERROR_INVALID_PARAMS, f"{META_CONVERSATION} is not a conversation handle of this gateway's")
-        asked_task = params.get("task")
-        if asked_task is not None and not isinstance(asked_task, Mapping):
-            raise _RpcError(ERROR_INVALID_PARAMS, "task must be an object")
-        if asked_task is not None:
-            return self._result(rid, {"task": self._start_task(caller, tool, arguments, handle, asked_task)})
-        if tool.requires_task:
-            return self._result(rid, {
-                "content": [{"type": "text", "text": f"{tool.name} runs as a task: call it with task: {{ttl}} and read tasks/get"}],
-                "isError": True,
-            })
+        handle = self._handle_of(tool, arguments, meta)
         progress_token = meta.get("progressToken")
         streaming = progress_token is not None and "text/event-stream" in request.headers.get("Accept", "")
-        if not streaming:
-            call = GatewayCall(caller, arguments, handle, ask_agent=self._ask, progress=_no_progress)
-            return self._result(rid, await self._run(tool, call))
+        if tool.long_running:
+            # A call that runs a turn: a task for a client that follows tasks,
+            # a bounded wait for any other, both reading the turn's record.
+            record = await self._joinable(caller, tool, arguments, handle)
+            if record is None:
+                record = await self._open(caller, tool, arguments, handle)
+            if tasks:
+                return self._result(rid, self._task_wire(record, created=True))
+            if not streaming:
+                return self._result(rid, self._state_wire(await self._await_turn(record.turn_id, self._call_wait_s)))
+        elif not streaming:
+            call = GatewayCall(
+                caller, arguments, handle, ask_agent=self._ask, wait_turn=self._wait, progress=_no_progress,
+            )
+            return self._result(rid, self._wire(await self._run(tool, call), call.handle))
 
-        # The client asked to be told of progress: the answer is an event
-        # stream, progress notifications first, the result last.
+        # The client asked to be told of progress: an event stream, progress
+        # notifications while the call lasts, the result last.
         response = web.StreamResponse(
             status=200, headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"}
         )
         await response.prepare(request)
         count = 0
 
-        async def progress(text: str) -> None:
+        async def progress(word: str) -> None:
             nonlocal count
             count += 1
             await _event(response, {
                 "jsonrpc": "2.0", "method": "notifications/progress",
-                "params": {"progressToken": progress_token, "progress": count, "message": text},
+                "params": {"progressToken": progress_token, "progress": count, "message": word},
             })
 
-        call = GatewayCall(caller, arguments, handle, ask_agent=self._ask, progress=progress, wants_progress=True)
-        result = await self._run(tool, call)
+        if tool.long_running:
+            result = self._state_wire(await self._await_turn(record.turn_id, self._call_wait_s, progress=progress))
+        else:
+            call = GatewayCall(
+                caller, arguments, handle, ask_agent=self._ask, wait_turn=self._wait, progress=progress,
+                wants_progress=True,
+            )
+            result = self._wire(await self._run(tool, call), call.handle)
         await _event(response, {"jsonrpc": "2.0", "id": rid, "result": result})
         await response.write_eof()
         return response
 
-    async def _run(self, tool: McpGatewayTool, call: GatewayCall) -> dict[str, Any]:
+    @staticmethod
+    def _handle_of(tool: McpGatewayTool, arguments: Mapping[str, Any], meta: Mapping[str, Any]) -> str:
+        """The conversation the call names: in the tool's own argument, else
+        in ``_meta``; "" when it names none."""
+        handle = arguments.get(tool.conversation_argument) if tool.conversation_argument else None
+        if handle in (None, ""):
+            handle = meta.get(META_CONVERSATION, "")
+        if not handle:
+            return ""
+        if not (isinstance(handle, str) and _HANDLE.match(handle)):
+            raise _RpcError(ERROR_INVALID_PARAMS, f"{handle!r} is not a conversation handle of this gateway's")
+        return handle
+
+    async def _run(self, tool: McpGatewayTool, call: GatewayCall) -> tuple[str, bool]:
+        """The tool's answer and whether it is an error, whatever the tool did."""
         try:
-            text, is_error = await tool.run(call), False
+            return await tool.run(call), False
         except CallFailed as exc:
-            text, is_error = str(exc), True
+            return str(exc), True
+        except asyncio.CancelledError:
+            raise
         except Exception:
             logger.exception("mcp gateway: tool %s failed", tool.name)
-            text, is_error = f"{tool.name} failed; the engine's log says how", True
+            return f"{tool.name} failed; the engine's log says how", True
+
+    def _wire(self, answer: tuple[str, bool], handle: str, *, state: str = STATE_DONE) -> dict[str, Any]:
+        """A call's result as the client reads it: the text, with the
+        conversation named at its end where the client's model reads it, and
+        the same in ``structuredContent`` and ``_meta``."""
+        text, is_error = answer
         result: dict[str, Any] = {"content": [{"type": "text", "text": text}], "isError": is_error}
-        if call.handle:
-            result["_meta"] = {META_CONVERSATION: call.handle}
+        if handle:
+            result["content"][0]["text"] = f"{text}\n\nConversation: {handle}" if text else f"Conversation: {handle}"
+            result["structuredContent"] = {CONVERSATION_KEY: handle, STATE_KEY: state}
+            result["_meta"] = {META_CONVERSATION: handle}
         return result
+
+    def _state_wire(self, state: TurnState) -> dict[str, Any]:
+        """Where the turn stands, as a call's result: its answer once it has
+        ended, else the word on what it is doing and how to come back."""
+        if state.state in ENDED:
+            return self._wire((state.answer, state.is_error or state.state != STATE_DONE), state.handle, state=state.state)
+        result = self._wire((state_words(state), False), state.handle, state=state.state)
+        if state.step:
+            result["structuredContent"][STEP_KEY] = state.step
+        return result
+
+    # -- a turn for a long call --------------------------------------------------------
+
+    async def _joinable(
+        self, caller: McpCaller, tool: McpGatewayTool, arguments: Mapping[str, Any], handle: str,
+    ) -> McpTurnRecord | None:
+        """The turn this call joins instead of opening one: the conversation's
+        turn still running, or — with no conversation named — the turn the
+        same request opened a moment ago (a client whose stream broke asks
+        again)."""
+        if handle:
+            latest = await self._store.latest_mcp_turn(conversation_key(caller.subject, handle))
+            return latest if latest is not None and await self._still_running(latest) else None
+        recent = await self._store.find_mcp_turn(caller.subject, caller.client, _request_digest(tool.name, arguments))
+        if recent is None or not await self._still_running(recent):
+            return None
+        started = datetime.fromisoformat(recent.started_at)
+        return recent if self._clock() - started <= timedelta(seconds=self._repeat_window_s) else None
+
+    async def _open(
+        self, caller: McpCaller, tool: McpGatewayTool, arguments: Mapping[str, Any], handle: str,
+    ) -> McpTurnRecord:
+        """Start the call as a turn of its own: the record first, so a poll
+        that arrives anywhere finds it, then the tool."""
+        handle = handle or secrets.token_urlsafe(16)
+        now = self._clock()
+        record = McpTurnRecord(
+            turn_id=uuid.uuid4().hex, conversation=conversation_key(caller.subject, handle), handle=handle,
+            subject=caller.subject, client=caller.client, agent="", replica=self._replica_id, state=STATE_WORKING,
+            started_at=_iso(now), updated_at=_iso(now), expires_at=_iso(now + timedelta(seconds=_RUNNING_RETENTION_S)),
+            step="starting", request_digest=_request_digest(tool.name, arguments),
+        )
+        await self._store.save_mcp_turn(record)
+
+        async def progress(word: str) -> None:
+            # The tool's own word on what it is doing is the record's step —
+            # what a poll reads — while no agent's turn says more.
+            current = await self._store.get_mcp_turn(record.turn_id)
+            if current is not None and current.state == STATE_WORKING and not current.agent:
+                await self._store.save_mcp_turn(_replace(current, step=word, updated_at=_iso(self._clock())))
+
+        call = GatewayCall(
+            caller, arguments, handle, ask_agent=self._ask, wait_turn=self._wait, progress=progress,
+            wants_progress=True,
+        )
+        call.turn_id = record.turn_id
+        runner = asyncio.ensure_future(self._run_turn(tool, call, record))
+        self._running[record.turn_id] = runner
+        runner.add_done_callback(lambda _: self._running.pop(record.turn_id, None))
+        return record
+
+    async def _run_turn(self, tool: McpGatewayTool, call: GatewayCall, record: McpTurnRecord) -> dict[str, Any]:
+        """The tool, and its record written when it ends: what it answered,
+        or that it was stopped."""
+        state, text, is_error = STATE_DONE, "", False
+        try:
+            text, is_error = await self._run(tool, call)
+        except asyncio.CancelledError:
+            state, text, is_error = STATE_CANCELLED, "cancelled by the client", True
+        except Exception:
+            logger.exception("mcp gateway: the turn %s failed", record.turn_id)
+            state, text, is_error = STATE_FAILED, "the call failed; the engine's log says how", True
+        latest = await self._store.get_mcp_turn(record.turn_id) or record
+        if latest.cancel_requested and state == STATE_DONE:
+            state = STATE_CANCELLED
+        now = self._clock()
+        await self._store.save_mcp_turn(_replace(
+            latest, state=state, step="", answer=text, is_error=is_error, updated_at=_iso(now),
+            expires_at=_iso(now + timedelta(milliseconds=self._task_ttl_ms)),
+        ))
+        return self._wire((text, is_error), call.handle, state=state)
+
+    async def _await_turn(
+        self, turn_id: str, wait_s: float, *, progress: Callable[[str], Awaitable[None]] | None = None,
+    ) -> TurnState:
+        """Where the turn stands after waiting up to ``wait_s`` for it to end.
+        ``progress`` is told what the turn is on as it goes: from the turn's
+        own journal when it runs here, from its record's steps when it runs
+        on another replica."""
+        deadline = asyncio.get_running_loop().time() + wait_s
+        cursor = 0
+        seen: tuple[str, str] = ("", "")
+
+        async def flush(turn: Turn | None) -> None:
+            # The journal's words since the last look, for a client that listens.
+            nonlocal cursor
+            for event in turn.journal.since(cursor) if turn is not None else ():
+                cursor = event.seq
+                if progress is not None and (word := _word_of(event.type, event.payload)):
+                    await progress(word)
+
+        while True:
+            record = await self._store.get_mcp_turn(turn_id)
+            if record is None:
+                return TurnState(handle="", state=STATE_FAILED, answer=_RESTARTED, is_error=True)
+            if record.state in ENDED:
+                await flush(self.turns.get(turn_id))
+                return _state_of(record)
+            if not await self._still_running(record):
+                return _state_of(await self._fail_stale(record))
+            left = deadline - asyncio.get_running_loop().time()
+            if left <= 0:
+                return _state_of(record)
+            runner = self._running.get(turn_id)
+            turn = self.turns.get(turn_id) if runner is not None else None
+            if runner is not None and turn is not None:
+                # This replica runs it: its journal says each step as it happens.
+                waiter = asyncio.ensure_future(turn.journal.wait(cursor, min(left, _POLL_S)))
+                await asyncio.wait([runner, waiter], return_when=asyncio.FIRST_COMPLETED)
+                if not waiter.done():
+                    waiter.cancel()
+                await flush(turn)
+            elif runner is not None:
+                # Ours, but no turn opened yet (the tool has not asked an agent):
+                # a short wait, then another look.
+                await asyncio.wait({runner}, timeout=min(left, 0.05))
+            else:
+                if progress is not None and (record.state, record.step) != seen and record.step:
+                    seen = (record.state, record.step)
+                    await progress(state_words(_state_of(record)) if record.state == STATE_AWAITING_APPROVAL else record.step)
+                await asyncio.sleep(min(left, _POLL_S))
+
+    async def _still_running(self, record: McpTurnRecord) -> bool:
+        """Whether the record's turn is still being run by a live replica."""
+        if record.state in ENDED:
+            return False
+        if record.replica == self._replica_id:
+            return record.turn_id in self._running
+        if self._replicas is None:
+            return True  # nothing to ask: taken at its word
+        return await self._replicas.replica_url(record.replica) is not None
+
+    async def _fail_stale(self, record: McpTurnRecord) -> McpTurnRecord:
+        """A turn whose replica is gone will never end on its own: say so."""
+        now = self._clock()
+        failed = _replace(
+            record, state=STATE_FAILED, step="", answer=_RESTARTED, is_error=True, updated_at=_iso(now),
+            expires_at=_iso(now + timedelta(milliseconds=self._task_ttl_ms)),
+        )
+        await self._store.save_mcp_turn(failed)
+        return failed
+
+    async def _wait(self, call: GatewayCall, handle: str) -> TurnState:
+        """``GatewayCall.wait``: the conversation's latest turn, waited for."""
+        if not _HANDLE.match(handle):
+            raise CallFailed(f"{handle!r} is not a conversation handle of this gateway's")
+        latest = await self._store.latest_mcp_turn(conversation_key(call.caller.subject, handle))
+        if latest is None:
+            raise CallFailed(f"no conversation {handle} of yours is known here")
+        return await self._await_turn(latest.turn_id, self._call_wait_s)
 
     # -- tasks ------------------------------------------------------------------------------
 
-    def _start_task(
-        self, caller: McpCaller, tool: McpGatewayTool, arguments: Mapping[str, Any], handle: str, asked: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        self.tasks.sweep(asyncio.get_running_loop().time())
-        task_id = uuid.uuid4().hex
-        task: McpTask | None = None
-
-        async def progress(text: str) -> None:
-            if task is not None:
-                task.progress(text)
-
-        call = GatewayCall(caller, arguments, handle, ask_agent=self._ask, progress=progress, wants_progress=True)
-        runner = asyncio.ensure_future(self._run(tool, call))
-        task = self.tasks.create(task_id, _task_key(caller), call, runner, asked)
-        return self._task_wire(task)
-
-    def _task_wire(self, task: McpTask) -> dict[str, Any]:
-        call = task.call
-        conversation = conversation_key(call.caller.subject, call.handle) if call.handle else ""
-        status, message = task.status(self.turns, conversation)
-        return task.wire(status, message)
+    def _task_wire(self, record: McpTurnRecord, *, created: bool = False) -> dict[str, Any]:
+        """The turn as a task — ``CreateTaskResult`` when the call is answered
+        with it (``created``), the detailed task on a poll: its status, the
+        latest word, and once it has ended its result or its error."""
+        status = _TASK_STATUS[record.state]
+        task: dict[str, Any] = {
+            "resultType": RESULT_TASK if created else RESULT_COMPLETE,
+            "taskId": record.turn_id, "status": status, "createdAt": record.started_at,
+            "lastUpdatedAt": record.updated_at, "ttlMs": self._task_ttl_ms, "pollIntervalMs": POLL_INTERVAL_MS,
+        }
+        if record.state == STATE_AWAITING_APPROVAL:
+            task["statusMessage"] = state_words(_state_of(record))
+        elif record.state in (STATE_WORKING, STATE_CANCELLED) and record.step:
+            task["statusMessage"] = record.step
+        if record.state == STATE_DONE:
+            task["result"] = {"resultType": RESULT_COMPLETE, **self._wire((record.answer, record.is_error), record.handle)}
+        elif record.state == STATE_FAILED:
+            task["error"] = {"code": ERROR_INTERNAL, "message": record.answer}
+            task["statusMessage"] = record.answer
+        return task
 
     async def _task(self, caller: McpCaller, method: str, params: Mapping[str, Any], rid: Any) -> web.Response:
-        self.tasks.sweep(asyncio.get_running_loop().time())
+        await self._store.purge_mcp_turns(_iso(self._clock()))  # a task past its ttl is gone
         task_id = params.get("taskId")
-        task = self.tasks.get(_task_key(caller), task_id) if isinstance(task_id, str) else None
-        if task is None:
+        record = await self._store.get_mcp_turn(task_id) if isinstance(task_id, str) and task_id else None
+        if record is None or record.subject != caller.subject or record.client != caller.client:
             raise _RpcError(ERROR_INVALID_PARAMS, f"unknown task {task_id!r}")
         if method == "tasks/get":
-            return self._result(rid, self._task_wire(task))
-        if method == "tasks/cancel":
-            status, _ = task.status(self.turns, "")
-            if status in TERMINAL or task.cancelled:
-                raise _RpcError(ERROR_INVALID_PARAMS, f"task {task_id} has already ended")
-            await self._cancel(task)
-            return self._result(rid, self._task_wire(task))
-        # tasks/result: the call's result, waited for a while.
-        try:
-            result = await asyncio.wait_for(asyncio.shield(task.runner), RESULT_WAIT_S)
-        except asyncio.TimeoutError as exc:
-            raise _RpcError(ERROR_TASK_NOT_DONE, f"task {task_id} is still working; read tasks/get") from exc
-        except asyncio.CancelledError as exc:
-            raise _RpcError(ERROR_INVALID_PARAMS, f"task {task_id} was cancelled") from exc
-        except Exception as exc:
-            raise _RpcError(ERROR_INTERNAL, f"task {task_id} failed") from exc
-        return self._result(rid, result)
+            if not await self._still_running(record) and record.state not in ENDED:
+                record = await self._fail_stale(record)
+            return self._result(rid, self._task_wire(record))
+        if method == "tasks/update":
+            # Nothing of a task here asks the client for input: a response to
+            # no request is taken and ignored, as the extension says.
+            return self._result(rid, {})
+        if record.state not in ENDED:
+            await self._store.request_mcp_cancel(record.turn_id)
+            if record.turn_id in self._running:
+                await self._cancel(record)
+        return self._result(rid, {})
 
-    async def _cancel(self, task: McpTask) -> None:
-        """End the task: the turn it runs, when one runs, and the call."""
-        task.cancelled = True
-        call = task.call
-        if call.handle:
-            conversation = conversation_key(call.caller.subject, call.handle)
-            turn = self.turns.active(conversation)
-            entry = self._agents.get(turn.agent) if turn is not None else None
-            if entry is not None and isinstance(entry[0], StoppableSink):
-                try:
-                    await entry[0].stop(conversation, gateway=GATEWAY_MCP, user_id=call.caller.subject)
-                except Exception:
-                    logger.warning("mcp gateway: could not stop the turn of task %s", task.id, exc_info=True)
-        task.runner.cancel()
+    async def _cancel(self, record: McpTurnRecord) -> None:
+        """Stop the turn this replica runs for the record, and the call."""
+        turn = self.turns.active(record.conversation)
+        entry = self._agents.get(turn.agent) if turn is not None else None
+        if entry is not None and isinstance(entry[0], StoppableSink):
+            try:
+                await entry[0].stop(record.conversation, gateway=GATEWAY_MCP, user_id=record.subject)
+            except Exception:
+                logger.warning("mcp gateway: could not stop the turn %s", record.turn_id, exc_info=True)
+        runner = self._running.get(record.turn_id)
+        if runner is not None:
+            runner.cancel()
 
     # -- a turn for a call ------------------------------------------------------------
 
@@ -488,19 +766,23 @@ class McpHub:
         try:
             turn, _ = self.turns.start(
                 agent=agent, conversation=conversation, owner=f"{GATEWAY_MCP}/{caller.subject}",
-                client_message_id=message_id,
+                client_message_id=message_id, turn_id=call.turn_id or None,
             )
         except TurnInProgress as exc:
             raise CallFailed("the conversation is still answering an earlier call; ask again once it is done") from exc
         call.handle = handle
         self._askers[conversation] = caller
+        record = await self._store.get_mcp_turn(turn.id)
+        if record is not None:
+            record = _replace(record, agent=agent, conversation=conversation, handle=handle)
+            await self._store.save_mcp_turn(record)
         message = IncomingMessage(
             ref=ConversationRef(
                 channel_id=conversation, conversation_id=conversation,
                 message_id=f"{GATEWAY_MCP}{_SEP}{message_id}", thread_root_id="",
             ),
             text=text, user_id=caller.subject, username=caller.username or caller.subject,
-            timestamp=datetime.now(timezone.utc), kind=KIND_DM, is_dm=True, mentioned=True, gateway=GATEWAY_MCP,
+            timestamp=self._clock(), kind=KIND_DM, is_dm=True, mentioned=True, gateway=GATEWAY_MCP,
             turn=TurnScope(
                 turn_id=turn.id,
                 attributes={
@@ -516,32 +798,51 @@ class McpHub:
             self.turns.abandon(turn)
             raise
         try:
-            outcome = await self._follow(turn, pending, call)
+            outcome = await self._follow(turn, pending, record)
         except BaseException:
-            # The call is gone (the client hung up); the turn still runs and is
-            # closed when it ends, so the conversation is not busy for ever.
+            # The call is gone (cancelled, the hub stopping); the turn still
+            # runs and is closed when it ends, so the conversation is not busy
+            # for ever.
             pending.add_done_callback(lambda done: self._close(turn, done))
             raise
         finally:
             self._askers.pop(conversation, None)
         self.turns.finish(turn, outcome)
         answer = self._answer(turn)
-        if outcome in _FAILED:
+        if outcome in _TURN_FAILED:
             raise CallFailed(answer or f"the agent's turn ended: {outcome.name.lower()}")
+        if outcome is TurnOutcome.STOPPED:
+            raise CallFailed(answer or "the turn was stopped")
         return self._present(answer)
 
-    async def _follow(self, turn: Turn, pending: "asyncio.Future[TurnOutcome]", call: GatewayCall) -> TurnOutcome:
-        """Wait for the turn, telling the client of its steps when it asked."""
+    async def _follow(
+        self, turn: Turn, pending: "asyncio.Future[TurnOutcome]", record: McpTurnRecord | None,
+    ) -> TurnOutcome:
+        """Wait for the turn, writing where it stands as it changes — the
+        step, a card up for the person — and stopping it when a cancel reached
+        another replica."""
+        written = ("", "")
         cursor = 0
-        while call.wants_progress and not pending.done():
-            waiter = asyncio.ensure_future(turn.journal.wait(cursor, _PROGRESS_WAIT_S))
+        while not pending.done():
+            waiter = asyncio.ensure_future(turn.journal.wait(cursor, _POLL_S))
             await asyncio.wait({pending, waiter}, return_when=asyncio.FIRST_COMPLETED)
             if not waiter.done():
                 waiter.cancel()
-            for event in turn.journal.since(cursor):
-                cursor = event.seq
-                if word := _word_of(event.type, event.payload):
-                    await call.progress(word)
+            cursor = turn.journal.cursor
+            if record is None:
+                continue
+            awaiting = turn.journal.status == STATUS_AWAITING_INPUT
+            state = STATE_AWAITING_APPROVAL if awaiting else STATE_WORKING
+            waiting = turn.calls.awaiting
+            step = (waiting.tool if waiting is not None else "") if awaiting else turn.calls.latest
+            if (state, step) != written:
+                written = (state, step)
+                record = _replace(record, state=state, step=step, updated_at=_iso(self._clock()))
+                await self._store.save_mcp_turn(record)
+            fresh = await self._store.get_mcp_turn(record.turn_id)
+            if fresh is not None and fresh.cancel_requested and not pending.done():
+                record = fresh
+                await self._cancel(record)
         try:
             return await pending
         except Exception:
@@ -580,7 +881,8 @@ class McpHub:
 
     @staticmethod
     def _result(rid: Any, result: Mapping[str, Any]) -> web.Response:
-        return web.json_response({"jsonrpc": "2.0", "id": rid, "result": dict(result)})
+        # Every result says what kind it is; a plain one is complete.
+        return web.json_response({"jsonrpc": "2.0", "id": rid, "result": {"resultType": RESULT_COMPLETE, **result}})
 
     @staticmethod
     def _error(rid: Any, refused: _RpcError) -> web.Response:
@@ -592,14 +894,12 @@ class McpHub:
         )
 
 
+def _replace(record: McpTurnRecord, **changes: Any) -> McpTurnRecord:
+    return McpTurnRecord(**{**record.__dict__, **changes})
+
+
 async def _no_progress(text: str) -> None:
     return
-
-
-def _task_key(caller: McpCaller) -> str:
-    """What a task is read by: the person and the program together — another
-    client of the same person does not see it."""
-    return f"{caller.subject}\n{caller.client}"
 
 
 async def _event(response: web.StreamResponse, message: Mapping[str, Any]) -> None:

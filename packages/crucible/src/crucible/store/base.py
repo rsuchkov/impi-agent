@@ -22,6 +22,7 @@ from crucible.ports.chat.types import KIND_DM
 from crucible.ports.held_cards import HeldCards
 from crucible.ports.lease import Leases
 from crucible.ports.mcp_grants import McpGrants
+from crucible.ports.mcp_turns import McpTurns
 from crucible.ports.replica import Replicas
 from crucible.ports.traces import Traces
 
@@ -809,6 +810,10 @@ class McpGrantStore(McpGrants, Protocol):
     """The authorization server's records, kept with the inventory."""
 
 
+class McpTurnStore(McpTurns, Protocol):
+    """The MCP gateway's turns, kept with the inventory for every replica to read."""
+
+
 # -- what turns cost at the model ---------------------------------------------
 
 
@@ -941,6 +946,7 @@ class Store(
     DelegationStore,
     UsageStore,
     McpGrantStore,
+    McpTurnStore,
     LeaseStore,
     ReplicaStore,
     Protocol,

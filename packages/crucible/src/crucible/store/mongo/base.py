@@ -40,6 +40,7 @@ DELEGATIONS = "delegations"
 USAGE = "usage"
 MCP_AUTH_REQUESTS = "mcp_auth_requests"
 MCP_GRANTS = "mcp_grants"
+MCP_TURNS = "mcp_turns"
 
 # The heartbeat is one document by construction: a reader asks for THE beat,
 # so there is nothing to choose between.
@@ -156,6 +157,11 @@ async def create_indexes(db: Collections) -> None:
     await db[MCP_GRANTS].create_index([("refresh_hash", 1)])
     await db[MCP_GRANTS].create_index([("previous_refresh_hash", 1)])
     await db[MCP_GRANTS].create_index([("expire_at", 1)], expireAfterSeconds=0)
+    # A conversation's newest turn; the same request again by the same caller;
+    # gone on its own once past its time.
+    await db[MCP_TURNS].create_index([("conversation", 1), ("started_at", -1)])
+    await db[MCP_TURNS].create_index([("subject", 1), ("client", 1), ("request_digest", 1), ("started_at", -1)])
+    await db[MCP_TURNS].create_index([("expire_at", 1)], expireAfterSeconds=0)
 
 
 class MongoBase:

@@ -37,6 +37,7 @@ from crucible.mcp_authorization import (
 from crucible.ports.telemetry import McpGrantChanged
 from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
+from tests.fakes.mcp_turns import MemoryMcpTurns
 from tests.test_connections import ALICE, Clock, FakeProvider
 from tests.test_mcp_hub import FakeSink, _reply
 
@@ -92,7 +93,7 @@ async def world(tmp_path: Path) -> AsyncIterator[World]:
         store, connections, public_url=PUBLIC, clients=CLIENTS, clock=clock, telemetry=telemetry,
         grant_ttl_s=12 * 3600, access_ttl_s=3600,
     )
-    hub = McpHub("127.0.0.1", HUB_PORT, server, public_url=PUBLIC, routes=server.routes())
+    hub = McpHub("127.0.0.1", HUB_PORT, server, store=MemoryMcpTurns(), public_url=PUBLIC, routes=server.routes())
     sink = FakeSink(_reply)
     hub.register_agent("helper", sink, McpChatClient(hub.turns, "helper", cards=None, asker_of=hub.asker_of))
     callback = CallbackServer(connections, host="127.0.0.1", port=CALLBACK_PORT, sign_ins=server)
@@ -201,7 +202,7 @@ async def test_a_client_signs_the_person_in_consents_and_calls_with_the_token(wo
         async with await _call(s, tokens["access_token"]) as r:
             assert r.status == 200
             answer = await r.json()
-        assert answer["result"]["content"][0]["text"] == "you said: hi"
+        assert answer["result"]["content"][0]["text"].startswith("you said: hi\n\nConversation: ")
         msg = w.sink.submitted[0]
         assert msg.user_id == "okta:7" and msg.username == "alice"
         assert msg.turn is not None and msg.turn.attributes["mcp_client"] == IDE and msg.turn.attributes["mcp_scopes"] == "act read"
@@ -383,7 +384,7 @@ async def test_with_several_providers_the_person_picks_one(tmp_path: Path) -> No
         store, connections, public_url=PUBLIC, clients=CLIENTS, clock=clock, consent_page=Page(), subject_of=subject_of,
         sign_in_providers=("okta", "github"),
     )
-    hub = McpHub("127.0.0.1", HUB_PORT, server, public_url=PUBLIC, routes=server.routes())
+    hub = McpHub("127.0.0.1", HUB_PORT, server, store=MemoryMcpTurns(), public_url=PUBLIC, routes=server.routes())
     callback = CallbackServer(connections, host="127.0.0.1", port=CALLBACK_PORT, sign_ins=server)
     await hub.start()
     await callback.start()
