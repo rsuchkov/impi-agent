@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.55.1 — 2026-11-20
+
 - **Fixed: the MCP gateway's results hid the agent's answer from the
   client's model.** v0.55.0 put `{conversation, state}` in every result's
   `structuredContent`, and a client that finds one hands its model that
