@@ -30,7 +30,8 @@ skipped with a word in the log.
    `/token`, `/revoke`, `code` with PKCE `S256`, the scopes the deployment
    offers (`AuthorizationServer(scopes=)`: `read` and `act`, or `read` alone
    for one that only reads — a scope asked for but not offered is left out,
-   not refused), the `iss` parameter on the redirect, no dynamic registration
+   not refused, and a grant from before the deployment narrowed them gives
+   its token only the scopes offered now), the `iss` parameter on the redirect, no dynamic registration
    (`client_id_metadata_document_supported` is true: a client whose id is the
    URL of its metadata document is let in when the operator listed that URL).
 3. `GET /authorize?response_type=code&client_id=…&redirect_uri=…&code_challenge=…&code_challenge_method=S256&scope=read act&state=…&resource=<public>/mcp`.
@@ -196,8 +197,8 @@ A token's scopes are what the person let the client do:
   [...]}` — the door takes away what asks, not what acts quietly.
 - **`act`** — the whole agent, each confirmation put to the person. The card
   goes where the application delivers cards for this gateway
-  (`ApprovalCards.post_confirmation(asker, card, actions, place=, callback_url=)`:
-  a direct message on the chat platform, say — `place` names the
+  (`ApprovalCards.post_confirmation(asker, card, actions, origin=, callback_url=)`:
+  a direct message on the chat platform, say — `origin` names the
   conversation, its handle and the turn, for the application to put the card
   in context), signed `asked through <client>` by the operator's name for it
   (`ClientRegistration.name`), else its id (`ApprovalCard.asked_through`,

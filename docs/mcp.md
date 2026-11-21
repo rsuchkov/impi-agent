@@ -162,11 +162,11 @@ The header's value is exactly `${connection:<provider>}` and goes out as
 `Bearer <token>`; the URL must be `https`. The tool then needs the connections
 capability (it is advertised only where connections are configured) and works
 only where the conversation is one person's own, as the connection tools do —
-a direct message with them, or a channel's thread kept per author
+a direct message with them, or a channel, or a thread in one, kept per author
 (`CHANNEL_CONVERSATION_PER_AUTHOR`), where the turn is the author's and its
 cards are whispered to them; in a conversation several people share, whom the
 tool would act as is not settled, and it refuses (`not_direct`). Such a tool
-goes in `runtime.tools_in_channels` where the threads are per author; the
+goes in `runtime.tools_in_channels` where the conversations are per author; the
 person's token is fetched for each call and sent on a connection of that call
 alone — the server's standing connection, the one that lists its tools, never
 carries it — and a person who has not connected their account is told so by

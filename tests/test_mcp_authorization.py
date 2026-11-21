@@ -4,6 +4,7 @@ between (offline, aiohttp client)."""
 
 import base64
 import hashlib
+import json
 import logging
 import secrets
 from collections.abc import AsyncIterator
@@ -14,6 +15,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 import aiohttp
 import pytest
 from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 
 from crucible.connections import Connections, ProviderAccount
 from crucible.connections.callback import CALLBACK_PATH, CallbackServer
@@ -36,6 +38,7 @@ from crucible.mcp_authorization import (
     GrantStanding,
     SignedIn,
 )
+from crucible.ports.chat.gateway import MCP_SCOPE_READ
 from crucible.ports.telemetry import McpGrantChanged
 from crucible.store.sqlite import SqliteSessionStore
 from tests.fakes.connections import MemoryConnectionStore, MemoryLinkStore
@@ -610,3 +613,33 @@ def test_a_registration_knows_its_redirects() -> None:
     fixed = ClientRegistration("y", redirect_uris=("https://y.example/done",), loopback=False)
     assert fixed.allows("https://y.example/done") and not fixed.allows("https://y.example/done?x=1")
     assert not fixed.allows("http://127.0.0.1:1/")
+
+
+async def test_a_deployment_offers_the_scopes_it_names(world: World) -> None:
+    """``scopes=`` is what a client may have at all: the metadata says so, and a
+    grant from before the deployment narrowed them gives its token only what
+    is offered now — a word outside the protocol's is refused at wiring."""
+    w = world
+    with pytest.raises(ValueError):
+        AuthorizationServer(w.store, w.connections, public_url=PUBLIC, clients=CLIENTS, scopes=("write",))
+    reads = AuthorizationServer(
+        w.store, w.connections, public_url=PUBLIC, clients=CLIENTS, clock=w.clock, scopes=(MCP_SCOPE_READ,),
+    )
+    metadata = [r for r in reads.routes() if r.path.endswith("oauth-authorization-server")]
+    assert metadata
+    page = await metadata[0].handler(make_mocked_request("GET", metadata[0].path))
+    assert isinstance(page, web.Response) and page.text is not None
+    assert json.loads(page.text)["scopes_supported"] == ["read"]
+
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as s:
+        verifier, challenge = _pkce()
+        async with await _sign_in_and_consent(s, w, challenge) as r:
+            code = _query(r.headers["Location"])["code"]
+        _, tokens = await _tokens(
+            s, grant_type="authorization_code", code=code, redirect_uri=REDIRECT, client_id=IDE, code_verifier=verifier,
+        )
+    bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
+    whole = await w.server.authenticate(make_mocked_request("POST", "/mcp", headers=bearer))
+    narrowed = await reads.authenticate(make_mocked_request("POST", "/mcp", headers=bearer))
+    assert whole is not None and whole.scopes == {"read", "act"}
+    assert narrowed is not None and narrowed.scopes == {"read"}

@@ -54,10 +54,17 @@ CONNECT_PATH = "/connect"
 # that needs more.
 _FORM_MAX_BYTES = 16 * 1024
 
-# The plain page's content-security policy: nothing loads but its inline
-# style, and a form posts nowhere but here. A page of the application's that
-# set no policy of its own gets it.
-_DEFAULT_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'"
+
+
+def content_security_policy(form_action: tuple[str, ...] = ("'self'",)) -> str:
+    """The pages' content-security policy: nothing loads but the inline
+    style, and a form posts nowhere but ``form_action`` — here, unless a page
+    must send the browser on (a consent page, to the client's redirect)."""
+    return f"default-src 'none'; style-src 'unsafe-inline'; form-action {' '.join(form_action)}"
+
+
+# The plain page's; a page of the application's that set no policy of its own gets it.
+_DEFAULT_CSP = content_security_policy()
 # On every answer, whoever draws the page, where the page set none: the query
 # carried the state and the code, and the page must neither be kept nor send
 # them on.

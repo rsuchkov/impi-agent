@@ -13,15 +13,14 @@ hub.py     — the aiohttp server shared by every agent on the gateway (McpHub)
 gateway.py — per-agent lifecycle shim (identity + park-until-stop)
 """
 
-from crucible.gateways.mcp.auth import Authorization, McpCaller
-from crucible.gateways.mcp.client import ApprovalCards, CardPlace, McpChatClient
+from crucible.gateways.mcp.auth import Authorization, McpCaller, conversation_key
+from crucible.gateways.mcp.client import ApprovalCards, CardOrigin, McpChatClient
 from crucible.gateways.mcp.gateway import McpGateway
 from crucible.gateways.mcp.hub import (
     MCP_PATH,
     RESOURCE_METADATA_PATH,
     TASKS_EXTENSION,
     McpHub,
-    conversation_key,
 )
 from crucible.gateways.mcp.tools import (
     CONVERSATION_KEY,
@@ -48,7 +47,7 @@ __all__ = [
     "AskAgentTool",
     "Authorization",
     "CallFailed",
-    "CardPlace",
+    "CardOrigin",
     "GatewayCall",
     "McpChatClient",
     "McpGateway",

@@ -76,7 +76,7 @@ from crucible.ports.telemetry import (
     TurnEnded,
     content_text,
 )
-from crucible.ports.turn import TurnBinding, TurnPlace, TurnScope
+from crucible.ports.turn import ONE_PERSONS_ATTRIBUTE, TurnBinding, TurnPlace, TurnScope
 from crucible.store.base import (
     GatewayAddress,
     SessionRecord,
@@ -173,14 +173,8 @@ class _TurnFacts:
         # join it — the turn was admitted and entitled for them.
         self.user_id = user_id
         # The turn's scope: the message's own where it carried one (an http
-        # caller's, a task's), else one of the flow's — every turn has an id,
-        # and a scope that came without one (a fact the sink put on a chat
-        # message) gets the flow's.
-        if scope is None:
-            scope = TurnScope(turn_id=secrets.token_hex(8))
-        elif not scope.turn_id:
-            scope = replace(scope, turn_id=secrets.token_hex(8))
-        self.scope = scope
+        # caller's, a task's), else one of the flow's — every turn has an id.
+        self.scope = scope if scope is not None else TurnScope(turn_id=secrets.token_hex(8))
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         # Messages put to the turn while it runs, by the text they were put as,
         # in order: each resolved when the model reads it or the turn ends.
@@ -521,6 +515,10 @@ class AgentFlow:
                 record = replace(record, gateways=with_gateway_address(record, anchor.gateway, address))
         started = time.monotonic()
         facts = _TurnFacts(record.runtime_session_id, scope=anchor.turn, user_id=anchor.user_id)
+        if self._keying.one_persons(self._agent_name, anchor) and ONE_PERSONS_ATTRIBUTE not in facts.scope.attributes:
+            # The conversation is one person's own — a direct message, one kept
+            # per author — which the tools that act as the person go by.
+            facts.scope = replace(facts.scope, attributes={**facts.scope.attributes, ONE_PERSONS_ATTRIBUTE: "1"})
         refused = await self._first_not_admitted(fresh, chat) if self._admission is not None else None
         if refused is not None:
             # Nothing ran: no prompt, no process, no reaction. Each person not

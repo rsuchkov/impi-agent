@@ -1,7 +1,6 @@
 """MessageCoalescer: a burst on one conversation folds into fewer turns."""
 
 import asyncio
-from dataclasses import replace
 
 import pytest
 
@@ -318,37 +317,3 @@ async def test_messages_that_joined_and_were_never_read_all_run_once_the_turn_en
     co.submit(_msg("p3"), chat=FakeChat())  # arrives as the turn ends
     await asyncio.sleep(0.03)
     assert flow.batches[0] == ["p1"] and sorted(m for b in flow.batches[1:] for m in b) == ["p2", "p3"]
-
-
-async def test_the_sink_marks_a_turn_whose_conversation_is_one_persons() -> None:
-    """The keying says whose a conversation is; the sink writes it on the
-    turn's scope for the tools that act as the person — a direct message under
-    any keying, a channel's thread only when kept per author."""
-    from crucible.ports.chat.keying import AuthorKey
-    from crucible.ports.chat.types import KIND_THREAD
-    from crucible.ports.turn import ONE_PERSONS_ATTRIBUTE, TurnScope
-
-    class Seen:
-        def __init__(self) -> None:
-            self.msgs: list[IncomingMessage] = []
-
-        async def handle_batch(self, msgs, chat) -> TurnOutcome:
-            self.msgs += msgs
-            return TurnOutcome.REPLIED
-
-    thread = IncomingMessage(
-        ref=ConversationRef(channel_id="c", conversation_id="t1", message_id="m1", thread_root_id="t1"),
-        text="hi", user_id="u1", kind=KIND_THREAD,
-    )
-    per_author, shared = Seen(), Seen()
-    MessageCoalescer(per_author, agent="a", keying=AuthorKey()).submit(thread, FakeChat())
-    MessageCoalescer(shared, agent="a").submit(thread, FakeChat())
-    MessageCoalescer(shared, agent="a").submit(_msg("dm1"), FakeChat())
-    with_scope = replace(thread, turn=TurnScope(turn_id="t", attributes={"x": "1"}))
-    MessageCoalescer(per_author, agent="a", keying=AuthorKey()).submit(with_scope, FakeChat())
-    await asyncio.sleep(0.05)
-    marked, kept = per_author.msgs
-    assert marked.turn is not None and marked.turn.attributes == {ONE_PERSONS_ATTRIBUTE: "1"} and marked.turn.turn_id == ""
-    assert kept.turn is not None and kept.turn.attributes == {"x": "1", ONE_PERSONS_ATTRIBUTE: "1"} and kept.turn.turn_id == "t"
-    assert shared.msgs[0].turn is None  # a shared thread: nobody's alone
-    assert shared.msgs[1].turn is not None and shared.msgs[1].turn.attributes == {ONE_PERSONS_ATTRIBUTE: "1"}  # a direct message is

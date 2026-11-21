@@ -219,10 +219,11 @@ token does not.
 | `connected_api_write` | `POST`/`PUT`/`PATCH`/`DELETE` with a JSON body, as the person | yes — the card shows the account and the full request; `DELETE` is marked dangerous |
 | `mcp__<server>__<tool>` of a server whose header is `${connection:<provider>}` ([mcp.md](mcp.md)) | the server's tool, called with the person's token | as the server's entry says (`confirm:`, `safe:`) and, for a trusted server, its annotations |
 
-- **Direct messages only**, for now: in a shared conversation, whose turn it is
-  is not settled enough to act as anyone. A thread inside the direct message is
-  a direct message for this (only the person and the agent read it), though the
-  reply still goes to the thread.
+- **One person's conversation only**: a direct message (a thread inside it
+  included — only the person and the agent read it, though the reply still
+  goes to the thread), or a channel, or a thread in one, kept per author
+  (`CHANNEL_CONVERSATION_PER_AUTHOR`). In a conversation several people share,
+  whose turn it is is not settled enough to act as anyone, and the tool refuses.
 - The path stays under the provider's API address: another host, a scheme, a
   step up (`..`), a backslash or a control character is refused before any
   call. A redirect is answered, not followed — following it would carry the
@@ -270,10 +271,10 @@ token does not.
   even one scheduled in somebody's direct message — so no connection is used
   there, and its tools say so.
 - **Several people in one place.** The tools act where the conversation is
-  one person's own: a direct message, or a channel's thread kept per author
-  (`CHANNEL_CONVERSATION_PER_AUTHOR`), where the turn is the author's and the
-  cards are whispered to them. In a conversation several people share — a
-  channel or a thread without that setting — whom a tool would act as is not
+  one person's own: a direct message, or a channel, or a thread in one, kept
+  per author (`CHANNEL_CONVERSATION_PER_AUTHOR`), where the turn is the
+  author's and the cards are whispered to them. In a conversation several
+  people share — one without that setting — whom a tool would act as is not
   settled, and it refuses. An allowlist of who may connect and an offboarding
   command are not designed yet. The one word that reaches a person anywhere
   is the sign-in link a turn not admitted carries — delivered to them alone

@@ -150,14 +150,17 @@ Startup log line: `mcp: github(12 tools, untrusted), stands(3 tools, trusted, un
   so it has ended` — a 401 on the *person's* token (`${connection:…}`): the
   connection is forgotten, the person connects again (`/connections`).
 - `the user has not connected their <provider> account, which <name> acts as
-  them at` — the tool with a `${connection:…}` header in a direct message with
-  someone who never connected; they open the connections command and connect.
+  them at` — the tool with a `${connection:…}` header in a conversation of
+  their own (a DM, a per-author thread) with someone who never connected; they
+  open the connections command and connect.
 - `<name> asked for something the engine does not do (more input mid-call)` —
   the server wanted a question answered mid-call (elicitation); not supported,
   by design.
-- a tool with a `${connection:…}` header answers "works only in a direct
-  message" in a channel or a thread in one — by design, as the connection
-  tools; a thread inside the person's DM is a direct message for this.
+- a tool with a `${connection:…}` header answers "works only in a conversation
+  that is theirs alone" in a channel or a thread several people share — by
+  design, as the connection tools; a thread inside the person's DM is a direct
+  message for this, and with `CHANNEL_CONVERSATION_PER_AUTHOR=true` a channel,
+  or a thread in one, is the author's own and the tool acts there.
 - `cannot run: … is not a file the person attached in this conversation` — the
   model gave a path that is not from an `[attached]` line of this conversation
   (a file a tool wrote, another conversation's); said before any card is drawn,

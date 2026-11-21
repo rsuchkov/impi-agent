@@ -968,11 +968,15 @@ async def test_the_flow_binds_the_messages_scope_for_exactly_the_turn(tmp_path: 
     plain = replace(plain, ref=replace(plain.ref, message_id="p2"))
     await flow.handle(plain, FakeChat())
 
-    # The message's own scope where it carried one; else one of the flow's, so every turn has an id.
-    assert seen[0] == scope
+    # The message's own scope where it carried one; else one of the flow's, so
+    # every turn has an id. A direct message is one person's, which the flow
+    # writes on either (``ONE_PERSONS_ATTRIBUTE``).
+    from crucible.ports.turn import ONE_PERSONS_ATTRIBUTE
+
+    assert seen[0] == replace(scope, attributes={ONE_PERSONS_ATTRIBUTE: "1"})
     plain_scope = seen[1]
     assert isinstance(plain_scope, TurnScope) and plain_scope.turn_id and plain_scope.turn_id != "turn-1"
-    assert dict(plain_scope.attributes) == {} and plain_scope.secrets.names() == set()
+    assert dict(plain_scope.attributes) == {ONE_PERSONS_ATTRIBUTE: "1"} and plain_scope.secrets.names() == set()
     assert registry.current("assistant--dm1") is None  # unbound once the turn ended
     await store.close()
 
@@ -2867,6 +2871,44 @@ async def test_with_the_author_key_each_person_in_a_thread_has_a_session_and_the
     # One record each, under its own key, at the thread's address.
     records = {r.conversation_id: r for r in await store.list("assistant")}
     assert set(records) == {"1.5:U1", "1.5:U2"}
+    await store.close()
+
+
+async def test_the_flow_writes_whose_the_conversation_is_on_the_turns_scope(tmp_path: Path) -> None:
+    """The keying says whether a conversation is one person's own; the flow
+    writes it on the turn's scope for the tools that act as the person — a
+    direct message under any keying, a channel's thread only when kept per
+    author; a scope the message brought keeps its own facts beside it."""
+    from crucible.ports.chat.keying import AuthorKey
+    from crucible.ports.turn import ONE_PERSONS_ATTRIBUTE
+    from crucible.turns import TurnRegistry
+
+    registry = TurnRegistry()
+    seen: list = []
+
+    class _LooksUp(FakeRuntime):
+        async def run_stateful(self, profile, session_id, message, **kw):
+            seen.append(registry.current(session_id))
+            return await super().run_stateful(profile, session_id, message, **kw)
+
+    def in_thread(text: str, post: str, turn: TurnScope | None = None) -> IncomingMessage:
+        return IncomingMessage(
+            ref=ConversationRef(channel_id="C1", conversation_id="1.5", message_id=post, thread_root_id="1.5"),
+            text=text, user_id="U1", username="u1", kind=KIND_THREAD, mentioned=True, gateway="slack", turn=turn,
+        )
+
+    store = SqliteSessionStore(tmp_path / "db.sqlite")
+    per_author = AgentFlow(_LooksUp(), PROFILE, store, agent_name="assistant", keying=AuthorKey(), turns=registry)
+    shared = AgentFlow(_LooksUp(), PROFILE, store, agent_name="shared", turns=registry)
+    await per_author.handle(in_thread("mine", "1.6"), FakeChat())
+    await per_author.handle(in_thread("mine too", "1.7", TurnScope(turn_id="t-7", attributes={"x": "1"})), FakeChat())
+    await shared.handle(in_thread("ours", "1.8"), FakeChat())
+    await shared.handle(_dm("just us"), FakeChat())
+    marked, brought, everyones, dm = seen
+    assert marked.attributes == {ONE_PERSONS_ATTRIBUTE: "1"} and marked.turn_id
+    assert brought.turn_id == "t-7" and brought.attributes == {"x": "1", ONE_PERSONS_ATTRIBUTE: "1"}
+    assert everyones.attributes == {}
+    assert dm.attributes == {ONE_PERSONS_ATTRIBUTE: "1"}
     await store.close()
 
 

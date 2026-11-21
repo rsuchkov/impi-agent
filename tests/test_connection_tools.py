@@ -187,7 +187,7 @@ async def test_outside_a_direct_message_nothing_is_called(
         with pytest.raises(ToolError, match="direct message"):
             await tool.execute(ctx, args)
     assert api.seen == []
-    # A channel's thread kept per author is the author's own: the turn's scope
+    # A channel's conversation kept per author is the author's own: the turn's scope
     # says so, and the tool acts as them there as in a direct message.
     theirs = replace(ctx, turn=TurnScope(turn_id="t", attributes={ONE_PERSONS_ATTRIBUTE: "1"}))
     await ConnectedApiRead().execute(theirs, {"provider": "gitlab", "path": "user"})

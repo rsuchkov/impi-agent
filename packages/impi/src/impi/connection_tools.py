@@ -8,8 +8,10 @@ connected posts that provider's Connect button into the conversation itself
 (the ``/connections`` screen, focused on it), and the model is told to ask
 them to press it — never for a token.
 
-Direct messages only, for now: in a shared conversation "the person the turn
-acts for" is not settled enough to act as anyone (CHANGELOG, backlog).
+Only where the conversation is one person's own — a direct message, or one
+kept per author, or a task's turn whose asker wrote in one
+(``acts_for_one_person``): in a conversation several people share, "the person
+the turn acts for" is not settled enough to act as anyone.
 
 Advertised only where connections are configured (``CAP_CONNECTIONS``).
 Importing this module runs the decorators, so the app imports it before
@@ -34,8 +36,7 @@ from crucible.connections import (
     ProviderUnavailable,
 )
 from crucible.ports.chat.types import CallPreview, CannotRun, PreviewRow
-from crucible.ports.connections import TokenGrant
-from crucible.ports.delegation import acts_for_one_person
+from crucible.ports.connections import TokenGrant, acts_for_one_person
 from crucible.tools.base import CAP_CONNECTIONS, Tool, ToolContext, ToolError
 from crucible.tools.registry import tool
 from impi.connections_config import DEFAULT_COMMAND, command_word, connection_providers
@@ -92,7 +93,7 @@ def _require_one_person(ctx: ToolContext) -> None:
     if not acts_for_one_person(ctx.turn, direct=ctx.direct):
         raise ToolError(
             "acting as someone's connected account works only in a conversation that is theirs alone — "
-            "a direct message with them, or a thread kept per author. Tell the user to ask you there, and do not retry here"
+            "a direct message with them, or a conversation kept per author. Tell the user to ask you there, and do not retry here"
         )
 
 

@@ -819,11 +819,13 @@ credential, is another user's credential.
   cards their MCP turns raise; a response is your own refusal page), whether
   a grant still holds at each refresh (`grant_policy=`,
   `GrantPolicy.still_holds(grant) -> GrantStanding`, for a person who left or
-  lost the group), the consent page (`ConsentPage`; the plain
-  one otherwise), which scopes the deployment offers at all (`scopes=`,
+  lost the group), the consent page (`ConsentPage`; the plain one otherwise —
+  a page setting a content-security policy of its own opens `form-action` to
+  `consent.redirect_sources`, `form_action_policy`, or the code never reaches
+  the client), which scopes the deployment offers at all (`scopes=`,
   `read` alone for one that only reads), where cards go (`ApprovalCards`:
-  `post_confirmation(asker, card, actions, place=, callback_url=)` answering
-  with your post id — `place` is a `CardPlace`, the conversation's key, its
+  `post_confirmation(asker, card, actions, origin=, callback_url=)` answering
+  with your post id — `origin` is a `CardOrigin`, the conversation's key, its
   handle and the turn's id, for the card's context — `update_confirmation`,
   `retract`; a direct message in the person's chat, whose click your gateway
   hands the dispatcher as any card's; `None` refuses every tool that needs a
@@ -874,7 +876,10 @@ credential, is another user's credential.
   the gateways (`GatewayFactory(keying=…)`, `InternalRoutes(keying=…)`) —
   `AuthorKey` is the ready one that makes a channel or a thread a conversation
   per person who speaks there, where an agent acts with people's own
-  credentials; the
+  credentials. A keying implements `key(agent, msg)` and `one_persons(agent,
+  msg)` — whether the conversation is one person's own; the flow writes
+  the answer on the turn's scope (`one_persons`) for the tools that act as the
+  person (`acts_for_one_person`, `ports.delegation`); the
   engine then runs them through one runtime session, keeps the conversation's
   address on each gateway and saves what people attach under that key, where a
   tool's files directory is. The same person also carries a
@@ -946,7 +951,8 @@ credential, is another user's credential.
   are re-read — the one check that reads the snapshots from disk again. At
   stop, `await mcp.stop()`. A tool
   whose header is `${connection:<provider>}` needs `connections` on the tool
-  server and acts only in a direct message.
+  server and acts only where the conversation is one person's own — a direct
+  message, or one kept per author (`acts_for_one_person`).
 - **Telemetry.** Every producer takes a `Telemetry` (`crucible.ports.telemetry`;
   [telemetry.md](telemetry.md)): `AgentFlow(telemetry=)`,
   `tools.build_server(telemetry=)`, `InteractionWiring(telemetry=)`,

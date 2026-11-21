@@ -18,7 +18,7 @@ when a release is cut, and `impi update` shows the target version's section.
   the set minus those; the door follows the token's scopes into a specialist's
   turn the MCP turn asked for, and a card from a `read` token's turn — either
   turn's — is refused before delivery. For the application: `ApprovalCards.post_confirmation`
-  gets `place=` (`CardPlace`: the conversation, its handle, the turn) beside
+  gets `place=` (`CardOrigin`: the conversation, its handle, the turn) beside
   the caller; the card says through what it was asked as a field every
   renderer signs it with (`ApprovalCard.asked_through`, "asked through <client>"
   in the signature line of Slack and Markdown cards, `askedThrough` on the
@@ -27,18 +27,19 @@ when a release is cut, and `impi update` shows the target version's section.
   list a person's grants (with `McpGrant.refreshed_at`) and end one from an
   account page; `AuthorizationServer(scopes=)` says which scopes a deployment
   offers at all — the metadata, the consent page and the grant promise no
-  more, a scope asked but not offered is left out; `tools/list` carries a
+  more, a scope asked but not offered is left out, and a token from a grant
+  made before the deployment narrowed them carries only those offered now; `tools/list` carries a
   tool's `title` and `annotations` (`McpGatewayTool.title`, `.annotations`,
   None for what the scope implies: `readOnlyHint` for `read`, `destructiveHint`
   for `act`), so a client with an approval mode of its own tells reading from
   acting. A tool that acts as the person — a connection tool, an MCP server's
   tool with `${connection:…}` — now acts wherever the conversation is one
-  person's own, not only in a direct message: a channel's thread kept per
-  author (`CHANNEL_CONVERSATION_PER_AUTHOR`) and a task's turn whose asker
-  wrote in one count; the sink writes the fact on the turn's scope
+  person's own, not only in a direct message: a channel, or a thread in one,
+  kept per author (`CHANNEL_CONVERSATION_PER_AUTHOR`) and a task's turn whose asker
+  wrote in one count; the flow writes the fact on the turn's scope
   (`ONE_PERSONS_ATTRIBUTE`, `ConversationKey.one_persons`) and the tools read
   it (`acts_for_one_person`). **Breaks:** `ApprovalCards.post_confirmation`
-  takes `place=`; `McpGatewayTool` has `title` and `annotations`;
+  takes `origin=`; `McpGatewayTool` has `title` and `annotations`;
   `ApprovalCard` has `asked_through` (in a card's JSON too); `McpGrants` has
   `mcp_grants_of` and `McpGrant.refreshed_at` (a column added on open);
   `ConversationKey` has `one_persons`, which a keying of the application's

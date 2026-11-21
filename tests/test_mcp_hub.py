@@ -16,7 +16,7 @@ from crucible.gateways.mcp import (
     TASKS_EXTENSION,
     AskAgentTool,
     CallFailed,
-    CardPlace,
+    CardOrigin,
     GatewayCall,
     McpCaller,
     McpChatClient,
@@ -112,13 +112,13 @@ class FakeCards:
 
     def __init__(self) -> None:
         self.posted: list[tuple[McpCaller, ApprovalCard, list[Action]]] = []
-        self.places: list[CardPlace] = []
+        self.origins: list[CardOrigin] = []
         self.updated: list[tuple[str, ApprovalCard, list[Action] | None]] = []
         self.retracted: list[tuple[str, str]] = []
 
-    async def post_confirmation(self, asker, card, actions, *, place, callback_url):
+    async def post_confirmation(self, asker, card, actions, *, origin, callback_url):
         self.posted.append((asker, card, actions))
-        self.places.append(place)
+        self.origins.append(origin)
         return f"slack-{len(self.posted)}"
 
     async def update_confirmation(self, post_id, card, actions=None, *, callback_url=""):
@@ -586,9 +586,9 @@ async def test_a_card_goes_to_the_person_through_the_application_not_to_the_clie
             assert posted_card.asked_through == "The IDE" and posted_card.headline == "wants to run deploy."
             assert "asked through The IDE" in card_markdown(posted_card)
             # And where the card comes from, for the application's own context.
-            place = cards.places[0]
+            origin = cards.origins[0]
             handle = _handle(answer)
-            assert place == CardPlace(conversation_key("alice@example.com", handle), handle, place.turn_id) and place.turn_id
+            assert origin == CardOrigin(conversation_key("alice@example.com", handle), handle, origin.turn_id) and origin.turn_id
             assert seen["status"] == "awaiting_input"  # the journal says the turn waits
             assert cards.updated == [("slack-1", card, [])]  # a verdict rewrites it as the gate wrote it
             assert cards.retracted == [("slack-1", "withdrawn")]

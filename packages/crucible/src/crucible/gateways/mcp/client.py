@@ -20,7 +20,7 @@ from typing import Protocol
 
 from crucible.gateways.http.client import HttpChatClient
 from crucible.gateways.http.turns import HttpTurns
-from crucible.gateways.mcp.auth import McpCaller
+from crucible.gateways.mcp.auth import McpCaller, handle_of
 from crucible.ports.chat.client import NobodyToAnswer
 from crucible.ports.chat.gateway import MCP_SCOPE_ACT
 from crucible.ports.chat.types import Action, ApprovalCard, ConversationRef, Form
@@ -33,7 +33,7 @@ _FORWARDED_MAX = 1000
 
 
 @dataclass(frozen=True)
-class CardPlace:
+class CardOrigin:
     """Where the card comes from, for the application to put it in context:
     the conversation's key (``mcp:<subject>:<handle>``) and handle, and the
     turn that asks — what the application keyed its own record of the call
@@ -48,13 +48,13 @@ class ApprovalCards(Protocol):
     """Where the application puts a confirmation an MCP turn needs in front
     of the person. ``post_confirmation`` is given the caller — the person
     the card is for and the client that asked — and where the card comes from
-    (``CardPlace``), and answers with the post's id as the application knows
+    (``CardOrigin``), and answers with the post's id as the application knows
     it; the other verbs name that id. The card's controls carry the engine's
     approval token: the application's gateway hands a click to the dispatcher
     as it does its own cards'."""
 
     async def post_confirmation(
-        self, asker: McpCaller, card: ApprovalCard, actions: list[Action], *, place: CardPlace, callback_url: str
+        self, asker: McpCaller, card: ApprovalCard, actions: list[Action], *, origin: CardOrigin, callback_url: str
     ) -> str: ...
 
     async def update_confirmation(
@@ -96,11 +96,11 @@ class McpChatClient(HttpChatClient):
             raise NobodyToAnswer("the client's token may only read; nothing it asks for gets a yes")
         card = _asked_through(card, asker)
         turn = self._turns.active(ref.conversation_id)
-        place = CardPlace(
-            conversation=ref.conversation_id, handle=ref.conversation_id.rsplit(":", 1)[-1],
+        origin = CardOrigin(
+            conversation=ref.conversation_id, handle=handle_of(ref.conversation_id),
             turn_id=turn.id if turn is not None else "",
         )
-        theirs = await self._delivery.post_confirmation(asker, card, actions, place=place, callback_url=callback_url)
+        theirs = await self._delivery.post_confirmation(asker, card, actions, origin=origin, callback_url=callback_url)
         post_id = await super().post_confirmation(ref, card, actions, callback_url=callback_url)
         if post_id and theirs:
             self._forwarded[post_id] = theirs

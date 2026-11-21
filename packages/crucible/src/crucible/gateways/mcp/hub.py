@@ -57,7 +57,12 @@ from crucible.gateways.http.journal import (
     STATUS_AWAITING_INPUT,
 )
 from crucible.gateways.http.turns import HttpTurns, Turn, TurnInProgress
-from crucible.gateways.mcp.auth import Authorization, McpCaller
+from crucible.gateways.mcp.auth import (
+    KEY_SEP,
+    Authorization,
+    McpCaller,
+    conversation_key,
+)
 from crucible.gateways.mcp.client import ApprovalCards, McpChatClient
 from crucible.gateways.mcp.tools import (
     META_CONVERSATION,
@@ -140,9 +145,6 @@ ERROR_INVALID_REQUEST = -32600
 ERROR_METHOD_NOT_FOUND = -32601
 ERROR_INVALID_PARAMS = -32602
 ERROR_INTERNAL = -32603
-# How the gateway keys a caller's conversation: the subject is in the key,
-# so a handle presented for another subject names another conversation.
-_SEP = ":"
 _HANDLE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _TURN_FAILED = frozenset({TurnOutcome.TIMEOUT, TurnOutcome.ERROR})
 _POLL_S = 1.0
@@ -154,10 +156,6 @@ _TASK_STATUS = {
 }
 
 
-def conversation_key(subject: str, handle: str) -> str:
-    """The engine-side key of a caller's conversation — what the session
-    store and ``HttpTurns`` know it by."""
-    return f"{GATEWAY_MCP}{_SEP}{subject}{_SEP}{handle}"
 
 
 def _utcnow() -> datetime:
@@ -831,7 +829,7 @@ class McpHub:
         message = IncomingMessage(
             ref=ConversationRef(
                 channel_id=conversation, conversation_id=conversation,
-                message_id=f"{GATEWAY_MCP}{_SEP}{message_id}", thread_root_id="",
+                message_id=f"{GATEWAY_MCP}{KEY_SEP}{message_id}", thread_root_id="",
             ),
             text=text, user_id=caller.subject, username=caller.username or caller.subject,
             timestamp=self._clock(), kind=KIND_DM, is_dm=True, mentioned=True, gateway=GATEWAY_MCP,

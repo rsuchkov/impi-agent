@@ -283,6 +283,9 @@ agent-containers skill's "forgot everything" diagnosis does not apply.
   what the model did with one person's rights is not retold to another; the
   thread's replies — everyone's — still reach each session as context, and the
   session id carries the person's id (`<agent>--<thread>-<user>-…` in the log).
+  Such a conversation is the author's own, so a tool that acts with their connected
+  account (the connection tools, an MCP tool with `${connection:…}`) acts
+  there as in a direct message.
   Working as designed; turn it off where one shared memory per thread is wanted
   and nobody's own credentials are in play.
 

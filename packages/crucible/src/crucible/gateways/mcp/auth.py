@@ -16,7 +16,7 @@ from typing import Protocol
 
 from aiohttp import web
 
-from crucible.ports.chat.gateway import MCP_SCOPE_READ
+from crucible.ports.chat.gateway import GATEWAY_MCP, MCP_SCOPE_READ
 
 
 @dataclass(frozen=True)
@@ -53,3 +53,19 @@ class Authorization(Protocol):
         """The caller behind this request's bearer token, or None for 401 —
         no token, an unknown one, one expired or revoked."""
         ...
+
+
+# How the gateway keys a caller's conversation: the subject is in the key,
+# so a handle presented for another subject names another conversation.
+KEY_SEP = ":"
+
+
+def conversation_key(subject: str, handle: str) -> str:
+    """The engine-side key of a caller's conversation — what the session
+    store and ``HttpTurns`` know it by."""
+    return f"{GATEWAY_MCP}{KEY_SEP}{subject}{KEY_SEP}{handle}"
+
+
+def handle_of(key: str) -> str:
+    """The caller's handle in a key ``conversation_key`` made."""
+    return key.rsplit(KEY_SEP, 1)[-1]

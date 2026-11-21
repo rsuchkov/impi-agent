@@ -39,8 +39,9 @@ from crucible.ports.connections import (
     NotConnected,
     ProviderUnavailable,
     TokenGrant,
+    acts_for_one_person,
 )
-from crucible.ports.delegation import acts_for_one_person, parent_turn_of
+from crucible.ports.delegation import parent_turn_of
 from crucible.ports.telemetry import McpCalled, Telemetry
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 
@@ -239,7 +240,7 @@ class McpTool:
                 raise _Declined(
                     "not_direct",
                     f"{self.server.name} acts as the person, which works only in a conversation that is "
-                    "theirs alone — a direct message with them, or a thread kept per author; tell them to ask there"
+                    "theirs alone — a direct message with them, or a conversation kept per author; tell them to ask there"
                 )
             if ctx.connections is None or provider not in ctx.connections.providers:
                 raise _Declined(

@@ -483,8 +483,8 @@ Things the design does not solve, stated so nobody relies on them by accident.
   that ask — not without a runtime's built-ins that act without asking
   (`bash`, `write`, `edit`), which `tools_by_gateway: {mcp: [...]}` takes
   away where `read` tokens are handed out. A grant lasts twelve hours
-  unused and a week at most, and ends with `/revoke` or the application's
-  word at a refresh; a turn a replica was running when it stopped is failed,
+  unused and a week at most, and ends with `/revoke`, the application's
+  `revoke(subject, grant_id)`, or its word at a refresh; a turn a replica was running when it stopped is failed,
   its conversation is not.
 - **An MCP server on stdio runs as the engine.** It is a child of the engine
   process with the engine's rights and no confinement of its own — a service
@@ -536,7 +536,7 @@ Things the design does not solve, stated so nobody relies on them by accident.
   at rest; both are the deployment's.
 - **Connected accounts act where the conversation is one person's.** The
   panel opens in a direct message only; the tools act in a direct message
-  with the agent, or in a channel's thread kept per author
+  with the agent, or in a channel, or a thread in one, kept per author
   (`CHANNEL_CONVERSATION_PER_AUTHOR`), where the turn is the author's own —
   never in a conversation several people share, whom a turn there would act
   for being unsettled. They are not offered at all

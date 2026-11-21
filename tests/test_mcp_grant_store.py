@@ -2,6 +2,7 @@
 single-use code, the conditional rotation, the lookup by either refresh token.
 Run against each backend this environment can reach."""
 
+import sqlite3
 from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
@@ -90,3 +91,22 @@ async def test_purge_forgets_what_is_past_its_time(grants) -> None:
     assert await grants.purge_mcp_auth(T1) == 2
     assert await grants.get_mcp_request("old") is None and await grants.get_mcp_request("new") is not None
     assert await grants.get_mcp_grant_by_access("x") is None and await grants.get_mcp_grant_by_access("a1") is not None
+
+
+async def test_a_grant_table_from_before_refreshed_at_gets_the_column_on_open(tmp_path: Path) -> None:
+    """A deployment's SQLite file made by an earlier version lacks the column;
+    opening the store adds it, and a grant reads back whole."""
+    backend = backend_for("sqlite", tmp_path)
+    await backend.open().close()
+    conn = sqlite3.connect(tmp_path / "db.sqlite")
+    conn.execute("ALTER TABLE mcp_grants DROP COLUMN refreshed_at")
+    conn.commit()
+    conn.close()
+    store = backend.open()
+    try:
+        await store.save_mcp_grant(_grant(refreshed_at="2026-10-09T12:00:00+00:00"))
+        got = await store.get_mcp_grant_by_refresh("r1")
+        assert got is not None and got.refreshed_at == "2026-10-09T12:00:00+00:00"
+    finally:
+        await store.close()
+        backend.cleanup()

@@ -16,7 +16,6 @@ a submit can never slip in unseen.
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import replace
 
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.flow import (
@@ -29,7 +28,6 @@ from crucible.ports.chat.flow import (
 )
 from crucible.ports.chat.keying import ConversationKey, PlatformKey
 from crucible.ports.chat.types import IncomingMessage
-from crucible.ports.turn import ONE_PERSONS_ATTRIBUTE, TurnScope
 
 logger = logging.getLogger(__name__)
 
@@ -96,20 +94,9 @@ class MessageCoalescer:
         self._queue(conv, msg, chat)
 
     def _queue(self, conv: str, msg: IncomingMessage, chat: ChatClient) -> None:
-        self._pending.setdefault(conv, []).append(self._marked_one_persons(msg))
+        self._pending.setdefault(conv, []).append(msg)
         if conv not in self._workers:
             self._workers[conv] = asyncio.create_task(self._run(conv, chat))
-
-    def _marked_one_persons(self, msg: IncomingMessage) -> IncomingMessage:
-        """The message with its turn's scope saying the conversation is one
-        person's own, when the keying says so — a direct message, a channel's
-        conversation kept per author — for the tools that act as the person."""
-        if not self._keying.one_persons(self._agent, msg):
-            return msg
-        scope = msg.turn if msg.turn is not None else TurnScope(turn_id="")
-        if scope.attributes.get(ONE_PERSONS_ATTRIBUTE) == "1":
-            return msg
-        return replace(msg, turn=replace(scope, attributes={**scope.attributes, ONE_PERSONS_ATTRIBUTE: "1"}))
 
     async def _join_or_queue(self, conv: str, msg: IncomingMessage, chat: ChatClient) -> None:
         joined = await self._flow.join(msg, chat) if isinstance(self._flow, TurnJoiner) else None

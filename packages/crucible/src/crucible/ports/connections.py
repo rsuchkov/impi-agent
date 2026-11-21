@@ -12,7 +12,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, NoReturn, Protocol
 
-from crucible.ports.turn import TurnScope
+from crucible.ports.delegation import ON_BEHALF_OF_DIRECT_ATTRIBUTE
+from crucible.ports.turn import ONE_PERSONS_ATTRIBUTE, TurnScope
 
 
 class ConnectionsError(Exception):
@@ -111,3 +112,16 @@ class ConnectionAccess(Protocol):
 # agent's default: a program that asserts its users' ids may reach an agent
 # that also lives on a chat platform, and those ids are nobody's there.
 ConnectionAccessFactory = Callable[[str, str, str, TurnScope | None], ConnectionAccess | None]
+
+
+def acts_for_one_person(scope: TurnScope | None, *, direct: bool) -> bool:
+    """Whether a tool that acts with the person's connected account may: the
+    conversation is a direct message, or one person's own by its keying
+    (``ONE_PERSONS_ATTRIBUTE``), or the turn is a task's whose asker's
+    conversation was (``on_behalf_of_direct``). Where several people share the
+    conversation, whom a tool would act as is not settled, and it does not."""
+    if direct:
+        return True
+    if scope is None:
+        return False
+    return scope.attributes.get(ONE_PERSONS_ATTRIBUTE) == "1" or scope.attributes.get(ON_BEHALF_OF_DIRECT_ATTRIBUTE) == "1"

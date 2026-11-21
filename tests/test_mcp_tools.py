@@ -388,7 +388,7 @@ async def test_every_way_a_call_is_turned_down_is_told_by_its_own_word() -> None
     tool = McpTool(personal, ECHO, _Calls(CallResult("ok")), telemetry=told)
     for ctx, word in [
         (_ctx(connections=_Connections({"gitlab": "t"}), conversation_kind="thread"), "not_direct"),
-        # A thread kept per author is the author's own: the door opens, and the
+        # A conversation kept per author is the author's own: the door opens, and the
         # next check speaks. So is a task's turn whose asker wrote in a direct message.
         (_ctx(connections=_Connections({"github": "t"}), conversation_kind="thread",
               turn=TurnScope(turn_id="t", attributes={ONE_PERSONS_ATTRIBUTE: "1"})), "no_provider"),

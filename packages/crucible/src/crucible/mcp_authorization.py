@@ -46,7 +46,12 @@ from urllib.parse import urlencode, urlsplit
 from aiohttp import web
 
 from crucible.connections.audit import LoggingAudit
-from crucible.connections.callback import SAFE_HEADERS, html_page, safe
+from crucible.connections.callback import (
+    SAFE_HEADERS,
+    content_security_policy,
+    html_page,
+    safe,
+)
 from crucible.connections.pkce import code_challenge as challenge_of
 from crucible.connections.ports import ConnectionsAudit
 from crucible.connections.service import Connections
@@ -175,7 +180,7 @@ class ConsentRequest:
 def form_action_policy(sources: tuple[str, ...]) -> str:
     """The content-security policy a consent page answers with: the flow's
     strict one, with ``form-action`` open to ``sources``."""
-    return f"default-src 'none'; style-src 'unsafe-inline'; form-action {' '.join(sources)}"
+    return content_security_policy(sources)
 
 
 def _redirect_sources(redirect_uri: str) -> tuple[str, ...]:
@@ -356,8 +361,13 @@ class AuthorizationServer:
             return None
         if grant.client not in self._clients:
             return None  # a client struck off the list is out, tokens or no tokens
+        # A grant from before the deployment narrowed what it offers keeps
+        # its words; the token carries only those offered now.
+        scopes = frozenset(grant.scope.split()) & frozenset(self._scopes)
+        if not scopes:
+            return None
         return McpCaller(
-            subject=grant.subject, client=grant.client, scopes=frozenset(grant.scope.split()), username=grant.username,
+            subject=grant.subject, client=grant.client, scopes=scopes, username=grant.username,
             client_name=self._name_of(grant.client),
         )
 
