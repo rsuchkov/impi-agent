@@ -29,6 +29,12 @@ from typing import Any, NoReturn, Protocol
 # that would act as a person (their connected accounts, say) must not. An
 # application that hands the turn a scope of its own has decided that itself.
 ENGINE_TURN_ATTRIBUTE = "engine_turn"
+# Present ("1") on the scope of a turn whose conversation is one person's own
+# — a direct message, or a channel's conversation kept per author
+# (``ConversationKey.one_persons``) — so a tool that acts as the person acts
+# there as it does in a direct message. Absent where several people share
+# the conversation.
+ONE_PERSONS_ATTRIBUTE = "one_persons"
 
 
 class TurnSecrets:

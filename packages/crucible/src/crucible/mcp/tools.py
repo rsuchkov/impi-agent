@@ -40,7 +40,7 @@ from crucible.ports.connections import (
     ProviderUnavailable,
     TokenGrant,
 )
-from crucible.ports.delegation import parent_turn_of
+from crucible.ports.delegation import acts_for_one_person, parent_turn_of
 from crucible.ports.telemetry import McpCalled, Telemetry
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 
@@ -233,13 +233,13 @@ class McpTool:
             if match is None:
                 continue
             provider = match.group(1)
-            if not ctx.direct:
+            if not acts_for_one_person(ctx.turn, direct=ctx.direct):
                 # Whose turn it is in a shared conversation is not settled
                 # enough to act as anyone — the rule the connection tools keep.
                 raise _Declined(
                     "not_direct",
-                    f"{self.server.name} acts as the person, which works only in a direct message "
-                    "with them; tell them to ask there"
+                    f"{self.server.name} acts as the person, which works only in a conversation that is "
+                    "theirs alone — a direct message with them, or a thread kept per author; tell them to ask there"
                 )
             if ctx.connections is None or provider not in ctx.connections.providers:
                 raise _Declined(

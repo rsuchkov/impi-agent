@@ -19,6 +19,8 @@ from crucible.ports.connections import (
     ProviderUnavailable,
     TokenGrant,
 )
+from crucible.ports.delegation import ON_BEHALF_OF_DIRECT_ATTRIBUTE
+from crucible.ports.turn import ONE_PERSONS_ATTRIBUTE, TurnScope
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 from tests.test_tools import AGENTS, FakeDirectory
 
@@ -146,7 +148,7 @@ async def test_a_header_that_is_the_persons_token_is_filled_per_call_from_their_
     tool = McpTool(server, ECHO, calls)
     assert tool.requires == frozenset({CAP_CONNECTIONS})  # advertised only where connections exist
     connections = _Connections({"gitlab": "glpat-xyz"})
-    with pytest.raises(ToolError, match="only in a direct message"):
+    with pytest.raises(ToolError, match="a conversation that is theirs alone"):
         await tool.execute(_ctx(connections=connections, conversation_kind="thread"), {"text": "x"})
     assert await tool.execute(_ctx(connections=connections, conversation_kind="dm", direct=True), {"text": "x"}) == "ok"
     assert calls.seen[0][2] == {"Authorization": "Bearer glpat-xyz"}  # the call's own header; X-Team is the server's
@@ -386,6 +388,12 @@ async def test_every_way_a_call_is_turned_down_is_told_by_its_own_word() -> None
     tool = McpTool(personal, ECHO, _Calls(CallResult("ok")), telemetry=told)
     for ctx, word in [
         (_ctx(connections=_Connections({"gitlab": "t"}), conversation_kind="thread"), "not_direct"),
+        # A thread kept per author is the author's own: the door opens, and the
+        # next check speaks. So is a task's turn whose asker wrote in a direct message.
+        (_ctx(connections=_Connections({"github": "t"}), conversation_kind="thread",
+              turn=TurnScope(turn_id="t", attributes={ONE_PERSONS_ATTRIBUTE: "1"})), "no_provider"),
+        (_ctx(connections=_Connections({"github": "t"}), conversation_kind="thread",
+              turn=TurnScope(turn_id="t", attributes={ON_BEHALF_OF_DIRECT_ATTRIBUTE: "1"})), "no_provider"),
         (_ctx(connections=_Connections({"github": "t"}), conversation_kind="dm", direct=True), "no_provider"),
         (_ctx(connections=_Connections({"gitlab": None}), conversation_kind="dm", direct=True), "not_connected"),
     ]:

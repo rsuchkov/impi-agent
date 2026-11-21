@@ -1766,6 +1766,9 @@ class _TaskKey:
     def key(self, agent: str, msg) -> str:
         return msg.ref.conversation_id.split(":")[-1]  # "slack:task-7" / "portal:task-7" -> task-7
 
+    def one_persons(self, agent, msg) -> bool:
+        return msg.direct
+
 
 async def test_messages_from_two_gateways_run_one_session_when_the_application_keys_them_together(tmp_path: Path) -> None:
     from crucible.ports.chat.types import KIND_THREAD
@@ -2138,6 +2141,9 @@ async def test_a_stop_finds_the_turn_by_the_address_its_gateway_knows_and_only_a
         def key(self, agent: str, msg: IncomingMessage) -> str:
             return f"realm:{msg.conversation_id}"
 
+        def one_persons(self, agent, msg) -> bool:
+            return msg.direct
+
     class _Interruptible(FakeRuntime):
         def __init__(self, *, interrupts: bool, raises: Exception | None = None) -> None:
             super().__init__()
@@ -2256,6 +2262,9 @@ async def test_a_stop_finds_the_turn_by_the_thread_or_the_channel_the_anchor_car
     class _Rekeying:
         def key(self, agent: str, msg: IncomingMessage) -> str:
             return f"dm:{msg.channel_id}"  # the thread's messages live in the DM's conversation
+
+        def one_persons(self, agent, msg) -> bool:
+            return msg.direct
 
     class _Interruptible(FakeRuntime):
         def __init__(self) -> None:

@@ -38,9 +38,11 @@ CREATE TABLE IF NOT EXISTS mcp_grants (
   access_hash           TEXT NOT NULL,
   access_expires_at     TEXT NOT NULL,
   refresh_hash          TEXT NOT NULL,
-  previous_refresh_hash TEXT NOT NULL DEFAULT ''
+  previous_refresh_hash TEXT NOT NULL DEFAULT '',
+  refreshed_at          TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_grants_access ON mcp_grants (access_hash);
+CREATE INDEX IF NOT EXISTS idx_mcp_grants_subject ON mcp_grants (subject, signed_in_at);
 CREATE INDEX IF NOT EXISTS idx_mcp_grants_refresh ON mcp_grants (refresh_hash);
 CREATE INDEX IF NOT EXISTS idx_mcp_grants_previous ON mcp_grants (previous_refresh_hash);
 """
@@ -68,6 +70,10 @@ class McpGrantStoreMixin(SqliteBase):
 
     def _create_mcp_grant_tables(self) -> None:
         self._conn.executescript(_SCHEMA)
+        # A table made by an earlier version lacks the column added since.
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(mcp_grants)")}
+        if "refreshed_at" not in columns:
+            self._conn.execute("ALTER TABLE mcp_grants ADD COLUMN refreshed_at TEXT NOT NULL DEFAULT ''")
 
     # -- sync core -------------------------------------------------------------
 
@@ -140,6 +146,13 @@ class McpGrantStoreMixin(SqliteBase):
             ).fetchone()
         return _grant(row) if row is not None else None
 
+    def mcp_grants_of_sync(self, subject: str) -> list[McpGrant]:
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {_GRANT_COLUMNS} FROM mcp_grants WHERE subject = ? ORDER BY signed_in_at", (subject,)
+            ).fetchall()
+        return [_grant(row) for row in rows]
+
     def delete_mcp_grant_sync(self, grant_id: str) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM mcp_grants WHERE id = ?", (grant_id,))
@@ -179,6 +192,9 @@ class McpGrantStoreMixin(SqliteBase):
 
     async def get_mcp_grant_by_refresh(self, refresh_hash: str) -> McpGrant | None:
         return await asyncio.to_thread(self.get_mcp_grant_by_refresh_sync, refresh_hash)
+
+    async def mcp_grants_of(self, subject: str) -> list[McpGrant]:
+        return await asyncio.to_thread(self.mcp_grants_of_sync, subject)
 
     async def delete_mcp_grant(self, grant_id: str) -> None:
         await asyncio.to_thread(self.delete_mcp_grant_sync, grant_id)

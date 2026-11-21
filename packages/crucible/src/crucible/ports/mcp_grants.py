@@ -54,6 +54,7 @@ class McpGrant:
     access_expires_at: str
     refresh_hash: str
     previous_refresh_hash: str = ""
+    refreshed_at: str = ""  # when the tokens were last rotated; "" until the first refresh
 
 
 class McpGrants(Protocol):
@@ -87,6 +88,10 @@ class McpGrants(Protocol):
 
     async def get_mcp_grant_by_refresh(self, refresh_hash: str) -> McpGrant | None:
         """The grant whose current or previous refresh token this is."""
+        ...
+
+    async def mcp_grants_of(self, subject: str) -> list[McpGrant]:
+        """The person's grants, oldest sign-in first — what an account page lists."""
         ...
 
     async def delete_mcp_grant(self, grant_id: str) -> None: ...

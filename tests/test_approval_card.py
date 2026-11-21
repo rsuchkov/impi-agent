@@ -274,6 +274,11 @@ def test_the_markdown_card_leads_with_the_title_quotes_a_passage_and_signs_with_
     # A tool with a name for people signs with it, as the steps of a turn name it.
     named = card_layout(ApprovalCard(**{**card.__dict__, "display_name": "Add a comment"}))
     assert named.signature == ("Add a comment",)
+    # A card an outside program asked for says so beside the tool: the person
+    # in the chat did not type the request.
+    asked = ApprovalCard(**{**card.__dict__, "asked_through": "The IDE"})
+    assert card_layout(asked).signature == ("add_comment", "asked through The IDE")
+    assert card_markdown(asked).splitlines()[-1] == "_add_comment · asked through The IDE · Answer by 2026-10-04T12:00:00+00:00_"
     assert card_markdown(ApprovalCard(**{**card.__dict__, "display_name": "Add a comment"})).splitlines()[-1].startswith("_Add a comment · ")
 
     closed = card_markdown(ApprovalCard(**{**card.__dict__, "headline": "Allowed once: add_comment.", "verdict": "allowed_once", "expires_at": ""}))

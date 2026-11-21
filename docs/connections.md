@@ -269,12 +269,16 @@ token does not.
 - **Scheduled work acts as nobody.** A task's turn has no person behind it —
   even one scheduled in somebody's direct message — so no connection is used
   there, and its tools say so.
-- **Several people in one place.** Channels, merged threads, an allowlist of
-  who may connect, and an offboarding command are not designed yet; until they
-  are, connected accounts are a direct-message feature. The one word that
-  reaches a person anywhere is the sign-in link a turn not admitted carries
-  — delivered to them alone (an ephemeral post) wherever they wrote; a tool's
-  Connect offer still opens in a direct message only.
+- **Several people in one place.** The tools act where the conversation is
+  one person's own: a direct message, or a channel's thread kept per author
+  (`CHANNEL_CONVERSATION_PER_AUTHOR`), where the turn is the author's and the
+  cards are whispered to them. In a conversation several people share — a
+  channel or a thread without that setting — whom a tool would act as is not
+  settled, and it refuses. An allowlist of who may connect and an offboarding
+  command are not designed yet. The one word that reaches a person anywhere
+  is the sign-in link a turn not admitted carries — delivered to them alone
+  (an ephemeral post) wherever they wrote; a tool's Connect offer still opens
+  in a direct message only.
 
 Where the tokens live, and what someone with the database alone can read:
 [storage.md](storage.md) and [security.md](security.md#where-the-credentials-live).

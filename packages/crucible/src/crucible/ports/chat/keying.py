@@ -25,6 +25,13 @@ class ConversationKey(Protocol):
         key, and two messages of one conversation the same key."""
         ...
 
+    def one_persons(self, agent: str, msg: IncomingMessage) -> bool:
+        """Whether the conversation ``msg`` belongs to is one person's own —
+        a direct message, or a conversation this keying keeps per author — so
+        a tool that acts as the person knows whom it acts as there. Where
+        several people share one conversation, False."""
+        ...
+
 
 class PlatformKey:
     """The platform's own conversation id is the key — one gateway, one id per
@@ -32,6 +39,9 @@ class PlatformKey:
 
     def key(self, agent: str, msg: IncomingMessage) -> str:
         return msg.conversation_id
+
+    def one_persons(self, agent: str, msg: IncomingMessage) -> bool:
+        return msg.direct
 
 
 class AuthorKey:
@@ -49,6 +59,9 @@ class AuthorKey:
         if msg.direct or not msg.user_id:
             return msg.conversation_id
         return f"{msg.conversation_id}:{msg.user_id}"
+
+    def one_persons(self, agent: str, msg: IncomingMessage) -> bool:
+        return msg.direct or bool(msg.user_id)
 
 
 class PersonKey(Protocol):

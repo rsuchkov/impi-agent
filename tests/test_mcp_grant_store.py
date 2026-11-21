@@ -73,6 +73,11 @@ async def test_a_grant_is_found_by_either_token_and_rotates_once(grants) -> None
     assert await grants.get_mcp_grant_by_refresh("r1") == rotated  # the previous one still names the grant: a reuse
     assert await grants.get_mcp_grant_by_refresh("r2") == rotated
     assert await grants.get_mcp_grant_by_refresh("") is None
+    # A person's grants, oldest sign-in first — and only theirs.
+    await grants.save_mcp_grant(_grant(id="g-2", access_hash="a9", refresh_hash="r9", signed_in_at="2026-10-09T12:00:00+00:00"))
+    await grants.save_mcp_grant(_grant(id="g-3", subject="okta:8", access_hash="a8", refresh_hash="r8"))
+    assert [g.id for g in await grants.mcp_grants_of("okta:7")] == ["g-2", "g-1"]
+    assert [g.id for g in await grants.mcp_grants_of("nobody")] == []
     await grants.delete_mcp_grant("g-1")
     assert await grants.get_mcp_grant_by_refresh("r2") is None
 

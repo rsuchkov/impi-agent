@@ -74,6 +74,11 @@ class MongoMcpGrantMixin(MongoBase):
         )
         return from_doc(McpGrant, doc) if doc else None
 
+    async def mcp_grants_of(self, subject: str) -> list[McpGrant]:
+        db = await self._ready()
+        cursor = db[MCP_GRANTS].find({"subject": subject}).sort("signed_in_at", 1)
+        return [from_doc(McpGrant, doc) async for doc in cursor]
+
     async def delete_mcp_grant(self, grant_id: str) -> None:
         db = await self._ready()
         await db[MCP_GRANTS].delete_one({"_id": grant_id})

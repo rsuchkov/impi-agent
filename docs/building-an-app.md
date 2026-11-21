@@ -820,17 +820,23 @@ credential, is another user's credential.
   a grant still holds at each refresh (`grant_policy=`,
   `GrantPolicy.still_holds(grant) -> GrantStanding`, for a person who left or
   lost the group), the consent page (`ConsentPage`; the plain
-  one otherwise), where cards go (`ApprovalCards`: `post_confirmation(asker,
-  card, actions, callback_url=)` answering with your post id, `update_confirmation`,
-  `retract` — a direct message in the person's chat, whose click your gateway
+  one otherwise), which scopes the deployment offers at all (`scopes=`,
+  `read` alone for one that only reads), where cards go (`ApprovalCards`:
+  `post_confirmation(asker, card, actions, place=, callback_url=)` answering
+  with your post id — `place` is a `CardPlace`, the conversation's key, its
+  handle and the turn's id, for the card's context — `update_confirmation`,
+  `retract`; a direct message in the person's chat, whose click your gateway
   hands the dispatcher as any card's; `None` refuses every tool that needs a
-  yes), the tools (`McpGatewayTool`: `name`, `description`, `input_schema`,
-  `scope` — `read` or `act` — `long_running`, `conversation_argument`,
+  yes, and so does a `read` token whatever is wired), the tools
+  (`McpGatewayTool`: `name`, `description`, `input_schema`, `scope` — `read`
+  or `act` — `long_running`, `conversation_argument`, `title`, `annotations`,
   `run(call)`; `GatewayCall.ask` runs an agent's turn as the person, `wait`
   waits for a conversation's turn, `progress` tells the client, `CallFailed`
   is `isError`), the agent's answer as the client reads it (`presenter`), and
   `McpScopeEntitlements(spec_of, registry, inner=…)` as the gateway source's
-  inner for the read door. Tokens live an hour (`access_ttl_s`), the grant
+  inner for the read door (it asks `inner` with the ceiling as it came and
+  takes the asking tools from the answer); `grants_of(subject)` and
+  `revoke(subject, grant_id)` on the server for an account page. Tokens live an hour (`access_ttl_s`), the grant
   twelve hours unused and a week at most (`grant_idle_s`, `grant_max_s`); the
   audit is the logger `crucible.mcp_authorization.audit`, the telemetry event
   `McpGrantChanged`.

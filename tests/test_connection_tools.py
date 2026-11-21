@@ -3,6 +3,7 @@ local stand-in for the provider's API."""
 
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from aiohttp import web
 from crucible.connections import Connections
 from crucible.connections.sealing import FernetSealer, new_sealing_key
 from crucible.ports.chat.types import KIND_CHANNEL, KIND_DM, CallPreview, CannotRun
+from crucible.ports.turn import ONE_PERSONS_ATTRIBUTE, TurnScope
 from crucible.tools.base import CAP_CONNECTIONS, ToolContext, ToolError
 from crucible.tools.registry import build_registry
 from impi import connection_tools
@@ -185,6 +187,11 @@ async def test_outside_a_direct_message_nothing_is_called(
         with pytest.raises(ToolError, match="direct message"):
             await tool.execute(ctx, args)
     assert api.seen == []
+    # A channel's thread kept per author is the author's own: the turn's scope
+    # says so, and the tool acts as them there as in a direct message.
+    theirs = replace(ctx, turn=TurnScope(turn_id="t", attributes={ONE_PERSONS_ATTRIBUTE: "1"}))
+    await ConnectedApiRead().execute(theirs, {"provider": "gitlab", "path": "user"})
+    assert len(api.seen) == 1
 
 
 async def test_not_connected_sends_the_person_to_the_screen_never_for_a_token(

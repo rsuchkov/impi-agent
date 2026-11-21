@@ -69,7 +69,7 @@ takes one) and `!` lines for what is wrong.
 | Page: "its email is not the one your chat account has" | they logged in as another account at the provider | log in as their own |
 | The application's rule wants a field the account record lacks (a groups claim) | the field is not among the four kept by default | `CONNECTION_ACCOUNT_EXTRA__<NAME>=groups` names the userinfo fields to keep; people connect again to have them |
 | Agent says the tool is missing | not in `runtime.tools`, the tool server off, or no provider configured (the tools are advertised only then) | engine-diagnostics §3 |
-| Tool: "works only in a direct message" | the agent was asked in a channel, or a thread in one (a thread inside the DM is fine) | by design, for now |
+| Tool: "works only in a conversation that is theirs alone" | the agent was asked in a channel, or a thread in one that several people share (a thread inside the DM is fine) | by design: with `CHANNEL_CONVERSATION_PER_AUTHOR=true` a channel's thread is the author's own and the tools act there |
 | Tool: "there is no person here whose connected accounts a tool could use" | a scheduled turn (it acts for nobody), or an agent on the ws/http gateway (`impi health`: `… is not offered to …`) | by design: those turns have no person the engine can name |
 | Tool: "has not connected their … account" (an `mcp__<server>__…` tool says the same, naming the server) | they never connected, or a 401 ended it | the Connect button the engine posted, or `/connections` in the DM |
 | No Connect button appeared | interactivity off (`INTEGRATIONS_ENABLED`): there is then no button and no panel, and nobody can connect | turn interactivity on |

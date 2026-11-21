@@ -108,7 +108,12 @@ class McpGatewayTool(Protocol):
     runs an agent's turn — minutes, perhaps a wait on the person — so the
     gateway runs it as a task or answers with where it stands rather than
     holding the call open; ``conversation_argument`` the name of the argument
-    that carries the conversation's handle ("" when the tool has none)."""
+    that carries the conversation's handle ("" when the tool has none);
+    ``title`` a name for people ("" for none); ``annotations`` the hints the
+    protocol lets a tool give about itself (``readOnlyHint``,
+    ``destructiveHint``, …), or None for the ones its scope implies — a
+    ``read`` tool reads, an ``act`` tool may change things — which is how a
+    client with an approval mode of its own tells the two apart."""
 
     name: str
     description: str
@@ -116,6 +121,8 @@ class McpGatewayTool(Protocol):
     scope: str
     long_running: bool
     conversation_argument: str
+    title: str
+    annotations: Mapping[str, Any] | None
 
     async def run(self, call: GatewayCall) -> str: ...
 
@@ -154,6 +161,8 @@ class AskAgentTool:
     scope = MCP_SCOPE_READ
     long_running = True
     conversation_argument = CONVERSATION_KEY
+    title = "Ask the agent"
+    annotations: Mapping[str, Any] | None = {"readOnlyHint": True}
 
     async def run(self, call: GatewayCall) -> str:
         text = str(call.arguments.get("text", "")).strip()
@@ -180,6 +189,8 @@ class WaitAgentTool:
     scope = MCP_SCOPE_READ
     long_running = False
     conversation_argument = CONVERSATION_KEY
+    title = "Wait for the agent"
+    annotations: Mapping[str, Any] | None = {"readOnlyHint": True}
 
     async def run(self, call: GatewayCall) -> str:
         if not call.handle:

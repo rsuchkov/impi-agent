@@ -353,6 +353,9 @@ async def test_a_ws_file_is_saved_under_the_conversation_as_the_application_keys
         def key(self, agent: str, msg) -> str:
             return "task-7"
 
+        def one_persons(self, agent, msg) -> bool:
+            return msg.direct
+
     store = AttachmentStore(tmp_path, max_bytes=1024)
     hub = WsHub(
         "127.0.0.1", 8479, {"probe": ("tok", None)},

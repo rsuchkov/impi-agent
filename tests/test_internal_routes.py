@@ -174,6 +174,9 @@ async def test_a_forwarded_file_is_saved_under_the_conversation_as_the_owner_key
         def key(self, agent: str, msg) -> str:
             return "task-7"
 
+        def one_persons(self, agent, msg) -> bool:
+            return msg.direct
+
     hub, sink, _, _ = await _hub(8574, tmp_path, keying=_TaskKey())
     forwarder = HubForwarder("shared")
     try:

@@ -211,6 +211,9 @@ async def test_a_file_is_saved_under_the_conversation_as_the_application_keys_it
         def key(self, agent: str, msg) -> str:
             return "task-7"
 
+        def one_persons(self, agent, msg) -> bool:
+            return msg.direct
+
     store = AttachmentStore(tmp_path, max_bytes=1024)
     http = FakeHttpSession(FakeHttpResponse(body=b"PNGDATA"))
     monkeypatch.setattr("crucible.gateways.slack.gateway.ClientSession", http)

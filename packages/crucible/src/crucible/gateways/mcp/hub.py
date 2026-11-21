@@ -87,6 +87,7 @@ from crucible.ports.chat.gateway import (
     GATEWAY_MCP,
     MCP_CLIENT_ATTRIBUTE,
     MCP_CLIENT_NAME_ATTRIBUTE,
+    MCP_SCOPE_READ,
     MCP_SCOPES_ATTRIBUTE,
     mcp_scopes_attribute,
 )
@@ -427,7 +428,17 @@ class McpHub:
 
     @staticmethod
     def _declare(tool: McpGatewayTool) -> dict[str, Any]:
-        return {"name": tool.name, "description": tool.description, "inputSchema": dict(tool.input_schema)}
+        """The tool as ``tools/list`` says it: with its title when it has one,
+        and its annotations — the ones it declares, else what its scope
+        implies, so a client tells a reading tool from one that may act."""
+        declared: dict[str, Any] = {"name": tool.name, "description": tool.description, "inputSchema": dict(tool.input_schema)}
+        if tool.title:
+            declared["title"] = tool.title
+        annotations = tool.annotations
+        if annotations is None:
+            annotations = {"readOnlyHint": True} if tool.scope == MCP_SCOPE_READ else {"destructiveHint": True}
+        declared["annotations"] = dict(annotations)
+        return declared
 
     # -- tools/call ----------------------------------------------------------------
 

@@ -311,13 +311,20 @@ async def test_the_gateway_source_passes_the_inners_agents_on() -> None:
 
 
 async def test_an_mcp_client_that_may_only_read_gets_the_agent_without_the_tools_that_ask(tmp_path: Path) -> None:
-    """The read door, ``McpScopeEntitlements``: a turn an MCP client opened with
-    a token without ``act`` is entitled to the agent's tools but those that
+    """The read door, ``McpScopeEntitlements``: a turn on an MCP token without
+    ``act`` is entitled to what it would have been without the tools that
     would ask the person for a yes (``requires_confirmation``); a token with
-    ``act`` keeps them all, and so does any other gateway. Behind the gateway
-    source, the gateway's list is the ceiling the door narrows further."""
+    ``act`` keeps them all, and so does any turn without a token. The door
+    takes from what is given: an inner source is asked with the ceiling as it
+    came, so a source granting a whole set keeps the set minus its asking
+    tools. A specialist's turn an MCP turn asked for inherits the scopes and
+    the door."""
     from crucible.conversation_profiles import GatewayEntitlements, McpScopeEntitlements
-    from crucible.ports.chat.gateway import MCP_CLIENT_ATTRIBUTE, MCP_SCOPES_ATTRIBUTE
+    from crucible.ports.chat.gateway import (
+        GATEWAY_TRUSTED_DELEGATION,
+        MCP_CLIENT_ATTRIBUTE,
+        MCP_SCOPES_ATTRIBUTE,
+    )
     from crucible.ports.chat.types import ConversationRef, IncomingMessage
     from crucible.ports.turn import TurnScope
 
@@ -325,27 +332,43 @@ async def test_an_mcp_client_that_may_only_read_gets_the_agent_without_the_tools
     spec = dataclasses.replace(spec, tools=("read", "bash", "ask_user_buttons", "delegate"))
     assert wiring.registry is not None and wiring.registry.get("delegate").requires_confirmation  # type: ignore[union-attr]
 
-    def msg(gateway: str, scopes: str) -> IncomingMessage:
+    def msg(gateway: str, scopes: str | None) -> IncomingMessage:
+        attributes = {MCP_CLIENT_ATTRIBUTE: "ide", MCP_SCOPES_ATTRIBUTE: scopes} if scopes is not None else {}
         return IncomingMessage(
             ref=ConversationRef(channel_id="c", conversation_id="c", message_id="m", thread_root_id=""),
             text="hi", user_id="okta:7", username="alice", gateway=gateway, kind="dm", is_dm=True,
-            turn=TurnScope(turn_id="t", attributes={MCP_CLIENT_ATTRIBUTE: "ide", MCP_SCOPES_ATTRIBUTE: scopes}),
+            turn=TurnScope(turn_id="t", attributes=attributes),
         )
 
     door = McpScopeEntitlements(lambda name: spec if name == "assistant" else None, wiring.registry)
     assert (await door.entitlement("assistant", msg("mcp", "read"))).tools == ("read", "bash", "ask_user_buttons")
     assert (await door.entitlement("assistant", msg("mcp", "act read"))).tools is None  # the agent's own
-    assert (await door.entitlement("assistant", msg("slack", "read"))).tools is None  # not the MCP door
+    assert (await door.entitlement("assistant", msg("slack", None))).tools is None  # no token: not the door's
     assert (await door.entitlement("other", msg("mcp", "read"))).tools is None  # not an agent of ours
     assert (await door.entitlement("assistant", msg("mcp", "read"), tools=("bash", "delegate"))).tools == ("bash",)
-    # Behind the gateway source: its list is the ceiling; an inner source of the
-    # application's is joined as always.
-    narrowed = dataclasses.replace(spec, tools_by_gateway=(("mcp", ("bash", "delegate")),))
+    # The specialist's turn, asked by the MCP turn: the scopes came with the task.
+    assert (await door.entitlement("assistant", msg(GATEWAY_TRUSTED_DELEGATION, "read"))).tools == ("read", "bash", "ask_user_buttons")
 
-    class Inner:
+    class WholeSets:
+        """An application that grants a set only when every tool of it is under the ceiling."""
+
+        def __init__(self) -> None:
+            self.ceilings: list = []
+
         async def entitlement(self, agent, msg, *, tools=None):
-            return Entitlement(tools=tools, instructions="Be brief.")
+            self.ceilings.append(tools)
+            jira = ("bash", "delegate")
+            granted = jira if tools is None or all(t in tools for t in jira) else ()
+            return Entitlement(tools=("read", *granted), instructions="Jira is yours.")
 
-    source = GatewayEntitlements(lambda _: narrowed, inner=McpScopeEntitlements(lambda _: narrowed, wiring.registry, inner=Inner()))
-    assert await source.entitlement("assistant", msg("mcp", "read")) == Entitlement(tools=("bash",), instructions="Be brief.")
+    inner = WholeSets()
+    door = McpScopeEntitlements(lambda _: spec, wiring.registry, inner=inner)
+    narrowed = await door.entitlement("assistant", msg("mcp", "read"))
+    assert inner.ceilings == [None]  # the inner saw the ceiling as it came, not the door's cut of it
+    assert narrowed == Entitlement(tools=("read", "bash"), instructions="Jira is yours.")  # the set, minus what asks
+    # Behind the gateway source: its list is the ceiling the inner sees.
+    narrow_spec = dataclasses.replace(spec, tools_by_gateway=(("mcp", ("bash", "delegate")),))
+    source = GatewayEntitlements(lambda _: narrow_spec, inner=McpScopeEntitlements(lambda _: narrow_spec, wiring.registry, inner=inner))
+    assert (await source.entitlement("assistant", msg("mcp", "read"))).tools == ("bash",)
+    assert inner.ceilings[-1] == ("bash", "delegate")
     assert (await source.entitlement("assistant", msg("mcp", "act"))).tools == ("bash", "delegate")

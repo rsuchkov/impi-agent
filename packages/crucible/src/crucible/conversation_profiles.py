@@ -28,10 +28,15 @@ as the gateway source's ``inner``.
 """
 
 from collections.abc import Callable, Collection
+from dataclasses import replace
 
 from crucible.ports.agent.runtime import AgentProfile
 from crucible.ports.agent.spec import AgentSpec
-from crucible.ports.chat.gateway import GATEWAY_MCP, MCP_SCOPE_ACT, mcp_scopes_of
+from crucible.ports.chat.gateway import (
+    MCP_SCOPE_ACT,
+    MCP_SCOPES_ATTRIBUTE,
+    mcp_scopes_of,
+)
 from crucible.ports.chat.types import IncomingMessage
 from crucible.ports.entitlement import (
     Entitlement,
@@ -103,15 +108,18 @@ class GatewayEntitlements:
 
 
 class McpScopeEntitlements:
-    """An ``EntitlementSource`` for the MCP gateway's read door: a turn an MCP
-    client opened with a token that may not act (``mcp_scopes`` on the turn's
-    scope without ``act``) is entitled to the ceiling it was handed — the
-    gateway's list, else the agent's own — without every tool that would ask
-    the person for a yes (``requires_confirmation``, read off the tool
+    """An ``EntitlementSource`` for the MCP gateway's read door: a turn whose
+    scope carries an MCP token's scopes without ``act`` (``mcp_scopes`` — the
+    client's own turn, or one it asked another agent for, which inherits
+    them) is entitled to what it would have been — the ceiling it was handed,
+    the ``inner`` source's answer — without every tool that would ask the
+    person for a yes (``requires_confirmation``, read off the tool
     ``registry``; a server's tools spelled as a pattern are read as declared;
-    a runtime's built-in is not in the registry, asks nobody, and stays). Any
-    other turn is left as it is. An ``inner`` source (the application's) is
-    joined as the gateway source joins its own."""
+    a runtime's built-in is not in the registry, asks nobody, and stays). The
+    door takes from what is given, never from what it is given out of: the
+    ``inner`` source (the application's) is asked with the ceiling as it came,
+    so an application that grants a whole set of tools at once keeps the set,
+    and only its asking tools go. Any other turn is left as it is."""
 
     def __init__(
         self, spec_of: Callable[[str], AgentSpec | None], registry: ToolRegistry, *,
@@ -125,22 +133,24 @@ class McpScopeEntitlements:
         self, agent: str, msg: IncomingMessage, *, tools: Collection[str] | None = None
     ) -> Entitlement:
         spec = self._spec_of(agent)
-        own = Entitlement(tools=tools)
-        if spec is not None and _mcp_read_only(msg):
-            ceiling = tools if tools is not None else spec.tools
-            own = Entitlement(tools=_asking_nobody(self._registry, tuple(ceiling)))
-        if self._inner is None:
-            return own
-        theirs = await self._inner.entitlement(agent, msg, tools=own.tools)
-        joined = shared_entitlement([own, theirs])
-        return Entitlement(
-            tools=joined.tools, instructions=theirs.instructions, deferred=theirs.deferred, agents=joined.agents,
-        )
+        given = Entitlement(tools=tools)
+        if self._inner is not None:
+            theirs = await self._inner.entitlement(agent, msg, tools=tools)
+            joined = shared_entitlement([given, theirs])
+            given = Entitlement(
+                tools=joined.tools, instructions=theirs.instructions, deferred=theirs.deferred, agents=joined.agents,
+            )
+        if spec is None or not _mcp_read_only(msg):
+            return given
+        allowed = given.tools if given.tools is not None else spec.tools
+        return replace(given, tools=_asking_nobody(self._registry, tuple(allowed)))
 
 
 def _mcp_read_only(msg: IncomingMessage) -> bool:
-    """Whether the turn is an MCP client's whose token may not act."""
-    if msg.gateway != GATEWAY_MCP or msg.turn is None:
+    """Whether the turn runs on an MCP token that may not act — the client's
+    own turn, or one it asked another agent for, which carries the token's
+    scopes on with it."""
+    if msg.turn is None or MCP_SCOPES_ATTRIBUTE not in msg.turn.attributes:
         return False
     return MCP_SCOPE_ACT not in mcp_scopes_of(msg.turn.attributes)
 

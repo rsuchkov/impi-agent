@@ -20,7 +20,7 @@ from typing import Protocol
 
 from crucible.ports.chat.client import ChatClient
 from crucible.ports.chat.types import ConversationRef
-from crucible.ports.turn import TurnScope
+from crucible.ports.turn import ONE_PERSONS_ATTRIBUTE, TurnScope
 
 # What the asked agent's turn carries in its scope's attributes, for the
 # rules that decide who may have what (``ports.admission``,
@@ -44,6 +44,19 @@ def parent_turn_of(scope: TurnScope | None) -> str:
     """The asker's turn a task's turn was opened from, as its scope names it;
     "" for a turn a person or a timer began."""
     return scope.attributes.get(DELEGATED_FROM_TURN_ATTRIBUTE, "") if scope is not None else ""
+
+
+def acts_for_one_person(scope: TurnScope | None, *, direct: bool) -> bool:
+    """Whether a tool that acts as the person may: the conversation is a
+    direct message, or one person's own by its keying (``ONE_PERSONS_ATTRIBUTE``),
+    or the turn is a task's whose asker's conversation was (``on_behalf_of_direct``).
+    Where several people share the conversation, whom a tool would act as is
+    not settled, and it does not."""
+    if direct:
+        return True
+    if scope is None:
+        return False
+    return scope.attributes.get(ONE_PERSONS_ATTRIBUTE) == "1" or scope.attributes.get(ON_BEHALF_OF_DIRECT_ATTRIBUTE) == "1"
 # Present ("1") on a trusted task's turn when the asker's trust hands the
 # person's connected accounts over: the application's owner rule then reads
 # whose accounts by ``on_behalf_of_gateway`` and the message's ``user_id``.

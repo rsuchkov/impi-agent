@@ -14,7 +14,7 @@ gateway.py — per-agent lifecycle shim (identity + park-until-stop)
 """
 
 from crucible.gateways.mcp.auth import Authorization, McpCaller
-from crucible.gateways.mcp.client import ApprovalCards, McpChatClient
+from crucible.gateways.mcp.client import ApprovalCards, CardPlace, McpChatClient
 from crucible.gateways.mcp.gateway import McpGateway
 from crucible.gateways.mcp.hub import (
     MCP_PATH,
@@ -48,6 +48,7 @@ __all__ = [
     "AskAgentTool",
     "Authorization",
     "CallFailed",
+    "CardPlace",
     "GatewayCall",
     "McpChatClient",
     "McpGateway",

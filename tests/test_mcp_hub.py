@@ -8,6 +8,7 @@ from typing import Any
 import aiohttp
 import pytest
 
+from crucible.approvals.card import card_markdown
 from crucible.gateways.factory import GatewayConfig, GatewayFactory
 from crucible.gateways.mcp import (
     MCP_PATH,
@@ -15,6 +16,7 @@ from crucible.gateways.mcp import (
     TASKS_EXTENSION,
     AskAgentTool,
     CallFailed,
+    CardPlace,
     GatewayCall,
     McpCaller,
     McpChatClient,
@@ -110,11 +112,13 @@ class FakeCards:
 
     def __init__(self) -> None:
         self.posted: list[tuple[McpCaller, ApprovalCard, list[Action]]] = []
+        self.places: list[CardPlace] = []
         self.updated: list[tuple[str, ApprovalCard, list[Action] | None]] = []
         self.retracted: list[tuple[str, str]] = []
 
-    async def post_confirmation(self, asker, card, actions, *, callback_url):
+    async def post_confirmation(self, asker, card, actions, *, place, callback_url):
         self.posted.append((asker, card, actions))
+        self.places.append(place)
         return f"slack-{len(self.posted)}"
 
     async def update_confirmation(self, post_id, card, actions=None, *, callback_url=""):
@@ -131,6 +135,8 @@ class ActTool:
     scope = MCP_SCOPE_ACT
     long_running = False
     conversation_argument = ""
+    title = ""
+    annotations = None
 
     async def run(self, call: GatewayCall) -> str:
         return "deployed"
@@ -143,6 +149,8 @@ class BrokenTool:
     scope = MCP_SCOPE_READ
     long_running = False
     conversation_argument = ""
+    title = ""
+    annotations = None
 
     async def run(self, call: GatewayCall) -> str:
         raise RuntimeError("boom")
@@ -155,6 +163,8 @@ class ProgressTool:
     scope = MCP_SCOPE_READ
     long_running = False
     conversation_argument = ""
+    title = ""
+    annotations = None
 
     async def run(self, call: GatewayCall) -> str:
         await call.progress("step one")
@@ -171,6 +181,8 @@ class LongTool:
     scope = MCP_SCOPE_READ
     long_running = True
     conversation_argument = ""
+    title = ""
+    annotations = None
 
     def __init__(self) -> None:
         self.gate = asyncio.Event()
@@ -271,6 +283,9 @@ async def test_discover_list_and_a_call_run_a_turn_as_the_person() -> None:
             assert set(tools) == {"ask_agent", "wait_agent"} and answer["result"]["resultType"] == "complete"
             assert tools["ask_agent"]["inputSchema"]["required"] == ["text"]
             assert "conversation" in tools["ask_agent"]["inputSchema"]["properties"] and "execution" not in tools["ask_agent"]
+            # A client tells a reading tool from one that may act by its annotations.
+            assert tools["ask_agent"]["title"] == "Ask the agent" and tools["ask_agent"]["annotations"] == {"readOnlyHint": True}
+            assert tools["wait_agent"]["annotations"] == {"readOnlyHint": True}
 
             status, answer, _ = await _call(s, 8601, "ask_agent", {"text": "hello"})
             assert status == 200
@@ -386,6 +401,8 @@ async def test_a_tool_is_there_for_the_scope_that_may_call_it() -> None:
             assert [t["name"] for t in answer["result"]["tools"]] == ["ask_agent"]
             _, answer, _ = await _rpc(s, 8604, "tools/list", headers=_headers("tok-actor", method="tools/list"))
             assert [t["name"] for t in answer["result"]["tools"]] == ["ask_agent", "deploy"]
+            deploy = answer["result"]["tools"][1]
+            assert deploy["annotations"] == {"destructiveHint": True} and "title" not in deploy  # what its scope implies
             status, answer, headers = await _call(s, 8604, "deploy")
             assert status == 403 and answer["error"]["code"] == -32602
             assert headers["WWW-Authenticate"] == 'Bearer error="insufficient_scope", scope="act"'
@@ -564,11 +581,41 @@ async def test_a_card_goes_to_the_person_through_the_application_not_to_the_clie
             assert _text(answer).startswith("deployed\n\n")
             asker, posted_card, posted_actions = cards.posted[0]
             assert asker == TOKENS["tok-actor"] and posted_actions == actions
-            # The person reads in their chat that a program asked, not they.
-            assert posted_card.headline == "wants to run deploy. Asked through The IDE." and posted_card.tool == "deploy"
+            # The person reads in their chat that a program asked, not they — a
+            # field every renderer signs the card with, the headline as it was.
+            assert posted_card.asked_through == "The IDE" and posted_card.headline == "wants to run deploy."
+            assert "asked through The IDE" in card_markdown(posted_card)
+            # And where the card comes from, for the application's own context.
+            place = cards.places[0]
+            handle = _handle(answer)
+            assert place == CardPlace(conversation_key("alice@example.com", handle), handle, place.turn_id) and place.turn_id
             assert seen["status"] == "awaiting_input"  # the journal says the turn waits
             assert cards.updated == [("slack-1", card, [])]  # a verdict rewrites it as the gate wrote it
             assert cards.retracted == [("slack-1", "withdrawn")]
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_read_tokens_turn_asks_nobody_even_with_a_way_to_the_person() -> None:
+    cards = FakeCards()
+    outcome: dict = {}
+
+    async def asks(msg: IncomingMessage, chat: McpChatClient) -> TurnOutcome:
+        try:
+            await chat.post_confirmation(msg.ref, ApprovalCard(agent="helper", headline="x"), [], callback_url="")
+        except NobodyToAnswer as exc:
+            outcome["card"] = str(exc)
+        await chat.post_reply(msg.ref, "ok")
+        return TurnOutcome.REPLIED
+
+    hub, _ = _hub(8621, script=asks, cards=cards)
+    await hub.start()
+    try:
+        async with aiohttp.ClientSession() as s:
+            _, answer, _ = await _call(s, 8621, "ask_agent", {"text": "x"})  # tok-reader: read alone
+            assert _text(answer).startswith("ok\n\n")
+            assert "may only read" in outcome["card"] and cards.posted == []  # never delivered
     finally:
         await hub.stop()
 

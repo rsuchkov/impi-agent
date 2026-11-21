@@ -156,6 +156,7 @@ async def create_indexes(db: Collections) -> None:
     await db[MCP_GRANTS].create_index([("access_hash", 1)], unique=True)
     await db[MCP_GRANTS].create_index([("refresh_hash", 1)])
     await db[MCP_GRANTS].create_index([("previous_refresh_hash", 1)])
+    await db[MCP_GRANTS].create_index([("subject", 1), ("signed_in_at", 1)])
     await db[MCP_GRANTS].create_index([("expire_at", 1)], expireAfterSeconds=0)
     # A conversation's newest turn; the same request again by the same caller;
     # gone on its own once past its time.

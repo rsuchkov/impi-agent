@@ -325,9 +325,10 @@ operator listed, for a redirect address that is the client's
 own (loopback, or one listed); PKCE on the code, the code single use, the
 refresh token rotated and the grant ended when one is presented twice, and the
 application asked at every refresh whether the person still holds what the
-grant gives; the scopes — a `read` token never sees a tool that would ask the person, an `act`
+grant gives; the scopes — a `read` token never sees a tool that would ask the person, and a
+card its turn or a specialist's it asked would raise is refused, an `act`
 token's confirmations go to the person in their chat and never to the client,
-with the card saying it was asked through the client; the conversation key,
+with the card signed as asked through the client; the conversation key,
 which carries the subject, so a handle names only the person's own (and any
 client of the person's, holding a token of theirs, may read a turn of theirs
 — the conversation is the person's, not the program's); and the
@@ -533,9 +534,12 @@ Things the design does not solve, stated so nobody relies on them by accident.
   read by every process still.
 - **The engine does not restrict egress** and does not encrypt session files
   at rest; both are the deployment's.
-- **Connected accounts are a direct-message feature.** The panel opens and the
-  tools act only in a direct message with the agent; who a turn acts for in a
-  channel or a merged thread is not designed yet. They are not offered at all
+- **Connected accounts act where the conversation is one person's.** The
+  panel opens in a direct message only; the tools act in a direct message
+  with the agent, or in a channel's thread kept per author
+  (`CHANNEL_CONVERSATION_PER_AUTHOR`), where the turn is the author's own —
+  never in a conversation several people share, whom a turn there would act
+  for being unsettled. They are not offered at all
   on the ws and http gateways, whose user ids are whatever the calling program
   says, nor in a scheduled turn. A connection outlives its owner's chat
   account until they disconnect or the provider revokes it, and what the

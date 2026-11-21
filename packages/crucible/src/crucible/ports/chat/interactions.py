@@ -152,6 +152,7 @@ def approval_card_to_json(card: ApprovalCard) -> str:
         ],
         "block_label": card.block_label, "block": card.block, "danger": card.danger,
         "expires_at": card.expires_at, "verdict": card.verdict, "grant_s": card.grant_s,
+        "asked_through": card.asked_through,
     })
 
 
@@ -166,4 +167,5 @@ def approval_card_from_json(spec: str) -> ApprovalCard:
         ),
         block_label=d.get("block_label", ""), block=d.get("block", ""), danger=d.get("danger", False),
         expires_at=d.get("expires_at", ""), verdict=d.get("verdict", ""), grant_s=d.get("grant_s", 0),
+        asked_through=d.get("asked_through", ""),
     )

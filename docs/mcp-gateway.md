@@ -27,8 +27,10 @@ skipped with a word in the log.
    resource_metadata="<public>/.well-known/oauth-protected-resource/mcp"`.
 2. The metadata names the authorization server (the same listener) and its
    metadata, `<public>/.well-known/oauth-authorization-server`: `/authorize`,
-   `/token`, `/revoke`, `code` with PKCE `S256`, scopes `read` and `act`, the
-   `iss` parameter on the redirect, no dynamic registration
+   `/token`, `/revoke`, `code` with PKCE `S256`, the scopes the deployment
+   offers (`AuthorizationServer(scopes=)`: `read` and `act`, or `read` alone
+   for one that only reads — a scope asked for but not offered is left out,
+   not refused), the `iss` parameter on the redirect, no dynamic registration
    (`client_id_metadata_document_supported` is true: a client whose id is the
    URL of its metadata document is let in when the operator listed that URL).
 3. `GET /authorize?response_type=code&client_id=…&redirect_uri=…&code_challenge=…&code_challenge_method=S256&scope=read act&state=…&resource=<public>/mcp`.
@@ -46,7 +48,12 @@ skipped with a word in the log.
    to the browser that signed in: the client that started the request knows
    its id and cannot consent in the person's place. Allowed → `302` to the
    client's redirect with `code`, `state` and `iss`; denied →
-   `error=access_denied`.
+   `error=access_denied`. The page's content-security policy opens
+   `form-action` to the client's redirect — every loopback address for a
+   client on the person's machine, the exact origin otherwise — since a
+   browser holds the policy to the redirect that follows the form; a consent
+   page of the application's own sets the same (`ConsentRequest.redirect_sources`,
+   `form_action_policy`).
 6. `POST /token` (`grant_type=authorization_code`, `code`, `redirect_uri`,
    `client_id`, `code_verifier`, `resource`) → `access_token`,
    `refresh_token`, `expires_in`, `scope`. The code works once, within a
@@ -64,7 +71,11 @@ answers a plain `503` with `Retry-After` and no OAuth error (an OAuth error
 would make the client drop its refresh token and sign the person in again,
 the very thing the answer is meant to spare). A refresh
 token presented a second time ends the grant for good — somebody has a copy.
-`POST /revoke` with either token ends it on purpose. Tokens are random and
+`POST /revoke` with either token ends it on purpose, and the application
+ends one from its side — an account page's button — with
+`AuthorizationServer.revoke(subject, grant_id)`, listing the person's grants
+first with `grants_of(subject)` (client, scopes, signed in when, last
+refreshed when). Tokens are random and
 kept as digests; the audit (logger `crucible.mcp_authorization.audit`) names
 clients and subjects and never a token, a code or a state.
 
@@ -83,7 +94,7 @@ are `405`; a browser `Origin` not in `allowed_origins` is `403`. Bodies up to
 | method | answers |
 |---|---|
 | `server/discover` | `supportedVersions`, `capabilities` (`tools`, and `extensions` with `io.modelcontextprotocol/tasks`), `serverInfo`, `instructions` |
-| `tools/list` | the tools the token's scopes reach |
+| `tools/list` | the tools the token's scopes reach, each with its `title` when it has one and its `annotations` — the tool's own, else `readOnlyHint` for a `read` tool and `destructiveHint` for an `act` one, so a client with an approval mode of its own tells them apart |
 | `tools/call` | the tool's result — `content[0].text`, `isError`, the conversation named at the end of the text and in `_meta` (below) — or, for a long call, where its turn stands, or a task |
 | `tasks/get`, `tasks/update`, `tasks/cancel` | the caller's own tasks, for a client that declared the extension (`-32021` otherwise) |
 | anything else (`ping` among them) | `-32601` |
@@ -171,18 +182,26 @@ A token's scopes are what the person let the client do:
 
 - **`read`** — ask the agent, and use the tools that ask nobody for a yes.
   The turn runs with the agent's tools minus every one that would ask the
-  person (`requires_confirmation`): `McpScopeEntitlements(spec_of, registry)`
-  reads the scopes off the turn (`mcp_scopes` on its `TurnScope.attributes`)
-  and narrows the entitlement; the gateway's own tools marked `scope = "act"`
-  are not offered. A runtime's built-in (`bash`, `write`, `edit`) is not in
+  person (`requires_confirmation`): `McpScopeEntitlements(spec_of, registry,
+  inner=…)` reads the scopes off the turn (`mcp_scopes` on its
+  `TurnScope.attributes`) and takes those tools away from what the turn would
+  have had — the inner source's answer, asked with the ceiling as it came, so
+  an application that grants a set of tools whole keeps the set minus its
+  asking tools. A specialist's turn the MCP turn asks for (`ask_agent` to a
+  trusted agent) carries the scopes with it and is narrowed the same way, and
+  a card from either turn is refused before delivery. The gateway's own tools
+  marked `scope = "act"` are not offered. A runtime's built-in (`bash`, `write`, `edit`) is not in
   the registry and asks nobody, so it stays: an operator who hands out `read`
   tokens to an agent with a shell narrows it with `tools_by_gateway: {mcp:
   [...]}` — the door takes away what asks, not what acts quietly.
 - **`act`** — the whole agent, each confirmation put to the person. The card
   goes where the application delivers cards for this gateway
-  (`ApprovalCards`: a direct message on the chat platform, say), with the
-  headline saying it was asked through the client — by the operator's name
-  for it (`ClientRegistration.name`), else its id; the person answers it
+  (`ApprovalCards.post_confirmation(asker, card, actions, place=, callback_url=)`:
+  a direct message on the chat platform, say — `place` names the
+  conversation, its handle and the turn, for the application to put the card
+  in context), signed `asked through <client>` by the operator's name for it
+  (`ClientRegistration.name`), else its id (`ApprovalCard.asked_through`,
+  drawn by every renderer); the person answers it
   there, through the application's own gateway; the MCP client, meanwhile,
   sees `working` with the word on the wait, or `awaiting_approval`. The
   application's `PersonKey` must say that the token's subject and the chat
@@ -234,8 +253,8 @@ SQLite and MongoDB alike. The authorization server is
 `crucible.mcp_authorization`, a module over the gateway and the connections
 (the gateway itself knows only the `Authorization` port). A tool of the
 application's is any object with `name`, `description`, `input_schema`,
-`scope`, `long_running`, `conversation_argument` and `async run(call:
-GatewayCall) -> str`; `call.caller` says who and which client,
+`scope`, `long_running`, `conversation_argument`, `title`, `annotations`
+(None for what the scope implies) and `async run(call: GatewayCall) -> str`; `call.caller` says who and which client,
 `call.arguments` what, `await call.ask(text, agent=...)` runs an agent's turn
 in the call's conversation and answers with what the agent said, `await
 call.wait(handle)` waits for a conversation's turn (`TurnStanding`), `await

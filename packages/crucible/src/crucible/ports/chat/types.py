@@ -249,6 +249,11 @@ class ApprovalCard:
     expires_at: str = ""
     verdict: str = ""
     grant_s: int = 0
+    # Through what the turn that asks was asked, when a program asked it — an
+    # MCP client's name; "" when the person asked in the conversation itself.
+    # Signs the card beside the tool: the person reading it in their chat did
+    # not type the request they are asked to approve.
+    asked_through: str = ""
 
 
 STEP_RUNNING = "running"

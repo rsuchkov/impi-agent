@@ -35,6 +35,7 @@ from crucible.connections import (
 )
 from crucible.ports.chat.types import CallPreview, CannotRun, PreviewRow
 from crucible.ports.connections import TokenGrant
+from crucible.ports.delegation import acts_for_one_person
 from crucible.tools.base import CAP_CONNECTIONS, Tool, ToolContext, ToolError
 from crucible.tools.registry import tool
 from impi.connections_config import DEFAULT_COMMAND, command_word, connection_providers
@@ -85,11 +86,13 @@ def _settings(ctx: ToolContext) -> ConnectedApiSettings:
     return ctx.settings
 
 
-def _require_direct(ctx: ToolContext) -> None:
-    if not ctx.direct:
+def _require_one_person(ctx: ToolContext) -> None:
+    """A conversation that is one person's own: a direct message, or a thread
+    kept per author — where whom the tool acts as is settled."""
+    if not acts_for_one_person(ctx.turn, direct=ctx.direct):
         raise ToolError(
-            "acting as someone's connected account works only in a direct message with them. "
-            "Tell the user to ask you there, and do not retry here"
+            "acting as someone's connected account works only in a conversation that is theirs alone — "
+            "a direct message with them, or a thread kept per author. Tell the user to ask you there, and do not retry here"
         )
 
 
@@ -178,7 +181,7 @@ def _answer(response: httpx.Response) -> dict[str, Any]:
 async def _call(
     ctx: ToolContext, args: dict[str, Any], method: str, *, body: Any = None,
 ) -> dict[str, Any]:
-    _require_direct(ctx)
+    _require_one_person(ctx)
     settings = _settings(ctx)
     provider = _require_str(args, "provider")
     api_url = settings.api_url(provider)
@@ -228,7 +231,7 @@ class ConnectedAccounts(Tool):
     }
 
     async def execute(self, ctx: ToolContext, args: dict[str, Any]) -> Any:
-        _require_direct(ctx)
+        _require_one_person(ctx)
         connections = ctx.require_connections()
         accounts = []
         for provider in connections.providers:

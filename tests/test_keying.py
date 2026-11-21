@@ -22,6 +22,16 @@ def test_the_platform_key_is_the_platforms_id_whoever_speaks() -> None:
     assert PlatformKey().key("assistant", _msg("1.5", KIND_THREAD, "U2")) == "1.5"
 
 
+def test_a_keying_says_whether_the_conversation_is_one_persons() -> None:
+    """What a tool that acts as the person goes by: a direct message is the
+    person's under any keying; a channel's conversation is one person's only
+    where it is kept per author, and never when nobody wrote it."""
+    dm, thread, nobodys = _msg("D1", KIND_DM, "U1", is_dm=True), _msg("1.5", KIND_THREAD, "U1"), _msg("1.5", KIND_THREAD, "")
+    assert PlatformKey().one_persons("a", dm) and not PlatformKey().one_persons("a", thread)
+    assert AuthorKey().one_persons("a", dm) and AuthorKey().one_persons("a", thread)
+    assert not AuthorKey().one_persons("a", nobodys)
+
+
 def test_the_author_key_gives_each_person_a_shared_conversation_of_their_own() -> None:
     key = AuthorKey()
     # A thread in a channel, a channel: the person's own.

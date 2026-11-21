@@ -164,11 +164,41 @@ class ConsentRequest:
     username: str
     post_url: str
     csrf: str
+    # Where the form's answer may send the browser: the page itself and the
+    # client's redirect address — a browser holds a page's ``form-action`` to
+    # the redirect that follows the form too, so a policy naming the page
+    # alone would stop the code on its way to the client. ``form_action_policy``
+    # makes the header a page sets.
+    redirect_sources: tuple[str, ...] = ("'self'",)
+
+
+def form_action_policy(sources: tuple[str, ...]) -> str:
+    """The content-security policy a consent page answers with: the flow's
+    strict one, with ``form-action`` open to ``sources``."""
+    return f"default-src 'none'; style-src 'unsafe-inline'; form-action {' '.join(sources)}"
+
+
+def _redirect_sources(redirect_uri: str) -> tuple[str, ...]:
+    """What ``form-action`` names for a request: the page and the redirect's
+    origin — every loopback address and port for a client on the person's
+    machine, since it listens where it can."""
+    parts = urlsplit(redirect_uri)
+    if parts.scheme == "http" and (parts.hostname or "") in _LOOPBACK_HOSTS:
+        return ("'self'", "http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*")
+    origin = f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else ""
+    return ("'self'", origin) if origin else ("'self'",)
+
+
+def _consent_headers(redirect_uri: str) -> dict[str, str]:
+    return {**SAFE_HEADERS, "Content-Security-Policy": form_action_policy(_redirect_sources(redirect_uri))}
 
 
 class ConsentPage(Protocol):
     """The application's consent page. The response gets the flow's safety
-    headers where it set none, as the connections callback's pages do."""
+    headers where it set none, as the connections callback's pages do — with
+    ``form-action`` open to the client's redirect (``form_action_policy(
+    consent.redirect_sources)``), which a page setting a policy of its own
+    must allow too, or the form's answer never reaches the client."""
 
     async def render(self, consent: ConsentRequest, request: web.Request) -> web.StreamResponse: ...
 
@@ -188,7 +218,9 @@ class DefaultConsentPage:
             '<button type="submit" name="decision" value="allow">Allow</button>'
             '<button type="submit" name="decision" value="deny">Deny</button></form>'
         )
-        return html_page(200, f"Allow {consent.client_name or consent.client}?", body)
+        page = html_page(200, f"Allow {consent.client_name or consent.client}?", body)
+        page.headers["Content-Security-Policy"] = form_action_policy(consent.redirect_sources)
+        return page
 
 
 _SCOPE_WORDS = {
@@ -259,6 +291,7 @@ class AuthorizationServer:
         consent_page: ConsentPage | None = None,
         subject_of: Callable[[Connected, web.Request], Awaitable[SignedIn | web.StreamResponse]] = _signed_in,
         grant_policy: GrantPolicy | None = None,
+        scopes: Sequence[str] = MCP_SCOPES,
         grant_idle_s: float = GRANT_IDLE_S,
         grant_max_s: float = GRANT_MAX_S,
         access_ttl_s: float = ACCESS_TTL_S,
@@ -276,6 +309,12 @@ class AuthorizationServer:
         self._consent: ConsentPage = consent_page if consent_page is not None else DefaultConsentPage()
         self._subject_of = subject_of
         self._policy = grant_policy
+        # What this deployment offers a client at all: the metadata says so,
+        # the consent page promises no more, a grant holds no more. A
+        # deployment that only reads says (MCP_SCOPE_READ,).
+        self._scopes = tuple(dict.fromkeys(scopes))
+        if not self._scopes or any(scope not in MCP_SCOPES for scope in self._scopes):
+            raise ValueError(f"scopes must be some of {', '.join(MCP_SCOPES)}")
         self._grant_idle_s = grant_idle_s
         self._grant_max_s = grant_max_s
         self._access_ttl_s = access_ttl_s
@@ -322,13 +361,33 @@ class AuthorizationServer:
             client_name=self._name_of(grant.client),
         )
 
+    # -- a person's grants (for an account page) --------------------------------------
+
+    async def grants_of(self, subject: str) -> list[McpGrant]:
+        """The person's grants that still stand, oldest sign-in first: which
+        clients hold a token as them, with what scopes, since when, last
+        refreshed when. For a page that lists them and offers to revoke."""
+        return [grant for grant in await self._grants.mcp_grants_of(subject) if not self._past(grant.expires_at)]
+
+    async def revoke(self, subject: str, grant_id: str) -> bool:
+        """End one of the person's grants from the application's side — a
+        page's button, not the client's ``/revoke``. False when the grant is
+        not theirs, or not there."""
+        mine = [grant for grant in await self._grants.mcp_grants_of(subject) if grant.id == grant_id]
+        if not mine:
+            self._tell(EVENT_REVOKE, RESULT_REFUSED, subject=subject)
+            return False
+        await self._grants.delete_mcp_grant(grant_id)
+        self._tell(EVENT_REVOKE, RESULT_OK, client=mine[0].client, subject=subject, by="application")
+        return True
+
     # -- metadata ------------------------------------------------------------------
 
     async def _resource_metadata(self, request: web.Request) -> web.Response:
         return web.json_response({
             "resource": self.resource,
             "authorization_servers": [self.issuer],
-            "scopes_supported": list(MCP_SCOPES),
+            "scopes_supported": list(self._scopes),
             "bearer_methods_supported": ["header"],
         })
 
@@ -345,7 +404,7 @@ class AuthorizationServer:
             "code_challenge_methods_supported": ["S256"],
             "token_endpoint_auth_methods_supported": ["none"],
             "revocation_endpoint_auth_methods_supported": ["none"],
-            "scopes_supported": list(MCP_SCOPES),
+            "scopes_supported": list(self._scopes),
             "client_id_metadata_document_supported": True,
         })
 
@@ -379,9 +438,16 @@ class AuthorizationServer:
         resource = query.get("resource", "")
         if resource and resource != self.resource:
             back("invalid_target", f"this server is {self.resource}")
-        scopes = tuple(dict.fromkeys(query.get("scope", "").split())) or (MCP_SCOPE_READ,)
-        if any(scope not in MCP_SCOPES for scope in scopes):
-            back("invalid_scope", f"the scopes here are {', '.join(MCP_SCOPES)}")
+        asked = tuple(dict.fromkeys(query.get("scope", "").split()))
+        if any(scope not in MCP_SCOPES for scope in asked):
+            back("invalid_scope", f"the scopes here are {', '.join(self._scopes)}")
+        # What is asked but not offered is left out, not refused: a client asks
+        # for everything the protocol knows, a deployment gives what it has.
+        scopes = tuple(scope for scope in asked if scope in self._scopes) or (
+            (MCP_SCOPE_READ,) if MCP_SCOPE_READ in self._scopes else ()
+        )
+        if not scopes:
+            back("invalid_scope", f"the scopes here are {', '.join(self._scopes)}")
         now = self._clock()
         record = McpAuthRequest(
             id=secrets.token_urlsafe(24), client=client_id, redirect_uri=redirect_uri, code_challenge=code_challenge,
@@ -461,7 +527,12 @@ class AuthorizationServer:
         record = await self._awaiting_consent(request)
         if record is None:
             return _refusal(400, "This request has expired or was already answered. Start again from your client.")
-        return safe(await self._consent.render(self._consent_request(record), request))
+        consent = self._consent_request(record)
+        response = await self._consent.render(consent, request)
+        # A page that set no policy gets one that lets its form send the
+        # person on to the client; the flow's other headers as always.
+        response.headers.setdefault("Content-Security-Policy", form_action_policy(consent.redirect_sources))
+        return safe(response)
 
     async def _awaiting_consent(self, request: web.Request) -> McpAuthRequest | None:
         """The request this browser may consent to: signed in, not yet
@@ -482,6 +553,7 @@ class AuthorizationServer:
             client=record.client, client_name=self._name_of(record.client), scopes=tuple(record.scope.split()),
             subject=record.subject, username=record.username,
             post_url=f"{self._public_url}{CONSENT_PATH}/{record.id}", csrf=record.secret,
+            redirect_sources=_redirect_sources(record.redirect_uri),
         )
 
     async def _consent_answer(self, request: web.Request) -> web.StreamResponse:
@@ -500,7 +572,7 @@ class AuthorizationServer:
             self._tell(EVENT_CONSENT, RESULT_DENIED, client=record.client, subject=record.subject)
             raise web.HTTPFound(
                 _with_query(record.redirect_uri, error="access_denied", state=record.state, iss=self.issuer),
-                headers=SAFE_HEADERS,
+                headers=_consent_headers(record.redirect_uri),
             )
         code = secrets.token_urlsafe(32)
         await self._grants.put_mcp_request(replace(
@@ -508,7 +580,8 @@ class AuthorizationServer:
         ))
         self._tell(EVENT_CONSENT, RESULT_OK, client=record.client, subject=record.subject, scope=record.scope)
         raise web.HTTPFound(
-            _with_query(record.redirect_uri, code=code, state=record.state, iss=self.issuer), headers=SAFE_HEADERS
+            _with_query(record.redirect_uri, code=code, state=record.state, iss=self.issuer),
+            headers=_consent_headers(record.redirect_uri),
         )
 
     # -- /token and /revoke ------------------------------------------------------------
@@ -608,6 +681,7 @@ class AuthorizationServer:
         rotated = replace(
             grant, expires_at=_iso(ends), access_hash=_digest(access), access_expires_at=_iso(until),
             refresh_hash=_digest(refresh), previous_refresh_hash=grant.refresh_hash,
+            refreshed_at=_iso(now) if grant.refresh_hash else "",
         )
         return rotated, access, refresh
 

@@ -91,6 +91,7 @@ class CardLayout:
     tool: str
     expires_at: str
     display_name: str = ""
+    asked_through: str = ""
 
     @property
     def headline_lead(self) -> str:
@@ -112,8 +113,10 @@ class CardLayout:
     @property
     def signature(self) -> tuple[str, ...]:
         """What signs the card small at the bottom: the tool, by its display
-        name when it has one, else by its id."""
-        return (self.display_name or self.tool,) if self.tool else ()
+        name when it has one, else by its id; and through what it was asked,
+        when a program asked."""
+        parts = (self.display_name or self.tool,) if self.tool else ()
+        return (*parts, f"asked through {self.asked_through}") if self.asked_through else parts
 
     closed: bool = False
 
@@ -146,6 +149,7 @@ def card_layout(card: ApprovalCard) -> CardLayout:
         tool=one_line(card.tool),
         expires_at=one_line(card.expires_at),
         display_name=one_line(card.display_name),
+        asked_through=one_line(card.asked_through),
         closed=bool(card.verdict),
     )
 

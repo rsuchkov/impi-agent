@@ -152,8 +152,15 @@ async def _sign_in_and_consent(
     async with s.get(consent_url) as r:
         page = await r.text()
         assert r.status == 200 and "The IDE" in page and "alice" in page
+        # The page's policy lets its form send the browser on to the client —
+        # a loopback client listens where it can, so every loopback address.
+        assert r.headers["Content-Security-Policy"] == (
+            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://localhost:* http://127.0.0.1:* http://[::1]:*"
+        )
         csrf = page.split('name="csrf" value="')[1].split('"')[0]
-    return await s.post(consent_url, data={"csrf": csrf, "decision": decision}, allow_redirects=False)
+    answered = await s.post(consent_url, data={"csrf": csrf, "decision": decision}, allow_redirects=False)
+    assert "http://127.0.0.1:*" in answered.headers["Content-Security-Policy"]
+    return answered
 
 
 async def _tokens(s: aiohttp.ClientSession, **form) -> tuple[int, dict]:
@@ -339,6 +346,28 @@ async def test_tokens_end_with_the_grant_and_a_revoke_ends_them_at_once(world: W
         async with s.post(f"{PUBLIC}{REVOKE_PATH}", data={"token": "never-issued"}) as r:
             assert r.status == 200  # revoked all the same
 
+        # The application's side: the person's grants, and a revoke by id.
+        verifier, challenge = _pkce()
+        async with await _sign_in_and_consent(s, w, challenge) as r:
+            code = _query(r.headers["Location"])["code"]
+        _, tokens = await _tokens(
+            s, grant_type="authorization_code", code=code, redirect_uri=REDIRECT, client_id=IDE, code_verifier=verifier,
+        )
+        mine = await w.server.grants_of("okta:7")
+        assert [g.client for g in mine] == [IDE] and mine[0].scope == "read act" and mine[0].refreshed_at == ""
+        w.clock.advance(60)
+        _, tokens = await _tokens(s, grant_type="refresh_token", refresh_token=tokens["refresh_token"], client_id=IDE)
+        mine = await w.server.grants_of("okta:7")
+        assert mine[0].refreshed_at and mine[0].refreshed_at > mine[0].signed_in_at
+        assert await w.server.revoke("bob@example.com", mine[0].id) is False  # not theirs
+        async with await _call(s, tokens["access_token"]) as r:
+            assert r.status == 200
+        assert await w.server.revoke("okta:7", mine[0].id) is True
+        assert await w.server.grants_of("okta:7") == []
+        async with await _call(s, tokens["access_token"]) as r:
+            assert r.status == 401
+        assert await w.server.revoke("okta:7", mine[0].id) is False  # gone
+
 
 async def test_what_is_refused_and_how(world: World) -> None:
     w = world
@@ -425,6 +454,24 @@ async def test_what_is_refused_and_how(world: World) -> None:
             assert r.status == 401
 
 
+async def test_a_consent_for_a_client_elsewhere_may_send_the_browser_to_its_address(world: World) -> None:
+    w = world
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as s:
+        verifier, challenge = _pkce()
+        url = _authorize_url(challenge, client="portal", redirect="https://portal.example/oauth/done")
+        async with s.get(url, allow_redirects=False) as r:
+            state, code = w.provider.consent(r.headers["Location"], account=ALICE)
+        async with s.get(f"http://127.0.0.1:{CALLBACK_PORT}{CALLBACK_PATH}?state={state}&code={code}", allow_redirects=False) as r:
+            consent_url = r.headers["Location"]
+        async with s.get(consent_url) as r:
+            policy = r.headers["Content-Security-Policy"]
+            assert policy.endswith("form-action 'self' https://portal.example") and "localhost" not in policy
+            csrf = (await r.text()).split('name="csrf" value="')[1].split('"')[0]
+        async with s.post(consent_url, data={"csrf": csrf, "decision": "allow"}, allow_redirects=False) as r:
+            assert r.status == 302 and r.headers["Location"].startswith("https://portal.example/oauth/done?")
+            assert r.headers["Content-Security-Policy"].endswith("form-action 'self' https://portal.example")
+
+
 async def test_with_several_providers_the_person_picks_one(tmp_path: Path) -> None:
     clock, okta, github = Clock(), FakeProvider(), FakeProvider()
     store = SqliteSessionStore(tmp_path / "s.db")
@@ -467,6 +514,7 @@ async def test_with_several_providers_the_person_picks_one(tmp_path: Path) -> No
                 text = await r.text()
                 assert text.startswith("custom The IDE Alice read ")
                 assert r.headers["Cache-Control"] == "no-store"  # the flow's headers on the application's page
+                assert "form-action 'self' http://localhost:*" in r.headers["Content-Security-Policy"]  # and the consent's policy
                 csrf = text.split()[-1]
             async with s.post(consent_url, data={"csrf": csrf, "decision": "allow"}, allow_redirects=False) as r:
                 code = _query(r.headers["Location"])["code"]

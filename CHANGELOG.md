@@ -6,7 +6,45 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
-_Nothing yet._
+- **The MCP gateway after a live sign-in: what the test found.** The consent
+  page's content-security policy now lets its form send the browser on to
+  the client — `form-action` names the client's redirect, every loopback
+  address for a client on the person's machine — where `form-action 'self'`
+  had Chrome stop the redirect and the code never reached the client
+  (`ConsentRequest.redirect_sources`, `form_action_policy` for a page of the
+  application's). The read door takes from what is given: `McpScopeEntitlements`
+  asks its `inner` source with the ceiling as it came and removes the asking
+  tools from the answer, so an application granting a set of tools whole keeps
+  the set minus those; the door follows the token's scopes into a specialist's
+  turn the MCP turn asked for, and a card from a `read` token's turn — either
+  turn's — is refused before delivery. For the application: `ApprovalCards.post_confirmation`
+  gets `place=` (`CardPlace`: the conversation, its handle, the turn) beside
+  the caller; the card says through what it was asked as a field every
+  renderer signs it with (`ApprovalCard.asked_through`, "asked through <client>"
+  in the signature line of Slack and Markdown cards, `askedThrough` on the
+  http wire) rather than in a headline Slack does not show under a title;
+  `AuthorizationServer.grants_of(subject)` and `revoke(subject, grant_id)`
+  list a person's grants (with `McpGrant.refreshed_at`) and end one from an
+  account page; `AuthorizationServer(scopes=)` says which scopes a deployment
+  offers at all — the metadata, the consent page and the grant promise no
+  more, a scope asked but not offered is left out; `tools/list` carries a
+  tool's `title` and `annotations` (`McpGatewayTool.title`, `.annotations`,
+  None for what the scope implies: `readOnlyHint` for `read`, `destructiveHint`
+  for `act`), so a client with an approval mode of its own tells reading from
+  acting. A tool that acts as the person — a connection tool, an MCP server's
+  tool with `${connection:…}` — now acts wherever the conversation is one
+  person's own, not only in a direct message: a channel's thread kept per
+  author (`CHANNEL_CONVERSATION_PER_AUTHOR`) and a task's turn whose asker
+  wrote in one count; the sink writes the fact on the turn's scope
+  (`ONE_PERSONS_ATTRIBUTE`, `ConversationKey.one_persons`) and the tools read
+  it (`acts_for_one_person`). **Breaks:** `ApprovalCards.post_confirmation`
+  takes `place=`; `McpGatewayTool` has `title` and `annotations`;
+  `ApprovalCard` has `asked_through` (in a card's JSON too); `McpGrants` has
+  `mcp_grants_of` and `McpGrant.refreshed_at` (a column added on open);
+  `ConversationKey` has `one_persons`, which a keying of the application's
+  implements; a `read` token's turn gets `NobodyToAnswer` for a card even
+  with `ApprovalCards` wired; the tools' refusal outside a person's own
+  conversation says "a conversation that is theirs alone".
 
 ## v0.55.1 — 2026-11-20
 

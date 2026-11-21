@@ -298,6 +298,9 @@ async def test_a_file_is_saved_under_the_conversation_as_the_application_keys_it
         def key(self, agent: str, msg) -> str:
             return "task-7"
 
+        def one_persons(self, agent, msg) -> bool:
+            return msg.direct
+
     store = AttachmentStore(tmp_path, max_bytes=1024)
     gw, sink = _files_gateway(FakeFiles({"f1": b"PNGDATA"}), store, keying=_TaskKey())
 

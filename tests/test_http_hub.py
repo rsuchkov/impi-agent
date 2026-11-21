@@ -1446,6 +1446,9 @@ async def test_an_http_file_is_saved_under_the_conversation_as_the_application_k
         def key(self, agent: str, msg) -> str:
             return "task-7"
 
+        def one_persons(self, agent, msg) -> bool:
+            return msg.direct
+
     seen: list = []
 
     async def looks(msg, chat):

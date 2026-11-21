@@ -173,8 +173,14 @@ class _TurnFacts:
         # join it — the turn was admitted and entitled for them.
         self.user_id = user_id
         # The turn's scope: the message's own where it carried one (an http
-        # caller's, a task's), else one of the flow's — every turn has an id.
-        self.scope = scope if scope is not None else TurnScope(turn_id=secrets.token_hex(8))
+        # caller's, a task's), else one of the flow's — every turn has an id,
+        # and a scope that came without one (a fact the sink put on a chat
+        # message) gets the flow's.
+        if scope is None:
+            scope = TurnScope(turn_id=secrets.token_hex(8))
+        elif not scope.turn_id:
+            scope = replace(scope, turn_id=secrets.token_hex(8))
+        self.scope = scope
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         # Messages put to the turn while it runs, by the text they were put as,
         # in order: each resolved when the model reads it or the turn ends.
