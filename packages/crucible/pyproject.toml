@@ -1,6 +1,6 @@
 [project]
 name = "crucible"
-version = "0.55.1"
+version = "0.56.0"
 description = "Reusable agent runtime over the pi coding agent: gateways, tools, interactivity."
 requires-python = ">=3.13"
 dependencies = [

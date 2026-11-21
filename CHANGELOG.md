@@ -6,6 +6,10 @@ when a release is cut, and `impi update` shows the target version's section.
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.56.0 — 2026-11-21
+
 - **The MCP gateway after a live sign-in: what the test found.** The consent
   page's content-security policy now lets its form send the browser on to
   the client — `form-action` names the client's redirect, every loopback
